@@ -58,7 +58,8 @@ void m64_actor_system_init(const M64ActorProfile *profiles, uint16_t profile_cou
     for (int c = 0; c < M64_ACTOR_CATEGORY_COUNT; c++) g_category_head[c] = -1;
 }
 
-M64ActorHandle m64_actor_spawn(uint16_t profile_id, fm_vec3_t pos, float yaw)
+M64ActorHandle m64_actor_spawn(uint16_t profile_id, fm_vec3_t pos, float yaw,
+                               const M64Dict *dict)
 {
     assertf(profile_id < g_profile_count, "m64_actor: bad profile_id %u", profile_id);
     if (g_free_head < 0) return M64_ACTOR_HANDLE_NONE;
@@ -87,14 +88,15 @@ M64ActorHandle m64_actor_spawn(uint16_t profile_id, fm_vec3_t pos, float yaw)
     a->next = g_category_head[prof->category];
     g_category_head[prof->category] = idx;
 
-    if (prof->init) prof->init(a);
+    if (prof->init) prof->init(a, dict);
 
     return make_handle((uint16_t)idx, a->generation);
 }
 
-M64ActorHandle m64_actor_spawn_in_room(uint16_t profile_id, fm_vec3_t pos, float yaw, uint8_t room_id)
+M64ActorHandle m64_actor_spawn_in_room(uint16_t profile_id, fm_vec3_t pos, float yaw,
+                                       uint8_t room_id, const M64Dict *dict)
 {
-    M64ActorHandle h = m64_actor_spawn(profile_id, pos, yaw);
+    M64ActorHandle h = m64_actor_spawn(profile_id, pos, yaw, dict);
     if (h == M64_ACTOR_HANDLE_NONE) return h;
     M64Actor *a = m64_actor_resolve(h);
     /* m64_actor_spawn never returns NONE alongside a valid handle, but assert
@@ -203,4 +205,13 @@ uint16_t m64_actor_count(uint8_t category)
     for (int c = c0; c <= c1; c++)
         for (int16_t idx = g_category_head[c]; idx != -1; idx = g_pool[idx].next) n++;
     return n;
+}
+
+void m64_actor_dispatch_event(M64Actor *a, uint16_t event_id,
+                              const int32_t *args, uint8_t argc)
+{
+    assertf(a != NULL, "m64_actor: dispatch_event on NULL");
+    const M64ActorProfile *prof = &g_profiles[a->profile_id];
+    if (!prof->event) return;
+    prof->event(a, event_id, args, argc);
 }

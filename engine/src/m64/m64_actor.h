@@ -42,6 +42,7 @@
 #include <t3d/t3dmath.h>
 
 #include "m64_engine.h"
+#include "m64_dict.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,10 +75,16 @@ enum {
 
 typedef struct M64Actor M64Actor;
 
-typedef void (*M64ActorInitFn)(M64Actor *self);
+typedef void (*M64ActorInitFn)(M64Actor *self, const M64Dict *spawn_args);
 typedef void (*M64ActorDestroyFn)(M64Actor *self);
 typedef void (*M64ActorUpdateFn)(M64Actor *self, float dt);
 typedef void (*M64ActorDrawFn)(M64Actor *self);
+/** Dispatched by m64_event_process when a queued event reaches its fire
+ *  time. `event_id` is game-defined; `args`/`argc` are the opaque payload
+ *  passed to m64_event_post. May be NULL — events queued for a profile
+ *  with no event callback fire and are dropped silently. */
+typedef void (*M64ActorEventFn)(M64Actor *self, uint16_t event_id,
+                                const int32_t *args, uint8_t argc);
 
 /** One entry per actor TYPE (not instance), indexed by profile_id. The
  *  game owns this table's storage and passes it to m64_actor_system_init;
@@ -102,6 +109,8 @@ typedef struct {
      *  in category order, inside the 3D pass (between m64_scene_begin and
      *  m64_gui_begin). May be NULL. */
     M64ActorDrawFn draw;
+    /** Called from m64_event_process when a queued event fires. May be NULL. */
+    M64ActorEventFn event;
 } M64ActorProfile;
 
 #ifndef M64_ACTOR_ROOM_NONE
@@ -153,12 +162,16 @@ void m64_actor_system_init(const M64ActorProfile *profiles, uint16_t profile_cou
  *  M64_ACTOR_HANDLE_NONE if the pool is full — checked, not asserted: a
  *  full actor pool is a runtime content fact, not a programming error.
  *  The actor's room_id is set to M64_ACTOR_ROOM_NONE; use
- *  m64_actor_spawn_in_room if this actor belongs to a streamed room. */
-M64ActorHandle m64_actor_spawn(uint16_t profile_id, fm_vec3_t pos, float yaw);
+ *  m64_actor_spawn_in_room if this actor belongs to a streamed room.
+ *  `dict` may be NULL; if non-NULL the profile's init callback can read it
+ *  with m64_dict_get_* before the spawn template is freed/reused. */
+M64ActorHandle m64_actor_spawn(uint16_t profile_id, fm_vec3_t pos, float yaw,
+                               const M64Dict *dict);
 
 /** As m64_actor_spawn, but tags the resulting actor with `room_id` so that
  *  m64_room_system_update despawns it when that room unloads. */
-M64ActorHandle m64_actor_spawn_in_room(uint16_t profile_id, fm_vec3_t pos, float yaw, uint8_t room_id);
+M64ActorHandle m64_actor_spawn_in_room(uint16_t profile_id, fm_vec3_t pos, float yaw,
+                                       uint8_t room_id, const M64Dict *dict);
 
 /** Run the profile's destroy, unlink from its category list, return the slot
  *  to the free list and bump its generation. Safe to call with a handle that
@@ -192,6 +205,12 @@ M64Actor *m64_actor_next(M64Actor *cur);
 /** Number of live actors, all categories or just one (pass
  *  M64_ACTOR_CATEGORY_COUNT for the total). */
 uint16_t m64_actor_count(uint8_t category);
+
+/** Dispatch a queued event to `a`'s profile event callback. Used by
+ *  m64_event_process; safe to call directly (no-op if the profile has no
+ *  event callback). `a` must be a live actor in this pool. */
+void m64_actor_dispatch_event(M64Actor *a, uint16_t event_id,
+                              const int32_t *args, uint8_t argc);
 
 #ifdef __cplusplus
 }

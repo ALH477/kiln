@@ -156,17 +156,18 @@ out. The summary, so it's in one place:
   behind the target whose *heading* lags the target's facing direction on
   its own damper, separate from the eye position's damper, so a sharp turn
   swings the camera around over several frames instead of snapping it (see
-  `Camera_Normal1` in the OoT decomp for the shape of this). **Not carried
-  over:** no collision-aware boom (OoT raycasts against BG collision and
-  pulls the eye in before a wall would clip it — no collision system to
-  raycast against yet, so `M64Camera` clips through geometry), no camera
-  mode stack (normal / targeting / cutscene modes pushed and popped) — one
-  mode, and a game wanting others layers them on top or writes
-  `M64Scene`'s camera fields directly. Also a deliberate engine-wide
-  departure: damping is linear-per-frame (`t = min(1, speed*dt)`), not
-  `expf(-t)` — same qualitative curve for one multiply instead of a
-  transcendental call, consistent with this engine's "single precision, no
-  gratuitous libm" stance (see "Constraints that shape everything").
+  `Camera_Normal1` in the OoT decomp for the shape of this). Phase 5 grew
+  the two things Phase B deliberately left out: a **mode stack**
+  (`m64_camera_push`/`pop`, `M64_CAM_NORMAL`/`TARGETING`/`CUTSCENE`,
+  fixed 4-deep, restores mode + smoothed state together) and a
+  **collision-aware boom** (`m64_camera_set_collision` opt-in; the boom is
+  `m64_clip_ray`'d against the world each frame and pulled in on a hit).
+  Both are opt-in and default-OFF so Phase B examples link and behave
+  unchanged. Also a deliberate engine-wide departure: damping is
+  linear-per-frame (`t = min(1, speed*dt)`), not `expf(-t)` — same
+  qualitative curve for one multiply instead of a transcendental call,
+  consistent with this engine's "single precision, no gratuitous libm"
+  stance (see "Constraints that shape everything").
 - **`m64_skel.h`** — not modelled on OoT (which predates glTF-style skinning
   entirely) but on Tiny3D's own animation idiom
   (`t3d/t3dskeleton.h`, `t3d/t3danim.h`, demonstrated in Tiny3D's
@@ -245,6 +246,114 @@ Verified by `examples/streamdb-demo`: one `.streamdb` packing a model, a
 sprite, and a raw level-layout blob, exercising `m64_asset_model` (the
 patched load-from-buffer path), `m64_asset_sprite`, `m64_asset_load` on the
 raw blob, and `m64_asset_find_suffix`.
+
+## Phase D — OoT + id Tech 4 feel (input, clip, dict, map, surface, sound, event, target, player)
+
+The "feel" half of the engine, layered on Phase B: a clean-room
+implementation of the primitives that make a game feel like Ocarina of Time
+to play *and* like id Tech 4 (Doom 3) to author for. Eight new modules, two
+existing modules extended additively. Each module's own header comment
+names the id Tech 4 / OoT primitive it models and what was deliberately
+left out. Verified by `examples/clip-demo`, `examples/map-demo`,
+`examples/event-demo`, and the Phase 6 integration proof
+`examples/oot-demo`.
+
+- **`m64_input.h`** — one-poll-per-frame joypad wrapper. Squared-magnitude
+  deadzone (a disc, not a square — a per-axis threshold makes the stick
+  report motion on a resting diagonal). Button edges (`edges`/`released`)
+  computed by diffing against last frame, so example code stops
+  hand-rolling XOR. Replaces direct `joypad_poll` everywhere new.
+- **`m64_clip.h`** — idPhysics / CollisionModel trace analogue. World = a
+  flat array of brush AABBs per loaded room (no BSP — overkill for OoT-room
+  counts on a 4 MB console). Slab-method swept AABB vs AABB, single
+  precision with a 1e-3 epsilon (s16.16 world scale; 1e-4 produces visible
+  contact jitter). `m64_clip_slide` is the iterative clip-and-retry
+  SlideMove shape (Doom 3's `idPhysics_Player::SlideMove`) — what makes a
+  player slide along a wall instead of stopping dead. No rotation traces,
+  no contents test, no contact-point list — those are layered on top by a
+  game that needs them.
+- **`m64_dict.h`** — idDict analogue. Module-global interned key table
+  (256 caps, one boot allocation); per-instance `M64Dict` is a fixed
+  16-slot array of `{key_id, type, union{int,float,fm_vec3_t,str_id}}`.
+  Embedded in `M64RoomSpawn` so spawn args ride with the spawn template.
+  `m64_dict_set_auto` parses "0 0 0" as vec3, "5.5" as float, "5" as int,
+  else string — the auto-typing idDict's `Set` does on text input.
+- **`m64_map.h`** — idMapFile analogue. Parses the existing Quake `.map`
+  text format (`assets/quake_test.map`, `assets/oot_test.map`). One-pass
+  tokenizer: entity `{ "k" "v" ... <brushes> }`; brush blocks reduced to
+  AABB (componentwise min/max of plane points) + one parallelogram per
+  face. Non-axis-aligned faces render as parallelograms, not true polygons
+  — flagged as a known limit, fine for rectangular OoT-style rooms.
+  `classname` → `profile_id` via `m64_map_register_classname`. One `.map`
+  = one room for the demo; multi-room games load several `.map` files and
+  connect them via `target_room` epairs later.
+- **`m64_surface.h`** — surface-prop table analogue. `M64SurfaceDef[256]`
+  of `{ friction, footstep_sfx, render_flags }`, indexed by
+  `M64Trace.hitsurface`. A real Doom 3 binds materials to textures with
+  surface flags (metal, flesh, stone); on an N64 with no programmable
+  pixel pipeline the "material" layer is one small fixed table the gameplay
+  code reads, separate from the rdpq combiner the renderer uses.
+- **`m64_sound.h`** — sound-shader analogue, separate from `m64_audio.h`
+  for clarity. `M64SoundShader { name, wav64_path, base_vol,
+  falloff_radius, loop }`; `m64_sound_play(name, world_pos, pitch)`
+  computes distance→volume and listener-facing→pan (stereo only — no HRTF
+  on a 93.75 MHz VR4300) and triggers `m64_sfx_play_ex`. One
+  `m64_sound_update_listener` per frame; looping positional shaders
+  (torches, machines) recompute vol/pan from it.
+- **`m64_event.h`** — idEvent analogue. One flat pool of 256 slots (~7 KB)
+  and a single `m64_event_process` per frame — per-actor queues would mean
+  per-actor malloc, which the engine deliberately never does (see
+  `m64_actor.h`'s flat-pool rationale). `m64_event_post(handle, event_id,
+  delay_ms, args, argc)`; `m64_event_process(dt)` runs BEFORE
+  `m64_actor_update_all` so events land before the actor's own update.
+  Pool-full policy: a new event with priority higher than the
+  lowest-priority queued event evicts that one (debugf'd); otherwise the
+  new event is dropped (debugf'd). Stale targets (despawned before fire)
+  are dropped silently — a queued "play idle" event for a killed actor is
+  not a warning worth spoiling real bugs with. Dispatched via
+  `M64ActorEventFn` on `M64ActorProfile` (NULL = ignore).
+- **`m64_target.h`** — Z-targeting. Cone + range query over the ENEMY and
+  NPC category lists (reuses `m64_actor_first/next` — no spatial index, no
+  kd-tree; at OoT enemy counts per room the linear walk is cheaper than
+  maintaining a structure). `m64_target_acquire` picks the smallest-angle
+  candidate in the forward cone; `m64_target_switch` cycles by stick
+  direction; `m64_target_draw_reticle` projects the locked actor's world
+  position through the scene's view basis and draws four corner brackets
+  via `m64_gui`, clamping to the nearer screen edge when the target is
+  behind the camera.
+- **`m64_player.h`** — the player locomotion state machine. A helper, not
+  an actor profile: the player IS an actor (category PLAYER), and its
+  profile update/draw call into `m64_player_*` which owns the
+  IDLE/WALK/RUN/ROLL/ATTACK/JUMP/FALL machine. Reads `m64_input_get(port)`,
+  integrates velocity against `m64_clip_slide`, probes ground with
+  `m64_clip_ground`, and posts `M64_EV_PLAYER_FOOTSTEP` events at a
+  cadence proportional to speed — the actor's `M64ActorEventFn` dispatches
+  to `m64_sound_play` keyed by the underfoot surface. Camera-relative
+  movement basis set each frame via `m64_player_set_camera_basis`.
+
+**Existing modules extended (additively, backward-compatible):**
+- **`m64_actor.h`** — `M64ActorProfile` gained `M64ActorEventFn event` and
+  `m64_actor_dispatch_event` (used by `m64_event_process`). `m64_actor_spawn`
+  takes a `const M64Dict *dict` (may be NULL) the profile's `init` reads
+  spawn args from. Old examples pass NULL and behave as before.
+- **`m64_camera.h`** — mode stack + collision-aware boom (see Phase B
+  bullet above). Both default-OFF; Phase B examples link and behave
+  unchanged.
+
+**`nix/rom.nix` asset-merge fix:** the per-asset `cp -rL` preserved Nix
+store dir mode 0555, so two `mkSound` outputs sharing a `sfx/` subdirectory
+collided with "Permission denied". Fixed with `cp -rL
+--no-preserve=mode` plus an in-loop `chmod -R u+w` so a second asset can
+write into a subdir created by the first. Affects every multi-asset ROM
+that ships two assets in the same subdir; `clip-demo` (`[ demoSound
+stepSound ]`) was the first to hit it.
+
+Verified by `examples/oot-demo`: a player actor walks `assets/oot_test.map`
+(sliding via `m64_clip`), Z-targets two orbiting enemies (camera pushes
+`M64_CAM_TARGETING`, reticle projects through the scene), emits footstep
+SFX via `m64_event` + `m64_sound`, and gets a 1.5 s `M64_CAM_CUTSCENE`
+pan on boot that pops back to NORMAL — every Phase D module in one frame.
+`nix build .#oot-demo` and `nix flake check` are green (32 checks).
 
 ## The audio layer (engine/src/m64/m64_audio.*, examples/audio, examples/live-voice, examples/music)
 
@@ -507,13 +616,18 @@ fixed point.
   models and sprites — but nothing in `libm64` auto-loads assets. A ROM
   that wants a model loads it by hand with `t3d_model_load` or
   `m64_asset_model`, as `examples/assets-demo/main.c` does.
-- **No collision system of any kind.** Neither `m64_room`'s `user_mesh` nor
-  `m64_actor` positions are collided against anything — a room's geometry is
-  drawn but never queried, and `m64_camera`'s spring-arm boom clips through
-  it freely (OoT's camera raycasts against BG collision to pull the eye in
-  before a wall would clip it; `M64Camera` has nowhere to raycast against
-  yet). The actor system's AABB/sphere primitives an actual collision layer
-  would need are not present either.
+- **No collision system of any kind.** *(Phase D built one — `m64_clip.h`'s
+  slab-method swept-AABB + SlideMove, plus `m64_player`'s locomotion state
+  machine and `m64_camera`'s collision-aware boom that raycasts against it.
+  This entry kept for the historical record of what Phase B left out; see
+  Phase D above for what's there now.)* What's still missing: no
+  rotation/contents/contact-point traces (Doom 3's `Rotation`/`Contents`/
+  `Contacts`), no capsule with hemispherical caps (only AABB), and
+  `m64_room`'s `user_mesh` is still drawn but never auto-queried — a room
+  has to install its brushes into the clip world itself (as
+  `examples/oot-demo` does at boot). A future `m64_room` integration would
+  concatenate loaded rooms' brush arrays into one module-static buffer on
+  load/unload, so `m64_clip_set_world` call sites stop being per-ROM.
 - **`m64_asset_wav64` is not provided** — libdragon's `wav64_open` is
   path-only with no in-memory variant, so audio assets must use DFS
   (`rom:/` paths), not StreamDB. Lands when `wav64_open_buf` lands upstream.

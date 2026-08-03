@@ -54,7 +54,16 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_asset.h \
              mips64-elf/include/m64/m64_audio.h \
              mips64-elf/include/m64/m64_camera.h \
-             mips64-elf/include/m64/m64_skel.h; do
+             mips64-elf/include/m64/m64_skel.h \
+             mips64-elf/include/m64/m64_input.h \
+             mips64-elf/include/m64/m64_clip.h \
+             mips64-elf/include/m64/m64_dict.h \
+             mips64-elf/include/m64/m64_map.h \
+             mips64-elf/include/m64/m64_surface.h \
+             mips64-elf/include/m64/m64_sound.h \
+             mips64-elf/include/m64/m64_event.h \
+             mips64-elf/include/m64/m64_target.h \
+             mips64-elf/include/m64/m64_player.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';

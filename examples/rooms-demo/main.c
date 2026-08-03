@@ -130,8 +130,9 @@ static void player_draw(M64Actor *self) { (void)self; draw_cube(g_cube_player); 
 
 typedef struct { float angle, radius, speed; } EnemyState;
 
-static void enemy_init(M64Actor *self)
+static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
 {
+    (void)spawn_args;
     EnemyState *s = (EnemyState *)self->state;
     s->angle = 0.0f;
     s->radius = 12.0f;
@@ -251,10 +252,10 @@ static void room_unload(M64Room *room, void *user)
     }
 }
 
-static void room_spawn(M64Room *room, uint16_t profile_id, fm_vec3_t pos, float yaw, void *user)
+static void room_spawn(M64Room *room, const M64RoomSpawn *spawn, void *user)
 {
     (void)user;
-    m64_actor_spawn_in_room(profile_id, pos, yaw, room->id);
+    m64_actor_spawn_in_room(spawn->profile_id, spawn->pos, spawn->yaw, room->id, &spawn->dict);
 }
 
 static void room_draw(M64Room *room, void *user)
@@ -292,7 +293,7 @@ int main(void)
 
     // The player is *not* in any room — it has room_id == M64_ACTOR_ROOM_NONE
     // and is never auto-despawned by the room system.
-    m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 40, 0, 40 }}, 0.0f);
+    m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 40, 0, 40 }}, 0.0f, NULL);
 
     M64Scene scene;
     m64_scene_init(&scene);

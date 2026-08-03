@@ -10,12 +10,16 @@
 //
 //   m64_input  -> one poll per frame, deadzoned stick + edge/level buttons
 //   m64_clip   -> swept AABB vs flat brush array, slab method, SlideMove
+//   m64_surface+sound -> footstep SFX changes when stepping on metal pillar
 
 #include <libdragon.h>
 #include <m64/m64_engine.h>
 #include <m64/m64_gui.h>
 #include <m64/m64_input.h>
 #include <m64/m64_clip.h>
+#include <m64/m64_audio.h>
+#include <m64/m64_surface.h>
+#include <m64/m64_sound.h>
 
 #include <malloc.h>
 
@@ -129,14 +133,34 @@ int main(void)
     m64_engine_init(RESOLUTION_320x240);
     joypad_init();
     m64_input_init();
+    m64_audio_init(M64_AUDIO_DEFAULT);
+
+    /* Surface props + sound shaders. Pillar (surface 1) gets a sharper,
+     * shorter footstep than the stone perimeter (surface 0). */
+    int sfx_stone = m64_sfx_load("rom:/sfx/blip.wav64");
+    int sfx_metal = m64_sfx_load("rom:/sfx/step.wav64");
+    m64_surface_register(0, &(M64SurfaceDef){ .friction = 0.9f, .footstep_sfx = sfx_stone });
+    m64_surface_register(1, &(M64SurfaceDef){ .friction = 0.6f, .footstep_sfx = sfx_metal });
+
+    /* One shader per surface, so the same logical "footstep" reaches the
+     * sound-shader path without duplicating sample paths. */
+    M64SoundShader shaders[] = {
+        { .name = "step_stone", .wav64_path = "rom:/sfx/blip.wav64", .base_vol = 0.6f, .falloff_radius = 0.0f },
+        { .name = "step_metal", .wav64_path = "rom:/sfx/step.wav64", .base_vol = 0.8f, .falloff_radius = 0.0f },
+    };
+    m64_sound_init(shaders, 2);
 
     m64_clip_set_world(g_brushes, BRUSH_COUNT);
 
     M64Scene scene;
     m64_scene_init(&scene);
-    scene.cam_pos    = (fm_vec3_t){{  140, 120, -140 }};
+    /* Camera INSIDE the room, above wall height (walls are y=0..40), looking
+     * down at the player from one corner. Outside-the-room cameras are
+     * occluded by the perimeter walls — early screenshot was 99% clear colour
+     * for exactly this reason. */
+    scene.cam_pos    = (fm_vec3_t){{   60,  80,  -60 }};
     scene.cam_target = (fm_vec3_t){{    0,   8,    0 }};
-    scene.far_z      = 600.0f;
+    scene.far_z      = 400.0f;
     scene.ambient[3] = 255; /* make sure alpha is up */
     m64_scene_update(&scene);
 
@@ -164,6 +188,16 @@ int main(void)
     last_trace.normal = (fm_vec3_t){{ 0, 0, 0 }};
     last_trace.endpos = pos;
     last_trace.hitsurface = 0;
+
+    /* Footstep state. A "footstep" here is really a wall-impact sound — the
+     * player is a floating box with no floor, so we fire when pushing into
+     * a brush, throttled so a sustained push doesn't machine-gun. The
+     * surface id of the brush we hit picks the shader; the shader path
+     * (m64_sound_play) is what positions the sound, so both the surface
+     * table and the shader table are exercised in one trigger. */
+    float step_cd = 0.0f;
+    uint8_t last_surface = 0xFF;
+    const char *surf_name[2] = { "step_stone", "step_metal" };
 
     uint32_t frames = 0;
     float fps = 0.0f;
@@ -197,6 +231,21 @@ int main(void)
             fps = 30.0f / ((float)TICKS_DISTANCE(last_ticks, now) / TICKS_PER_SECOND);
             last_ticks = now;
         }
+
+        /* Footstep: fire on wall contact while pushing, throttled to ~3 Hz.
+         * Squared stick magnitude avoids sqrt; 0.3² is the "pushing" gate. */
+        const float smag2 = in->stick_x * in->stick_x + in->stick_y * in->stick_y;
+        step_cd -= dt;
+        if (smag2 > 0.09f && last_trace.fraction < 0.999f && step_cd <= 0.0f
+            && last_trace.hitsurface < 2) {
+            m64_sound_play(surf_name[last_trace.hitsurface], pos, 1.0f);
+            step_cd = 0.35f;
+            last_surface = last_trace.hitsurface;
+        }
+
+        /* Listener = camera. Positional shaders need the ear and facing each
+         * frame so vol/pan can be recomputed for still-playing channels. */
+        m64_sound_update_listener(scene.cam_pos, fwd);
 
         /* ── 3D pass ───────────────────────────────────────────────── */
         m64_frame_begin();
@@ -252,5 +301,8 @@ int main(void)
 
         m64_gui_end();
         m64_frame_end();
+
+        m64_sound_update();
+        m64_audio_update();
     }
 }

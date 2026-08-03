@@ -106,9 +106,14 @@ ${lib.optionalString (assets != [ ]) ''
         echo "mkN64Rom: asset $a has no filesystem/ directory" >&2
         exit 1
       fi
-      cp -rL "$a"/filesystem/. filesystem/
+      cp -rL --no-preserve=mode "$a"/filesystem/. filesystem/
+      # Nix store dirs are 0555; without --no-preserve=mode the first cp
+      # leaves filesystem/sfx etc. read-only and a second asset sharing
+      # that subdirectory (e.g. two mkSound outputs both under sfx/)
+      # fails with "Permission denied". chmod again so the next iteration
+      # is robust even if cp's mode handling changes.
+      chmod -R u+w filesystem
     done
-    chmod -R u+w filesystem
     echo "assets staged into filesystem/:"
     ls -l filesystem
 ''}

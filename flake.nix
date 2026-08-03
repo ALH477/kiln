@@ -131,6 +131,14 @@
           src = ./assets/blip.wav;
         };
 
+        # Footstep sample for the Phase 3 surface/shader demo. Same mkSound
+        # path as blip; ships at rom:/sfx/step.wav64 so clip-demo can load it
+        # alongside blip and pick one per surface.
+        stepSound = assetLib.mkSound {
+          name = "step";
+          src = ./assets/step.wav;
+        };
+
         # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py)
         # for camera-skel-demo. Same ignoreMaterials reasoning as demoModel —
         # hand-authored, not a fast64 export. baseScale 32 (half the default
@@ -192,6 +200,23 @@
           dest = "levels";
           compress = 0;
           extension = "bin";
+        };
+        # Loose Quake .map shipped to rom:/maps/ for m64_map at runtime.
+        quakeMap = assetLib.mkRawAsset {
+          name = "quake-test-map";
+          src = ./assets/quake_test.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+        # Two-room + enemies test map for examples/oot-demo. Same raw-asset
+        # path as quakeMap so m64_map reads it via rom:/maps/oot_test.map.
+        ootMap = assetLib.mkRawAsset {
+          name = "oot-test-map";
+          src = ./assets/oot_test.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
         };
         demoStreamdb = assetLib.mkStreamdb {
           name = "assets";
@@ -435,10 +460,53 @@
           romTitle = "M64 StreamDB";
           assets = [ demoStreamdb ];
         };
+
+        # Phase C step 1: m64_input (deadzoned joypad wrapper with button
+        # edges) + m64_clip (swept-AABB-vs-brushes collision with iterative
+        # SlideMove). One player box pushed around a 5-brush room; the box
+        # slides along walls, HUD reports the last trace's fraction / normal /
+        # surface. No assets, no actors — the proof stays focused on the
+        # collision primitive.
+        clip-demo = mkN64Rom {
+          name = "clip-demo";
+          src = ./examples/clip-demo;
+          romTitle = "M64 Clip";
+          assets = [ demoSound stepSound ];
+        };
+
+        # Phase C step 2: m64_dict + m64_map. Loads assets/quake_test.map,
+        # parses it into brushes + face quads, and spawns the player at the
+        # info_player_start entity by reading "origin" from the M64Dict.
+        map-demo = mkN64Rom {
+          name = "map-demo";
+          src = ./examples/map-demo;
+          romTitle = "M64 Map";
+          assets = [ quakeMap ];
+        };
+
+        # Phase 4: m64_event. A switch actor posts DOOR_OPEN with a 500 ms
+        # delay; the door actor's event callback rotates it open. HUD shows
+        # the queued-event count so the 500 ms gap is visible.
+        event-demo = mkN64Rom {
+          name = "event-demo";
+          src = ./examples/event-demo;
+          romTitle = "M64 Event";
+        };
+
+        # Phase 6: the OoT + id Tech 4 integration proof. A player actor
+        # (m64_player locomotion) walks an oot_test.map room, slides via
+        # m64_clip, Z-targets enemies (m64_target + camera TARGETING mode),
+        # and emits footstep SFX through m64_event + m64_sound shaders.
+        oot-demo = mkN64Rom {
+          name = "oot-demo";
+          src = ./examples/oot-demo;
+          romTitle = "M64 OoT";
+          assets = [ ootMap stepSound ];
+        };
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo map-demo event-demo oot-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -515,6 +583,26 @@
             rom = streamdb-demo;
             name = "streamdb-demo";
           };
+          rom-clip-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = clip-demo;
+            name = "clip-demo";
+          };
+          rom-map-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = map-demo;
+            name = "map-demo";
+          };
+          rom-event-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = event-demo;
+            name = "event-demo";
+          };
+          rom-oot-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = oot-demo;
+            name = "oot-demo";
+          };
           m64-asset = import ./nix/checks/m64-asset.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
@@ -530,7 +618,7 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo map-demo event-demo oot-demo;
         };
 
         apps = {

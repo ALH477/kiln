@@ -82,8 +82,9 @@ static T3DVertPacked *g_cube_prop;
 
 typedef struct { float dist_since_step; float speed_norm; } PlayerState;
 
-static void player_init(M64Actor *self)
+static void player_init(M64Actor *self, const M64Dict *spawn_args)
 {
+    (void)spawn_args;
     ((PlayerState *)self->state)->dist_since_step = 0.0f;
     ((PlayerState *)self->state)->speed_norm = 0.0f;
 }
@@ -163,13 +164,13 @@ int main(void)
     g_cube_prop = make_color_cube(14, 0x00F5D4FF);
 
     m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    M64ActorHandle player = m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f);
+    M64ActorHandle player = m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f, NULL);
 
     static const fm_vec3_t prop_pos[6] = {
         {{ 100, 0, 100 }}, {{ -100, 0, 100 }}, {{ 100, 0, -100 }},
         {{ -100, 0, -100 }}, {{ 0, 0, 160 }}, {{ 0, 0, -160 }},
     };
-    for (int i = 0; i < 6; i++) m64_actor_spawn(PROFILE_PROP, prop_pos[i], 0.0f);
+    for (int i = 0; i < 6; i++) m64_actor_spawn(PROFILE_PROP, prop_pos[i], 0.0f, NULL);
 
     M64Scene scene;
     m64_scene_init(&scene);

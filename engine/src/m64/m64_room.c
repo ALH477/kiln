@@ -212,8 +212,7 @@ void m64_room_system_update(M64RoomSystem *sys, fm_vec3_t camera_pos)
          * frame) sees the room as loaded and the meshes the spawn
          * positions reference exist. */
         for (uint8_t j = 0; j < r->spawn_count; j++) {
-            M64RoomSpawn *s = &r->spawns[j];
-            g_on_spawn(r, s->profile_id, s->pos, s->yaw, sys->user_ctx);
+            g_on_spawn(r, &r->spawns[j], sys->user_ctx);
         }
     }
 

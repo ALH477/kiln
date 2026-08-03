@@ -79,8 +79,9 @@ static void player_draw(M64Actor *self) { (void)self; draw_cube(g_cube_player); 
 
 typedef struct { float angle, radius, speed; } EnemyState;
 
-static void enemy_init(M64Actor *self)
+static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
 {
+    (void)spawn_args;
     EnemyState *s = (EnemyState *)self->state;
     s->angle = 0.0f;
     s->radius = 40.0f;
@@ -100,7 +101,11 @@ static void prop_draw(M64Actor *self) { (void)self; draw_cube(g_cube_prop); }
 
 typedef struct { float age; } ItemState;
 
-static void item_init(M64Actor *self) { ((ItemState *)self->state)->age = 0.0f; }
+static void item_init(M64Actor *self, const M64Dict *spawn_args)
+{
+    (void)spawn_args;
+    ((ItemState *)self->state)->age = 0.0f;
+}
 static void item_update(M64Actor *self, float dt)
 {
     ItemState *s = (ItemState *)self->state;
@@ -141,13 +146,13 @@ int main(void)
 
     m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
 
-    m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f);
+    m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f, NULL);
 
     // Three orbiting enemies at different radii/speeds, and four static
     // corner props — spawned once, never despawned, to show a category that
     // just sits in the draw list.
     for (int i = 0; i < 3; i++) {
-        M64ActorHandle h = m64_actor_spawn(PROFILE_ENEMY, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f);
+        M64ActorHandle h = m64_actor_spawn(PROFILE_ENEMY, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f, NULL);
         M64Actor *a = m64_actor_resolve(h);
         EnemyState *s = (EnemyState *)a->state;
         s->radius = 30.0f + i * 15.0f;
@@ -157,7 +162,7 @@ int main(void)
     static const fm_vec3_t prop_pos[4] = {
         {{ 60, 0, 60 }}, {{ -60, 0, 60 }}, {{ 60, 0, -60 }}, {{ -60, 0, -60 }},
     };
-    for (int i = 0; i < 4; i++) m64_actor_spawn(PROFILE_PROP, prop_pos[i], 0.0f);
+    for (int i = 0; i < 4; i++) m64_actor_spawn(PROFILE_PROP, prop_pos[i], 0.0f, NULL);
 
     M64Scene scene;
     m64_scene_init(&scene);
@@ -179,7 +184,7 @@ int main(void)
         if (++item_timer >= 50) {
             item_timer = 0;
             fm_vec3_t pos = {{ fm_sinf(t) * 20.0f, 0, fm_cosf(t) * 20.0f }};
-            m64_actor_spawn(PROFILE_ITEM, pos, 0.0f);
+            m64_actor_spawn(PROFILE_ITEM, pos, 0.0f, NULL);
         }
 
         float dt = 1.0f / 60.0f;

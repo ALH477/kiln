@@ -42,6 +42,7 @@
 
 #include "m64_engine.h"
 #include "m64_actor.h"
+#include "m64_dict.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,11 +55,14 @@ extern "C" {
 #define M64_ROOM_MAX_LOADED     64
 
 /** A single actor spawn template — the data the user's spawn callback
- *  forwards into m64_actor_spawn_in_room. */
+ *  forwards into m64_actor_spawn_in_room. Carries a typed key/value dict so
+ *  room content can author per-actor spawn args without changing the profile
+ *  struct (the idDict analogue from m64_dict.h). */
 typedef struct {
     uint16_t profile_id;
     fm_vec3_t pos;
     float yaw;
+    M64Dict dict;    /**< spawn args; read by the profile's init callback     */
 } M64RoomSpawn;
 
 /** One room. The user fills one of these per logical area in M64SceneArea,
@@ -98,9 +102,9 @@ typedef struct {
 
 typedef void (*M64RoomLoadFn)  (M64Room *room, void *user);
 typedef void (*M64RoomUnloadFn)(M64Room *room, void *user);
-/** Forward into m64_actor_spawn_in_room(..., room->id). */
-typedef void (*M64RoomSpawnFn) (M64Room *room, uint16_t profile_id,
-                                fm_vec3_t pos, float yaw, void *user);
+/** Forward into m64_actor_spawn_with_args(..., &spawn->dict, room->id). */
+typedef void (*M64RoomSpawnFn) (M64Room *room, const M64RoomSpawn *spawn,
+                                void *user);
 /** Draw the room's geometry. Called once per loaded room per frame from
  *  m64_room_draw_all. The engine never dereferences user_mesh — the draw
  *  callback does, after which it can free or refresh the buffer as it
