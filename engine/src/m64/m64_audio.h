@@ -132,8 +132,9 @@ int m64_music_num_channels(int music_handle);
 
 /* ── Room-based audio routing ───────────────────────────────────────── */
 
-/* Forward declaration — the room system is in m64_room.h. */
-struct M64RoomSystem;
+/* The room system type is defined in m64_room.h. We use void* here to
+ * avoid a header dependency cycle — the caller passes the M64RoomSystem*
+ * from m64_room.h, and the implementation casts it. */
 
 /** Associate a music track with a room ID. When the active room changes
  *  (via m64_audio_update_rooms), the engine crossfades to the new track.
@@ -142,8 +143,9 @@ void m64_audio_set_room_music(uint8_t room_id, int music_handle);
 
 /** Check the room system's active room and transition music if needed.
  *  Call once per frame, after m64_room_system_update and before
- *  m64_audio_update. Performs a linear gain ramp crossfade (~0.5s). */
-void m64_audio_update_rooms(struct M64RoomSystem *sys);
+ *  m64_audio_update. Performs a linear gain ramp crossfade (~0.5s).
+ *  `room_sys` is an M64RoomSystem* (from m64_room.h), passed as void*. */
+void m64_audio_update_rooms(void *room_sys);
 
 #ifdef __cplusplus
 }

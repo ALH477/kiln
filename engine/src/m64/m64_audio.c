@@ -323,8 +323,9 @@ void m64_audio_set_room_music(uint8_t room_id, int music_handle)
     g_room_music[room_id].music_handle = music_handle;
 }
 
-void m64_audio_update_rooms(M64RoomSystem *sys)
+void m64_audio_update_rooms(void *room_sys)
 {
+    M64RoomSystem *sys = (M64RoomSystem *)room_sys;
     if (!sys || !g_audio.initialised) return;
 
     M64Room *current = m64_room_current(sys);
