@@ -28,17 +28,21 @@ workflow changes.
 | `packages.toolchain` | `mips64-elf-` GCC 14.4.0 + binutils 2.46 + newlib 4.6.0 |
 | `packages.libdragon` | libdragon (`preview`) + host tools (`n64tool`, `mkdfs`, `audioconv64`, `mksprite`, `mkfont`, `n64sym`) |
 | `packages.tiny3d` | Tiny3D — RSP-accelerated 3D + `gltf_to_t3d` |
-| `packages.engine` | `libm64` — 3D layer on Tiny3D, 2D GUI layer on rdpq |
+| `packages.engine` | `libm64` — 3D on Tiny3D, 2D GUI on rdpq, actors/rooms/camera/skeletal-animation runtime, audio on the RSP mixer |
 | `packages.engine-demo` | worked example — lit spinning cube + HUD, 59.8 fps |
+| `packages.actors-demo` / `rooms-demo` / `camera-skel-demo` | worked examples — the actor pool, room streaming, and the OoT-style follow camera + skinned animation + footstep SFX together |
+| `packages.streamdb-demo` | worked example — model/sprite/level-blob loaded from one indexed `.streamdb` container at runtime |
 | `packages.n64Inst` | the merged `$N64_INST` prefix |
 | `packages.hello` | worked example — a bootable `.z64` |
-| `packages.audio` | worked example — a ROM that plays a VADPCM-baked instrument |
+| `packages.audio` / `live-voice` / `music-demo` | worked examples — VADPCM-baked instrument, a live Faust voice mixed with the RSP mixer, XM64 tracker playback |
 | `packages.ks-voice` | worked example — a live Faust voice compiled for the VR4300 |
 | `packages.ks-baked` | worked example — the same `.dsp` baked to VADPCM offline |
+| `packages.model-*` | Blender-authored geometry (`nix/blender.nix`) — `model-cube`/`model-goblin` (rigged+animated) plus every `tools/blender/models.py` test shape; `model-quake-test` proves the Quake `.map` importer end to end |
 | `packages.sc64deployer` | SummerCart64 upload / `debugf` stdio / IS-Viewer64 |
 | `lib.mkN64Rom` | build a libdragon project into a ROM |
 | `lib.mkFaustVoice` | compile a `.dsp` into a linkable VR4300 object, gated |
 | `lib.mkBakedInstrument` | render a `.dsp` offline at full quality → VADPCM `.wav64` |
+| `lib.mkBlenderModel` / `mkQuakeMapModel` / `mkGodotSceneModel` | headless-Blender geometry → `f3d_inject` materials → `gltf_to_t3d` → `.t3dm`, hermetic; see `tools/blender-mcp/` for the interactive (non-hermetic, MCP-driven) front end that produces the sources these consume |
 | `apps.{ares,cen64,sc64,dev}` | emulators, hardware deploy, the dev CLI |
 | `nixosModules.n64-flashcart` | udev rules so deploying doesn't need root |
 

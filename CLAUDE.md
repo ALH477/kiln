@@ -198,6 +198,54 @@ particular desktop/Vulkan environment, not of the ROM or the script; treat
 `nix build` + the gates as the verification for this ROM until it's run on
 a desktop where Ares' Vulkan surface actually presents.
 
+## Phase C — runtime asset streaming (engine/src/m64/m64_asset.*, examples/streamdb-demo)
+
+`m64_asset.h` is the runtime half of a gap CLAUDE.md itself used to describe:
+`nix/assets.nix`'s build-side pipeline (`mkModel`/`mkSprite`/...) already
+produced converted assets, but nothing in `libm64` opened a StreamDB
+container at runtime — every ROM that wanted an asset loaded it by hand
+with `t3d_model_load`/`sprite_load` against a DFS path. `m64_asset` closes
+that gap for the two things worth indexing rather than just listing as
+loose files.
+
+**Two containers, two purposes, on purpose:**
+- **DFS** — a flat directory of loose files baked into the ROM, for
+  anything an engine loader is hardcoded to open by `rom:/...` path
+  (`t3d_model_load`, `wav64_open`). `examples/assets-demo`,
+  `examples/audio` and everything under "Geometry authoring" above use
+  this — it is also all `mkBlenderModel`'s output is meant for.
+- **StreamDB** — one CRC-checked, suffix-indexed container
+  (`streamdb-embedded/`, a bare-metal reimplementation of the upstream v3
+  format sized for 4 MB RDRAM rather than upstream's pthreads/flock/fsync
+  host implementation) read straight out of ROM, for content that
+  benefits from being indexed rather than named: level layouts, dialogue
+  tables, actor params, and — via `m64_asset_model`/`m64_asset_sprite` —
+  any model or sprite a game wants to find by suffix scan ("every `.t3dm`
+  in this DB") instead of a hardcoded path per asset.
+
+**One arena, caller-owned, no cache.** `m64_asset_open` takes a caller-sized
+arena (`m64_asset_probe_size` sizes it); a heap failure mid-level is not
+recoverable on this console, so sizing happens at boot, not lazily.
+`m64_asset_model`/`m64_asset_sprite` malloc and return — the caller holds
+the pointer, same contract as `t3d_model_load`. No cache table; a bounded
+one is a same-day follow-up if an actor type ever needs on-demand loading,
+not needed by anything built so far.
+
+**`m64_asset_model` needs `t3d_model_load_buf`,** which Tiny3D upstream does
+not expose (`t3d_model_load(path)` only) — `nix/patches/tiny3d-load-buf.patch`
+adds it as a pure refactor (extracts `t3d_model_load`'s body into
+`t3d_model_load_buf(buf, sz)`) so a `.t3dm` already read out of a StreamDB
+payload can be parsed without a round-trip through DFS. `nix flake check`
+fails loudly here, not silently at runtime, if a Tiny3D bump ever makes the
+patch stop applying.
+
+**`m64_asset_wav64` is deliberately NOT provided** — see "Not yet built".
+
+Verified by `examples/streamdb-demo`: one `.streamdb` packing a model, a
+sprite, and a raw level-layout blob, exercising `m64_asset_model` (the
+patched load-from-buffer path), `m64_asset_sprite`, `m64_asset_load` on the
+raw blob, and `m64_asset_find_suffix`.
+
 ## The audio layer (engine/src/m64/m64_audio.*, examples/audio, examples/live-voice, examples/music)
 
 Three audio paths, all first-class:

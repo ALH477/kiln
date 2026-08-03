@@ -249,6 +249,18 @@
             };
           };
 
+        # The rigged/animated reference — the only thing here exercising
+        # Tiny3D's skinning + animation (t3dskeleton.h/t3danim.h) through the
+        # Blender-authoring path (m64_skel.h's runtime side is exercised
+        # separately by examples/camera-skel-demo's hand-authored rig).
+        # tools/blender/goblin.py documents why every part is rigidly bound
+        # to exactly one bone.
+        goblinModel = blenderLib.mkBlenderModel {
+          name = "goblin";
+          script = "goblin.py";
+          animated = true;
+        };
+
         # Verifies mkQuakeMapModel through the hermetic pipeline end to end:
         # a single 6-plane cube brush, the same content
         # tools/blender-mcp/server.py's own inspect/import tools were checked
@@ -415,7 +427,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo quakeTestModel;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -431,6 +443,8 @@
           ares-bin = pkgs.ares;
           libdragon = libdragon-sdk;
           tiny3d = tiny3d-sdk;
+          model-goblin = goblinModel;
+          model-quake-test = quakeTestModel;
           default = hello;
         };
 
