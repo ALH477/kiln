@@ -8,6 +8,7 @@
 
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
+include $(N64_INST)/include/m64.mk
 
 # The Faust voice object file, passed in via FAUST_VOICE make flag.
 # flake.nix sets: makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ]
