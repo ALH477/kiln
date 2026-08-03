@@ -503,10 +503,21 @@
           romTitle = "M64 OoT";
           assets = [ ootMap stepSound ];
         };
+
+        # The single-screen showcase: title + 3-mode flight + engine streaks +
+        # credit HUD. Loads the hand-authored Interceptor starfighter through
+        # the same mkBlenderModel path tools/blender/interceptor.py documents.
+        interceptor-demo = mkN64Rom {
+          name = "interceptor-demo";
+          src = ./examples/interceptor-demo;
+          romTitle = "M64 Interceptor";
+          assets = [ interceptorModel demoSound test-music ];
+          audioRate = 32000;
+        };
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo map-demo event-demo oot-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo map-demo event-demo oot-demo interceptor-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -603,6 +614,11 @@
             rom = oot-demo;
             name = "oot-demo";
           };
+          rom-interceptor-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = interceptor-demo;
+            name = "interceptor-demo";
+          };
           m64-asset = import ./nix/checks/m64-asset.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
@@ -618,7 +634,7 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo map-demo event-demo oot-demo;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo map-demo event-demo oot-demo interceptor-demo;
         };
 
         apps = {
