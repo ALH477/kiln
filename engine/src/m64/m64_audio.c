@@ -8,6 +8,7 @@
  */
 
 #include "m64_audio.h"
+#include "m64_room.h"
 
 #include <string.h>
 
@@ -301,4 +302,92 @@ int m64_music_num_channels(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     return g_music[music_handle].num_ch;
+}
+
+/* ── Room-based audio routing ──────────────────────────────────────── */
+
+#define M64_AUDIO_MAX_ROOMS 64
+#define M64_AUDIO_XFADE_FRAMES 16000  /* ~0.5s at 32000 Hz */
+
+static struct {
+    int music_handle;   /* -1 = no music for this room */
+} g_room_music[M64_AUDIO_MAX_ROOMS];
+
+static int g_room_active = -1;
+static int g_room_prev_music = -1;
+static int g_room_xfade_pos = -1;  /* -1 = no crossfade in progress */
+
+void m64_audio_set_room_music(uint8_t room_id, int music_handle)
+{
+    if (room_id >= M64_AUDIO_MAX_ROOMS) return;
+    g_room_music[room_id].music_handle = music_handle;
+}
+
+void m64_audio_update_rooms(M64RoomSystem *sys)
+{
+    if (!sys || !g_audio.initialised) return;
+
+    M64Room *current = m64_room_current(sys);
+    int new_room = current ? current->id : -1;
+
+    if (new_room != g_room_active) {
+        g_room_active = new_room;
+
+        /* Start a crossfade if we have a previous and/or new track. */
+        int new_music = (new_room >= 0) ? g_room_music[new_room].music_handle : -1;
+
+        /* If the same track is playing, don't restart — just keep going. */
+        if (new_music == g_room_prev_music && new_music >= 0) return;
+
+        if (g_room_prev_music >= 0) {
+            /* Fade out the old track, then start the new one. */
+            g_room_xfade_pos = 0;
+        } else if (new_music >= 0) {
+            /* No previous track: just start the new one. */
+            m64_music_play(new_music);
+            m64_music_set_volume(new_music, 0.0f);
+            g_room_xfade_pos = 0;
+            g_room_prev_music = new_music;
+        }
+    }
+
+    /* Drive the crossfade. */
+    if (g_room_xfade_pos >= 0) {
+        float frac = (float)g_room_xfade_pos / (float)M64_AUDIO_XFADE_FRAMES;
+
+        /* First half: fade out old. Second half: fade in new. */
+        if (g_room_xfade_pos < M64_AUDIO_XFADE_FRAMES / 2) {
+            /* Fade out */
+            if (g_room_prev_music >= 0) {
+                float vol = 1.0f - 2.0f * frac;
+                m64_music_set_volume(g_room_prev_music, vol);
+            }
+        } else {
+            /* Switch over at the midpoint. */
+            if (g_room_prev_music >= 0 && frac < 0.55f) {
+                m64_music_stop(g_room_prev_music);
+                int new_music = (g_room_active >= 0)
+                    ? g_room_music[g_room_active].music_handle : -1;
+                if (new_music >= 0) {
+                    m64_music_play(new_music);
+                    m64_music_set_volume(new_music, 0.0f);
+                }
+                g_room_prev_music = new_music;
+            }
+
+            /* Fade in */
+            if (g_room_prev_music >= 0) {
+                float vol = 2.0f * (frac - 0.5f);
+                m64_music_set_volume(g_room_prev_music, vol);
+            }
+        }
+
+        g_room_xfade_pos += audio_get_buffer_length();
+        if (g_room_xfade_pos >= M64_AUDIO_XFADE_FRAMES) {
+            g_room_xfade_pos = -1;
+            /* Ensure final volume is exactly 1.0 */
+            if (g_room_prev_music >= 0)
+                m64_music_set_volume(g_room_prev_music, 1.0f);
+        }
+    }
 }
