@@ -8,8 +8,13 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+# streamdb.mk BEFORE m64.mk: both prepend to N64_LDFLAGS, so the later
+# include wins the leftmost slot. m64_asset.o (in libm64) calls into
+# libstreamdb_emb, and streamdb_io_dfs.o calls back into libdragon — so the
+# correct link order is -lm64 -lstreamdb_emb -lt3d -ldragon, which means
+# m64.mk must run AFTER streamdb.mk.
 include $(N64_INST)/include/streamdb.mk
+include $(N64_INST)/include/m64.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 

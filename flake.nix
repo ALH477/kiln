@@ -317,6 +317,21 @@
           romTitle = "M64 Engine";
         };
 
+        # XM64 tracker music playback example. mkMusic converts the .xm
+        # via audioconv64; the ROM plays it through libdragon's XM64 player.
+        test-music = assetLib.mkMusic {
+          name = "test";
+          src = ./examples/music/test.xm;
+        };
+
+        music-demo = mkN64Rom {
+          name = "music";
+          src = ./examples/music;
+          romTitle = "M64 Music";
+          assets = [ test-music ];
+          audioRate = 32000;
+        };
+
         sc64deployer = import ./nix/tools/sc64deployer.nix {
           inherit pkgs;
           src = summercart64;
@@ -367,7 +382,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -426,6 +441,11 @@
             rom = rooms-demo;
             name = "rooms-demo";
           };
+          rom-music-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = music-demo;
+            name = "music";
+          };
           rom-live-voice = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = live-voice;
@@ -451,7 +471,7 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio live-voice engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
         };
 
         apps = {

@@ -122,7 +122,8 @@ int main(void)
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
         m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 STREAMDB");
         m64_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
-        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255), "docs %u", doc_count);
+        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255), "docs %lu",
+                     (unsigned long)doc_count);
         m64_gui_text(14, 58, RGBA32(232, 232, 240, 255), "suffix .t3dm -> %d", g_suffix_t3dm);
         m64_gui_text(14, 70, RGBA32(232, 232, 240, 255), "level %zuB magic %.4s",
                      level_len, level);

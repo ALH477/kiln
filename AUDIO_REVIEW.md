@@ -165,18 +165,31 @@ per-frame pump, SFX with priority voice stealing, and music (XM64/YM64).
 
 **Verified**: `nix build .#engine`, `.#audio`, `.#assets-demo`, `.#engine-demo` all pass.
 
-### Phase 2: Live Voice Mixer Integration ✏️
+### Phase 2: Live Voice Mixer Integration ✅
 
-**Status**: Not started
+**Status**: Complete
 
 **Goal**: Add accumulation mode to the Faust architecture file and provide
-an example ROM that links and plays a live voice.
+an example ROM that links and plays a live voice mixed with the RSP mixer.
 
 **Changes**:
-- `dsp/arch/libdragon_mixer.c`: Add `accumulate` parameter to `_render`,
-  add `_set_gain` function
-- Create `examples/live-voice/` (Makefile + main.c)
-- `flake.nix`: Wire `live-voice` ROM with `ks-voice` linked
+- `dsp/arch/libdragon_mixer.c`:
+  - `_render()` now takes `int accumulate` parameter: when non-zero,
+    samples are saturating-added to the existing buffer instead of overwriting
+  - Added `_set_gain(FAUSTFLOAT gain)` for per-voice output trim
+  - Gain applied before clamp/cast (one `mul.s` per sample per voice)
+- Created `examples/live-voice/` (Makefile + main.c):
+  - Links `ks-voice` object file via `FAUST_VOICE` make flag
+  - A button: triggers live KS voice with cycling frequencies
+  - B button: plays baked KS sample for A/B comparison
+  - Mixing strategy: `mixer_poll` (RSP) → `faust_n64_ksvoice_render` (VR4300)
+    → saturating add into AI buffer
+- `flake.nix`: Wired `live-voice` ROM with `ks-voice` linked + `ks-baked` asset
+
+**Results**:
+- `live-voice.z64` builds and links successfully
+- Audio rate check passes (32000 Hz)
+- First end-to-end proof of live Faust synthesis on-console
 
 ### Phase 6: XM64 Music Example ✏️
 
@@ -233,3 +246,4 @@ an example ROM that links and plays a live voice.
 | 2026-08-02 | Phase 3 | Cycle budget gate now hard-fails, scoped to frame() function. KS voice: 259 cycles (was 333 whole-object). Fixed pre-existing streamdb backend build issue. |
 | 2026-08-02 | Phase 4 | Sample rate enforcement: mkN64Rom audioRate param + mkBakedInstrument rate export. Fixed assets-demo 44100→32000. |
 | 2026-08-02 | Phase 1 | Engine audio layer: m64_audio.h/m64_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
+| 2026-08-02 | Phase 2 | Live voice mixer: accumulate mode in libdragon_mixer.c + _set_gain. examples/live-voice ROM builds and links ks-voice. |
