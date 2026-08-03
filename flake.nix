@@ -261,6 +261,17 @@
           animated = true;
         };
 
+        # The hero prop: not a test shape, but a piece of content authored the
+        # way a game's content is — one silhouette from six interpenetrating
+        # parts, shaded entirely by COLOR_0 through the same `shade` combiner
+        # m64_scene_begin() already sets, so it composes with hand-built
+        # geometry in one pass and needs no TMEM. tools/blender/interceptor.py
+        # documents the orientation and the budget.
+        interceptorModel = blenderLib.mkBlenderModel {
+          name = "interceptor";
+          script = "interceptor.py";
+        };
+
         # Verifies mkQuakeMapModel through the hermetic pipeline end to end:
         # a single 6-plane cube brush, the same content
         # tools/blender-mcp/server.py's own inspect/import tools were checked
@@ -444,6 +455,7 @@
           libdragon = libdragon-sdk;
           tiny3d = tiny3d-sdk;
           model-goblin = goblinModel;
+          model-interceptor = interceptorModel;
           model-quake-test = quakeTestModel;
           default = hello;
         };

@@ -530,3 +530,108 @@ def torus(major, minor, major_segments, minor_segments):
             b2 = ((i + 1) % major_segments) * minor_segments + (j + 1) % minor_segments
             faces.append((a, b, b2, a2))
     return verts, faces
+
+
+def loft(sections, cap_start=True, cap_end=True):
+    """Skin a sequence of equal-length rings into a tube. Returns (verts, faces).
+
+    This is the primitive the fixed shapes above cannot express: anything whose
+    cross-section changes along its length — a tapering fuselage, a canopy, a
+    nacelle. Every other builder here is a special case of it.
+
+    sections   [[(x,y,z), ...], ...]   >=2 rings, all the same length
+
+    ── Winding ────────────────────────────────────────────────────────────
+    Faces come out CCW-outward, i.e. correctly front-facing under the RDP's
+    back-face culling, when BOTH of these hold:
+
+      * each ring lists its points in increasing angle about the sweep axis
+        (for a sweep along +Y, that is increasing atan2(z, x));
+      * consecutive rings advance in the positive sweep direction.
+
+    Reverse either one and the whole object is inside-out — which on hardware
+    reads as "the model is invisible from outside and solid from within", not
+    as an error. There is no way to detect the intent here, so the rule is
+    stated rather than enforced.
+
+    ── Shared vertices ────────────────────────────────────────────────────
+    Rings are NOT split between sections, so a lofted shape can be shaded
+    smooth. Flat shading still works (it uses face normals), so sharing costs
+    a faceted model nothing — unlike box(), where the split exists so each
+    face can carry its own COLOR_0.
+
+    Caps are a fan from a ring's own centroid, which is only correct for a
+    convex ring. Concave cross-sections want cap_start/cap_end False and a
+    hand-built cap.
+    """
+    if len(sections) < 2:
+        raise SystemExit("m64lib: loft needs at least two sections")
+    n = len(sections[0])
+    if n < 3:
+        raise SystemExit("m64lib: loft sections need at least three points")
+    for i, ring in enumerate(sections):
+        if len(ring) != n:
+            raise SystemExit(f"m64lib: loft section {i} has {len(ring)} points, "
+                             f"but section 0 has {n} — sections must match")
+
+    verts, faces = [], []
+    for ring in sections:
+        verts.extend(tuple(p) for p in ring)
+
+    for s in range(len(sections) - 1):
+        a, b = s * n, (s + 1) * n
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append((a + i, b + i, b + j, a + j))
+
+    # The two fans wind opposite ways, because the two caps face opposite ways
+    # along the sweep. Which way round that is, is not obvious from the ring
+    # order and was wrong here first time — the check is in
+    # tools/blender/test_prims.py, which is why it did not reach Blender.
+    for cap, base, first in ((cap_start, 0, True),
+                             (cap_end, (len(sections) - 1) * n, False)):
+        if not cap:
+            continue
+        ring = verts[base:base + n]
+        centre = len(verts)
+        verts.append(tuple(sum(c) / n for c in zip(*ring)))
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append((centre, base + i, base + j) if first
+                         else (centre, base + j, base + i))
+
+    return verts, faces
+
+
+def slab(points):
+    """Extrude a polygon into a closed solid. Returns (verts, faces).
+
+    points   [(x, y, z_centre, half_thickness), ...]
+
+    Each point carries its own centre and half-thickness, so one call covers a
+    flat plate, a tapered aerofoil and a twisted fin — the alternative is a
+    Blender solidify modifier, whose output is exactly the kind of thing this
+    module exists to avoid guessing at.
+
+    The polygon must be CCW in the XY projection (thickness runs along Z) and
+    convex, for the same fan-cap reason as loft().
+    """
+    n = len(points)
+    if n < 3:
+        raise SystemExit("m64lib: slab needs at least three points")
+
+    verts = [(x, y, zc - h) for x, y, zc, h in points]        # 0..n-1  bottom
+    verts += [(x, y, zc + h) for x, y, zc, h in points]       # n..2n-1 top
+
+    faces = [tuple(range(n, 2 * n)),                          # top, +Z
+             tuple(reversed(range(n)))]                       # bottom, -Z
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append((i, j, n + j, n + i))
+    return verts, faces
+
+
+def mirror_x(points):
+    """Mirror a slab()/loft() point list across X=0, reversing it so the
+    winding survives. Negating x alone flips every face inward."""
+    return [(-p[0],) + tuple(p[1:]) for p in reversed(points)]
