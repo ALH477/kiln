@@ -58,6 +58,13 @@ rec {
     { name
     , script # file in tools/blender/, e.g. "models.py"
     , model ? name # --model argument that script dispatches on
+      # Overrides the `--model ${model}` argument entirely when set — for
+      # scripts like quake_map.py/godot_scene.py that dispatch on an external
+      # source file rather than a name in a hard-coded MODELS table. Kept
+      # separate from `model` (rather than repurposing it) so the default
+      # path stays exactly what it always was: no caller of the existing
+      # `--model NAME` scripts has to change.
+    , scriptArgs ? [ "--model" model ]
     , dest ? "models"
       # f3d_inject --material specs. "*=preset" covers every material at once.
       # See tools/f3d_inject.py for the preset list.
@@ -80,6 +87,7 @@ rec {
     let
       materialArgs = lib.concatMapStringsSep " "
         (m: "--material ${lib.escapeShellArg m}") materials;
+      scriptArgsStr = lib.concatMapStringsSep " " lib.escapeShellArg scriptArgs;
     in
     pkgs.stdenv.mkDerivation {
       pname = "model-${name}";
@@ -118,7 +126,7 @@ rec {
         echo "── authoring ${name} (blender ${blender.version}) ──"
         blender --background --factory-startup -noaudio \
           --python ${scripts}/${script} \
-          -- --model ${model} --out "$PWD/work/${name}.gltf"
+          -- ${scriptArgsStr} --out "$PWD/work/${name}.gltf"
 
         # Blender writes <name>.gltf next to <name>.bin and refers to it by a
         # bare relative filename, so the pair has to move together.
@@ -220,4 +228,40 @@ rec {
 
       meta.description = "Tiny3D model '${name}', authored in Blender";
     };
+
+  # ── Quake .map / Godot .tscn import ─────────────────────────────────────
+  # Once a level authored interactively (see tools/blender-mcp/) is finalised
+  # and checked into the repo, it deserves the same hermetic, twice-built,
+  # hash-compared treatment as any hand-authored model — these are thin
+  # mkBlenderModel callers, not a second pipeline. See tools/blender/
+  # quake_map.py and godot_scene.py for what each importer does and does not
+  # support.
+  mkQuakeMapModel =
+    { name
+    , src # the .map file
+    , scale ? null # quake_map.py's Quake-units -> Blender-units factor; null = script default (1/32)
+    , ...
+    }@args:
+    mkBlenderModel ((builtins.removeAttrs args [ "src" "scale" ]) // {
+      script = "quake_map.py";
+      scriptArgs = [ "--map" "${src}" ]
+        ++ lib.optionals (scale != null) [ "--scale" (toString scale) ];
+    });
+
+  # `src` is the Godot PROJECT ROOT (a directory), not just the .tscn — a
+  # scene's res:// mesh references are resolved against it, so the whole
+  # subtree of referenced .glb/.gltf/.obj files has to be part of the Nix
+  # input, not just the scene file naming them.
+  mkGodotSceneModel =
+    { name
+    , src # the Godot project root directory
+    , scenePath # path to the .tscn, relative to `src`
+    , scale ? null
+    , ...
+    }@args:
+    mkBlenderModel ((builtins.removeAttrs args [ "src" "scenePath" "scale" ]) // {
+      script = "godot_scene.py";
+      scriptArgs = [ "--scene" "${src}/${scenePath}" "--project" "${src}" ]
+        ++ lib.optionals (scale != null) [ "--scale" (toString scale) ];
+    });
 }

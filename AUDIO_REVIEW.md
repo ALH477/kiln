@@ -191,27 +191,46 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 - Audio rate check passes (32000 Hz)
 - First end-to-end proof of live Faust synthesis on-console
 
-### Phase 6: XM64 Music Example ✏️
+### Phase 6: XM64 Music Example ✅
 
-**Status**: Not started
+**Status**: Complete
 
 **Goal**: An example ROM that plays tracker music via `mkMusic` + the
 `m64_music_*` API.
 
-**Files**:
-- Create `examples/music/` (Makefile + main.c + test.xm)
-- `flake.nix`: Wire `test-music` asset + `music-demo` ROM
+**Files created**:
+- `tools/gen_xm.py` — generates a minimal 4-channel, 8-row looping XM
+- `examples/music/test.xm` — generated test XM (1003 bytes)
+- `examples/music/Makefile` — includes n64.mk + m64.mk
+- `examples/music/main.c` — plays XM64, A=play/stop, B=stop, Up/Down=volume
 
-### Phase 5: Room-Based Audio Routing ✏️
+**Flake wiring**: `test-music` (mkMusic) + `music-demo` (mkN64Rom)
 
-**Status**: Not started
+**Verified**: `music.z64` builds, `audioRate = 32000` check passes.
+
+### Phase 5: Room-Based Audio Routing ✅
+
+**Status**: Complete
 
 **Goal**: Wire `m64_room_current()` to music crossfading.
 
 **Changes**:
-- `engine/src/m64/m64_audio.h`: Add `m64_audio_set_room_music(room_id, handle)`,
-  `m64_audio_update_rooms(M64RoomSystem*)`
-- `engine/src/m64/m64_audio.c`: Implement crossfade (linear gain ramp ~0.5s)
+- `engine/src/m64/m64_audio.h`: Added `m64_audio_set_room_music(room_id, handle)`
+  and `m64_audio_update_rooms(void *room_sys)` (void* to avoid typedef
+  forward-declaration issue with M64RoomSystem's anonymous struct)
+- `engine/src/m64/m64_audio.c`: Room music table (64 entries), linear gain
+  ramp crossfade (~0.5s at 32000 Hz). Same-track = no restart. Fade out old
+  → switch → fade in new.
+
+**API usage**:
+```c
+m64_audio_set_room_music(0, music_a);  // room 0 plays track A
+m64_audio_set_room_music(1, music_b);  // room 1 plays track B
+// Per frame:
+m64_room_system_update(&sys, cam_pos);
+m64_audio_update_rooms(&sys);  // crossfades on room change
+m64_audio_update();            // pumps the mixer
+```
 
 ### Phase 7: Update CLAUDE.md ✏️
 
@@ -247,3 +266,5 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 | 2026-08-02 | Phase 4 | Sample rate enforcement: mkN64Rom audioRate param + mkBakedInstrument rate export. Fixed assets-demo 44100→32000. |
 | 2026-08-02 | Phase 1 | Engine audio layer: m64_audio.h/m64_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
 | 2026-08-02 | Phase 2 | Live voice mixer: accumulate mode in libdragon_mixer.c + _set_gain. examples/live-voice ROM builds and links ks-voice. |
+| 2026-08-02 | Phase 6 | XM64 music example: generated test XM, examples/music ROM, mkMusic pipeline verified end-to-end. |
+| 2026-08-02 | Phase 5 | Room-based audio routing: m64_audio_set_room_music + m64_audio_update_rooms with ~0.5s linear crossfade. |

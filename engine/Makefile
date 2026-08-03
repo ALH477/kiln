@@ -11,8 +11,8 @@ INSTALLDIR = $(N64_INST)
 
 include $(N64_INST)/include/n64.mk
 
-src := $(SOURCE_DIR)/m64_engine.c $(SOURCE_DIR)/m64_gui.c $(SOURCE_DIR)/m64_actor.c $(SOURCE_DIR)/m64_room.c $(SOURCE_DIR)/m64_asset.c $(SOURCE_DIR)/m64_audio.c
-inc := $(SOURCE_DIR)/m64_engine.h $(SOURCE_DIR)/m64_gui.h $(SOURCE_DIR)/m64_actor.h $(SOURCE_DIR)/m64_room.h $(SOURCE_DIR)/m64_asset.h $(SOURCE_DIR)/m64_audio.h
+src := $(SOURCE_DIR)/m64_engine.c $(SOURCE_DIR)/m64_gui.c $(SOURCE_DIR)/m64_actor.c $(SOURCE_DIR)/m64_room.c $(SOURCE_DIR)/m64_asset.c $(SOURCE_DIR)/m64_audio.c $(SOURCE_DIR)/m64_camera.c $(SOURCE_DIR)/m64_skel.c
+inc := $(SOURCE_DIR)/m64_engine.h $(SOURCE_DIR)/m64_gui.h $(SOURCE_DIR)/m64_actor.h $(SOURCE_DIR)/m64_room.h $(SOURCE_DIR)/m64_asset.h $(SOURCE_DIR)/m64_audio.h $(SOURCE_DIR)/m64_camera.h $(SOURCE_DIR)/m64_skel.h
 
 # gnu2x to match Tiny3D's own dialect (its headers use C23-isms).
 # -lstreamdb_emb is pulled in by a ROM's Makefile via streamdb.mk; the engine
@@ -22,7 +22,7 @@ inc := $(SOURCE_DIR)/m64_engine.h $(SOURCE_DIR)/m64_gui.h $(SOURCE_DIR)/m64_acto
 N64_CFLAGS += -std=gnu2x -Os -Isrc -Wall -Wextra -Wno-error \
               -DSTREAMDB_EMB_BACKEND_DFS=1
 
-OBJ = $(BUILD_DIR)/m64_engine.o $(BUILD_DIR)/m64_gui.o $(BUILD_DIR)/m64_actor.o $(BUILD_DIR)/m64_room.o $(BUILD_DIR)/m64_asset.o $(BUILD_DIR)/m64_audio.o
+OBJ = $(BUILD_DIR)/m64_engine.o $(BUILD_DIR)/m64_gui.o $(BUILD_DIR)/m64_actor.o $(BUILD_DIR)/m64_room.o $(BUILD_DIR)/m64_asset.o $(BUILD_DIR)/m64_audio.o $(BUILD_DIR)/m64_camera.o $(BUILD_DIR)/m64_skel.o
 
 all: $(BUILD_DIR)/libm64.a
 

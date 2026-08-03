@@ -48,7 +48,9 @@ nix/libdragon.nix   ONE native derivation that invokes the cross compiler for
                     part of its work (mirrors upstream's build.sh): host tools
                     with $(CC), target lib with $(N64_CC).
 nix/tiny3d.nix      Tiny3D, installed with libdragon's layout.
-nix/engine.nix      libm64 — the M64 engine (3D on Tiny3D, 2D GUI on rdpq).
+nix/engine.nix      libm64 — the M64 engine (3D on Tiny3D, 2D GUI on rdpq,
+                    audio on libdragon's RSP mixer, actors/rooms/camera/
+                    skeletal animation — see "Phase B" below).
 nix/n64-inst.nix    symlinkJoin of the above into ONE $N64_INST prefix.
                     Built in two stages: libdragon+tiny3d (what the engine
                     compiles against), then +engine (what ROMs consume).
@@ -60,10 +62,16 @@ nix/assets.nix      mkModel/mkSprite/mkFont/mkSound/mkMusic/mkRawAsset — wrap
                     mkfont, audioconv64, mkasset). Each produces a
                     `filesystem/` directory in mkBakedInstrument's convention,
                     so mkN64Rom's `assets` list consumes them unchanged.
-nix/faust.nix       mkFaustVoice / mkBakedInstrument, plus the gates.
-dsp/arch/           Faust architecture files, written from scratch against
+nix/faust.nix       mkFaustVoice / mkBakedInstrument, plus the gates. The cycle
+                    budget gate is a HARD failure when frame-scoped weighted
+                    cycles exceed the declared budget (report §4). Baked
+                    instruments export their sample rate via
+                    `nix-support/audio-rate` for mkN64Rom cross-checking.
+                    dsp/arch/           Faust architecture files, written from scratch against
                     Faust's C ABI (libdragon_mixer.c = live, offline_ref.c =
-                    full-quality host render).
+                    full-quality host render). The live architecture supports
+                    accumulation mode (`_render(out, n, accumulate)`) for
+                    summing multiple voices and per-voice gain (`_set_gain`).
 tools/n64-shot.sh   boot a ROM in Ares on Hyprland and grim its window.
 ```
 
@@ -106,6 +114,183 @@ colour. Sixteen slots, then fallback to white.
 
 Verified: `examples/engine` runs at **59.8 fps** in Ares with a lit spinning
 cube plus HUD.
+
+## Phase B — actors, rooms, camera, skeletal animation
+
+The "runtime" half of the engine, on top of the 3D/GUI layer above: live
+game objects (`m64_actor.h`), streamed world geometry (`m64_room.h`), an
+OoT-style follow camera (`m64_camera.h`), and skeletal animation
+(`m64_skel.h`). Verified by `examples/actors-demo`, `examples/rooms-demo`,
+and `examples/camera-skel-demo` (camera + skel + `m64_audio` together).
+Audio itself is documented separately below; the connective tissue between
+Phase B and audio is `m64_room_current()` feeding
+`m64_audio_set_room_music`/`update_rooms` (see "The audio layer").
+
+Each module is modelled on a specific piece of Ocarina of Time's engine, and
+each header's own comment says so and explains what was deliberately left
+out. The summary, so it's in one place:
+
+- **`m64_actor.h`** — OoT's Actor/ActorProfile split: a flat, caller-owned
+  pool (not malloc-per-actor), category-ordered update/draw lists (player
+  before enemies before props, same reasoning OoT gets predictable draw
+  order and cheap category queries from), one fixed-size inline state block
+  per instance sized to the largest actor type (`M64_ACTOR_STATE_MAX`,
+  override before including the header if 64 bytes is too small — this is
+  OoT's "instance struct sized to the overlay's max" idea), and
+  handle+generation instead of raw pointers so a stale reference resolves to
+  NULL instead of a reused slot. **Not carried over:** OoT's overlay/segment
+  paging — actor code is never paged in and out of a small ROM window here,
+  every actor type's code is resident for the whole game, which is the
+  simpler and correct choice until a game's actor code genuinely doesn't fit
+  in RAM at once. No collision/physics system of any kind yet (see "Not yet
+  built").
+- **`m64_room.h`** — OoT's cross-shaped loaded-room set: AABB-overlap with
+  the camera (not a radius, which would also pull in both diagonal
+  neighbours at every corner) plus each room's `neighbours[]` table as
+  streaming candidates, actor spawn templates deferred to room-load time so
+  an actor is never resident in RAM without a mesh to occlude it against.
+  **Not carried over:** no BG collision mesh streamed per room — there is no
+  collision system at all yet, so `user_mesh` is drawn but never collided
+  against.
+- **`m64_camera.h`** — OoT's follow-camera boom: a fixed-length spring arm
+  behind the target whose *heading* lags the target's facing direction on
+  its own damper, separate from the eye position's damper, so a sharp turn
+  swings the camera around over several frames instead of snapping it (see
+  `Camera_Normal1` in the OoT decomp for the shape of this). **Not carried
+  over:** no collision-aware boom (OoT raycasts against BG collision and
+  pulls the eye in before a wall would clip it — no collision system to
+  raycast against yet, so `M64Camera` clips through geometry), no camera
+  mode stack (normal / targeting / cutscene modes pushed and popped) — one
+  mode, and a game wanting others layers them on top or writes
+  `M64Scene`'s camera fields directly. Also a deliberate engine-wide
+  departure: damping is linear-per-frame (`t = min(1, speed*dt)`), not
+  `expf(-t)` — same qualitative curve for one multiply instead of a
+  transcendental call, consistent with this engine's "single precision, no
+  gratuitous libm" stance (see "Constraints that shape everything").
+- **`m64_skel.h`** — not modelled on OoT (which predates glTF-style skinning
+  entirely) but on Tiny3D's own animation idiom
+  (`t3d/t3dskeleton.h`, `t3d/t3danim.h`, demonstrated in Tiny3D's
+  `examples/08_animation`): one primary skeleton with fixed-point bone
+  matrices, one pose-only clone blended into it by a live scalar factor —
+  the same idea as an idle/walk locomotion blend, driven here by
+  `examples/camera-skel-demo`'s movement speed. **Not carried over from a
+  "full" animation system:** no N-way blend tree or partial-bone masks, two
+  slots only. **A hardware constraint, not a choice:** skinning is rigid,
+  one bone per vertex — `gltf_to_t3d` reads only the first `JOINTS_0`
+  channel per vertex (see
+  `tools/gltf_importer/src/parser.cpp` in the Tiny3D source), there is no
+  4-bone weighted blend on console. `tools/gen_skel_gltf.py` generates the
+  hand-authored 2-bone test rig `examples/camera-skel-demo` uses — a glTF
+  skin needs no fast64 export and no `inverseBindMatrices` accessor
+  (`gltf_to_t3d` derives inverse bind poses itself from the joint nodes'
+  own TRS hierarchy), just `skins[].joints` naming a node chain and
+  `JOINTS_0`/`WEIGHTS_0` mesh attributes; that generator is the reference
+  for what a hand-built (non-Blender) skinned test asset needs to contain.
+
+Verified: `nix build .#camera-skel-demo` links clean (300 KB text, matching
+the other actor-system demos' size class) and passes the `audioRate = 32000`
+check. `./dev shot camera-skel-demo` was attempted but the capture is not
+trustworthy in this sandbox — Ares maps a window (correct geometry, correct
+PID, all of `tools/n64-shot.sh`'s own sanity checks pass) but its surface
+never actually composites here, so the "capture" is whatever desktop window
+sits behind it rather than the emulator. That is a property of this
+particular desktop/Vulkan environment, not of the ROM or the script; treat
+`nix build` + the gates as the verification for this ROM until it's run on
+a desktop where Ares' Vulkan surface actually presents.
+
+## The audio layer (engine/src/m64/m64_audio.*, examples/audio, examples/live-voice, examples/music)
+
+Three audio paths, all first-class:
+
+```
+Baked instruments (report Stage 1, recommended 80-90%):
+  .dsp → mkBakedInstrument → host render (-double) → audioconv64 → .wav64
+       → mkN64Rom `assets` → DragonFS → m64_sfx_load/play → RSP mixer
+
+Live Faust voices (report Stage 2):
+  .dsp → mkFaustVoice → faust -lang c -single -os → VR4300 object
+       → linked into ROM → faust_n64_<name>_render(out, n, accumulate)
+       → VR4300 summing into AI buffer alongside mixer_poll
+
+Tracker music:
+  .xm/.ym → mkMusic → audioconv64 → .xm64/.ym64
+         → mkN64Rom `assets` → DragonFS → m64_music_load/play → RSP mixer
+```
+
+The engine audio layer (`m64_audio.h`) wraps libdragon's RSP mixer with:
+- `m64_audio_init/update/close` — init, per-frame pump, teardown
+- `m64_sfx_load/play/play_ex/stop` — SFX with priority-based voice stealing
+- `m64_music_load/play/stop/set_volume` — XM64/YM64 tracker music
+- `m64_audio_set_room_music/update_rooms` — room-based music crossfading
+
+Channel partition: `[0..sfx_channels)` for SFX, `[sfx_channels..total)` for
+music. Default: 16 SFX + 10 music = 26 channels (max 32).
+
+The cycle budget gate (`nix/faust.nix`) is a **hard failure** when
+frame-scoped weighted cycles exceed the declared budget. It is scoped to
+the `frame<name>` function only — init/constructor code is excluded. The KS
+voice measures 259 weighted cycles in `frame()` (vs 333 for the whole
+object, including init).
+
+`mkN64Rom` accepts an `audioRate` parameter that cross-checks baked
+instrument rates against the ROM's `audio_init` rate at build time. A
+mismatch causes pitch/time drift (not silence), so this catches a subtle
+defect class.
+
+The live architecture file (`dsp/arch/libdragon_mixer.c`) supports
+accumulation mode: `_render(out, n, accumulate)` saturating-adds to the
+buffer when `accumulate != 0`, enabling multiple voices to be summed into
+one AI buffer. Per-voice gain is set via `_set_gain`.
+
+## Geometry authoring (nix/blender.nix, tools/blender/, tools/blender-mcp/)
+
+**Blender authors geometry; it does not author materials.** `nix/blender.nix`
+(`mkBlenderModel`) drives Blender headless (`--background`) with a script
+from `tools/blender/` that builds a scene via `m64lib.py`'s helpers
+(`make_mesh`/`make_armature`/`make_skinned_mesh`/primitive builders like
+`box`/`cylinder`/`uv_sphere`) and exports a glTF. `tools/f3d_inject.py` then
+writes `materials[i].extras.f3d_mat` directly — the JSON block
+`gltf_to_t3d` actually reads (`tools/gltf_importer/src/parser/
+materialParser.cpp`) — from a small preset table (`shade`, `tex0_shade`,
+`tex0_alpha`, `prim`), reverse-engineered from that parser rather than
+produced by the real Fast64 Blender addon. **Fast64 is deliberately not
+vendored**: it is not in nixpkgs, tracks Blender 4.2-4.5 while this flake's
+nixpkgs ships a newer Blender, and buys nothing since `gltf_to_t3d` never
+talks to the addon anyway — see `nix/blender.nix`'s file comment for the
+full reasoning. `tools/blender/goblin.py` is the rigged/animated reference:
+one bone per vertex, RIGID skinning only (`make_skinned_mesh`) — same
+Tiny3D hardware constraint `m64_skel.h`'s Phase B notes describe (§ above).
+
+**`tools/blender/quake_map.py` / `godot_scene.py`** extend this pipeline to
+two external content formats: Quake `.map` (brush CSG via plane
+intersection — every triple of a brush's planes is a candidate vertex,
+kept only if it's inside every other plane) and Godot `.tscn` (scene-graph
+parsing + placing each node's referenced `.glb`/`.gltf`/`.obj` mesh via
+Blender's own importers, transformed through the Godot-Y-up-to-Blender-
+Z-up axis conversion). Both scripts follow the same `--out <path>`
+convention as `models.py`, so `nix/blender.nix`'s `mkQuakeMapModel` /
+`mkGodotSceneModel` reuse `mkBlenderModel`'s exact derivation shape via a
+generalised `scriptArgs` parameter — no second pipeline. Both importers'
+core geometry/parsing functions are plain Python with no `bpy` import, so
+they are unit-testable with a bare `python3 -c` before ever touching
+Blender; that discipline caught two real bugs during development (a wrong
+three-plane intersection formula, and an inverted face-winding order) by
+checking brush output against the canonical 6-plane Quake cube example
+before the first headless Blender run.
+
+**`tools/blender-mcp/`** is the interactive front-end: an MCP server
+(`server.py`, `FastMCP`) exposing `inspect_quake_map`/`inspect_godot_scene`
+(pure Python, no Blender — fast sanity checks) and
+`import_quake_map`/`import_godot_scene` (the full Blender → f3d_inject →
+optional-`gltf_to_t3d`-preview chain). It runs **outside** `nix build` on
+purpose — see the module docstring — because it targets arbitrary,
+not-yet-committed content someone is actively iterating on, which is the
+opposite of every other pipeline here being hermetic and reproducible.
+Once a map/scene is finished, `import_*`'s `nix_snippet` field gives the
+exact `mkQuakeMapModel`/`mkGodotSceneModel` call to add after committing
+the source under `assets/`, putting it on the same hermetic path as
+everything else. `assets/quake_test.map` + the `quakeTestModel` package
+are the regression check that path stays working.
 
 ## Screenshots — how ROMs actually get verified
 
@@ -184,8 +369,9 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   We use **`-ftz 1`** (fabs-based, same semantics, `abs.s` = 1 cycle). The
   report's `-double -ftz 2` house style is therefore not reachable via
   `-lang c`. Single source of truth: `ftzMode` in `nix/faust.nix`.
-  Adding it cost the KS voice 291 → 333 weighted cycles; that is the price of
-  not trapping into the denormal exception handler.
+  Adding it cost the KS voice 291 → 333 weighted cycles (whole object); the
+  frame-scoped count is 259. That is the price of not trapping into the
+  denormal exception handler.
 - **Faust `-os` emits `frame()` and leaves `compute()` an EMPTY STUB.** An
   architecture file written against `compute()` builds, links, runs, and outputs
   silence.
@@ -198,10 +384,12 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
 - **`gltf_to_t3d` aborts on a glTF material with no fast64 data** ("Material
   has no fast64 data! (@TODO: implement fallback)", `terminate called after
   throwing... std::runtime_error`). It expects the custom properties
-  Blender's fast64 add-on writes on export; a hand-authored or
-  otherwise-exported glTF needs `mkModel`'s `ignoreMaterials = true` (passes
-  `--ignore-materials`) or it never gets past import. `assets/cube.gltf` and
-  `nix/assets.nix`'s `demoModel` hit this first.
+  Blender's fast64 add-on writes on export. Two ways out, both used in this
+  repo: `mkModel`'s `ignoreMaterials = true` (passes `--ignore-materials`,
+  what `assets/cube.gltf`/`nix/assets.nix`'s `demoModel` use — untextured,
+  no material data needed at all), or `tools/f3d_inject.py`, which writes a
+  real `f3d_mat` block directly without the actual addon (see "Geometry
+  authoring" above) — what everything under `nix/blender.nix` uses.
 
 ## The gates (nix/faust.nix, nix/checks/)
 
@@ -215,9 +403,11 @@ internal `fmaxf`/`fminf` never appear in the `.dsp` at all. `-ffast-math`
 (which libdragon enables) is what inlines them.
 
 The cycle-budget number is a **static estimate** — instruction counts weighted
-by the report's §2 VR4300 latency table. It cannot model cache or the ~640 ns
-RDRAM latency. It exists to catch regressions, not to predict wall-clock. Say
-so whenever quoting it; profile with `TICKS` on hardware for real numbers.
+by the report's §2 VR4300 latency table, scoped to the `frame<name>` function
+only. It cannot model cache or the ~640 ns RDRAM latency. It exists to catch
+regressions, not to predict wall-clock. Say so whenever quoting it; profile
+with `TICKS` on hardware for real numbers. The gate is a **hard failure**
+when the frame-scoped weighted cycles exceed the declared budget.
 
 ## Constraints that shape everything
 
@@ -263,11 +453,22 @@ fixed point.
   out of scope by design. M4's budget numbers are the evidence for whether
   Stage 3 is needed at all. (Note Tiny3D ships its own RSPL microcode, and its
   `.rspl` sources are the model to study if Stage 3 ever happens.)
-- **The engine runtime has no asset loading yet** (no `m64_asset`/`m64_object`
-  layer, no StreamDB wiring). The asset *pipeline* is built (`nix/assets.nix`,
-  verified by `examples/assets-demo`), but nothing in `libm64` calls it — a
-  ROM that wants a model loads it by hand with `t3d_model_load`, as
-  `examples/assets-demo/main.c` does.
+- **The engine runtime has no model/asset loading yet** (no `m64_object`
+  layer). The asset *pipeline* is built (`nix/assets.nix`, verified by
+  `examples/assets-demo`), and `m64_asset` provides StreamDB loading for
+  models and sprites — but nothing in `libm64` auto-loads assets. A ROM
+  that wants a model loads it by hand with `t3d_model_load` or
+  `m64_asset_model`, as `examples/assets-demo/main.c` does.
+- **No collision system of any kind.** Neither `m64_room`'s `user_mesh` nor
+  `m64_actor` positions are collided against anything — a room's geometry is
+  drawn but never queried, and `m64_camera`'s spring-arm boom clips through
+  it freely (OoT's camera raycasts against BG collision to pull the eye in
+  before a wall would clip it; `M64Camera` has nowhere to raycast against
+  yet). The actor system's AABB/sphere primitives an actual collision layer
+  would need are not present either.
+- **`m64_asset_wav64` is not provided** — libdragon's `wav64_open` is
+  path-only with no in-memory variant, so audio assets must use DFS
+  (`rom:/` paths), not StreamDB. Lands when `wav64_open_buf` lands upstream.
 - **Screenshot verification is not part of `nix flake check`** — it needs a
   live Wayland session, which the build sandbox does not have. It is a `./dev`
   command, run on a desktop.

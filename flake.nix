@@ -131,6 +131,18 @@
           src = ./assets/blip.wav;
         };
 
+        # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py)
+        # for camera-skel-demo. Same ignoreMaterials reasoning as demoModel —
+        # hand-authored, not a fast64 export. baseScale 32 (half the default
+        # 64) keeps the ~1-2 Blender-unit rig in the same size range as
+        # examples/actors-demo's hand-built cubes (half-extent 8-14).
+        skelModel = assetLib.mkModel {
+          name = "rig";
+          src = ./assets/skel_test.gltf;
+          ignoreMaterials = true;
+          baseScale = 32;
+        };
+
         # ── StreamDB-destined demo assets ──────────────────────────────
         # Three assets packed into a single .streamdb, exercising every
         # m64_asset accessor: m64_asset_model (cube.t3dm), m64_asset_sprite
@@ -236,6 +248,15 @@
               ];
             };
           };
+
+        # Verifies mkQuakeMapModel through the hermetic pipeline end to end:
+        # a single 6-plane cube brush, the same content
+        # tools/blender-mcp/server.py's own inspect/import tools were checked
+        # against before this Nix wiring was written.
+        quakeTestModel = blenderLib.mkQuakeMapModel {
+          name = "quake-test";
+          src = ./assets/quake_test.map;
+        };
 
         # Prefix stage 2: the single prefix every ROM build sees as $N64_INST.
         # streamdb-emb is already in n64InstBase; listed here only for clarity
@@ -367,6 +388,18 @@
           romTitle = "M64 Rooms";
         };
 
+        # Phase B completion: m64_camera (OoT-style spring-arm follow) +
+        # m64_skel (skeletal animation, idle/swing blend) + m64_audio
+        # (footstep SFX on distance travelled) together in one ROM, driving
+        # the m64_actor player already exercised by actors-demo.
+        camera-skel-demo = mkN64Rom {
+          name = "camera-skel-demo";
+          src = ./examples/camera-skel-demo;
+          romTitle = "M64 Camera Skel";
+          assets = [ skelModel demoSound ];
+          audioRate = 32000;
+        };
+
         # Phase C verification: same three asset kinds as assets-demo, but
         # loaded from a single StreamDB container mounted at boot via
         # m64_asset_open. Exercises m64_asset_model (the patched
@@ -382,7 +415,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo quakeTestModel;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
