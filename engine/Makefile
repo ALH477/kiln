@@ -19,7 +19,8 @@ inc := $(SOURCE_DIR)/m64_engine.h $(SOURCE_DIR)/m64_gui.h $(SOURCE_DIR)/m64_acto
 # archive only references streamdb_emb_* symbols, which resolve at the ROM's
 # final link. A ROM that doesn't use m64_asset pays nothing for it —
 # --gc-sections drops the unused object.
-N64_CFLAGS += -std=gnu2x -Os -Isrc -Wall -Wextra -Wno-error
+N64_CFLAGS += -std=gnu2x -Os -Isrc -Wall -Wextra -Wno-error \
+              -DSTREAMDB_EMB_BACKEND_DFS=1
 
 OBJ = $(BUILD_DIR)/m64_engine.o $(BUILD_DIR)/m64_gui.o $(BUILD_DIR)/m64_actor.o $(BUILD_DIR)/m64_room.o $(BUILD_DIR)/m64_asset.o
 
