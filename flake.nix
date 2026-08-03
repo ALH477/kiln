@@ -298,6 +298,18 @@
           audioRate = 32000;
         };
 
+        # Live Faust voice + baked instrument A/B comparison (report Stage 2).
+        # Links the ks-voice MIPS object into the ROM and renders it
+        # sample-by-sample on the VR4300, mixed with the RSP mixer output.
+        live-voice = mkN64Rom {
+          name = "live-voice";
+          src = ./examples/live-voice;
+          romTitle = "M64 Live Voice";
+          assets = [ ks-baked ];
+          audioRate = 32000;
+          makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ];
+        };
+
         # 3D + 2D GUI worked example.
         engine-demo = mkN64Rom {
           name = "engine";
@@ -355,7 +367,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit toolchain hello audio live-voice engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -414,6 +426,11 @@
             rom = rooms-demo;
             name = "rooms-demo";
           };
+          rom-live-voice = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = live-voice;
+            name = "live-voice";
+          };
           rom-streamdb-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = streamdb-demo;
@@ -434,7 +451,7 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
+          inherit hello audio live-voice engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
         };
 
         apps = {

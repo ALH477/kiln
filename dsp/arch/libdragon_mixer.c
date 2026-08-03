@@ -178,6 +178,9 @@ static void faust_n64_build_ui(FAUSTDSP *dsp, faust_n64_ui_t *out)
 static FAUSTDSP FAUST_SYM(_dsp);
 static faust_n64_ui_t FAUST_SYM(_ui);
 
+/* Per-voice output gain, applied before the int16 cast. Default 1.0. */
+static FAUSTFLOAT FAUST_SYM(_gain) = 1.0f;
+
 /* Initialise the voice at the given sample rate.
  *
  * Pick the rate for the N64's Audio Interface, not for the M64's fixed 48 kHz
@@ -210,6 +213,14 @@ const char *FAUST_SYM(_param_label)(int i)
     return (i >= 0 && i < FAUST_SYM(_ui).nparams) ? FAUST_SYM(_ui).params[i].label : NULL;
 }
 
+/* Set the per-voice output gain (0.0 to 1.0). Applied to each sample before
+ * the int16 cast. Default is 1.0. This is the voice-level trim — individual
+ * parameter zones (freq, gain, gate) are set via _param(). */
+void FAUST_SYM(_set_gain)(FAUSTFLOAT gain)
+{
+    FAUST_SYM(_gain) = gain;
+}
+
 /* Render `nframes` stereo sample pairs into a libdragon mixer buffer.
  *
  * libdragon's mixer wants interleaved signed 16-bit stereo; Faust hands us
@@ -218,25 +229,45 @@ const char *FAUST_SYM(_param_label)(int i)
  * buffer pass more expensive than the arithmetic.
  *
  * Mono voices are duplicated to both channels; anything wider than stereo is
- * truncated to the first two outputs. */
-void FAUST_SYM(_render)(int16_t *out, int nframes)
+ * truncated to the first two outputs.
+ *
+ * If `accumulate` is non-zero, samples are ADDED to the existing buffer
+ * contents (saturating) instead of overwriting. This lets multiple live
+ * voices be summed into one AI buffer — render the first voice with
+ * accumulate=0, subsequent voices with accumulate=1. The saturating add
+ * costs two extra instructions per sample (add + clamp), well within budget.
+ *
+ * The per-voice gain (_set_gain) is applied before the cast/clamp. */
+void FAUST_SYM(_render)(int16_t *out, int nframes, int accumulate)
 {
     FAUSTFLOAT frame_in[2] = { 0.0f, 0.0f };
     FAUSTFLOAT frame_out[8];
     const int nouts = FAUST_NUM_OUTPUTS(&FAUST_SYM(_dsp));
+    const FAUSTFLOAT g = FAUST_SYM(_gain);
 
     for (int i = 0; i < nframes; i++) {
         FAUST_FRAME(&FAUST_SYM(_dsp), frame_in, frame_out);
 
-        FAUSTFLOAT l = frame_out[0];
-        FAUSTFLOAT r = (nouts > 1) ? frame_out[1] : l;
+        FAUSTFLOAT l = frame_out[0] * g;
+        FAUSTFLOAT r = ((nouts > 1) ? frame_out[1] : frame_out[0]) * g;
 
         /* Clamp before the cast: a float outside [-1,1] wraps rather than
          * saturates on conversion, which turns a hot voice into loud noise. */
         if (l > 1.0f) l = 1.0f; else if (l < -1.0f) l = -1.0f;
         if (r > 1.0f) r = 1.0f; else if (r < -1.0f) r = -1.0f;
 
-        out[2 * i + 0] = (int16_t)(l * 32767.0f);
-        out[2 * i + 1] = (int16_t)(r * 32767.0f);
+        int16_t sl = (int16_t)(l * 32767.0f);
+        int16_t sr = (int16_t)(r * 32767.0f);
+
+        if (accumulate) {
+            /* Saturating add: clamp to int16 range after summing. */
+            int32_t sum_l = (int32_t)out[2 * i + 0] + sl;
+            int32_t sum_r = (int32_t)out[2 * i + 1] + sr;
+            out[2 * i + 0] = (sum_l > 32767) ? 32767 : (sum_l < -32768) ? -32768 : (int16_t)sum_l;
+            out[2 * i + 1] = (sum_r > 32767) ? 32767 : (sum_r < -32768) ? -32768 : (int16_t)sum_r;
+        } else {
+            out[2 * i + 0] = sl;
+            out[2 * i + 1] = sr;
+        }
     }
 }

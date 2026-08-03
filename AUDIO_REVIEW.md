@@ -138,24 +138,32 @@ declared audio rate.
 - `assets-demo` ROM: builds with 32000 Hz, `demoSound` (mkSound) correctly
   skipped (no `nix-support/audio-rate` file)
 
-### Phase 1: Engine Audio Layer ✏️
+### Phase 1: Engine Audio Layer ✅
 
-**Status**: Not started
+**Status**: Complete
 
-**Goal**: Add `m64_audio.h` / `m64_audio.c` to `libm64` providing:
-- `m64_audio_init(M64AudioConfig)` — wraps `audio_init` + `mixer_init`
-- `m64_audio_update()` — pumps `audio_can_write` / `mixer_poll` per frame
-- `m64_audio_close()` — wraps `audio_close` + `mixer_close`
-- `m64_sfx_load(path)` → handle; `m64_sfx_play(handle, ch, priority)`
-- `m64_sfx_playing(ch)`, `m64_sfx_stop(ch)`
-- `m64_music_load(path)` → handle; `m64_music_play(handle)`,
-  `m64_music_stop(handle)`, `m64_music_set_volume(handle, vol)`
+**Goal**: Add `m64_audio.h` / `m64_audio.c` to `libm64` providing init,
+per-frame pump, SFX with priority voice stealing, and music (XM64/YM64).
 
-**Files**:
-- Create `engine/src/m64/m64_audio.h` (~90 lines)
-- Create `engine/src/m64/m64_audio.c` (~250 lines)
-- Modify `engine/Makefile` — add `m64_audio.c` / `m64_audio.h`
-- Modify `nix/engine.nix` — add `m64_audio.h` to install check
+**Files created**:
+- `engine/src/m64/m64_audio.h` (119 lines) — API: init/update/close,
+  sfx_load/play/play_ex/playing/stop/set_vol_pan/set_freq,
+  music_load/play/stop/set_volume/set_loop/playing/num_channels
+- `engine/src/m64/m64_audio.c` (245 lines) — implementation
+
+**Files modified**:
+- `engine/Makefile` — added `m64_audio.c` / `m64_audio.h` to src/inc/OBJ
+- `nix/engine.nix` — added `m64_audio.h` to install check
+
+**Design**:
+- Channel partition: `[0..sfx_channels)` for SFX, `[sfx_channels..total)` for music
+- Default config: 32000 Hz, 16 SFX + 10 music = 26 channels (max 32)
+- SFX auto-allocation: walks SFX range for free channel, or steals lowest-priority
+- Music: XM64/YM64 detected by extension, channels assigned from music range
+- `m64_audio_update()` drains `audio_can_write` / `mixer_poll` per frame
+- No malloc in audio path; SFX table is fixed-size, loaded at boot
+
+**Verified**: `nix build .#engine`, `.#audio`, `.#assets-demo`, `.#engine-demo` all pass.
 
 ### Phase 2: Live Voice Mixer Integration ✏️
 
@@ -224,3 +232,4 @@ an example ROM that links and plays a live voice.
 |------|-------|--------|
 | 2026-08-02 | Phase 3 | Cycle budget gate now hard-fails, scoped to frame() function. KS voice: 259 cycles (was 333 whole-object). Fixed pre-existing streamdb backend build issue. |
 | 2026-08-02 | Phase 4 | Sample rate enforcement: mkN64Rom audioRate param + mkBakedInstrument rate export. Fixed assets-demo 44100→32000. |
+| 2026-08-02 | Phase 1 | Engine audio layer: m64_audio.h/m64_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
