@@ -1,0 +1,7 @@
+result
+result-*
+build/
+*.z64
+*.elf
+*.sym
+filesystem/

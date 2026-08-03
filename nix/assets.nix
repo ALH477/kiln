@@ -1,0 +1,456 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# nix/assets.nix — the asset pipeline.
+#
+# The merged prefix ships a dozen host tools (mksprite, mkfont, mkasset,
+# audioconv64, gltf_to_t3d, ...) and until now the build system exposed none of
+# them, which is why examples/engine builds its cube by hand. These builders
+# are the missing layer.
+#
+# ── The convention ─────────────────────────────────────────────────────
+# Every builder produces a derivation whose `filesystem/` directory holds the
+# converted asset. That is deliberately the SAME convention mkBakedInstrument
+# already uses (nix/faust.nix), so mkN64Rom's existing `assets` argument
+# consumes them unchanged — and because rom.nix copies with `cp -rL
+# <asset>/filesystem/.`, subdirectories survive. So `dest` belongs here, in the
+# builder, and mkN64Rom needed no modification at all:
+#
+#   mkModel { name = "player"; src = ./player.glb; dest = "models"; }
+#     -> $out/filesystem/models/player.t3dm
+#     -> rom's filesystem/models/player.t3dm
+#     -> loadable at runtime as "rom:/models/player.t3dm"
+#
+# mkStreamdb below produces a `filesystem/` directory too, with one
+# `<name>.streamdb` file in it, so a ROM can list it alongside any loose
+# assets and the .streamdb lands in DFS like anything else.
+#
+# ── Determinism ────────────────────────────────────────────────────────
+# nix/checks/assets.nix runs each builder twice and compares hashes. Asset
+# tools that embed timestamps or iterate a hash map in address order will drift
+# between builds, which turns every golden-image test downstream into a
+# coin flip. Cheaper to catch here.
+{ pkgs, n64Inst, streamdbSrc }:
+
+let
+  lib = pkgs.lib;
+
+  # Shared skeleton. `convert` is a shell fragment that reads $src and writes
+  # into $outdir; everything else (staging, the dest subdirectory, the sanity
+  # check that something was actually produced) is identical across tools.
+  mkAsset =
+    { name
+    , src
+    , dest ? ""
+    , convert
+    , extraInputs ? [ ]
+    , outName # expected output filename, for the did-it-work check
+    }:
+    pkgs.stdenv.mkDerivation {
+      pname = "asset-${name}";
+      version = "0.1.0";
+      inherit src;
+      dontUnpack = true;
+
+      nativeBuildInputs = [ n64Inst ] ++ extraInputs;
+
+      buildPhase = ''
+        runHook preBuild
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        mkdir -p "$outdir"
+        ${convert}
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        if [ ! -s "$outdir/${outName}" ]; then
+          echo "asset '${name}': expected $outdir/${outName}, got:" >&2
+          find filesystem -type f >&2 || true
+          exit 1
+        fi
+        echo "  ${outName}: $(stat -c%s "$outdir/${outName}") bytes"
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r filesystem $out/
+        runHook postInstall
+      '';
+
+      # Converted assets are N64 data blobs, not host ELFs.
+      dontStrip = true;
+      dontPatchELF = true;
+
+      passthru = { assetName = outName; inherit dest; };
+
+      meta.description = "converted N64 asset '${name}'";
+    };
+
+in
+rec {
+  inherit mkAsset;
+
+  # ── Models ───────────────────────────────────────────────────────────
+  # Tiny3D's importer, NOT libdragon's mkmodel. They are different runtimes:
+  # mkmodel emits .model64 for libdragon's own model API, while t3d_model_load
+  # wants .t3dm. Since the engine's 3D layer is Tiny3D, this is the right one.
+  mkModel =
+    { name
+    , src
+    , dest ? "models"
+      # A BVH lets t3d_model_bvh_query_frustum cull the model cheaply. Worth it
+      # for anything static and large; pure overhead for a single small object.
+    , bvh ? true
+      # Blender units -> integer scale. Tiny3D's default is 64.
+    , baseScale ? 64
+    , ignoreMaterials ? false
+    , ignoreTransforms ? false
+      # Every Tiny3D example follows gltf_to_t3d with `mkasset -c 2`, which the
+      # ROM must match with asset_init_compression(2) before t3d_model_load.
+      # -w 256 is the widest matching window: right for assets read whole by
+      # asset_load(), wrong (memory-hungry) only for asset_fopen() streaming.
+      # compress = 0 disables the step.
+    , compress ? 2
+    , window ? 256
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.t3dm";
+      convert = ''
+        gltf_to_t3d "$src" "$outdir/${name}.t3dm" \
+          ${lib.optionalString bvh "--bvh"} \
+          --base-scale=${toString baseScale} \
+          ${lib.optionalString ignoreMaterials "--ignore-materials"} \
+          ${lib.optionalString ignoreTransforms "--ignore-transforms"} \
+          --verbose
+        ${lib.optionalString (compress > 0) ''
+          # -o names a directory, and here it is the file's own — mkasset
+          # rewrites the .t3dm in place.
+          mkasset -v -c ${toString compress} -w ${toString window} \
+            -o "$outdir" "$outdir/${name}.t3dm"
+        ''}
+      '';
+    };
+
+  # ── Sprites / textures ───────────────────────────────────────────────
+  mkSprite =
+    { name
+    , src
+    , dest ? "sprites"
+      # RDP surface format: RGBA16, RGBA32, CI4, CI8, I4, I8, IA4, IA8, IA16.
+      # AUTO lets mksprite pick. On a 4 KB TMEM budget the format choice is
+      # usually the single biggest lever on whether a texture fits at all.
+    , format ? null
+    , compress ? 1
+    , mipmap ? null # e.g. "BOX"
+    , dither ? null
+    , texparms ? null # "s_repeats,t_repeats,s_mirror,t_mirror"
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.sprite";
+      convert = ''
+        cp "$src" "${name}.png"
+        mksprite -v \
+          ${lib.optionalString (format != null) "--format ${format}"} \
+          --compress ${toString compress} \
+          ${lib.optionalString (mipmap != null) "--mipmap ${mipmap}"} \
+          ${lib.optionalString (dither != null) "--dither ${dither}"} \
+          ${lib.optionalString (texparms != null) "--texparms ${texparms}"} \
+          -o "$outdir" "${name}.png"
+      '';
+    };
+
+  # ── Generated texture sets ───────────────────────────────────────────
+  # Two consumers, one generation, deliberately in one derivation:
+  #
+  #   $out/png/*.png                    gltf_to_t3d decodes these AT CONVERSION
+  #                                     TIME, purely to learn each texture's
+  #                                     width and height (UVs are stored as
+  #                                     pixel coords, meshConverter.cpp:120).
+  #   $out/filesystem/<dest>/*.sprite   what the ROM actually ships and what
+  #                                     sprite_load() opens at runtime.
+  #
+  # Splitting these into two derivations would mean generating the same pixels
+  # twice and hoping the two runs agree — and if they ever disagreed, the model
+  # would carry UVs scaled for one texture and the ROM would ship the other.
+  #
+  # No per-file format argument: mksprite reads the RDP format out of the
+  # filename's dot-section (grass.i8.png -> I8), and gltf_to_t3d independently
+  # derives the same .sprite name by cutting at ".png". tools/gen_textures.py
+  # documents why that convention is load-bearing.
+  mkTextures =
+    { name
+    , generator ? ../tools/gen_textures.py
+    , dest ? "textures"
+    , compress ? 1
+    }:
+    pkgs.stdenv.mkDerivation {
+      pname = "textures-${name}";
+      version = "0.1.0";
+      dontUnpack = true;
+
+      nativeBuildInputs = [ n64Inst pkgs.python3 ];
+
+      buildPhase = ''
+        runHook preBuild
+        mkdir -p png filesystem/${dest}
+        python3 ${generator} png
+        for f in png/*.png; do
+          mksprite -v --compress ${toString compress} -o filesystem/${dest} "$f"
+        done
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        count=$(ls filesystem/${dest}/*.sprite 2>/dev/null | wc -l)
+        pngs=$(ls png/*.png | wc -l)
+        if [ "$count" -ne "$pngs" ]; then
+          echo "textures '${name}': $pngs PNGs in but $count sprites out" >&2
+          ls -l png filesystem/${dest} >&2
+          exit 1
+        fi
+        # The name each tool derives must agree, or the rom:/ path baked into a
+        # model points at a sprite that is not there — which shows up on
+        # hardware as a black or garbage-textured model, not as a load error.
+        for f in png/*.png; do
+          want="filesystem/${dest}/$(basename "$f" .png).sprite"
+          [ -s "$want" ] || {
+            echo "textures '${name}': expected $want; mksprite named its" \
+                 "output differently, so the rom:/ path gltf_to_t3d bakes" \
+                 "into a model will not resolve" >&2
+            ls filesystem/${dest} >&2
+            exit 1
+          }
+        done
+        echo "  ${name}: $count sprites"
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r png filesystem $out/
+        runHook postInstall
+      '';
+
+      dontStrip = true;
+      dontPatchELF = true;
+
+      meta.description = "generated texture set '${name}' (PNG + .sprite)";
+    };
+
+  # ── Fonts ────────────────────────────────────────────────────────────
+  # The engine's GUI falls back to libdragon's built-in debug font, so this is
+  # only needed when a game wants a real typeface.
+  mkFont =
+    { name
+    , src # .ttf / .otf / BMFont
+    , dest ? "fonts"
+    , size ? 12
+    , compress ? 1
+    , range ? null # e.g. "20-7F"
+    , outline ? null
+    , monochrome ? false
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.font64";
+      convert = ''
+        # mkfont derives the output basename from the input, so the input has
+        # to be named after the asset rather than whatever the store path is.
+        cp "$src" "${name}.ttf"
+        mkfont -v \
+          --size ${toString size} \
+          --compress ${toString compress} \
+          ${lib.optionalString (range != null) "--range ${range}"} \
+          ${lib.optionalString (outline != null) "--outline ${toString outline}"} \
+          ${lib.optionalString monochrome "--monochrome"} \
+          -o "$outdir" "${name}.ttf"
+      '';
+    };
+
+  # ── Sound effects ────────────────────────────────────────────────────
+  # Report §5: VADPCM (level 1) is the right default — a 4-bit ADPCM variant
+  # decoded on the RSP's 8-lane SIMD, cheap at runtime. Opus (level 3) is for
+  # long streamed cues, not one-shots.
+  mkSound =
+    { name
+    , src # .wav / .mp3
+    , dest ? "sfx"
+    , compress ? 1
+    , resample ? null
+    , mono ? false
+    , loop ? false
+    , loopOffset ? 0
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.wav64";
+      convert = ''
+        cp "$src" "${name}.wav"
+        audioconv64 -v \
+          --wav-compress ${toString compress} \
+          ${lib.optionalString (resample != null) "--wav-resample ${toString resample}"} \
+          ${lib.optionalString mono "--wav-mono"} \
+          ${lib.optionalString loop "--wav-loop true --wav-loop-offset ${toString loopOffset}"} \
+          -o "$outdir" "${name}.wav"
+      '';
+    };
+
+  # ── Tracker music ────────────────────────────────────────────────────
+  # libdragon benchmarks a 10-channel XM at "< 3% CPU and < 10% RSP", which is
+  # why report §5 calls XM64 the pragmatic music engine for this target.
+  mkMusic =
+    { name
+    , src # .xm (MilkyTracker/OpenMPT) or .ym (Arkos Tracker 2)
+    , dest ? "music"
+    , ymCompress ? true
+    }:
+    let
+      ext = if lib.hasSuffix ".ym" (lib.toLower (toString src)) then "ym" else "xm";
+    in
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.${ext}64";
+      convert = ''
+        cp "$src" "${name}.${ext}"
+        audioconv64 -v \
+          ${lib.optionalString (ext == "ym" && ymCompress) "--ym-compress true"} \
+          -o "$outdir" "${name}.${ext}"
+      '';
+    };
+
+  # ── Arbitrary compressed blobs ───────────────────────────────────────
+  # For data a game loads itself via asset_load()/asset_fopen(): level data,
+  # dialogue tables, save templates.
+  mkRawAsset =
+    { name
+    , src
+    , dest ? "data"
+    , compress ? 1
+    , extension ? "bin"
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.${extension}";
+      convert = ''
+        cp "$src" "${name}.${extension}"
+        mkasset -v -c ${toString compress} -o "$outdir" "${name}.${extension}"
+      '';
+    };
+
+  # ── Single-file asset container ──────────────────────────────────────
+  # Packs a list of already-converted assets into one .streamdb file the
+  # runtime m64_asset layer mounts from DFS. The pack tool is the upstream C
+  # writer — the SAME binary nix/checks/streamdb.nix builds to verify the
+  # reader, so the format writer is reviewed code we already trust. No new
+  # writer to maintain.
+  #
+  # Each entry is `{ key, asset }`:
+  #   * `key`  is the StreamDB key, e.g. "models/cube.t3dm" — the same string
+  #     the ROM will pass to m64_asset_load. Convention: the key IS the path
+  #     the file would have had in loose DFS, so an asset can move between
+  #     the two containers with no code change at the call site.
+  #   * `asset` is a mkModel/mkSprite/mkSound/mkRawAsset derivation (anything
+  #     that ships a `filesystem/` directory). The file MUST live at
+  #     `<asset>/filesystem/<key>` — enforced below with an explicit check.
+  #
+  # The output derivation's `filesystem/<name>.streamdb` is what mkN64Rom's
+  # `assets` argument consumes; one .streamdb file lands in DFS like any
+  # loose asset would.
+  mkStreamdb =
+    { name
+    , entries
+    , dest ? ""
+    }:
+    pkgs.stdenv.mkDerivation {
+      pname = "streamdb-${name}";
+      version = "0.1.0";
+      nativeBuildInputs = [ pkgs.gcc pkgs.python3 ];
+      dontUnpack = true;
+
+      buildPhase = ''
+        runHook preBuild
+        set -euo pipefail
+
+        # Validate every entry's file exists before invoking the packer, so
+        # a mis-specified `key` (e.g. "models/cube.t3dm" when the asset's
+        # dest/name produced "models/Cube.t3dm") fails with a clear message
+        # rather than a streamdb_insert error.
+        ${lib.concatMapStrings (e: ''
+          if [ ! -s "${e.asset}/filesystem/${e.key}" ]; then
+            echo "mkStreamdb: key '${e.key}' not found under ${e.asset}/filesystem/" >&2
+            find ${e.asset}/filesystem -type f >&2 || true
+            exit 1
+          fi
+        '') entries}
+
+        # Build the upstream pack tool. Same recipe as nix/checks/streamdb.nix.
+        gcc -O2 -std=gnu11 -I${streamdbSrc}/C/include -o pack \
+            ${./../streamdb-embedded/test/pack.c} \
+            ${streamdbSrc}/C/src/streamdb.c -lpthread
+
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        mkdir -p "$outdir"
+
+        # pack: `pack <out> <key> <file> [<key> <file>...]`
+        ./pack "$outdir/${name}.streamdb" \
+          ${lib.escapeShellArgs (builtins.concatMap (e:
+            [ e.key "${e.asset}/filesystem/${e.key}" ]
+          ) entries)} > /dev/null
+
+        # Sanity: the file exists and is non-empty.
+        if [ ! -s "$outdir/${name}.streamdb" ]; then
+          echo "mkStreamdb: $outdir/${name}.streamdb was not produced" >&2
+          exit 1
+        fi
+        echo "  ${name}.streamdb: $(stat -c%s "$outdir/${name}.streamdb") bytes, ${toString (builtins.length entries)} entries"
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        # The packer prints one "packed" line per insert; if any insert
+        # failed it would have exited non-zero, so this is just a count
+        # cross-check against the file's own index. We do that by reading
+        # the header's doc count via Python — keeps the check hermetic to
+        # the format, not to our pack wrapper.
+        python3 - "$outdir/${name}.streamdb" <<'PY'
+        import struct, sys
+        with open(sys.argv[1], "rb") as f:
+            slot = f.read(128)
+        assert slot[:4] == b"STDB", "bad magic"
+        assert struct.unpack_from("<I", slot, 4)[0] == 3, "bad version"
+        idx_off, idx_len = struct.unpack_from("<QQ", slot, 40)
+        f = open(sys.argv[1], "rb"); f.seek(idx_off)
+        idx = f.read(idx_len)
+        n = struct.unpack_from("<Q", idx, 0)[0]
+        print(f"  index: {n} documents")
+        PY
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r filesystem $out/
+        runHook postInstall
+      '';
+
+      dontStrip = true;
+      dontPatchELF = true;
+
+      passthru = { assetName = "${name}.streamdb"; inherit dest; };
+
+      meta.description = "StreamDB container '${name}' (${toString (builtins.length entries)} assets)";
+    };
+}

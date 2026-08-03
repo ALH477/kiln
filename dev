@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MPL-2.0
+# ./dev — the M64 developer CLI. One command for the whole loop:
+#   ./dev build [rom]        build a ROM (default: hello)
+#   ./dev run   <rom>        boot it in Ares
+#   ./dev deploy <rom>       upload to a SummerCart64
+#   ./dev debug              read debugf() stdio from the cart
+#   ./dev check              everything CI runs (the pre-push gate)
+#   ./dev doctor             report toolchain / tools / hardware
+# Zero deps; auto-enters `nix develop` when the toolchain isn't on PATH.
+set -uo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO"
+
+usage() {
+  cat <<'H'
+./dev — the M64 developer CLI
+  build [rom]              nix build .#<rom>            (default: hello)
+  shot  <rom> [out] [s]    boot in Ares on Hyprland, screenshot + pixel stats
+  run   <rom>              boot the ROM in Ares (report §7: iterate here,
+                           but never trust an emulator for audio work)
+  deploy <rom>             sc64deployer upload -> SummerCart64
+  debug                    sc64deployer debug — debugf() stdio over USB
+  faust [target]           show a voice's gate output + cycle budget
+  bake  [target]           show baked VADPCM assets + reference render
+  check                    nix flake check (the pre-push gate)
+  doctor                   toolchain, libdragon, cart presence, versions
+Examples:
+  ./dev build hello        ./dev run hello        ./dev deploy hello
+H
+}
+
+case "${1:-help}" in help | -h | --help) usage; exit 0 ;; esac
+
+# ── auto-enter nix develop if the cross toolchain isn't available ────────────
+have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
+if [ "${DEV_IN_NIX:-}" != 1 ] && ! have_toolchain; then
+  export DEV_IN_NIX=1
+  exec nix develop --command "$REPO/dev" "$@"
+fi
+
+die() { echo "dev: $*" >&2; exit 1; }
+
+# Resolve a ROM name to a .z64 path, building it if needed.
+rom_path() {
+  local name="${1:-hello}" out
+  out="$(nix build --no-link --print-out-paths ".#$name")" || die "build of '$name' failed"
+  local z64
+  z64="$(find "$out" -maxdepth 1 -name '*.z64' | head -1)"
+  [ -n "$z64" ] || die "no .z64 in $out"
+  echo "$z64"
+}
+
+cmd="$1"; shift
+case "$cmd" in
+  build)
+    nix build --print-out-paths ".#${1:-hello}"
+    ;;
+
+  run)
+    z64="$(rom_path "${1:-hello}")" || exit 1
+    echo "dev: booting $z64 in Ares"
+    echo "dev: NOTE — emulators reconstruct the AI clock divider and RDRAM"
+    echo "dev:        contention inexactly. Validate audio on hardware."
+    nix run .#ares -- "$z64"
+    ;;
+
+  shot)
+    # Boot the ROM in Ares on the live Hyprland session and capture the window.
+    rom="${1:-hello}"; out="${2:-$rom.png}"; settle="${3:-8}"
+    z64="$(rom_path "$rom")" || exit 1
+    ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}" \
+      bash "$REPO/tools/n64-shot.sh" "$z64" "$out" "$settle" || exit 1
+
+    # Report what actually got rendered. This exists because eyeballing a
+    # downscaled screenshot of a 640x240 console on a mostly-black screen is
+    # genuinely misleading — it reads as "black" when the text is right there.
+    # Pixel counts do not have that failure mode.
+    python3 - "$out" <<'PY'
+import sys
+try:
+    from PIL import Image
+except ImportError:
+    sys.exit("(install pillow for pixel stats)")
+from collections import Counter
+im = Image.open(sys.argv[1]).convert("RGB")
+data = list(im.getdata())
+top = Counter(data).most_common(4)
+total = len(data)
+print("── frame stats ──")
+print("  size: %dx%d" % im.size)
+for colour, n in top:
+    print("  rgb%-16s %6.2f%%" % (str(colour), 100.0 * n / total))
+nonblack = sum(n for c, n in Counter(data).items() if sum(c) > 60)
+print("  non-black: %.2f%% (%d px)" % (100.0 * nonblack / total, nonblack))
+if nonblack < total * 0.0005:
+    print("  WARNING: frame is essentially empty — the ROM may not be rendering")
+PY
+    ;;
+
+  deploy)
+    z64="$(rom_path "${1:-hello}")" || exit 1
+    echo "dev: uploading $z64 to SummerCart64"
+    nix run .#sc64 -- upload "$z64"
+    ;;
+
+  debug)
+    echo "dev: reading debugf() stdio (ctrl-c to stop)"
+    nix run .#sc64 -- debug
+    ;;
+
+  faust)
+    # Compile a live on-console voice and show its gate + budget report.
+    name="${1:-ks-voice}"
+    out="$(nix build --no-link --print-out-paths ".#$name")" || exit 1
+    echo "── undefined symbols (the no-libm gate reads these) ──"
+    cat "$out/share/undefined.txt"
+    echo "── static cycle budget ──"
+    cat "$out/share/budget.txt"
+    echo
+    echo "object: $out/lib/"
+    echo "NOTE: the cycle figure is a static instruction count weighted by the"
+    echo "      VR4300 latency table. It models neither cache nor the ~640ns"
+    echo "      RDRAM latency. Profile on hardware with TICKS for real numbers."
+    ;;
+
+  bake)
+    # Render an instrument offline at full quality and VADPCM-encode it.
+    name="${1:-ks-baked}"
+    out="$(nix build --no-link --print-out-paths ".#$name")" || exit 1
+    echo "── baked assets (drop into a ROM via mkN64Rom's \`assets\`) ──"
+    ls -l "$out/filesystem/"
+    echo "── full-quality reference render (golden A/B source) ──"
+    ls -l "$out/share/"
+    ;;
+
+  check)
+    nix flake check --print-build-logs
+    ;;
+
+  doctor)
+    echo "── toolchain ──"
+    if command -v mips64-elf-gcc >/dev/null 2>&1; then
+      mips64-elf-gcc --version | head -1
+      echo "  target: $(mips64-elf-gcc -dumpmachine)"
+    else
+      echo "  MISSING (run inside 'nix develop')"
+    fi
+    echo "── libdragon ──"
+    echo "  N64_INST=${N64_INST:-<unset>}"
+    for t in n64tool mkdfs audioconv64 n64sym; do
+      if [ -x "${N64_INST:-}/bin/$t" ]; then echo "  $t: ok"; else echo "  $t: MISSING"; fi
+    done
+    echo "── hardware ──"
+    if lsusb 2>/dev/null | grep -qi '0403:6014'; then
+      echo "  SummerCart64 (FT232H 0403:6014): present"
+    else
+      echo "  SummerCart64: not detected"
+      echo "  (if it is plugged in, you likely need nixosModules.n64-flashcart)"
+    fi
+    ;;
+
+  *)
+    echo "dev: unknown command '$cmd'" >&2
+    usage
+    exit 1
+    ;;
+esac

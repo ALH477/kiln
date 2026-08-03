@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# nix/rom.nix — mkN64Rom: build a libdragon project into a bootable .z64.
+#
+# ── Why this takes a Makefile instead of generating one ─────────────────
+# libdragon's whole build model is `include $(N64_INST)/include/n64.mk` plus a
+# handful of variables, and every upstream example, tutorial, and third-party
+# engine (Tiny3D, Pyrite64) is shaped that way. Generating Makefiles here would
+# mean re-implementing n64.mk's asset rules, DFS packing, ELF compression and
+# symbol table generation — and would silently diverge from upstream on every
+# libdragon bump. So a project brings its own Makefile, exactly as it would
+# outside Nix, and this function supplies the hermetic environment around it:
+# a pinned toolchain, a pinned libdragon, and the two prefix variables wired up.
+#
+# `nix flake init -t <this-flake>#hello` gives you a working Makefile to start
+# from.
+{ pkgs, n64Inst, toolchain }:
+
+{ name
+, src
+, version ? "0.1.0"
+  # Overrides for n64.mk's ROM header variables. Passed on the make command
+  # line, so they beat whatever the project's Makefile sets.
+, romTitle ? null # N64_ROM_TITLE — max 20 chars, ASCII; goes in the ROM header
+, saveType ? null # none eeprom4k eeprom16 sram256k sram768k sram1m flashram
+, regionFree ? null # true -> boots on any console region
+  # Derivations that expose a `filesystem/` directory (e.g. mkBakedInstrument
+  # outputs). Their contents are merged into the project's `filesystem/` before
+  # make runs, so n64.mk's mkdfs rule packs them into the ROM's DragonFS image.
+  # Kept as a list of derivations rather than paths so a ROM's asset
+  # dependencies are visible in the derivation graph.
+, assets ? [ ]
+, makeFlags ? [ ]
+, nativeBuildInputs ? [ ]
+, ...
+}@args:
+
+let
+  lib = pkgs.lib;
+
+  # n64.mk interpolates these unquoted (`n64tool -t $(N64_ROM_TITLE)`), so a
+  # title containing spaces has to carry its own literal double quotes — which
+  # is exactly what libdragon's own examples do (`N64_ROM_TITLE = "Audio
+  # Player"`). Without them n64tool sees "M64" and "Hello" as separate args and
+  # fails with "Need output flag before first file".
+  romVars =
+    lib.optional (romTitle != null) ''N64_ROM_TITLE="${romTitle}"''
+    ++ lib.optional (saveType != null) "N64_ROM_SAVETYPE=${saveType}"
+    ++ lib.optional (regionFree != null && regionFree) "N64_ROM_REGIONFREE=true";
+
+  passthruArgs = builtins.removeAttrs args [
+    "name"
+    "src"
+    "version"
+    "romTitle"
+    "saveType"
+    "regionFree"
+    "assets"
+    "makeFlags"
+    "nativeBuildInputs"
+  ];
+
+in
+pkgs.stdenv.mkDerivation (passthruArgs // {
+  pname = name;
+  inherit version src;
+
+  nativeBuildInputs = [ toolchain n64Inst pkgs.gnumake ] ++ nativeBuildInputs;
+
+  # See libdragon.nix — hardening is meaningless and actively harmful for a
+  # bare-metal ROM. This has to be set on the ROM build too, not just on
+  # libdragon's, because it governs the flags our cc-wrapper injects into every
+  # cross compile the project's Makefile performs.
+  hardeningDisable = [ "all" ];
+
+  # The two variables n64.mk keys off. Keeping them distinct (rather than
+  # merging both trees into one prefix) is exactly the case n64.mk's
+  # `N64_GCCPREFIX ?= $(N64_INST)` override exists for.
+  N64_INST = n64Inst;
+  N64_GCCPREFIX = toolchain;
+
+  inherit makeFlags;
+
+  dontConfigure = true;
+
+  # nixpkgs' fixupPhase assumes host ELFs. Left alone it runs `strip` over the
+  # MIPS ELF we deliberately keep for symbolised crash backtraces (n64sym /
+  # GDB), and `patchelf` noisily fails on it since a ROM binary is statically
+  # linked with no .dynamic section. Neither has anything useful to do here.
+  dontStrip = true;
+  dontPatchELF = true;
+
+  buildPhase = args.buildPhase or ''
+    runHook preBuild
+${lib.optionalString (assets != [ ]) ''
+    mkdir -p filesystem
+    for a in ${lib.escapeShellArgs (map toString assets)}; do
+      if [ ! -d "$a/filesystem" ]; then
+        echo "mkN64Rom: asset $a has no filesystem/ directory" >&2
+        exit 1
+      fi
+      cp -rL "$a"/filesystem/. filesystem/
+    done
+    chmod -R u+w filesystem
+    echo "assets staged into filesystem/:"
+    ls -l filesystem
+''}
+    make -j"$NIX_BUILD_CORES" ${lib.escapeShellArgs romVars} ''${makeFlags[@]}
+    runHook postBuild
+  '';
+
+  # A libdragon build leaves the ROM in the project root and the intermediate
+  # ELF (which n64sym/GDB need for symbolised backtraces) under build/.
+  installPhase = args.installPhase or ''
+    runHook preInstall
+    mkdir -p $out/{,lib/debug}
+
+    shopt -s nullglob
+    roms=(*.z64)
+    if [ ''${#roms[@]} -eq 0 ]; then
+      echo "mkN64Rom: no .z64 produced — check the project's Makefile target" >&2
+      exit 1
+    fi
+    cp "''${roms[@]}" $out/
+
+    # Keep the ELF + symbol table: without them a crash on hardware gives you
+    # raw addresses instead of a backtrace.
+    for f in build/*.elf build/*.sym *.elf *.sym; do
+      cp "$f" $out/lib/debug/ 2>/dev/null || true
+    done
+    runHook postInstall
+  '';
+
+  passthru = (args.passthru or { }) // {
+    inherit n64Inst toolchain;
+    romFile = "${placeholder "out"}/${name}.z64";
+  };
+
+  meta = (args.meta or { }) // {
+    platforms = pkgs.lib.platforms.linux;
+  };
+})
