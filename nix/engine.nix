@@ -51,7 +51,8 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_gui.h \
              mips64-elf/include/m64/m64_actor.h \
              mips64-elf/include/m64/m64_room.h \
-             mips64-elf/include/m64/m64_asset.h; do
+             mips64-elf/include/m64/m64_asset.h \
+             mips64-elf/include/m64/m64_audio.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';

@@ -238,11 +238,15 @@ rec {
 
       installPhase = ''
         runHook preInstall
-        mkdir -p $out/filesystem $out/share
+        mkdir -p $out/filesystem $out/share $out/nix-support
         cp filesystem/${name}.wav64 $out/filesystem/
         # Keep the full-quality render: it is the golden reference for report
         # §Stage 3 A/B validation of any hand-ported RSP kernel.
         cp ${name}.wav $out/share/${name}-reference.wav
+        # Export the sample rate so mkN64Rom can cross-check it against the
+        # ROM's audio_init rate at build time. A mismatch causes pitch/time
+        # drift, not silence — a subtle defect that is hard to catch by ear.
+        echo ${toString sampleRate} > $out/nix-support/audio-rate
         runHook postInstall
       '';
 
@@ -365,12 +369,10 @@ rec {
           # objdump labels look like: 00000000 <framename>:
           $0 ~ "<" fname ">:" { in_frame = 1; next }
           in_frame && /^$/ { in_frame = 0 }
-          in_frame {
-            /\tdiv\.s|\tsqrt\.s/  { c += 29; n++ }
-            /\tmul\.s/            { c += 5;  n++ }
-            /\tadd\.s|\tsub\.s/   { c += 3;  n++ }
-            /\tmov\.s|\tneg\.s|\tabs\.s|\tc\.[a-z]+\.s/ { c += 1; n++ }
-          }
+          in_frame && /\tdiv\.s|\tsqrt\.s/  { c += 29; n++ }
+          in_frame && /\tmul\.s/            { c += 5;  n++ }
+          in_frame && /\tadd\.s|\tsub\.s/   { c += 3;  n++ }
+          in_frame && /\tmov\.s|\tneg\.s|\tabs\.s|\tc\.[a-z]+\.s/ { c += 1; n++ }
           END {
             printf "  fp instructions in frame(): %d\n", n
             printf "  weighted cycles (frame only): %d\n", c

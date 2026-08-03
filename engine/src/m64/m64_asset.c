@@ -25,8 +25,22 @@ struct M64Asset {
 /* One static reader is enough for an N64 ROM: there is exactly one asset DB
  * per ROM, mounted at boot, unmounted at shutdown. If a game ever wants two
  * DBs (e.g. a level pack swapped mid-game) this becomes a small pool; until
- * then a single static is honest about the actual usage and free. */
+ * then a single static is honest about the actual usage and free.
+ *
+ * Only used by the DFS-backed open path; the host round-trip check builds
+ * this file with the DFS backend off and constructs its own M64Asset, so
+ * gate the static on the same macro to avoid an unused-variable warning
+ * under -Werror. */
+#if defined(STREAMDB_EMB_BACKEND_DFS) && (STREAMDB_EMB_BACKEND_DFS + 0)
 static struct M64Asset g_db;
+#endif
+
+/* The DFS-backed open/close/probe are only compiled when the DFS backend is
+ * linked in. The host round-trip check (nix/checks/m64-asset.nix) builds
+ * m64_asset.c with -DSTREAMDB_EMB_BACKEND_DFS=0 and provides its own
+ * stdio-backed M64Asset construction; the accessors below (count/size/load/
+ * find_suffix/sprite/model) are backend-agnostic and compile either way. */
+#if defined(STREAMDB_EMB_BACKEND_DFS) && (STREAMDB_EMB_BACKEND_DFS + 0)
 
 static streamdb_emb_io_t io_make_dfs(const char *path, void *storage)
 {
@@ -83,6 +97,8 @@ void m64_asset_close(M64Asset *db)
     streamdb_emb_io_dfs_close(&db->db.io);
     db->open = 0;
 }
+
+#endif /* STREAMDB_EMB_BACKEND_DFS */
 
 uint32_t m64_asset_count(const M64Asset *db)
 {

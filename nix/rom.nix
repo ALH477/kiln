@@ -32,6 +32,13 @@
 , assets ? [ ]
 , makeFlags ? [ ]
 , nativeBuildInputs ? [ ]
+  # The ROM's audio_init sample rate. If non-null, the build cross-checks
+  # that every asset in `assets` that exports an audio rate (via
+  # nix-support/audio-rate) matches. A mismatch causes pitch/time drift, not
+  # silence — a subtle defect that is hard to catch by ear. Baked instruments
+  # from mkBakedInstrument export this; mkSound/mkMusic do not (they inherit
+  # the rate from their source WAV, which is the ROM author's responsibility).
+, audioRate ? null
 , ...
 }@args:
 
@@ -104,6 +111,21 @@ ${lib.optionalString (assets != [ ]) ''
     chmod -R u+w filesystem
     echo "assets staged into filesystem/:"
     ls -l filesystem
+''}
+${lib.optionalString (audioRate != null) ''
+    # Cross-check baked instrument rates against the ROM's declared audio rate.
+    # A mismatch causes pitch/time drift, not silence.
+    for a in ${lib.escapeShellArgs (map toString assets)}; do
+      if [ -f "$a/nix-support/audio-rate" ]; then
+        rate=$(cat "$a/nix-support/audio-rate")
+        if [ "$rate" != "${toString audioRate}" ]; then
+          echo "FAIL: asset $a baked at ''${rate} Hz but ROM audioRate is ${toString audioRate} Hz" >&2
+          echo "       A mismatch causes pitch/time drift, not silence." >&2
+          exit 1
+        fi
+        echo "  audio rate check: $a (''${rate} Hz) OK"
+      fi
+    done
 ''}
     make -j"$NIX_BUILD_CORES" ${lib.escapeShellArgs romVars} ''${makeFlags[@]}
     runHook postBuild

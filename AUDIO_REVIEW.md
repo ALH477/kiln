@@ -97,30 +97,46 @@ must use DFS (`rom:/` paths), not StreamDB.
 
 ## 3. Implementation Plan
 
-### Phase 3: Make Cycle Budget Gate Fail ✏️
+### Phase 3: Make Cycle Budget Gate Fail ✅
 
-**Status**: Not started
+**Status**: Complete
 
 **Goal**: Promote the cycle budget from advisory to a hard build failure
 when exceeded, scoped to the `frame<name>` function only.
 
 **Changes**:
-- `nix/faust.nix:354-372`: Scope the AWK script to the `frame<name>` function
-  in the objdump output. Add a `fail=1` when weighted cycles > budget.
+- `nix/faust.nix`: Scoped the AWK cycle estimator to the `frame<name>`
+  function in objdump output (excludes init/constructor code).
+- Added `fail=1` when frame-scoped weighted cycles > declared budget.
+- `engine/Makefile`: Added `-DSTREAMDB_EMB_BACKEND_DFS=1` to fix pre-existing
+  build failure (m64_asset.c couldn't see DFS backend declarations).
 
-### Phase 4: Sample Rate Enforcement ✏️
+**Results**:
+- KS voice frame-scoped: 95 FP instructions, **259 weighted cycles**
+  (vs old whole-object count of 333 — init code was inflating by ~28%)
+- Budget: 500 cycles/sample — passes with margin
+- Gate now hard-fails if a voice exceeds its declared budget
 
-**Status**: Not started
+### Phase 4: Sample Rate Enforcement ✅
+
+**Status**: Complete
 
 **Goal**: Build-time check that baked instrument rates match the ROM's
 declared audio rate.
 
 **Changes**:
-- `nix/faust.nix:mkBakedInstrument`: Write `sampleRate` to
-  `$out/nix-support/audio-rate`
-- `nix/rom.nix:mkN64Rom`: Add `audioRate ? null` parameter. If non-null,
-  cross-check against all assets that expose `nix-support/audio-rate`.
-- `examples/assets-demo/main.c`: Fix 44100 → 32000
+- `nix/faust.nix:mkBakedInstrument`: Writes `sampleRate` to
+  `$out/nix-support/audio-rate` in install phase.
+- `nix/rom.nix:mkN64Rom`: Added `audioRate ? null` parameter. If non-null,
+  cross-checks against all assets that expose `nix-support/audio-rate`.
+  A mismatch hard-fails the build with a clear message.
+- `flake.nix`: Added `audioRate = 32000` to `audio` and `assets-demo` ROMs.
+- `examples/assets-demo/main.c`: Fixed 44100 → 32000.
+
+**Results**:
+- `audio` ROM: rate check passes (32000 Hz match)
+- `assets-demo` ROM: builds with 32000 Hz, `demoSound` (mkSound) correctly
+  skipped (no `nix-support/audio-rate` file)
 
 ### Phase 1: Engine Audio Layer ✏️
 
@@ -206,4 +222,5 @@ an example ROM that links and plays a live voice.
 
 | Date | Phase | Change |
 |------|-------|--------|
-| (initial) | — | Document created from comprehensive review |
+| 2026-08-02 | Phase 3 | Cycle budget gate now hard-fails, scoped to frame() function. KS voice: 259 cycles (was 333 whole-object). Fixed pre-existing streamdb backend build issue. |
+| 2026-08-02 | Phase 4 | Sample rate enforcement: mkN64Rom audioRate param + mkBakedInstrument rate export. Fixed assets-demo 44100→32000. |

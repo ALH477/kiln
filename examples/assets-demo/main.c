@@ -16,7 +16,7 @@
 
 #define SCREEN_W 320
 #define SCREEN_H 240
-#define SAMPLE_RATE 44100
+#define SAMPLE_RATE 32000
 #define CH_BLIP 0
 
 int main(void)

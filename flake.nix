@@ -295,6 +295,7 @@
           src = ./examples/audio;
           romTitle = "M64 Audio";
           assets = [ ks-baked ];
+          audioRate = 32000;
         };
 
         # 3D + 2D GUI worked example.
@@ -317,6 +318,7 @@
           src = ./examples/assets-demo;
           romTitle = "M64 Assets";
           assets = [ demoModel demoSprite demoSound ];
+          audioRate = 32000;
         };
 
         # Phase B verification: the actor system (engine/src/m64/m64_actor.*)
@@ -353,7 +355,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo;
+          inherit toolchain hello audio engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -377,7 +379,7 @@
         lib = {
           inherit mkN64Rom;
           inherit (faust) mkFaustVoice mkBakedInstrument mkOfflineRenderer;
-          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset;
+          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset mkStreamdb;
         };
 
         checks = {
@@ -412,6 +414,17 @@
             rom = rooms-demo;
             name = "rooms-demo";
           };
+          rom-streamdb-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = streamdb-demo;
+            name = "streamdb-demo";
+          };
+          m64-asset = import ./nix/checks/m64-asset.nix {
+            inherit pkgs;
+            streamdbSrc = streamdb;
+            embeddedSrc = ./streamdb-embedded;
+            engineSrc = ./engine;
+          };
           streamdb = import ./nix/checks/streamdb.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
@@ -421,7 +434,7 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo;
+          inherit hello audio engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo;
         };
 
         apps = {
