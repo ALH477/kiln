@@ -459,6 +459,14 @@
           romTitle = "M64 Engine";
         };
 
+        # Open-world streaming demo: scratch allocator, refcounted cache,
+        # tile residency manager, LOD selector, two-pass renderer.
+        openworld-demo = mkN64Rom {
+          name = "openworld-demo";
+          src = ./examples/openworld-demo;
+          romTitle = "M64 Open World";
+        };
+
         # XM64 tracker music playback example. mkMusic converts the .xm
         # via audioconv64; the ROM plays it through libdragon's XM64 player.
         test-music = assetLib.mkMusic {
@@ -681,7 +689,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;

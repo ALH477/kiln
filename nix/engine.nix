@@ -64,7 +64,14 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_event.h \
              mips64-elf/include/m64/m64_target.h \
              mips64-elf/include/m64/m64_player.h \
-             mips64-elf/include/m64/m64_physics.h; do
+             mips64-elf/include/m64/m64_physics.h \
+             mips64-elf/include/m64/m64_texanim.h \
+             mips64-elf/include/m64/m64_vanim.h \
+             mips64-elf/include/m64/m64_scratch.h \
+             mips64-elf/include/m64/m64_cache.h \
+             mips64-elf/include/m64/m64_tile.h \
+             mips64-elf/include/m64/m64_lod.h \
+             mips64-elf/include/m64/m64_twopass.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';
