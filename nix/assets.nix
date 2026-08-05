@@ -453,4 +453,99 @@ rec {
 
       meta.description = "StreamDB container '${name}' (${toString (builtins.length entries)} assets)";
     };
+
+  # ── Texture atlas (flipbook frames) ─────────────────────────────────
+  # Slices a sprite sheet PNG into individual .sprite files for flipbook
+  # animation. Each frame becomes `<name>_NN.sprite` in the output. The
+  # runtime loads them with sprite_load and swaps via rdpq_set_lookup_address.
+  #
+  # The sheet must be a grid of equal-sized frames. `cols` and `rows`
+  # describe the grid; `frameW` and `frameH` are the per-frame dimensions
+  # (sheet_w / cols and sheet_h / rows, passed explicitly to avoid a Python
+  # dependency for the math).
+  mkTextureAtlas =
+    { name
+    , src          # sprite sheet PNG
+    , dest ? "sprites"
+    , cols
+    , rows
+    , frameW
+    , frameH
+    , format ? null
+    , compress ? 1
+    }:
+    let
+      frameCount = cols * rows;
+      padIdx = n: lib.concatStringsSep "" (lib.genList (i:
+        if i < 2 - lib.stringLength (toString n) then "0" else ""
+      ) (lib.range 0 1)) + toString n;
+    in
+    pkgs.stdenv.mkDerivation {
+      pname = "atlas-${name}";
+      version = "0.1.0";
+      inherit src;
+      dontUnpack = true;
+
+      nativeBuildInputs = [ n64Inst pkgs.imagemagick ];
+
+      buildPhase = ''
+        runHook preBuild
+        mkdir -p "$outdir"
+        outdir="filesystem/${dest}"
+        mkdir -p "$outdir"
+
+        # Slice the sheet into individual frame PNGs using ImageMagick.
+        for i in $(seq 0 ${toString (frameCount - 1)}); do
+          col=$((i % ${toString cols}))
+          row=$((i / ${toString cols}))
+          x=$((col * ${toString frameW}))
+          y=$((row * ${toString frameH}))
+          idx=$(printf "%02d" "$i")
+          magick "$src" -crop ${toString frameW}x${toString frameH}+''${x}+''${y} +repage \
+            "frame_''${idx}.png"
+        done
+
+        # Convert each frame to a .sprite.
+        for f in frame_*.png; do
+          idx="''${f#frame_}"
+          idx="''${idx%.png}"
+          mksprite -v \
+            ${lib.optionalString (format != null) "--format ${format}"} \
+            --compress ${toString compress} \
+            -o "$outdir" "$f"
+          # Rename to the final <name>_NN.sprite pattern.
+          mv "$outdir/$(basename "$f" .png).sprite" "$outdir/${name}_''${idx}.sprite"
+        done
+
+        rm -f frame_*.png
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        outdir="filesystem/${dest}"
+        count=$(ls "$outdir"/${name}_*.sprite 2>/dev/null | wc -l)
+        if [ "$count" -ne ${toString frameCount} ]; then
+          echo "mkTextureAtlas '${name}': expected ${toString frameCount} sprites, got $count" >&2
+          exit 1
+        fi
+        echo "  ${name}: $count frames"
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r filesystem $out/
+        runHook postInstall
+      '';
+
+      dontStrip = true;
+      dontPatchELF = true;
+
+      passthru = { inherit dest; frameCount = frameCount; };
+
+      meta.description = "texture atlas '${name}' (${toString frameCount} frames)";
+    };
 }

@@ -63,7 +63,8 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_sound.h \
              mips64-elf/include/m64/m64_event.h \
              mips64-elf/include/m64/m64_target.h \
-             mips64-elf/include/m64/m64_player.h; do
+             mips64-elf/include/m64/m64_player.h \
+             mips64-elf/include/m64/m64_physics.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';

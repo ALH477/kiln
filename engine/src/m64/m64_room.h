@@ -42,6 +42,7 @@
 
 #include "m64_engine.h"
 #include "m64_actor.h"
+#include "m64_clip.h"
 #include "m64_dict.h"
 
 #ifdef __cplusplus
@@ -53,6 +54,14 @@ extern "C" {
 #define M64_ROOM_MAX_NEIGHBOURS  8
 #define M64_ROOM_MAX_SPAWNS     16
 #define M64_ROOM_MAX_LOADED     64
+
+/* Cap on the total number of brushes the room system will install into the
+ * clip world at once. Sized as max_loaded × brushes/room — 512 covers
+ * 64 × 8 which is generous for OoT-room-scale. Override before including the
+ * header if a game ships denser rooms. See m64_room.c's rebuild_clip_world. */
+#ifndef M64_ROOM_MAX_CLIP_BRUSHES
+#define M64_ROOM_MAX_CLIP_BRUSHES 512
+#endif
 
 /** A single actor spawn template — the data the user's spawn callback
  *  forwards into m64_actor_spawn_in_room. Carries a typed key/value dict so
@@ -68,7 +77,12 @@ typedef struct {
 /** One room. The user fills one of these per logical area in M64SceneArea,
  *  then hands the array to m64_room_system_init. The engine never reads
  *  `user_mesh` — it only sets it to NULL on init, calls on_load to populate,
- *  and on_unload to clear. */
+ *  and on_unload to clear. `brushes` is the collision analogue: on_load
+ *  populates it with the room's M64Brush array (caller-owned; on_unload
+ *  frees it). The engine copies each loaded room's brushes into one
+ *  module-static world buffer and installs it via m64_clip_set_world, so a
+ *  ROM using m64_room never calls m64_clip_set_world itself. A room with no
+ *  collision leaves brushes == NULL and brush_count == 0. */
 typedef struct M64Room {
     uint8_t id;       /* its own index in M64SceneArea.rooms[] */
     uint8_t flags;
@@ -82,6 +96,8 @@ typedef struct M64Room {
     M64RoomSpawn spawns[M64_ROOM_MAX_SPAWNS];
 
     void *user_mesh;  /* set by on_load, cleared by on_unload */
+    M64Brush *brushes; /* set by on_load (or pre-filled at construction),  */
+    uint16_t  brush_count; /*   cleared by on_unload. Caller-owned.        */
 } M64Room;
 
 /** Streaming state. Embedded by value into M64SceneArea so the area and its
@@ -115,12 +131,19 @@ typedef void (*M64RoomDrawFn)  (M64Room *room, void *user);
  *  max_loaded fit the module's fixed-size tables. The user passes one
  *  `user_ctx` pointer that round-trips through every callback — the same
  *  trick as the actor system's profile table, so callbacks can avoid
- *  globals. `draw_fn` may be NULL if the room has no per-frame geometry. */
+ *  globals. `draw_fn` may be NULL if the room has no per-frame geometry.
+ *
+ *  `owns_clip_world`: when non-zero (the normal case), the room system
+ *  concatenates each loaded room's `brushes` into one module-static buffer
+ *  and installs it via m64_clip_set_world after every load and unload — so
+ *  the ROM never calls m64_clip_set_world itself. Pass 0 only if the ROM
+ *  wants to mix m64_room with a hand-managed clip world; doing both is
+ *  exclusive, the next room update will clobber a manual install. */
 void m64_room_system_init(M64RoomSystem *sys, M64Room *rooms, uint16_t room_count,
                           uint16_t max_loaded,
                           M64RoomLoadFn load_fn, M64RoomUnloadFn unload_fn,
                           M64RoomSpawnFn spawn_fn, M64RoomDrawFn draw_fn,
-                          void *user_ctx);
+                          void *user_ctx, int owns_clip_world);
 
 /** Per-frame update. Three strict-order passes:
  *   (A) compute desired set from camera-AABB-intersect + neighbours

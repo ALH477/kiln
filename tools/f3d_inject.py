@@ -52,8 +52,14 @@ Usage:
   e.g. --material Checker=tex0_shade,tex=textures/checker.i8.png,size=32
        --material Water=tex0_alpha,tex=textures/water.ia8.png,size=32,mode=transparent
        --material GoblinSkin=shade
+       --material Fire=tex0_shade,useRef=1,refAddress=0x01,refSize=32:32
 
   --material '*=shade' applies a preset to every material not named explicitly.
+
+  useRef=1 marks the texture as a dynamic reference (flipbook/offscreen).
+  The model loads no texture at conversion time; at runtime the engine
+  swaps which sprite is bound via rdpq_set_lookup_address(refAddress).
+  Requires a textured preset (tex0_shade / tex0_alpha).
 """
 
 import json
@@ -159,19 +165,24 @@ def tile_axis(size, clamp=False, mirror=False, shift=0):
 
 def build_f3d_mat(preset, tex=None, size=32, mode="opaque", filt="bilerp",
                   cull="back", fog=False, clamp=False, mirror=False,
-                  prim=None, env=None, blend=None):
+                  prim=None, env=None, blend=None,
+                  useRef=False, refAddress="0x01", refSize=None):
     if preset not in PRESETS:
         raise SystemExit(f"f3d_inject: unknown preset '{preset}'; "
                          f"have {', '.join(sorted(PRESETS))}")
     spec = PRESETS[preset]
 
-    if spec["textured"] and not tex:
+    if spec["textured"] and not tex and not useRef:
         raise SystemExit(f"f3d_inject: preset '{preset}' names TEX0 in its "
-                         f"combiner, so it needs tex=<path/to/x.png>")
+                          f"combiner, so it needs tex=<path/to/x.png> or "
+                          f"useRef=1")
     if tex and not spec["textured"]:
         raise SystemExit(f"f3d_inject: preset '{preset}' has no TEX0 in its "
-                         f"combiner, so tex= would be silently ignored "
-                         f"(isCCUsingTexture gates whether tex0 is read at all)")
+                          f"combiner, so tex= would be silently ignored "
+                          f"(isCCUsingTexture gates whether tex0 is read at all)")
+    if useRef and not spec["textured"]:
+        raise SystemExit(f"f3d_inject: useRef=1 requires a textured preset "
+                          f"(one with TEX0 in its combiner)")
 
     mat = {
         "combiner1": spec["combiner1"],
@@ -199,7 +210,17 @@ def build_f3d_mat(preset, tex=None, size=32, mode="opaque", filt="bilerp",
             mat[f"set_{key}"] = 1
             mat[f"{key}_color"] = list(value)
 
-    if tex:
+    if useRef:
+        tex0 = {
+            "use_tex_reference": 1,
+            "tex_reference": refAddress,
+            "S": tile_axis(size, clamp=clamp, mirror=mirror),
+            "T": tile_axis(size, clamp=clamp, mirror=mirror),
+        }
+        if refSize:
+            tex0["tex_reference_size"] = list(refSize)
+        mat["tex0"] = tex0
+    elif tex:
         mat["tex0"] = {
             "use_tex_reference": 0,
             # Resolved relative to the .gltf's own directory, then made
@@ -229,10 +250,13 @@ def parse_material_arg(arg):
         key, _, val = part.partition("=")
         if key == "size":
             kwargs[key] = int(val)
-        elif key in ("clamp", "mirror", "fog"):
+        elif key in ("clamp", "mirror", "fog", "useRef"):
             kwargs[key] = val.lower() in ("1", "true", "yes")
         elif key in ("prim", "env", "blend"):
             kwargs[key] = [float(c) for c in val.split(":")]
+        elif key == "refSize":
+            parts = val.split(":")
+            kwargs[key] = [int(p) for p in parts]
         else:
             kwargs[key] = val
     return name, kwargs

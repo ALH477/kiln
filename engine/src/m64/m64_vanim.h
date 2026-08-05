@@ -1,0 +1,144 @@
+/* SPDX-License-Identifier: MPL-2.0
+ *
+ * m64_vanim.h — procedural vertex animation and morph target blending.
+ *
+ * Three capabilities, all built on Tiny3D's vertex buffer access +
+ * segment-based buffer swapping (see Tiny3D examples/04_dynamic):
+ *
+ *   m64_morph_*   Blend between N vertex buffers (morph targets) into a
+ *                 working buffer via CPU lerp. Each target is a sibling
+ *                 .t3dm with identical topology.
+ *
+ *   m64_deform_*  A user callback modifies vertex positions/normals/colours
+ *                 per frame (water waves, wind sway, flag ripple).
+ *
+ *   m64_vfx_*     Thin wrapper around t3d_state_set_vertex_fx for RSP-side
+ *                 effects: spherical UV (env mapping), cel-shading, outline,
+ *                 global UV offset. Zero CPU cost.
+ *
+ * ── Why CPU-side, not RSP ───────────────────────────────────────────────
+ * Tiny3D's RSP ucode is fixed — no programmable vertex shaders, no morph
+ * target support, no per-vertex blend. gltf_to_t3d does not parse glTF
+ * morph targets. The only way to do non-rigid vertex animation on this
+ * hardware is to modify the T3DVertPacked buffer on the CPU before
+ * t3d_vert_load DMAs it to the RSP. This module packages that pattern with
+ * multi-buffering (avoids RSP/CPU races) and segment-based addressing
+ * (works with the model's recorded object draw commands).
+ *
+ * ── Multi-buffering ─────────────────────────────────────────────────────
+ * The RSP may still be reading last frame's vertex buffer when the CPU
+ * starts writing this frame's. Two buffers cycled per frame are sufficient
+ * (the RSP finishes within one frame). Three buffers are for safety under
+ * heavy load. The caller picks; 2 is the default.
+ *
+ * ── No libm in the hot path ─────────────────────────────────────────────
+ * Morph blending uses fm_vec3_lerp (one mul + add per axis). Procedural
+ * deform callbacks may use fm_sinf sparingly (the interceptor-demo's streaks
+ * do), but the engine's stance is: no gratuitous libm. A water surface that
+ * needs a sine per vertex should tabulate it at init.
+ */
+#ifndef M64_VANIM_H
+#define M64_VANIM_H
+
+#include <t3d/t3d.h>
+#include <t3d/t3dmodel.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ── Vertex FX (RSP-side, zero CPU cost) ─────────────────────────────── */
+
+typedef enum {
+    M64_VFX_NONE           = 0,
+    M64_VFX_SPHERICAL_UV   = 1,  /**< env mapping; arg0=w, arg1=h */
+    M64_VFX_CELSHADE_COLOR = 2,
+    M64_VFX_CELSHADE_ALPHA = 3,
+    M64_VFX_OUTLINE        = 4,  /**< arg0=pixel_w, arg1=pixel_h */
+    M64_VFX_UV_OFFSET     = 5,  /**< arg0/arg1 = UV offset (10.5 fixed) */
+} M64VertexFX;
+
+/** Set a global RSP vertex effect. Applies to all subsequent t3d_vert_load
+ *  calls until m64_vfx_clear. Call between m64_scene_begin and the draw. */
+void m64_vfx_set(M64VertexFX fx, int16_t arg0, int16_t arg1);
+
+/** Disable vertex FX (equivalent to m64_vfx_set(M64_VFX_NONE, 0, 0)). */
+void m64_vfx_clear(void);
+
+/* ── Morph target blending ──────────────────────────────────────────── */
+
+/** A set of morph targets blended into a working buffer each frame. */
+typedef struct {
+    const T3DModel *model;       /**< borrowed; provides mesh topology */
+    T3DVertPacked **targets;     /**< N source vertex buffers (uncached) */
+    int target_count;
+    float *weights;              /**< per-target weights, summed and normalised */
+    T3DVertPacked *work_buffers;  /**< uncached, buffer_count copies */
+    int buffer_count;            /**< 2 or 3 */
+    int current_buffer;           /**< cycles 0..buffer_count-1 */
+    uint8_t segment_id;           /**< segment 1-6 for placeholder addressing */
+    bool initialised;             /**< t3d_model_make_object_vert_placeholder done */
+} M64Morph;
+
+/** Initialise the morph set. `targets` must contain `target_count` vertex
+ *  buffers obtained from sibling .t3dm models with the same vertex count.
+ *  `buffer_count` is 2 (default) or 3. `segment_id` is 1-6 (use a different
+ *  one per concurrent morphed model). Allocates uncached work buffers. */
+void m64_morph_init(M64Morph *m, const T3DModel *model,
+                    T3DVertPacked **targets, int target_count,
+                    int buffer_count, uint8_t segment_id);
+
+/** Free work buffers. Does not free `model` or `targets` (caller-owned). */
+void m64_morph_destroy(M64Morph *m);
+
+/** Blend `targets` by `weights` into the current work buffer, then advance
+ *  the buffer index. Weights are clamped to [0,1] and normalised so they
+ *  sum to 1. Call once per frame before m64_morph_draw. */
+void m64_morph_update(M64Morph *m, float dt);
+
+/** Set the segment to the current work buffer, then draw the model. Call
+ *  inside the 3D pass after m64_transform_push. */
+void m64_morph_draw(M64Morph *m);
+
+/* ── Procedural deformation ──────────────────────────────────────────── */
+
+/** Callback that modifies a vertex buffer in place. `time` is the
+ *  accumulated animation time; `user_data` is opaque. */
+typedef void (*M64DeformFn)(T3DVertPacked *verts, int vert_count,
+                            float time, void *user_data);
+
+typedef struct {
+    const T3DModel *model;
+    M64DeformFn fn;
+    void *user_data;
+    T3DVertPacked *work_buffers;
+    T3DVertPacked *base_buffer;   /**< copy of original vertices (for reset) */
+    int vert_count;
+    int buffer_count;
+    int current_buffer;
+    uint8_t segment_id;
+    float time;
+    bool initialised;
+} M64Deform;
+
+/** Initialise from a model. Allocates uncached work buffers + a base copy.
+ *  The base copy preserves the original vertices so the deform callback can
+ *  work from a known reference each frame. */
+void m64_deform_init(M64Deform *d, const T3DModel *model,
+                     M64DeformFn fn, void *user_data,
+                     int buffer_count, uint8_t segment_id);
+
+void m64_deform_destroy(M64Deform *d);
+
+/** Copy base into current work buffer, call the deform function, advance
+ *  the buffer index. Call once per frame before m64_deform_draw. */
+void m64_deform_update(M64Deform *d, float dt);
+
+/** Set the segment + draw. Call inside the 3D pass after push. */
+void m64_deform_draw(M64Deform *d);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* M64_VANIM_H */

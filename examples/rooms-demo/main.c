@@ -11,6 +11,10 @@
 //   * spawn-on-load / despawn-on-unload via M64Actor.room_id
 //   * per-room callback (each room builds its own coloured floor quad in
 //     on_load and frees it in on_unload)
+//   * brush auto-install: each room's on_load also sets room->brushes to a
+//     static M64Brush[5] (floor + 4 walls). m64_room concatenates loaded
+//     rooms' brushes into one clip world, so the player now stops at walls
+//     — no m64_clip_set_world call in this ROM.
 //
 // Like the other Phase B demos, geometry is hand-built. The asset pipeline
 // would replace the quad with a .t3dm from gltf_to_t3d, but that's a swap of
@@ -21,6 +25,7 @@
 #include <m64/m64_gui.h>
 #include <m64/m64_actor.h>
 #include <m64/m64_room.h>
+#include <m64/m64_clip.h>
 
 #include <malloc.h>
 
@@ -230,6 +235,57 @@ static const uint32_t FLOOR_COLOURS[ROOM_COUNT] = {
     0x8B5CF6FF, /* D — violet */
 };
 
+// One static brush array per room — floor + 4 walls. The walls are 4 units
+// thick, sitting on the room's border. Designated initialisers, no malloc:
+// the brushes live in .bss, m64_room copies them into its module-static
+// world buffer on load. surface 0 (default) — the demo doesn't register a
+// surface table, so footstep SFX would just use whatever index 0 holds.
+#define WALL_H  20.0f
+#define WALL_T  4.0f
+
+static M64Brush make_floor_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max)
+{
+    M64Brush b = { .surface = 0, .flags = 0 };
+    b.mins = aabb_min;
+    b.maxs = aabb_max;
+    /* Floor at aabb_min.y, 1 unit thick so it has real volume. */
+    b.mins.v[1] = aabb_min.v[1];
+    b.maxs.v[1] = aabb_min.v[1] + 1.0f;
+    return b;
+}
+
+static M64Brush make_wall_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max, int side)
+{
+    M64Brush b = { .surface = 0, .flags = 0 };
+    b.mins = aabb_min; b.maxs = aabb_max;
+    b.maxs.v[1] = aabb_min.v[1] + WALL_H;
+    switch (side) {
+    case 0: /* -X wall */ b.maxs.v[0] = b.mins.v[0] + WALL_T; break;
+    case 1: /* +X wall */ b.mins.v[0] = b.maxs.v[0] - WALL_T; break;
+    case 2: /* -Z wall */ b.maxs.v[2] = b.mins.v[2] + WALL_T; break;
+    case 3: /* +Z wall */ b.mins.v[2] = b.maxs.v[2] - WALL_T; break;
+    }
+    return b;
+}
+
+// Per-room brush storage. Five brushes per room: floor + 4 walls. The
+// m64_room system copies these into its module-static clip world on load
+// (and drops them on unload). room->brushes points here for the room's
+// loaded lifetime; on_unload just clears the pointer.
+static M64Brush g_room_brushes[ROOM_COUNT][5];
+
+static void room_install_brushes(M64Room *room)
+{
+    M64Brush *bs = g_room_brushes[room->id];
+    bs[0] = make_floor_brush(room->aabb_min, room->aabb_max);
+    bs[1] = make_wall_brush(room->aabb_min, room->aabb_max, 0);
+    bs[2] = make_wall_brush(room->aabb_min, room->aabb_max, 1);
+    bs[3] = make_wall_brush(room->aabb_min, room->aabb_max, 2);
+    bs[4] = make_wall_brush(room->aabb_min, room->aabb_max, 3);
+    room->brushes      = bs;
+    room->brush_count  = 5;
+}
+
 // ── Room callbacks ─────────────────────────────────────────────────
 
 static void room_load(M64Room *room, void *user)
@@ -239,6 +295,9 @@ static void room_load(M64Room *room, void *user)
     m->verts = make_floor_quad(room->aabb_min, room->aabb_max, FLOOR_COLOURS[room->id]);
     m->rgba  = FLOOR_COLOURS[room->id];
     room->user_mesh = m;
+    /* Install this room's brushes; m64_room will copy them into the clip
+     * world right after this callback returns. */
+    room_install_brushes(room);
 }
 
 static void room_unload(M64Room *room, void *user)
@@ -250,6 +309,9 @@ static void room_unload(M64Room *room, void *user)
         free_uncached(m);
         room->user_mesh = NULL;
     }
+    /* Brushes are in .bss, nothing to free. Just drop the pointer. */
+    room->brushes = NULL;
+    room->brush_count = 0;
 }
 
 static void room_spawn(M64Room *room, const M64RoomSpawn *spawn, void *user)
@@ -289,7 +351,8 @@ int main(void)
     m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
 
     m64_room_system_init(&g_sys, g_rooms, ROOM_COUNT, MAX_LOADED,
-                          room_load, room_unload, room_spawn, room_draw, NULL);
+                          room_load, room_unload, room_spawn, room_draw, NULL,
+                          /*owns_clip_world=*/1);
 
     // The player is *not* in any room — it has room_id == M64_ACTOR_ROOM_NONE
     // and is never auto-despawned by the room system.
@@ -319,12 +382,15 @@ int main(void)
         float dt = 1.0f / 60.0f;
 
         // Move the player (room-less; the room system doesn't track it).
-        player_pos.v[0] += (float)g_input.stick_x * 0.25f * dt * 60.0f;
-        player_pos.v[2] -= (float)g_input.stick_y * 0.25f * dt * 60.0f;
-        if (player_pos.v[0] < WORLD_MIN_X) player_pos.v[0] = WORLD_MIN_X;
-        if (player_pos.v[0] > WORLD_MAX_X) player_pos.v[0] = WORLD_MAX_X;
-        if (player_pos.v[2] < WORLD_MIN_Z) player_pos.v[2] = WORLD_MIN_Z;
-        if (player_pos.v[2] > WORLD_MAX_Z) player_pos.v[2] = WORLD_MAX_Z;
+        // The walls installed by room_load now stop the player — the
+        // WORLD_MIN/MAX clamps are gone, m64_clip_slide handles it. The
+        // player is a 16-unit cube (half=8); 4 slide iterations is the
+        // convention from m64_player.
+        fm_vec3_t half = {{ 8, 8, 8 }};
+        fm_vec3_t disp = {{ (float)g_input.stick_x * 0.25f * dt * 60.0f,
+                            0.0f,
+                           -(float)g_input.stick_y * 0.25f * dt * 60.0f }};
+        player_pos = m64_clip_slide(player_pos, disp, half, half, 4);
 
         M64Actor *player = m64_actor_first(M64_ACTOR_CAT_PLAYER);
         if (player) player->xform.pos = player_pos;

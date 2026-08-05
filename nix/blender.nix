@@ -264,4 +264,29 @@ rec {
       scriptArgs = [ "--scene" "${src}/${scenePath}" "--project" "${src}" ]
         ++ lib.optionals (scale != null) [ "--scale" (toString scale) ];
     });
+
+  # ── Morph targets ───────────────────────────────────────────────────────
+  # gltf_to_t3d does not parse glTF morph targets, so the engine's m64_morph
+  # module blends between sibling .t3dm models at runtime. This builder is a
+  # thin wrapper over mkBlenderModel that documents the convention: the Blender
+  # script must create N mesh objects with identical topology (same vertex and
+  # face count, same order) named `<name>_base`, `<name>_tall`, `<name>_wide`,
+  # etc. The engine loads each as a separate .t3dm and extracts their vertex
+  # buffers with t3d_model_get_vertices.
+  #
+  # The build itself is unchanged — gltf_to_t3d exports all objects in the
+  # scene into one .t3dm. The runtime side calls t3d_model_load per target
+  # .t3dm (or loads them all and indexes by name).
+  mkMorphModel =
+    { name
+    , script
+    , model ? name
+    , ...
+    }@args:
+    mkBlenderModel (args // {
+      inherit name script model;
+      # BVH is pointless for morph targets — the vertex buffer is what matters,
+      # not the collision/bvh structure. Disabling saves a few hundred bytes.
+      bvh = args.bvh or false;
+    });
 }

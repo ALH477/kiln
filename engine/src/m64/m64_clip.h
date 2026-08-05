@@ -86,6 +86,26 @@ typedef struct {
  *  callbacks (see examples/clip-demo for the standalone case). */
 void m64_clip_set_world(const M64Brush *brushes, uint16_t count);
 
+/** Toggle the uniform-grid broadphase. When on, m64_clip_set_world builds a 2D
+ *  XZ grid over the brushes (Y ignored — rooms are short and a 3D grid blows
+ *  the memory budget) and m64_clip_box/slide/ground only slab-test brushes in
+ *  cells overlapped by the swept AABB's XZ footprint. When off (the default),
+ *  traces walk the flat array — the path the header comment above describes as
+ *  fine for ~64 brushes. Opt in for larger worlds.
+ *
+ *  m64_clip_ray (camera boom, line-of-sight) ALWAYS uses the flat walk, even
+ *  with broadphase on — rays are 1/frame and grid-ray traversal (Amanatides-
+ *  Woo) is more code than the win warrants. The header comment in m64_camera
+ *  explains why the boom is a ray, not a box. */
+void m64_clip_set_broadphase(int enabled);
+
+/** Debug counter: how many brushes the most recent trace actually slab-tested.
+ *  Zeroed at the start of every m64_clip_box/ray/slide/ground call; incremented
+ *  per brush examined. The physics-demo HUD reads this to show the broadphase
+ *  win (flat walk = brush_count, grid path = brushes in overlapped cells).
+ *  Not thread-safe; m64_clip is module-global anyway. */
+uint16_t m64_clip_last_trace_brushes(void);
+
 /** Sweep an AABB (described by its `mins`/`maxs` relative to its center) from
  *  `start` to `end` (center positions). Returns the first brush contact along
  *  the sweep. mins/maxs are typically symmetric (e.g. {-8,-8,-8}..{8,8,8} for

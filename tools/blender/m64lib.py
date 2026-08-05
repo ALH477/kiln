@@ -635,3 +635,54 @@ def mirror_x(points):
     """Mirror a slab()/loft() point list across X=0, reversing it so the
     winding survives. Negating x alone flips every face inward."""
     return [(-p[0],) + tuple(p[1:]) for p in reversed(points)]
+
+
+# ── Morph targets ────────────────────────────────────────────────────────
+# gltf_to_t3d does not parse glTF morph targets (prim.targets / WEIGHTS_0).
+# The engine's m64_morph module works around this by loading sibling .t3dm
+# models with the same topology as separate morph targets and blending
+# their vertex buffers on the CPU.
+#
+# These helpers create sibling mesh objects with identical vertex/face
+# counts but different positions, so a single Blender scene exports one
+# .t3dm containing N named objects the engine can load as morph targets.
+
+
+def make_morph_mesh(name, base_verts, faces, material, deform_fn, colors=None,
+                    uvs=None, smooth=False):
+    """Create a mesh object that is a deformed copy of `base_verts`, suitable
+    as a morph target for m64_morph.
+
+    `deform_fn(verts)` takes the base vertex list and returns a new list of
+    the same length with modified positions. Faces, UVs, and vertex order
+    must match exactly — the engine blends between targets by vertex index.
+
+    Returns the created bpy.types.Object.
+    """
+    target_verts = deform_fn(list(base_verts))
+    if len(target_verts) != len(base_verts):
+        raise SystemExit(
+            "m64lib: morph deform_fn returned %d verts, expected %d"
+            % (len(target_verts), len(base_verts)))
+    return make_mesh(name, target_verts, faces, material, colors, uvs, smooth)
+
+
+def morph_deform_scale(axis, factor):
+    """Build a simple scale deform function for make_morph_mesh — scales
+    one axis by `factor`, leaving the others at their base positions."""
+    idx = {"x": 0, "y": 1, "z": 2}[axis.lower()]
+
+    def deform(verts):
+        return [tuple(v[i] * factor if i == idx else v[i]
+                      for i in range(len(v))) for v in verts]
+    return deform
+
+
+def morph_deform_offset(axis, amount):
+    """Build a simple offset deform — translates one axis by `amount`."""
+    idx = {"x": 0, "y": 1, "z": 2}[axis.lower()]
+
+    def deform(verts):
+        return [tuple(v[i] + amount if i == idx else v[i]
+                      for i in range(len(v))) for v in verts]
+    return deform

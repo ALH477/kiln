@@ -5,6 +5,7 @@
  */
 
 #include "m64_room.h"
+#include "m64_clip.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -20,6 +21,17 @@ static M64RoomLoadFn   g_on_load;
 static M64RoomUnloadFn g_on_unload;
 static M64RoomSpawnFn  g_on_spawn;
 static M64RoomDrawFn   g_on_draw;
+static int             g_owns_clip_world;
+
+/* Concatenated brush buffer for the clip world. After every load and unload
+ * phase, rebuild_clip_world() walks the loaded rooms and copies their
+ * `brushes` arrays into this buffer, then hands it to m64_clip_set_world.
+ * The buffer is module-static so the pointer m64_clip borrows stays stable
+ * across transitions — m64_clip_set_world's contract requires the array
+ * outlive every subsequent trace, and a static buffer is the simplest way
+ * to guarantee that without the caller managing a merged buffer per ROM. */
+static M64Brush g_world_brushes[M64_ROOM_MAX_CLIP_BRUSHES];
+static uint16_t g_world_brush_count;
 
 /* ── helpers ─────────────────────────────────────────────────────────── */
 
@@ -88,13 +100,42 @@ static void despawn_room_actors(M64Room *r)
     }
 }
 
+/* Concatenate every loaded room's `brushes` into g_world_brushes and install
+ * it via m64_clip_set_world. Called once after the unload phase and once
+ * after the load phase — two rebuilds per transition frame is nothing next
+ * to the cost of the load/unload work itself, and the split is what lets
+ * g_on_unload query collision against the pre-transition world and g_on_spawn
+ * query it against the post-transition world. The cap is asserted: if a
+ * game ever exceeds it, bump M64_ROOM_MAX_CLIP_BRUSHES or set
+ * owns_clip_world = 0 at init and manage the clip world by hand. */
+static void rebuild_clip_world(void)
+{
+    if (!g_owns_clip_world) return;
+
+    g_world_brush_count = 0;
+    for (uint16_t i = 0; i < g_sys->loaded_count; i++) {
+        M64Room *r = &g_sys->rooms[g_sys->loaded_slots[i]];
+        if (r->brush_count == 0 || r->brushes == NULL) continue;
+        assertf(g_world_brush_count + r->brush_count <= M64_ROOM_MAX_CLIP_BRUSHES,
+                "m64_room: clip brush cap %u exceeded (loaded rooms sum to >%u "
+                "brushes) — raise M64_ROOM_MAX_CLIP_BRUSHES or pass "
+                "owns_clip_world=0 to m64_room_system_init",
+                M64_ROOM_MAX_CLIP_BRUSHES,
+                g_world_brush_count + r->brush_count);
+        memcpy(&g_world_brushes[g_world_brush_count], r->brushes,
+               sizeof(M64Brush) * r->brush_count);
+        g_world_brush_count += r->brush_count;
+    }
+    m64_clip_set_world(g_world_brushes, g_world_brush_count);
+}
+
 /* ── public API ──────────────────────────────────────────────────────── */
 
 void m64_room_system_init(M64RoomSystem *sys, M64Room *rooms, uint16_t room_count,
                           uint16_t max_loaded,
                           M64RoomLoadFn load_fn, M64RoomUnloadFn unload_fn,
                           M64RoomSpawnFn spawn_fn, M64RoomDrawFn draw_fn,
-                          void *user_ctx)
+                          void *user_ctx, int owns_clip_world)
 {
     assertf(sys != NULL, "m64_room: sys is NULL");
     assertf(rooms != NULL || room_count == 0, "m64_room: rooms NULL with room_count %u", room_count);
@@ -119,6 +160,10 @@ void m64_room_system_init(M64RoomSystem *sys, M64Room *rooms, uint16_t room_coun
         rooms[i].id = (uint8_t)i;
         rooms[i].flags = 0;
         rooms[i].user_mesh = NULL;
+        /* brushes/brush_count are not zeroed here: a ROM may pre-fill them
+         * at construction (static brush arrays for hand-authored rooms).
+         * on_load is the canonical place to populate them for streamed
+         * content; on_unload must clear what on_load set. */
     }
 
     g_sys = sys;
@@ -126,6 +171,11 @@ void m64_room_system_init(M64RoomSystem *sys, M64Room *rooms, uint16_t room_coun
     g_on_unload = unload_fn;
     g_on_spawn = spawn_fn;
     g_on_draw = draw_fn; /* may be NULL */
+    g_owns_clip_world = owns_clip_world ? 1 : 0;
+    g_world_brush_count = 0;
+    if (g_owns_clip_world) {
+        m64_clip_set_world(g_world_brushes, 0);
+    }
 }
 
 void m64_room_system_update(M64RoomSystem *sys, fm_vec3_t camera_pos)
@@ -192,10 +242,18 @@ void m64_room_system_update(M64RoomSystem *sys, fm_vec3_t camera_pos)
          * references user_mesh (via the user's draw callback chain), and a
          * free here would leave it dangling for one frame. */
         despawn_room_actors(r);
+        /* on_unload runs against the pre-transition clip world — the room's
+         * brushes are still installed, so anything on_unload queries sees
+         * the right state. on_unload is also where the user frees
+         * room->brushes if on_load malloc'd them. */
         g_on_unload(r, sys->user_ctx);
         remove_loaded(id);
         /* don't increment i — the slot shifted in */
     }
+    /* Rebuild the clip world after the unload phase so the just-unloaded
+     * rooms' brushes are gone before the load phase runs. on_spawn in the
+     * load phase then sees the post-unload world. */
+    rebuild_clip_world();
 
     /* Pass C: load phase. Walk `desired` and load anything not yet in
      * loaded_slots. */
@@ -205,6 +263,12 @@ void m64_room_system_update(M64RoomSystem *sys, fm_vec3_t camera_pos)
         M64Room *r = &sys->rooms[id];
 
         g_on_load(r, sys->user_ctx);
+        /* Rebuild the clip world between g_on_load and g_on_spawn so the
+         * newly-loaded room's brushes are visible to the spawn callback —
+         * a spawn that does a trace (e.g. drop-to-ground) sees the new
+         * world. Rebuild per load is cheap (the buffer is small) and
+         * simpler than tracking per-room deltas. */
+        rebuild_clip_world();
         r->flags |= M64_ROOM_FLAG_LOADED;
         append_loaded(id);
 

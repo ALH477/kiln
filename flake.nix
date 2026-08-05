@@ -297,10 +297,83 @@
           script = "interceptor.py";
         };
 
+        # Cinematic-demo extras: a service droid (rigged+animated, two bones
+        # driving a wave animation), an approaching alien (taller, six-legged
+        # silhouette, head-bob animation), and the hangar.map that lays out
+        # the room. Same mkBlenderModel path as goblinModel / interceptorModel.
+        droidModel = blenderLib.mkBlenderModel {
+          name = "droid";
+          script = "droid.py";
+          animated = true;
+        };
+        alienModel = blenderLib.mkBlenderModel {
+          name = "alien";
+          script = "alien.py";
+          animated = true;
+        };
+        # Hand-authored Quake .map for the cinematic-demo's hangar room.
+        # Same mkRawAsset path as quakeMap / ootMap so m64_map reads it via
+        # rom:/maps/hangar.map at runtime. compress=0 because m64_map_load
+        # is the consumer — there is no asset_load in the path, so a
+        # compressed .map would arrive still-compressed and fail to parse.
+        hangarMap = assetLib.mkRawAsset {
+          name = "hangar-map";
+          src = ./assets/hangar.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+
         # Verifies mkQuakeMapModel through the hermetic pipeline end to end:
         # a single 6-plane cube brush, the same content
         # tools/blender-mcp/server.py's own inspect/import tools were checked
         # against before this Nix wiring was written.
+        # FPS level: a larger Quake .map with multiple enemies, loaded at
+        # runtime via m64_map (same raw-asset path as ootMap / hangarMap).
+        fpsMap = assetLib.mkRawAsset {
+          name = "fps-level-map";
+          src = ./assets/fps_level.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+        # Per-room maps for the multi-room streaming FPS.
+        fpsRoom0 = assetLib.mkRawAsset {
+          name = "fps-room0-map";
+          src = ./assets/fps_room0.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+        fpsRoom1 = assetLib.mkRawAsset {
+          name = "fps-room1-map";
+          src = ./assets/fps_room1.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+        fpsRoom2 = assetLib.mkRawAsset {
+          name = "fps-room2-map";
+          src = ./assets/fps_room2.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+        # SFX for the FPS: gunfire, wall impact, enemy hit, pickup, metal impact.
+        gunshotSfx = assetLib.mkSound { name = "gunshot"; src = ./assets/gunshot.wav; };
+        impactSfx  = assetLib.mkSound { name = "impact";  src = ./assets/impact.wav; };
+        enemyHitSfx = assetLib.mkSound { name = "enemy-hit"; src = ./assets/enemy_hit.wav; };
+        pickupSfx  = assetLib.mkSound { name = "pickup";  src = ./assets/pickup.wav; };
+        impactMetalSfx = assetLib.mkSound { name = "impact-metal"; src = ./assets/impact_metal.wav; };
+        doorOpenSfx = assetLib.mkSound { name = "door-open"; src = ./assets/door_open.wav; };
+        doorLockedSfx = assetLib.mkSound { name = "door-locked"; src = ./assets/door_locked.wav; };
+        chestOpenSfx = assetLib.mkSound { name = "chest-open"; src = ./assets/chest_open.wav; };
+        explosionSfx = assetLib.mkSound { name = "explosion"; src = ./assets/explosion.wav; };
+        rocketFireSfx = assetLib.mkSound { name = "rocket-fire"; src = ./assets/rocket_fire.wav; };
+        plasmaFireSfx = assetLib.mkSound { name = "plasma-fire"; src = ./assets/plasma_fire.wav; };
+        shotgunFireSfx = assetLib.mkSound { name = "shotgun-fire"; src = ./assets/shotgun_fire.wav; };
+        npcTalkSfx = assetLib.mkSound { name = "npc-talk"; src = ./assets/npc_talk.wav; };
+
         quakeTestModel = blenderLib.mkQuakeMapModel {
           name = "quake-test";
           src = ./assets/quake_test.map;
@@ -393,6 +466,18 @@
           src = ./examples/music/test.xm;
         };
 
+        # Cinematic music bed — a 15s dark-sci-fi loop synthesised in
+        # examples/music/synth_loop.py (no MIDI, no soundfont, no .xm — just
+        # sine + saw + noise at 32 kHz). audioconv64 turns it into VADPCM
+        # .wav64 at ~250 KB; libdragon's wav64 player loops it natively. We
+        # bypass the .xm/xm_tick path entirely so the BPM-0 divide-by-zero
+        # family of bugs (and xm_tick's libm+float ops) is off the table.
+        cine-music = assetLib.mkSound {
+          name = "cine_loop";
+          src = ./examples/music/cine_loop.wav;
+          loop = true;
+        };
+
         music-demo = mkN64Rom {
           name = "music";
           src = ./examples/music;
@@ -474,6 +559,18 @@
           assets = [ demoSound stepSound ];
         };
 
+        # Phase E: m64_room brush auto-install + m64_clip broadphase toggle
+        # + m64_physics HL2-style rigid bodies. One room (floor + 4 walls,
+        # brushes auto-installed via m64_room); 6 dynamic crate bodies fall,
+        # stack, rest, sleep; A punts the nearest crate in a forward cone
+        # (gravity-gun feel); D-pad toggles PHYS ON/OFF and BP ON/OFF; HUD
+        # shows the last trace's brush count so the broadphase win is visible.
+        physics-demo = mkN64Rom {
+          name = "physics-demo";
+          src = ./examples/physics-demo;
+          romTitle = "M64 Physics";
+        };
+
         # Phase C step 2: m64_dict + m64_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
         # info_player_start entity by reading "origin" from the M64Dict.
@@ -514,10 +611,77 @@
           assets = [ interceptorModel demoSound test-music ];
           audioRate = 32000;
         };
+
+        # texanim-demo: exercises m64_texanim (UV scroll, flipbook, palette,
+        # offscreen) and m64_vanim (procedural deform, morph blending, RSP
+        # vertex FX). All geometry is hand-built — no asset pipeline needed.
+        texanim-demo = mkN64Rom {
+          name = "texanim-demo";
+          src = ./examples/texanim-demo;
+          romTitle = "M64 TexAnim";
+        };
+
+        # Cinematic-demo: a 60-second single-shot scene of the Interceptor in
+        # its hangar with the goblin captain walking the perimeter, droids
+        # servicing the ship, and aliens approaching from the back. Exercises
+        # every engine subsystem in one ROM — input, player, clip, target,
+        # surface, sound, event, dict, map, room, camera (CUTSCENE mode), skel
+        # (goblin walk-cycle), audio (music + SFX). Assets:
+        #   interceptorModel / goblinModel / droidModel / alienModel — the cast
+        #   hangarMap           — the Quake-format .map room
+        #   demoSound / stepSound — SFX (engine whoosh, footsteps)
+        #   cine-music          — VADPCM .wav64 loop (15s dark-sci-fi bed)
+        cinematic-demo = mkN64Rom {
+          name = "cinematic-demo";
+          src = ./examples/cinematic-demo;
+          romTitle = "M64 Cinematic";
+          assets = [
+            interceptorModel goblinModel droidModel alienModel
+            hangarMap demoSound stepSound cine-music
+          ];
+          audioRate = 32000;
+        };
+
+        # A minimal playable first-person shooter. First-person camera
+        # (m64_fpscam), hitscan weapon (m64_weapon), enemy actors that chase
+        # the player, HUD with crosshair + health + ammo. The FPS level is a
+        # Quake .map loaded at runtime via m64_map.
+        fps = mkN64Rom {
+          name = "fps";
+          src = ./examples/fps;
+          romTitle = "M64 FPS";
+          assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
+          audioRate = 32000;
+        };
+
+        # ── Bass synth ────────────────────────────────────────────────────
+        # 4-controller collaborative bass ROM. 12 dual-layer wavetables
+        # (4 engines x {body_bright, body_dark, sub}) generated by
+        # tools/gen_bass_wav.py, baked as looping VADPCM wav64s and
+        # pitched live by the RSP mixer. Each held note consumes 2 mixer
+        # channels (body + sub) → 6-voice polyphony across 12 channels.
+        bassWav = engine: layer: assetLib.mkSound {
+          name = "bass_${engine}_${layer}";
+          src = ./assets/bass_wav/${engine}_${layer}.wav;
+          loop = true;
+          mono = true;
+        };
+        bassWavFlat = let
+          layers = [ "body_bright" "body_dark" "sub" ];
+          engines = [ "heavy" "sub" "growl" "industrial" ];
+        in pkgs.lib.concatMap (e: map (l: bassWav e l) layers) engines;
+
+        bass-synth = mkN64Rom {
+          name = "bass-synth";
+          src = ./examples/bass-synth;
+          romTitle = "M64 Bass Synth";
+          assets = bassWavFlat;
+          audioRate = 32000;
+        };
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo map-demo event-demo oot-demo interceptor-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
@@ -535,6 +699,8 @@
           tiny3d = tiny3d-sdk;
           model-goblin = goblinModel;
           model-interceptor = interceptorModel;
+          model-droid = droidModel;
+          model-alien = alienModel;
           model-quake-test = quakeTestModel;
           default = hello;
         };
@@ -599,6 +765,11 @@
             rom = clip-demo;
             name = "clip-demo";
           };
+          rom-physics-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = physics-demo;
+            name = "physics-demo";
+          };
           rom-map-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = map-demo;
@@ -619,6 +790,26 @@
             rom = interceptor-demo;
             name = "interceptor-demo";
           };
+          rom-cinematic-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = cinematic-demo;
+            name = "cinematic-demo";
+          };
+          rom-texanim-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = texanim-demo;
+            name = "texanim-demo";
+          };
+          rom-fps = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = fps;
+            name = "fps";
+          };
+          rom-bass-synth = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = bass-synth;
+            name = "bass-synth";
+          };
           m64-asset = import ./nix/checks/m64-asset.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
@@ -634,7 +825,10 @@
             inherit pkgs;
             n64Inst = n64InstBase;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo map-demo event-demo oot-demo interceptor-demo;
+          mapmaker-roundtrip = import ./nix/checks/mapmaker-roundtrip.nix {
+            inherit pkgs;
+          };
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth;
         };
 
         apps = {
@@ -667,6 +861,24 @@
             type = "app";
             program = toString (pkgs.writeShellScript "m64-dev" ''
               exec ${pkgs.bash}/bin/bash "''${M64_REPO:-$PWD}/dev" "$@"
+            '');
+          };
+          # three.js .map maker (tools/mapmaker/). A dev-only web app run
+          # outside the hermetic build — same authoring/outside-build vs.
+          # consume/inside-build split as tools/blender-mcp/. Exports canonical
+          # .map text the existing mkQuakeMapModel + m64_map.c pipeline already
+          # consumes; validate via ./dev map-validate.
+          mapmaker = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "m64-mapmaker" ''
+              cd "''${M64_REPO:-$PWD}/tools/mapmaker"
+              exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8000
+            '');
+          };
+          map-validate = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "m64-map-validate" ''
+              exec ${pkgs.python3Minimal}/bin/python3 "''${M64_REPO:-$PWD}/tools/mapmaker/validate.py" "$@"
             '');
           };
         };

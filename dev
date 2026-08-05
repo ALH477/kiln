@@ -17,6 +17,8 @@ usage() {
 ./dev — the M64 developer CLI
   build [rom]              nix build .#<rom>            (default: hello)
   shot  <rom> [out] [s]    boot in Ares on Hyprland, screenshot + pixel stats
+  rec   <rom> [dur] [out]  boot in Ares on Hyprland, record MP4 (default 60 s,
+                           Ares-only audio via PipeWire app routing)
   run   <rom>              boot the ROM in Ares (report §7: iterate here,
                            but never trust an emulator for audio work)
   deploy <rom>             sc64deployer upload -> SummerCart64
@@ -27,6 +29,8 @@ usage() {
   doctor                   toolchain, libdragon, cart presence, versions
 Examples:
   ./dev build hello        ./dev run hello        ./dev deploy hello
+  ./dev mapmaker                        three.js .map maker on http://localhost:8000
+  ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
 H
 }
 
@@ -98,6 +102,17 @@ if nonblack < total * 0.0005:
 PY
     ;;
 
+  rec)
+    # Boot the ROM in Ares on the live Hyprland session and record a clip.
+    # Mirrors `shot` above; tools/n64-rec.sh drives gpu-screen-recorder with
+    # Ares-only audio (-a app:ares) so other apps playing on the desktop do
+    # not bleed into the soundtrack.
+    rom="${1:-cinematic-demo}"; dur="${2:-60}"; out="${3:-$rom.mp4}"
+    z64="$(rom_path "$rom")" || exit 1
+    ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}" \
+      bash "$REPO/tools/n64-rec.sh" "$z64" "$out" "$dur" || exit 1
+    ;;
+
   deploy)
     z64="$(rom_path "${1:-hello}")" || exit 1
     echo "dev: uploading $z64 to SummerCart64"
@@ -136,6 +151,19 @@ PY
 
   check)
     nix flake check --print-build-logs
+    ;;
+
+  mapmaker)
+    # Launch the three.js .map maker (tools/mapmaker/) on http://localhost:8000.
+    # Dev-only — outside the hermetic build, same split as tools/blender-mcp/.
+    nix run .#mapmaker
+    ;;
+
+  map-validate)
+    # Round-trip a .map through quake_map.py's pure-Python CSG + report counts
+    # vs. the engine's limits. Run after exporting from the map maker.
+    shift
+    nix run .#map-validate -- "$@"
     ;;
 
   doctor)
