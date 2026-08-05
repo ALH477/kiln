@@ -136,7 +136,7 @@ typedef struct { float speed, attack_cd, scan_cd; uint8_t state; int flee_thresh
 
 static void enemy_init(M64Actor *self, const M64Dict *args)
 {
-    EnemyState *s = (EnemyState *)self->state;
+    EnemyState *s = (void *)self->state;
     if (self->profile_id == PROFILE_HEAVY) {
         s->speed = 15; s->damage = 15; s->flee_thresh = 0; self->health = 200;
     } else {
@@ -159,7 +159,7 @@ static int has_los(fm_vec3_t from, fm_vec3_t to)
 
 static void enemy_update(M64Actor *self, float dt)
 {
-    EnemyState *s = (EnemyState *)self->state;
+    EnemyState *s = (void *)self->state;
     fm_vec3_t tp = {{ g_fpscam.pos.v[0]-self->xform.pos.v[0], 0, g_fpscam.pos.v[2]-self->xform.pos.v[2] }};
     float d = fm_vec3_len(&tp);
     s->scan_cd -= dt;
@@ -218,8 +218,8 @@ static void heavy_draw(M64Actor *s){(void)s;draw_cube(g_cube_heavy);}
 
 // ── Pickups ─────────────────────────────────────────────────────────────
 typedef struct { float bob_t; fm_vec3_t home; } PickupState;
-static void pickup_init(M64Actor *s, const M64Dict *a){PickupState*p=s->state;p->bob_t=0;p->home=s->xform.pos;(void)a;}
-static void pickup_bob(M64Actor *s, float dt){PickupState*p=s->state;p->bob_t+=dt;s->xform.pos.v[1]=p->home.v[1]+fm_sinf(p->bob_t*3)*2;s->xform.rot_angle=p->bob_t*1.5f;}
+static void pickup_init(M64Actor *s, const M64Dict *a){PickupState*p=(void*)s->state;p->bob_t=0;p->home=s->xform.pos;(void)a;}
+static void pickup_bob(M64Actor *s, float dt){PickupState*p=(void*)s->state;p->bob_t+=dt;s->xform.pos.v[1]=p->home.v[1]+fm_sinf(p->bob_t*3)*2;s->xform.rot_angle=p->bob_t*1.5f;}
 
 static void health_update(M64Actor *s, float dt){
     pickup_bob(s,dt);
@@ -248,46 +248,46 @@ static void key_draw(M64Actor*s){(void)s;draw_cube(g_cube_key);}
 
 // ── NPC ────────────────────────────────────────────────────────────────
 typedef struct { const char *line; uint8_t talked; } NpcState;
-static void npc_init(M64Actor *s, const M64Dict *a){NpcState*n=s->state;n->talked=0;n->line=m64_dict_get_str(a,"dialogue","...");}
+static void npc_init(M64Actor *s, const M64Dict *a){NpcState*n=(void*)s->state;n->talked=0;n->line=m64_dict_get_str(a,"dialogue","...");}
 static void npc_update(M64Actor *s, float dt){(void)s;(void)dt;}
 static void npc_draw(M64Actor *s){(void)s;draw_cube(g_cube_npc);}
 
 // ── Chest (OoT) ────────────────────────────────────────────────────────
 typedef struct { uint8_t open; int contents; } ChestState;
-static void chest_init(M64Actor *s, const M64Dict *a){ChestState*c=s->state;c->open=0;c->contents=m64_dict_get_int(a,"contents",0);}
+static void chest_init(M64Actor *s, const M64Dict *a){ChestState*c=(void*)s->state;c->open=0;c->contents=m64_dict_get_int(a,"contents",0);}
 static void chest_update(M64Actor *s, float dt){(void)s;(void)dt;}
-static void chest_draw(M64Actor *s){ChestState*c=s->state;draw_cube(c->open?g_cube_chest_o:g_cube_chest_c);}
+static void chest_draw(M64Actor *s){ChestState*c=(void*)s->state;draw_cube(c->open?g_cube_chest_o:g_cube_chest_c);}
 static void chest_event(M64Actor *s, uint16_t eid, const int32_t*a, uint8_t c){
     (void)a;(void)c;
-    if(eid==EV_CHEST_OPEN){ChestState*cs=s->state;cs->open=1;m64_sound_play("chest_open",s->xform.pos,1);
+    if(eid==EV_CHEST_OPEN){ChestState*cs=(void*)s->state;cs->open=1;m64_sound_play("chest_open",s->xform.pos,1);
         if(cs->contents==ITEM_KEY_RED){M64ActorHandle h=m64_actor_spawn(PROFILE_KEY_PICKUP,s->xform.pos,s->xform.rot_angle,NULL);M64Actor*k=m64_actor_resolve(h);if(k)k->xform.pos.v[1]+=10;}
     }
 }
 
 // ── Key Door (Doom/OoT) ────────────────────────────────────────────────
 typedef struct { float cur, target; uint8_t open; int key_id; } DoorState;
-static void door_init(M64Actor *s, const M64Dict *a){DoorState*d=s->state;d->cur=0;d->target=0;d->open=0;d->key_id=m64_dict_get_int(a,"key_id",0);s->health=d->key_id;}
-static void door_update(M64Actor *s, float dt){DoorState*d=s->state;float t=4*dt;if(t>1)t=1;d->cur+=(d->target-d->cur)*t;s->xform.rot_angle=d->cur;}
-static void door_draw(M64Actor *s){DoorState*d=s->state;draw_cube(d->open?g_cube_door_o:g_cube_door_c);}
+static void door_init(M64Actor *s, const M64Dict *a){DoorState*d=(void*)s->state;d->cur=0;d->target=0;d->open=0;d->key_id=m64_dict_get_int(a,"key_id",0);s->health=d->key_id;}
+static void door_update(M64Actor *s, float dt){DoorState*d=(void*)s->state;float t=4*dt;if(t>1)t=1;d->cur+=(d->target-d->cur)*t;s->xform.rot_angle=d->cur;}
+static void door_draw(M64Actor *s){DoorState*d=(void*)s->state;draw_cube(d->open?g_cube_door_o:g_cube_door_c);}
 static void door_event(M64Actor *s, uint16_t eid, const int32_t*a, uint8_t c){
     (void)a;(void)c;
-    if(eid==EV_DOOR_OPEN){DoorState*d=s->state;d->open=1;d->target=1.5708f;s->health=0;m64_sound_play("door_open",s->xform.pos,1);}
+    if(eid==EV_DOOR_OPEN){DoorState*d=(void*)s->state;d->open=1;d->target=1.5708f;s->health=0;m64_sound_play("door_open",s->xform.pos,1);}
 }
 
 // ── Switch (OoT) ───────────────────────────────────────────────────────
 typedef struct { M64ActorHandle door; uint8_t activated; } SwitchState;
-static void switch_init(M64Actor *s, const M64Dict *a){SwitchState*sw=s->state;sw->door=M64_ACTOR_HANDLE_NONE;sw->activated=0;(void)a;}
+static void switch_init(M64Actor *s, const M64Dict *a){SwitchState*sw=(void*)s->state;sw->door=M64_ACTOR_HANDLE_NONE;sw->activated=0;(void)a;}
 static void switch_update(M64Actor *s, float dt){(void)s;(void)dt;}
 static void switch_draw(M64Actor *s){(void)s;draw_cube(g_cube_switch);}
 
 // ── Barrel (Half-Life) ─────────────────────────────────────────────────
 typedef struct { float hp; } BarrelState;
-static void barrel_init(M64Actor *s, const M64Dict *a){BarrelState*b=s->state;b->hp=30;s->health=30;(void)a;}
+static void barrel_init(M64Actor *s, const M64Dict *a){BarrelState*b=(void*)s->state;b->hp=30;s->health=30;(void)a;}
 static void barrel_update(M64Actor *s, float dt){(void)s;(void)dt;}
 static void barrel_draw(M64Actor *s){(void)s;draw_cube(g_cube_barrel);}
 static void barrel_event(M64Actor *s, uint16_t eid, const int32_t *a, uint8_t c){
     (void)c;(void)a;
-    if(eid==EV_ENEMY_ATTACK){BarrelState*b=s->state;b->hp-=10;s->health=b->hp;if(b->hp<=0){
+    if(eid==EV_ENEMY_ATTACK){BarrelState*b=(void*)s->state;b->hp-=10;s->health=b->hp;if(b->hp<=0){
         m64_sound_play("explosion",s->xform.pos,1);
         for(M64Actor*e=m64_actor_first(M64_ACTOR_CAT_ENEMY);e;e=m64_actor_next(e)){
             fm_vec3_t d={{e->xform.pos.v[0]-s->xform.pos.v[0],0,e->xform.pos.v[2]-s->xform.pos.v[2]}};
@@ -624,7 +624,7 @@ int main(void)
                 case M64_CTX_TALK: {
                     M64Actor *a = m64_actor_resolve(g_ctx_actor);
                     if (a) {
-                        NpcState *n = (NpcState *)a->state;
+                        NpcState *n = (void *)a->state;
                         const char *lines[] = { n->line };
                         m64_dialogue_start(&g_dialogue, lines, 1);
                         m64_sound_play("npc_talk", a->xform.pos, 1);
@@ -634,7 +634,7 @@ int main(void)
                 case M64_CTX_OPEN: {
                     M64Actor *a = m64_actor_resolve(g_ctx_actor);
                     if (a && a->profile_id == PROFILE_KEY_DOOR) {
-                        DoorState *d = (DoorState *)a->state;
+                        DoorState *d = (void *)a->state;
                         if (d->open) break;
                         if (m64_inventory_has(&g_inv, d->key_id)) {
                             m64_inventory_consume(&g_inv, d->key_id, 1);
@@ -649,7 +649,7 @@ int main(void)
                 case M64_CTX_UNLOCK: {
                     M64Actor *a = m64_actor_resolve(g_ctx_actor);
                     if (a) {
-                        DoorState *d = (DoorState *)a->state;
+                        DoorState *d = (void *)a->state;
                         if (m64_inventory_has(&g_inv, d->key_id)) {
                             m64_inventory_consume(&g_inv, d->key_id, 1);
                             int32_t args[1] = {1};
@@ -668,7 +668,7 @@ int main(void)
                 case M64_CTX_USE: {
                     M64Actor *a = m64_actor_resolve(g_ctx_actor);
                     if (a && a->profile_id == PROFILE_SWITCH) {
-                        SwitchState *sw = (SwitchState *)a->state;
+                        SwitchState *sw = (void *)a->state;
                         if (!sw->activated && sw->door != M64_ACTOR_HANDLE_NONE) {
                             sw->activated = 1;
                             int32_t args[1] = {1};

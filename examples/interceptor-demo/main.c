@@ -59,7 +59,7 @@ static const float MODE_PERIOD[MODE_COUNT] = { 8.0f, 8.0f, 8.0f };
 static const char  MODE_NAME[MODE_COUNT][12] = { "PARKED", "BANKED", "CINEMATIC" };
 
 static int   mode         = MODE_PARKED;
-static float mode_t       = 0.0f;
+static float time_in_mode = 0.0f;
 static float total_t      = 0.0f;
 /* pulse_t starts high so the first frame after the title has no sharp
  * pulse; it resets to 0 on every mode transition. */
@@ -68,7 +68,7 @@ static float blip_beat_t  = 0.0f;
 static bool  in_title     = true;
 static float title_t      = 0.0f;
 static bool  blip_armed   = false;   /* one blip per mode entry */
-static bool  blip_cine_armed = false; /* one blip at mode_t == 1s in CINEMATIC */
+static bool  blip_cine_armed = false; /* one blip at time_in_mode == 1s in CINEMATIC */
 
 /* ── Engine mouth local position (model space, see interceptor.py) ─────
  *
@@ -176,9 +176,9 @@ static T3DVertPacked *make_star_cube(void)
         fm_vec3_norm(&na, &na);
         fm_vec3_norm(&nb, &nb);
         v[i / 2] = (T3DVertPacked){
-            .posA = { c[i][0], c[i][1], c[i][2] }, .rgbaA = RGBA32(200, 210, 255, 255),
+            .posA = { c[i][0], c[i][1], c[i][2] }, .rgbaA = color_to_packed32(RGBA32(200, 210, 255, 255)),
             .normA = t3d_vert_pack_normal(&na),
-            .posB = { c[i+1][0], c[i+1][1], c[i+1][2] }, .rgbaB = RGBA32(200, 210, 255, 255),
+            .posB = { c[i+1][0], c[i+1][1], c[i+1][2] }, .rgbaB = color_to_packed32(RGBA32(200, 210, 255, 255)),
             .normB = t3d_vert_pack_normal(&nb),
         };
     }
@@ -229,7 +229,7 @@ static void streak_color(float modulation, uint32_t *out)
     if (modulation > 1.5f) modulation = 1.5f;
     uint8_t a = (uint8_t)(STREAK_BASE_A * modulation);
     if (a > 255) a = 255;
-    *out = RGBA32(255, 176, 72, a);
+    *out = color_to_packed32(RGBA32(255, 176, 72, a));
 }
 
 /* ── Per-mode state computation ─────────────────────────────────────── */
@@ -283,9 +283,10 @@ static void compute_mode_state(ModeState *s)
             60.0f * fm_sinf(t)
         }};
         /* Heading: tangent to the curve, derived analytically. The
-         * 8x8 figure-8 has velocity (-180 cos(2t), 0.4 cos(1.3t), 60 cos(t)). */
+         * figure-8 has velocity (-180 cos(2t), 0.4 cos(1.3t), 60 cos(t))
+         * — we only use the XZ components for yaw; the y bob is purely
+         * positional and doesn't enter the heading. */
         float vx = -180.0f * fm_cosf(2.0f * t);
-        float vy =  10.4f * fm_cosf(t * 1.3f);
         float vz =   60.0f * fm_cosf(t);
         s->ship_yaw   = fm_atan2f(vx, vz);
         s->ship_roll  = -0.5f * (vx * fm_sinf(s->ship_yaw) - vz * fm_cosf(s->ship_yaw)) * 0.02f;
@@ -305,7 +306,7 @@ static void compute_mode_state(ModeState *s)
         /* Ship pulls away from camera along a curved arc. Camera holds
          * position, ship does the work. The arc is (sin(t), 0.5*sin(0.7t),
          * -t * 40) — a slow climb and retreat. */
-        float t = mode_t;
+        float t = time_in_mode;
         s->ship_pos = (fm_vec3_t){{
             40.0f * fm_sinf(t * 0.8f),
             10.0f + 8.0f * fm_sinf(t * 0.5f),
@@ -378,7 +379,7 @@ static void draw_hud(int fps_int_x10)
     /* Top-right: mode label. */
     m64_gui_panel(SCREEN_W - 104, 8, 96, 40, RGBA32(10, 10, 24, 200), cyan);
     m64_gui_text(SCREEN_W - 98, 18, cyan,  "MODE %s", MODE_NAME[mode]);
-    m64_gui_text(SCREEN_W - 98, 32, white, "t %4.1f/%4.1f", mode_t, MODE_PERIOD[mode]);
+    m64_gui_text(SCREEN_W - 98, 32, white, "t %4.1f/%4.1f", time_in_mode, MODE_PERIOD[mode]);
 
     /* Bottom: credit strip. */
     m64_gui_panel(8, SCREEN_H - 32, SCREEN_W - 16, 24, RGBA32(10, 10, 24, 200), violet);
@@ -445,13 +446,13 @@ int main(void)
         }
 
         /* ── In-flight timing. */
-        mode_t += DT;
+        time_in_mode += DT;
         total_t += DT;
         pulse_t += DT;
         blip_beat_t -= DT;
 
-        if (mode_t >= MODE_PERIOD[mode]) {
-            mode_t -= MODE_PERIOD[mode];
+        if (time_in_mode >= MODE_PERIOD[mode]) {
+            time_in_mode -= MODE_PERIOD[mode];
             mode = (mode + 1) % MODE_COUNT;
             pulse_t = 0.0f;
             blip_armed = true;
@@ -465,7 +466,7 @@ int main(void)
             blip_armed = false;
         }
         if (blip_cine_armed && mode == MODE_CINEMATIC &&
-            mode_t >= 1.0f && mode_t < 1.0f + DT) {
+            time_in_mode >= 1.0f && time_in_mode < 1.0f + DT) {
             m64_sfx_play(g_blip, -1, 1);
             blip_cine_armed = false;
         }
