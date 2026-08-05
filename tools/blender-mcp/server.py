@@ -295,5 +295,125 @@ def import_godot_scene(path: str, project_root: str, name: str, out_dir: str,
     return result
 
 
+@mcp.tool()
+def inspect_fps_map(path: str) -> dict:
+    """Parse a Quake .map and report FPS-specific entity categorization,
+    epair validation, and cross-references. No Blender needed.
+
+    Returns a structured summary of every FPS entity in the map, grouped
+    by type (enemies, pickups, NPCs, doors, switches, triggers, barrels),
+    with their epairs and any issues (missing required epairs, broken
+    switch→door references, doors without matching keys).
+    """
+    text = Path(path).read_text()
+    entities = quake_map.parse_map(text)
+
+    categories = {
+        "enemies": [], "heavies": [], "health": [], "armor": [],
+        "ammo": [], "npcs": [], "chests": [], "key_doors": [],
+        "key_red": [], "switches": [], "barrels": [], "triggers": [],
+        "player_start": [], "other": [],
+    }
+
+    for ent in entities:
+        if ent["brushes"]:
+            continue
+        props = ent["props"]
+        cn = props.get("classname", "?")
+        origin = props.get("origin", "?")
+        angle = props.get("angle", "0")
+        epairs = {k: v for k, v in props.items()
+                   if k not in ("classname", "origin", "angle")}
+
+        entry = {"classname": cn, "origin": origin, "angle": angle,
+                  "epairs": epairs}
+
+        if cn == "info_player_start":
+            categories["player_start"].append(entry)
+        elif cn == "info_enemy":
+            categories["enemies"].append(entry)
+        elif cn == "info_heavy":
+            categories["heavies"].append(entry)
+        elif cn == "info_health":
+            categories["health"].append(entry)
+        elif cn == "info_armor":
+            categories["armor"].append(entry)
+        elif cn == "info_ammo":
+            categories["ammo"].append(entry)
+        elif cn == "info_npc":
+            categories["npcs"].append(entry)
+        elif cn == "info_chest":
+            categories["chests"].append(entry)
+        elif cn == "info_key_door":
+            categories["key_doors"].append(entry)
+        elif cn == "info_key_red":
+            categories["key_red"].append(entry)
+        elif cn == "info_switch":
+            categories["switches"].append(entry)
+        elif cn == "info_barrel":
+            categories["barrels"].append(entry)
+        elif cn == "info_trigger":
+            categories["triggers"].append(entry)
+        else:
+            categories["other"].append(entry)
+
+    # Cross-reference validation.
+    issues = []
+    door_count = len(categories["key_doors"])
+    for sw in categories["switches"]:
+        td = sw["epairs"].get("target_door", "")
+        if td and td != "0":
+            try:
+                idx = int(td)
+                if idx < 0 or idx >= door_count:
+                    issues.append(f"switch at {sw['origin']} targets door "
+                                   f"index {idx} but only {door_count} door(s) exist")
+            except ValueError:
+                issues.append(f"switch at {sw['origin']} has unparseable "
+                               f"target_door '{td}'")
+        elif not td:
+            issues.append(f"switch at {sw['origin']} missing 'target_door' epair")
+
+    for door in categories["key_doors"]:
+        kid = door["epairs"].get("key_id", "")
+        if not kid:
+            issues.append(f"key_door at {door['origin']} missing 'key_id' epair")
+        elif not categories["key_red"]:
+            issues.append(f"key_door at {door['origin']} requires key_id "
+                           f"{kid} but no info_key_red pickup exists")
+
+    for trig in categories["triggers"]:
+        for req in ("mins", "maxs", "event_id", "type"):
+            if req not in trig["epairs"]:
+                issues.append(f"trigger at {trig['origin']} missing '{req}' epair")
+
+    for npc in categories["npcs"]:
+        if "dialogue" not in npc["epairs"]:
+            issues.append(f"npc at {npc['origin']} missing 'dialogue' epair")
+
+    for chest in categories["chests"]:
+        if "contents" not in chest["epairs"]:
+            issues.append(f"chest at {chest['origin']} missing 'contents' epair")
+
+    summary = {
+        "player_start": len(categories["player_start"]),
+        "enemies": len(categories["enemies"]),
+        "heavies": len(categories["heavies"]),
+        "health_pickups": len(categories["health"]),
+        "armor_pickups": len(categories["armor"]),
+        "ammo_pickups": len(categories["ammo"]),
+        "npcs": len(categories["npcs"]),
+        "chests": len(categories["chests"]),
+        "key_doors": len(categories["key_doors"]),
+        "key_red_pickups": len(categories["key_red"]),
+        "switches": len(categories["switches"]),
+        "barrels": len(categories["barrels"]),
+        "triggers": len(categories["triggers"]),
+        "other": len(categories["other"]),
+    }
+
+    return {"categories": categories, "summary": summary, "issues": issues}
+
+
 if __name__ == "__main__":
     mcp.run()

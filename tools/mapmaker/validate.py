@@ -199,6 +199,96 @@ def main():
     if problems:
         print(f"\nFAIL: {', '.join(problems)}", file=sys.stderr)
         return 1
+
+    # ── FPS entity-specific epair validation ──────────────────────────
+    # Checks required epairs per classname and cross-references (switch→door,
+    # key→door). Warnings, not errors — the map still parses, but gameplay
+    # will be broken.
+    fps_warnings = []
+
+    # Collect spawns by classname for cross-referencing.
+    spawns_by_class = {}
+    for ent in entities:
+        if ent["brushes"]:
+            continue
+        props = ent["props"]
+        cn = props.get("classname", "?")
+        spawns_by_class.setdefault(cn, []).append(props)
+
+    # Required epairs per classname.
+    required_epairs = {
+        "info_key_door": ["key_id"],
+        "info_switch": ["target_door"],
+        "info_trigger": ["mins", "maxs", "event_id", "type"],
+        "info_npc": ["dialogue"],
+        "info_chest": ["contents"],
+    }
+
+    for cn, reqs in required_epairs.items():
+        for props in spawns_by_class.get(cn, []):
+            for req in reqs:
+                if req not in props:
+                    fps_warnings.append(
+                        f"{cn} at {props.get('origin', '?')} missing '{req}' epair")
+
+    # Cross-reference: info_switch.target_door should reference a door.
+    door_ids = set()
+    for props in spawns_by_class.get("info_key_door", []):
+        # Doors don't have an id epair by default; use their index.
+        pass
+    door_count = len(spawns_by_class.get("info_key_door", []))
+    for props in spawns_by_class.get("info_switch", []):
+        td = props.get("target_door", "")
+        if td and td != "0":
+            # target_door is a 0-based index into the door list.
+            try:
+                idx = int(td)
+                if idx < 0 or idx >= door_count:
+                    fps_warnings.append(
+                        f"info_switch at {props.get('origin', '?')} "
+                        f"targets door index {idx} but only {door_count} door(s) exist")
+            except ValueError:
+                fps_warnings.append(
+                    f"info_switch at {props.get('origin', '?')} "
+                    f"has unparseable target_door '{td}'")
+
+    # Cross-reference: info_key_door.key_id should match a key pickup.
+    key_ids_doors = set()
+    for props in spawns_by_class.get("info_key_door", []):
+        kid = props.get("key_id", "")
+        if kid:
+            key_ids_doors.add(kid)
+    key_ids_pickups = set()
+    for props in spawns_by_class.get("info_key_red", []):
+        key_ids_pickups.add("1")  # info_key_red always = key id 1
+    for kid in key_ids_doors:
+        if kid not in key_ids_pickups:
+            fps_warnings.append(
+                f"info_key_door requires key_id {kid} but no "
+                f"info_key_red pickup exists for that key")
+
+    # info_trigger: validate mins/maxs are parseable vec3.
+    for props in spawns_by_class.get("info_trigger", []):
+        for vk in ("mins", "maxs"):
+            v = props.get(vk, "")
+            if v:
+                try:
+                    parts = v.split()
+                    [float(x) for x in parts]
+                    if len(parts) != 3:
+                        raise ValueError
+                except ValueError:
+                    fps_warnings.append(
+                        f"info_trigger at {props.get('origin', '?')} "
+                        f"has unparseable {vk} '{v}'")
+
+    if fps_warnings:
+        print(f"\nFPS warnings ({len(fps_warnings)}):")
+        for w in fps_warnings:
+            print(f"  WARN: {w}")
+
+    if problems:
+        return 1
     print("\nOK")
     return 0
 

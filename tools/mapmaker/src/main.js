@@ -9,13 +9,12 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
 import { allocId as allocBrushId, makeBrushMesh, syncBrushMesh } from './brush.js';
-import { allocId as allocSpawnId, makeSpawnGroup, syncSpawnGroup } from './entity.js';
+import { allocId as allocSpawnId, makeSpawnGroup, syncSpawnGroup, KNOWN_CLASSNAMES, ENTITY_PALETTE } from './entity.js';
 import { parseEditorState, emitMap, LIMITS } from './mapio.js';
 import { snapRound, snapFloor, snapCeil, clampInt16 } from './snap.js';
 
 const DEFAULT_GRID = 16;
 const DEFAULT_BRUSH_HEIGHT = 64;
-const KNOWN_CLASSNAMES = ['worldspawn', 'info_player_start', 'info_enemy'];
 
 const state = {
   brushes: [],
@@ -483,6 +482,57 @@ function sidebarBrush(b) {
   selBox.appendChild(del);
 }
 
+// ── entity-specific epair schemas ────────────────────────────────────────────
+// For each classname that needs typed fields, define the schema.
+// 'generic' epairs are still available below the typed fields.
+const EPAIR_SCHEMAS = {
+  info_npc: [
+    { key: 'dialogue', label: 'dialogue', type: 'text', default: '...' },
+  ],
+  info_chest: [
+    { key: 'contents', label: 'contents', type: 'select', options: [
+      { value: '1', label: 'key_red' },
+      { value: '0', label: '(none)' },
+    ], default: '0' },
+  ],
+  info_key_door: [
+    { key: 'key_id', label: 'key_id', type: 'number', default: 1 },
+  ],
+  info_switch: [
+    { key: 'target_door', label: 'target_door', type: 'door_select', default: 0 },
+  ],
+  info_trigger: [
+    { key: 'mins', label: 'mins', type: 'vec3', default: '0 0 0' },
+    { key: 'maxs', label: 'maxs', type: 'vec3', default: '0 0 0' },
+    { key: 'event_id', label: 'event_id', type: 'number', default: 0 },
+    { key: 'type', label: 'type', type: 'select', options: [
+      { value: '0', label: 'once' },
+      { value: '1', label: 'multiple' },
+      { value: '2', label: 'push' },
+    ], default: '0' },
+  ],
+};
+
+function getEpair(spawn, key) {
+  for (const e of (spawn.epairs || [])) if (e.k === key) return e.v;
+  return null;
+}
+function setEpair(spawn, key, value) {
+  if (!spawn.epairs) spawn.epairs = [];
+  for (const e of spawn.epairs) {
+    if (e.k === key) { e.v = value; return; }
+  }
+  spawn.epairs.push({ k: key, v: value });
+}
+function removeEpair(spawn, key) {
+  if (!spawn.epairs) return;
+  spawn.epairs = spawn.epairs.filter(e => e.k !== key);
+}
+
+function findDoorSpawns() {
+  return state.spawns.filter(s => s.classname === 'info_key_door');
+}
+
 function sidebarSpawn(s) {
   const title = document.createElement('h3');
   title.textContent = `spawn #${s.id}`;
@@ -494,6 +544,7 @@ function sidebarSpawn(s) {
   cnLab.textContent = 'classname';
   const cn = document.createElement('select');
   for (const k of KNOWN_CLASSNAMES) {
+    if (k === 'worldspawn') continue;
     const opt = document.createElement('option');
     opt.value = k; opt.textContent = k;
     if (s.classname === k) opt.selected = true;
@@ -524,11 +575,104 @@ function sidebarSpawn(s) {
   selBox.appendChild(oWrap);
   // angle
   selBox.appendChild(num('angle°', s.angle || 0, v => { pushUndo(); s.angle = v; }));
-  // epairs
+
+  // ── entity-specific typed fields ──────────────────────────────────
+  const schema = EPAIR_SCHEMAS[s.classname];
+  if (schema) {
+    const epTitle = document.createElement('h4');
+    epTitle.textContent = `${s.classname} fields`;
+    selBox.appendChild(epTitle);
+    for (const field of schema) {
+      if (field.type === 'text') {
+        const wrap = document.createElement('div');
+        wrap.className = 'row';
+        const lab = document.createElement('label');
+        lab.textContent = field.label;
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.value = getEpair(s, field.key) || field.default;
+        inp.style.flex = '1 1 0';
+        inp.addEventListener('change', () => {
+          pushUndo(); setEpair(s, field.key, inp.value);
+          rebuildScene(); syncSidebar();
+        });
+        wrap.appendChild(lab); wrap.appendChild(inp);
+        selBox.appendChild(wrap);
+      } else if (field.type === 'number') {
+        const val = parseInt(getEpair(s, field.key) || field.default, 10);
+        selBox.appendChild(num(field.label, val, v => {
+          pushUndo(); setEpair(s, field.key, String(v));
+        }));
+      } else if (field.type === 'select') {
+        const wrap = document.createElement('div');
+        wrap.className = 'row';
+        const lab = document.createElement('label');
+        lab.textContent = field.label;
+        const sel = document.createElement('select');
+        for (const opt of field.options) {
+          const o = document.createElement('option');
+          o.value = opt.value; o.textContent = opt.label;
+          if ((getEpair(s, field.key) || field.default) === opt.value) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.addEventListener('change', () => {
+          pushUndo(); setEpair(s, field.key, sel.value);
+          rebuildScene(); syncSidebar();
+        });
+        wrap.appendChild(lab); wrap.appendChild(sel);
+        selBox.appendChild(wrap);
+      } else if (field.type === 'vec3') {
+        const cur = getEpair(s, field.key) || field.default;
+        const parts = cur.split(/\s+/).map(parseFloat);
+        while (parts.length < 3) parts.push(0);
+        const wrap = document.createElement('div');
+        wrap.className = 'row';
+        const lab = document.createElement('label');
+        lab.textContent = field.label;
+        wrap.appendChild(lab);
+        for (let i = 0; i < 3; i++) {
+          const inp = document.createElement('input');
+          inp.type = 'number'; inp.value = Math.round(parts[i]); inp.style.width = '48px';
+          inp.addEventListener('change', () => {
+            parts[i] = parseInt(inp.value, 10) || 0;
+            pushUndo(); setEpair(s, field.key, parts.join(' '));
+            rebuildScene(); syncSidebar();
+          });
+          wrap.appendChild(inp);
+        }
+        selBox.appendChild(wrap);
+      } else if (field.type === 'door_select') {
+        const wrap = document.createElement('div');
+        wrap.className = 'row';
+        const lab = document.createElement('label');
+        lab.textContent = field.label;
+        const sel = document.createElement('select');
+        const doors = findDoorSpawns();
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '0'; noneOpt.textContent = '(none)';
+        sel.appendChild(noneOpt);
+        for (const d of doors) {
+          const o = document.createElement('option');
+          o.value = String(d.id); o.textContent = `door #${d.id}`;
+          if ((getEpair(s, field.key) || field.default) === String(d.id)) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.addEventListener('change', () => {
+          pushUndo(); setEpair(s, field.key, sel.value);
+          rebuildScene(); syncSidebar();
+        });
+        wrap.appendChild(lab); wrap.appendChild(sel);
+        selBox.appendChild(wrap);
+      }
+    }
+  }
+
+  // ── generic epairs (advanced) ─────────────────────────────────────
   const epTitle = document.createElement('h4');
   epTitle.textContent = 'epairs';
   selBox.appendChild(epTitle);
   for (const e of (s.epairs || [])) {
+    // Skip epairs that are already shown via the schema
+    if (schema && schema.some(f => f.key === e.k)) continue;
     const row = document.createElement('div');
     row.className = 'epair-row';
     const k = document.createElement('input'); k.value = e.k; k.placeholder = 'key';
