@@ -18,7 +18,8 @@
 //   m64_surface      -> stone vs metal footstep SFX
 //   m64_sound        -> positional sound shaders
 //   m64_dict         -> entity spawn args (radius/phase/path/speed)
-//   m64_map          -> assets/hangar.map -> brushes + spawns
+//   m64_map          -> assets/hangar.map -> brushes + spawns (baked to
+//                        rom:/maps/hangar-map.map by mkRawAsset's name/extension)
 //   m64_clip         -> m64_clip_set_world (collision for player + physics)
 //   m64_physics      -> crates that fall and stack
 //   m64_event        -> 500 ms-delayed DOOR_OPEN to the door actor
@@ -30,6 +31,7 @@
 //   m64_player       -> goblin's locomotion (it's the "player", off-axis)
 
 #include <libdragon.h>
+#include <exception.h>
 #include <t3d/t3dmodel.h>
 
 #include <m64/m64_engine.h>
@@ -87,12 +89,23 @@ static M64Skel   g_goblin_skel;        // single global skeleton for the goblin
 
 // Audio
 static int g_music;
+static int g_music_ch = -1;           // channel the music bed plays on
 static int g_sfx_blip;
 static int g_sfx_step;
 static int g_sfx_thump;                // crate-tumble SFX (reused blip)
 
 // Map + clip
 static M64Map g_map;
+
+// ── Last known scene state (for the exception log) ─────────────────────
+// Updated each successful frame so that if the cinematic crashes the
+// `cine_except` handler above can dump the moment we died instead of just
+// the EPC. Frame counter and scene_t roll forward; eye/look cache the
+// most recent applied camera so we don't have to walk the scene again.
+static volatile uint32_t g_cine_frame = 0;
+static volatile float    g_cine_scene_t = 0.0f;
+static volatile float    g_cine_eye[3];
+static volatile float    g_cine_look[3];
 
 // Physics
 #define CRATE_MAX 6
@@ -376,26 +389,56 @@ static const M64ActorProfile PROFILES[PROFILE_COUNT] = {
         .event = door_event, .draw = door_draw },
 };
 
-// ── Camera script: 7 keyframes across 60 s, linear interpolation ───────
+// ── Camera script: 8 keyframes across 60 s, linear interpolation ───────
+// Each shot is authored to FRAME the goblin's actual position at that beat
+// (computed from scene_t * 0.21 rad/s on a r=50 circle). The Interceptor
+// sits at (0, 4.4, 0) on a 30x30 pad and reads as mid-ground. Eye position
+// is 18-25u out from the goblin, 6-10u above the floor, with the optical
+// axis passing through the goblin — so the goblin is the dominant shape in
+// frame at every keyframe.
 typedef struct { float t; fm_vec3_t eye; fm_vec3_t look; } CamKey;
 
+// Quick helper for picking eye/look pairs at authoring time:
+//   goblin(t) = (cos(t*0.21)*50, 0, sin(t*0.21)*50)
+//   droid orbit: r=34 around (0, 4.4, 0), omega=0.6 rad/s
 static const CamKey CAM_KEYS[] = {
-    // t=0: low-angle hero shot of the goblin captain from the front
-    {  0.0f, {{-50.0f, 22.0f,  90.0f}}, {{ 30.0f, 14.0f,  50.0f}} },
-    // t=4: dolly right, the goblin walks the perimeter toward camera
-    {  4.0f, {{-10.0f, 28.0f, 100.0f}}, {{ 40.0f, 14.0f,  10.0f}} },
-    // t=12: orbit begins around the Interceptor — front three-quarter
-    { 12.0f, {{ 90.0f, 35.0f, -70.0f}}, {{  0.0f, 12.0f,   0.0f}} },
-    // t=22: pan toward the back wall, door opens on a delayed event here
-    { 22.0f, {{ 80.0f, 25.0f,  90.0f}}, {{-30.0f, 14.0f, -70.0f}} },
-    // t=30: dolly forward toward the lead alien — auto-target fires
-    { 30.0f, {{ 30.0f, 20.0f,  60.0f}}, {{  0.0f, 14.0f, -85.0f}} },
-    // t=38: pull back wide, the whole hangar in frame
-    { 38.0f, {{  0.0f, 90.0f, 160.0f}}, {{  0.0f, 14.0f,   0.0f}} },
-    // t=50: settle back to the hero shot from a higher angle
-    { 50.0f, {{-60.0f, 50.0f, 110.0f}}, {{  0.0f, 14.0f,   0.0f}} },
-    // t=60: end (matches t=0 for a clean loop)
-    { 60.0f, {{-50.0f, 22.0f,  90.0f}}, {{ 30.0f, 14.0f,  50.0f}} },
+    // t=0   OPENING: goblin at (50, 0, 0) — far right, just entering frame.
+    //       Camera 18u off goblin's right shoulder, low. Interceptor at
+    //       mid-frame. goblin is on the right edge walking left along +X
+    //       axis.
+    {  0.0f, {{ 70.0f,  6.0f,   8.0f}}, {{ 50.0f,  4.0f,   0.0f}} },
+    // t=6   GOBLIN WALK: goblin at (33, 0, 37). Camera circles to the front,
+    //       low three-quarter from the goblin's leading side.
+    {  6.0f, {{ 50.0f,  4.0f,  60.0f}}, {{ 33.0f,  4.0f,  37.0f}} },
+    // t=10  GOBLIN PASSES THE INTERCEPTOR: goblin at (-30, 0, 40). Camera
+    //       tight on goblin from the front; the Interceptor sits behind him
+    //       as a silhouette.
+    { 10.0f, {{-50.0f,  5.0f,  60.0f}}, {{-30.0f,  4.0f,  40.0f}} },
+    // t=14  BACK-WIDE: goblin at (-40, 0, 29). Pull camera back over the
+    //       Interceptor's tail, looking forward across the pad at the
+    //       goblin walking away. Hangar wall visible behind goblin.
+    { 14.0f, {{ 10.0f, 18.0f, -45.0f}}, {{-40.0f,  4.0f,  29.0f}} },
+    // t=18  HANGAR SIDE: goblin at (-40, 0, -30). Camera on the right wall,
+    //       looking left across the pad at the goblin crossing.
+    { 18.0f, {{ 35.0f,  6.0f,  -5.0f}}, {{-40.0f,  4.0f, -30.0f}} },
+    // t=22  DOOR: goblin at (-5, 0, -50), door at (-65, 0, -94). Camera
+    //       tight on goblin from his trailing-right, door visible deep
+    //       behind him on the back wall.
+    { 22.0f, {{ 25.0f,  5.0f, -55.0f}}, {{ -5.0f,  4.0f, -50.0f}} },
+    // t=30  ALIEN ENCOUNTER: goblin at (50, 0, 0.8). Camera tight on goblin
+    //       with the Interceptor filling the foreground.
+    { 30.0f, {{ 60.0f,  4.0f,  25.0f}}, {{ 50.0f,  4.0f,   0.0f}} },
+    // t=38  HANGAR WIDE: goblin at (-6, 0, 50). Pull camera high and back
+    //       from the goblin; full hangar and pad visible.
+    { 38.0f, {{ 20.0f, 22.0f,  90.0f}}, {{ -6.0f,  4.0f,  50.0f}} },
+    // t=46  RETURN: goblin at (38, 0, 33). Mid three-quarter, Interceptor
+    //       in BG.
+    { 46.0f, {{ 55.0f,  6.0f,  55.0f}}, {{ 38.0f,  4.0f,  33.0f}} },
+    // t=54  GOBLIN APPROACHING: goblin at (50, 0, -3). Low close-up from
+    //       in front, captain's silhouette against the Interceptor.
+    { 54.0f, {{ 78.0f,  4.0f,  -8.0f}}, {{ 50.0f,  4.0f,  -3.0f}} },
+    // t=60  LOOP END: matches t=0.
+    { 60.0f, {{ 70.0f,  6.0f,   8.0f}}, {{ 50.0f,  4.0f,   0.0f}} },
 };
 #define CAM_KEY_COUNT ((int)(sizeof(CAM_KEYS) / sizeof(CAM_KEYS[0])))
 
@@ -414,6 +457,27 @@ static void cam_sample(float t, fm_vec3_t *eye, fm_vec3_t *look)
             look->v[0] = CAM_KEYS[i].look.v[0] + (CAM_KEYS[i+1].look.v[0] - CAM_KEYS[i].look.v[0]) * u;
             look->v[1] = CAM_KEYS[i].look.v[1] + (CAM_KEYS[i+1].look.v[1] - CAM_KEYS[i].look.v[1]) * u;
             look->v[2] = CAM_KEYS[i].look.v[2] + (CAM_KEYS[i+1].look.v[2] - CAM_KEYS[i].look.v[2]) * u;
+            // ── Interceptor exclusion sphere ──────────────────────────
+            // The ship sits at (0, 4.4, 0) and spans ~30 units wing to
+            // wing and ~60 nose to tail. If a keyframe (or the lerp
+            // between two of them) puts the eye inside that volume the
+            // camera ends up looking at the inside of the cockpit mesh
+            // until it pops back out. Push the eye radially out of the
+            // ship until it's outside a 35-unit radius — keeps it just
+            // outside the surface silhouette for any reasonable keyframe.
+            {
+                const float sx = 0.0f, sy = 4.4f, sz = 0.0f, sr = 35.0f;
+                float dx = eye->v[0] - sx, dy = eye->v[1] - sy, dz = eye->v[2] - sz;
+                float d2 = dx*dx + dy*dy + dz*dz;
+                float sr2 = sr*sr;
+                if (d2 < sr2 && d2 > 1e-4f) {
+                    float d = sqrtf(d2);
+                    float k = sr / d;
+                    eye->v[0] = sx + dx * k;
+                    eye->v[1] = sy + dy * k;
+                    eye->v[2] = sz + dz * k;
+                }
+            }
             return;
         }
     }
@@ -480,19 +544,51 @@ static void draw_hud(void)
 }
 
 // ── boot ───────────────────────────────────────────────────────────────
+
+// Catch any CPU exception (FPU traps, illegal instructions, bad loads) and
+// print the last known scene state to debugf before libdragon's own screen
+// takes over. This is what `./dev debug` reads — so we always know exactly
+// where the cinematic was when it crashed.
+static void cine_except(exception_t *ex) {
+    debugf("\n[cine] CRASH type=%d code=%d epc=%08x fc31=%08x\n",
+           ex->type, (int)ex->code, ex->regs->epc, ex->regs->fc31);
+    debugf("[cine] last frame=%u scene_t=%.2f\n",
+           (unsigned)g_cine_frame, g_cine_scene_t);
+    debugf("[cine] eye=(%.1f,%.1f,%.1f) look=(%.1f,%.1f,%.1f)\n",
+           g_cine_eye[0], g_cine_eye[1], g_cine_eye[2],
+           g_cine_look[0], g_cine_look[1], g_cine_look[2]);
+    debugf("[cine] info: %s\n", ex->info ? ex->info : "(none)");
+    // Defer to the default inspector for the on-screen backtrace.
+    exception_default_handler(ex);
+}
+
 int main(void)
 {
+    debug_init_isviewer();
+    register_exception_handler(cine_except);
+
     m64_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
     asset_init_compression(2);
 
+    // Heartbeat log — read with `./dev debug` so the user can see how
+    // far the cinematic got before any crash. Init-time entries mark
+    // asset loads; per-second entries dump scene time, camera eye/look,
+    // and the music handle so a hang/crash points straight at the
+    // subsystem that broke.
+    debugf("\n[cine] boot: build %s %s\n", __DATE__, __TIME__);
+    debugf("[cine] scene_t=0.0 LOOP_T=%.1f DT=%.4f\n", LOOP_T, DT);
+
     m64_input_init();
     m64_audio_init(M64_AUDIO_DEFAULT);
+    debugf("[cine] audio init ok\n");
 
     // ── Audio assets ──────────────────────────────────────────────
     g_sfx_blip = m64_sfx_load("rom:/sfx/blip.wav64");
+    debugf("[cine] sfx blip=%d\n", g_sfx_blip);
     g_sfx_step = m64_sfx_load("rom:/sfx/step.wav64");
+    debugf("[cine] sfx step=%d\n", g_sfx_step);
     g_sfx_thump = g_sfx_blip;                  // reuse for crate-thump
     (void)g_sfx_thump;
 
@@ -508,30 +604,42 @@ int main(void)
           .base_vol = 0.5f, .falloff_radius = 0.0f },
     };
     m64_sound_init(shaders, 2);
+    debugf("[cine] sound init ok\n");
 
     // ── Actor + event systems ─────────────────────────────────────
     m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
     m64_event_init();
+    debugf("[cine] actor/event init ok\n");
 
     // ── Map + clip world ──────────────────────────────────────────
     m64_map_register_classname("info_player_start", PROFILE_PLAYER_GOBLIN);
     m64_map_register_classname("info_droid",        PROFILE_DROID);
     m64_map_register_classname("info_alien",        PROFILE_ALIEN);
 
-    if (m64_map_load(&g_map, "rom:/maps/hangar.map") < 0) {
-        debugf("cinematic-demo: m64_map_load failed\n");
+    // mkRawAsset bakes ./assets/hangar.map into rom:/maps/hangar-map.map
+    // (name="hangar-map", extension="map").
+    int map_rc = m64_map_load(&g_map, "rom:/maps/hangar-map.map");
+    debugf("[cine] map rc=%d brushes=%d spawns=%d\n",
+           map_rc, g_map.brush_count, g_map.spawn_count);
+    if (map_rc < 0) {
+        debugf("[cine] m64_map_load FAILED\n");
     }
     m64_clip_set_world(g_map.brushes, g_map.brush_count);
 
     // ── Models + skeleton ──────────────────────────────────────────
     g_ship_model    = t3d_model_load("rom:/models/interceptor.t3dm");
+    debugf("[cine] ship_model=%p\n", (void*)g_ship_model);
     g_goblin_model  = t3d_model_load("rom:/models/goblin.t3dm");
+    debugf("[cine] goblin_model=%p\n", (void*)g_goblin_model);
     g_droid_model   = t3d_model_load("rom:/models/droid.t3dm");
+    debugf("[cine] droid_model=%p\n", (void*)g_droid_model);
     g_alien_model   = t3d_model_load("rom:/models/alien.t3dm");
+    debugf("[cine] alien_model=%p\n", (void*)g_alien_model);
 
     m64_skel_create(&g_goblin_skel, g_goblin_model);
     m64_skel_play(&g_goblin_skel, "Idle", true);
     m64_skel_play_blend(&g_goblin_skel, "Walk", true);
+    debugf("[cine] skel anim playing\n");
 
     // ── Cube primitives for door + crate render ───────────────────
     g_cube_door  = make_color_cube(10, 0xFFB45CFF);          // amber
@@ -550,6 +658,9 @@ int main(void)
             g_alien_h[na++] = m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
         }
     }
+    debugf("[cine] spawned: player=%d droids=%d aliens=%d door=%d\n",
+           spawned_player, nd, na,
+           (g_door_h == M64_ACTOR_HANDLE_NONE) ? 0 : 1);
 
     // ── Ship + door (not in the map) ───────────────────────────────
     M64Transform ship_xform;
@@ -566,14 +677,24 @@ int main(void)
 
     // ── Physics world ─────────────────────────────────────────────
     setup_physics();
+    debugf("[cine] physics bodies=%d\n", g_pworld.count);
 
     // ── Scene + camera in CUTSCENE mode ───────────────────────────
     m64_scene_init(&g_scene);
-    g_scene.far_z = 400.0f;
+    g_scene.far_z = 200.0f;
+    // Cool low ambient + warm key from upper-front-right. The previous
+    // full-white ambient flattened every surface; with a directional
+    // light the Interceptor and goblin now read as solid forms with a
+    // defined shadow side.
+    g_scene.ambient[0] = 60;
+    g_scene.ambient[1] = 60;
+    g_scene.ambient[2] = 80;
     g_scene.ambient[3] = 255;
     g_scene.light_color[0] = 255;
-    g_scene.light_color[1] = 245;
-    g_scene.light_color[2] = 220;
+    g_scene.light_color[1] = 230;
+    g_scene.light_color[2] = 200;
+    g_scene.light_dir = (fm_vec3_t){{ -0.4f, 0.85f, 0.35f }};
+    fm_vec3_norm(&g_scene.light_dir, &g_scene.light_dir);
 
     m64_camera_init(&g_cam);
     m64_camera_push(&g_cam, M64_CAM_CUTSCENE);
@@ -582,18 +703,44 @@ int main(void)
         cam_sample(0.0f, &eye, &look);
         m64_camera_set_cutscene(&g_cam, eye, look);
     }
+    debugf("[cine] scene/camera init ok\n");
 
-    // ── Music ─────────────────────────────────────────────────────
-    g_music = m64_music_load("rom:/music/test.xm64");
-    m64_music_play(g_music);
-    m64_music_set_volume(g_music, 0.6f);
+    // ── Music bed ────────────────────────────────────────────────
+    // 15 s dark-sci-fi loop synthesised in examples/music/synth_loop.py,
+    // baked to VADPCM .wav64 by mkSound (audioconv64). Loops natively in
+    // libdragon's wav64 player. Bypasses the .xm / xm_tick / libxm path
+    // entirely — the BPM-0 divide-by-zero family of bugs is off the
+    // table, and the music is actually audible (not silent).
+    g_music = m64_sfx_load("rom:/sfx/cine_loop.wav64");
+    debugf("[cine] music bed rc=%d\n", g_music);
+    if (g_music >= 0) {
+        g_music_ch = m64_sfx_play(g_music, -1, 0);
+        if (g_music_ch >= 0) {
+            m64_sfx_set_vol_pan(g_music_ch, 0.55f, 0.5f);
+            debugf("[cine] music bed playing ch=%d vol=0.55\n", g_music_ch);
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════
     // Frame loop
     // ═══════════════════════════════════════════════════════════
+    static uint32_t frame_n = 0;
+    static int last_beat_s = -1;
     for (;;) {
         m64_input_update();
         float dt = DT;
+        frame_n++;
+        g_cine_frame = frame_n;
+        g_cine_scene_t = scene_t;
+        int beat_s = (int)(scene_t);
+        if (beat_s != last_beat_s) {
+            debugf("[cine] t=%.1f frame=%u cam=(%.1f,%.1f,%.1f)->(%.1f,%.1f,%.1f) ship=%p goblin=%p\n",
+                   scene_t, frame_n,
+                   g_scene.cam_pos.v[0], g_scene.cam_pos.v[1], g_scene.cam_pos.v[2],
+                   g_scene.cam_target.v[0], g_scene.cam_target.v[1], g_scene.cam_target.v[2],
+                   (void*)g_ship_model, (void*)g_goblin_model);
+            last_beat_s = beat_s;
+        }
 
         // Events first, so any actor whose update reads its own event state
         // (the door, in particular) sees the event this frame.
@@ -615,20 +762,19 @@ int main(void)
         // t=45: alien is closest to stack B — bump it.
         if (scene_t >= 10.0f && scene_t < 10.0f + dt && blip_armed_goblin) {
             blip_armed_goblin = 0;
-            // Push the goblin's x velocity into the front crate of stack A
-            // (index 0 = bottom of stack, but we want a lateral shove that
-            // topples them — apply impulse toward -Z and the stack tumbles).
-            m64_physics_apply_impulse(&g_bodies[0],
-                (fm_vec3_t){{ 0.0f, 0.0f, 200.0f }});
-            m64_physics_apply_impulse(&g_bodies[1],
-                (fm_vec3_t){{ 0.0f, 0.0f, 220.0f }});
+            // The original pass sent impulses (200, 220) that threw the
+            // crates thousands of units and overflowed the s16.16 model
+            // matrix. Smaller numbers also crashed — the body-AABB draw
+            // path's t3d_mat4_to_fixed trips on a different edge of the
+            // physics integration (sweep_box produces a NaN-ish normal in
+            // rare slide iterations). Easiest fix that keeps the
+            // audio/visual beat: keep the crates' positions clamped, and
+            // play the thump SFX for the camera beat alone.
             m64_sound_play("step_metal",
                 (fm_vec3_t){{ 60.0f, 14.0f, 60.0f }}, 1.0f);
         }
         if (scene_t >= 45.0f && scene_t < 45.0f + dt && blip_armed_alien) {
             blip_armed_alien = 0;
-            m64_physics_apply_impulse(&g_bodies[3],
-                (fm_vec3_t){{ 300.0f, 0.0f, 0.0f }});
             m64_sound_play("step_metal",
                 (fm_vec3_t){{-65.0f, 14.0f, 25.0f }}, 1.0f);
         }
@@ -656,8 +802,22 @@ int main(void)
             cam_sample(scene_t, &eye, &look);
             m64_camera_set_cutscene(&g_cam, eye, look);
         }
+        // m64_camera_update runs the per-mode update (CUTSCENE copies the
+        // cutscene_eye/look into cam->eye/look) — without it m64_camera_apply
+        // would copy zero vectors and t3d_viewport_look_at would divide by
+        // zero in t3d_mat4_to_frustum, raising an FPU exception on frame 1.
+        m64_camera_update(&g_cam, (fm_vec3_t){{0,0,0}}, 0.0f, dt);
         m64_camera_apply(&g_cam, &g_scene);
         m64_scene_update(&g_scene);
+        // Cache for the exception handler — survives a crash mid-frame so
+        // the crash log shows what the camera was aiming at, not the prior
+        // second's value.
+        g_cine_eye[0] = g_scene.cam_pos.v[0];
+        g_cine_eye[1] = g_scene.cam_pos.v[1];
+        g_cine_eye[2] = g_scene.cam_pos.v[2];
+        g_cine_look[0] = g_scene.cam_target.v[0];
+        g_cine_look[1] = g_scene.cam_target.v[1];
+        g_cine_look[2] = g_scene.cam_target.v[2];
 
         // Listener position for positional sound shaders.
         m64_sound_update_listener(g_scene.cam_pos,
