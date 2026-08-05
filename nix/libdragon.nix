@@ -73,6 +73,21 @@ pkgs.stdenv.mkDerivation {
     substituteInPlace src/fat.c \
       --replace-fail 'st->st_mtim.tv_sec = mktime(&tm);' 'st->st_mtime = mktime(&tm);' \
       --replace-fail 'st->st_mtim.tv_nsec = 0;' ""
+
+    # ── libxm xm_tick divide-by-zero on a bpm==0 module ───────────────────
+    # xm_tick (src/audio/libxm/play.c:1275) computes
+    #   ctx->remaining_samples_in_tick += ctx->rate / (ctx->bpm * 0.4)
+    # with no guard. A malformed XM module (missing or zeroed BPM field —
+    # the cinematic's examples/music/test.xm ships with both `tempo` and
+    # `bpm` zeroed in the header) will raise a floating-point divide-by-zero
+    # exception on the VR4300 when the XM is tick'd. Park the accumulator at
+    # 0 and continue so the rest of the audio path (any .wav64 SFX) keeps
+    # producing samples instead of crashing the whole mixer. The XM itself
+    # stays silent — which a zero-BPM module should be anyway.
+    substituteInPlace src/audio/libxm/play.c \
+      --replace-fail \
+        'ctx->remaining_samples_in_tick += (float)ctx->rate / ((float)ctx->bpm * 0.4f);' \
+        'if(ctx->bpm > 0) { ctx->remaining_samples_in_tick += (float)ctx->rate / ((float)ctx->bpm * 0.4f); }'
   '';
 
   dontConfigure = true;
