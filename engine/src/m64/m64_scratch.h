@@ -65,7 +65,7 @@ extern "C" {
  *  Embed by value (it is 2×M64_SCRATCH_SIZE + a few words). */
 typedef struct {
     uint8_t memory[2][M64_SCRATCH_SIZE] __attribute__((aligned(16)));
-    uint16_t offset;      /**< current write position within active half  */
+    uint32_t offset;      /**< current write position within active half  */
     uint8_t  active;      /**< 0 or 1 — which half the CPU writes to     */
 } M64Scratch;
 

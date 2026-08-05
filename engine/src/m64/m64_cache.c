@@ -4,10 +4,11 @@
  */
 #include "m64_cache.h"
 #include <string.h>
+#include <libdragon.h>
 
-#define HANDLE_INDEX(h)   ((h) & 0xFFu)
-#define HANDLE_GEN(h)     ((uint8_t)((h) >> 8))
-#define MAKE_HANDLE(i, g) ((M64CacheHandle)((uint32_t)(i) | ((uint32_t)(g) << 8)))
+#define HANDLE_INDEX(h)   ((h) & 0xFFFFu)
+#define HANDLE_GEN(h)     ((uint8_t)((h) >> 16))
+#define MAKE_HANDLE(i, g) ((M64CacheHandle)((uint32_t)(i) | ((uint32_t)(g) << 16)))
 
 void m64_cache_init(M64Cache *cache)
 {
@@ -48,7 +49,11 @@ M64CacheHandle m64_cache_acquire(M64Cache *cache,
 
     /* Find a free slot. */
     idx = find_free(cache);
-    if (idx < 0) return M64_CACHE_HANDLE_INVALID;
+    if (idx < 0) {
+        debugf("m64_cache: full (%d entries), cannot load '%s'\n",
+               M64_CACHE_MAX_ENTRIES, key);
+        return M64_CACHE_HANDLE_INVALID;
+    }
 
     /* Load the resource. */
     void *resource = load_fn ? load_fn(key, user_ctx) : NULL;

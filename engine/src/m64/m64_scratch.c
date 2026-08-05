@@ -18,7 +18,7 @@ void m64_scratch_begin(M64Scratch *s)
 
 void *m64_scratch_alloc(M64Scratch *s, size_t bytes)
 {
-    uint16_t aligned = (uint16_t)((bytes + 15u) & ~15u);
+    uint32_t aligned = (uint32_t)((bytes + 15u) & ~15u);
     if (s->offset + aligned > M64_SCRATCH_SIZE)
         return NULL;
     void *ptr = &s->memory[s->active][s->offset];

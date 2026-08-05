@@ -4,13 +4,13 @@
  */
 #include "m64_tile.h"
 #include <string.h>
+#include <libdragon.h>
 
 #define SLOT_IDX(g, sx, sy) ((sy) * (g)->cfg.slots_x + (sx))
 #define TILE_LOADED   0x01
 #define TILE_UNLOADING 0x02
 
-#define UNLOAD_QUEUE_CAP (sizeof(((M64TileManager *)0)->unload_queue) / \
-                          sizeof(((M64TileManager *)0)->unload_queue[0]))
+#define UNLOAD_QUEUE_CAP M64_TILE_UNLOAD_QUEUE_CAP
 
 void m64_tile_init(M64TileManager *m,
                    const M64TileGridConfig *visual_cfg,
@@ -65,7 +65,15 @@ static void queue_unload(M64TileManager *m, M64TileGrid *grid, int slot_idx)
     if (m->unload_count < UNLOAD_QUEUE_CAP) {
         m->unload_queue[m->unload_count].grid = grid;
         m->unload_queue[m->unload_count].slot_idx = slot_idx;
+        m->unload_queue[m->unload_count].saved_world_x = s->world_x;
+        m->unload_queue[m->unload_count].saved_world_y = s->world_y;
+        m->unload_queue[m->unload_count].saved_lod = s->lod;
+        m->unload_queue[m->unload_count].saved_user_data = s->user_data;
         m->unload_count++;
+    } else {
+        debugf("m64_tile: unload queue full (%d entries), tile (%d,%d) "
+               "will not be freed this frame\n",
+               (int)UNLOAD_QUEUE_CAP, s->world_x, s->world_y);
     }
 }
 
@@ -104,6 +112,12 @@ static void update_grid(M64TileManager *m, M64TileGrid *grid,
             float dz = center.v[2] - focus.v[2];
             float dist_sq = dx * dx + dz * dz;
             uint8_t desired_lod = lod_sel ? lod_sel(tx, ty, dist_sq, m->user_ctx) : 0;
+
+            if (desired_lod >= M64_TILE_MAX_LOD) {
+                if (s->flags & TILE_LOADED && s->world_x == tx && s->world_y == ty)
+                    queue_unload(m, grid, idx);
+                continue;
+            }
 
             if (s->flags & TILE_LOADED) {
                 if (s->world_x == tx && s->world_y == ty) {
@@ -165,14 +179,20 @@ void m64_tile_flush_unload(M64TileManager *m)
 
     for (int i = 0; i < m->unload_count; i++) {
         M64TileGrid *grid = m->unload_queue[i].grid;
-        M64TileSlot *s = &grid->slots[m->unload_queue[i].slot_idx];
-        if (m->unload_fn && s->user_data)
-            m->unload_fn(s->world_x, s->world_y, s->lod,
-                         s->user_data, m->user_ctx);
-        s->flags = 0;
-        s->user_data = NULL;
-        s->world_x = -1;
-        s->world_y = -1;
+        uint8_t slot_idx = m->unload_queue[i].slot_idx;
+        M64TileSlot *s = &grid->slots[slot_idx];
+        if (m->unload_fn && m->unload_queue[i].saved_user_data)
+            m->unload_fn(m->unload_queue[i].saved_world_x,
+                         m->unload_queue[i].saved_world_y,
+                         m->unload_queue[i].saved_lod,
+                         m->unload_queue[i].saved_user_data,
+                         m->user_ctx);
+        if (s->flags & TILE_UNLOADING) {
+            s->flags = 0;
+            s->user_data = NULL;
+            s->world_x = -1;
+            s->world_y = -1;
+        }
     }
     m->unload_count = 0;
 }

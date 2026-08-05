@@ -58,7 +58,7 @@ extern "C" {
 #define M64_CACHE_MAX_KEY_LEN 64
 
 /** A handle that survives entry reuse. Pack index + generation into a
- *  uint32_t: bits 0–7 = index, bits 8–31 = generation. */
+ *  uint32_t: bits 0–15 = index, bits 16–23 = generation. */
 typedef uint32_t M64CacheHandle;
 
 #define M64_CACHE_HANDLE_INVALID 0u

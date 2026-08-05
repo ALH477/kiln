@@ -58,7 +58,13 @@ extern "C" {
 
 /** Draw callback for a single pass. The user iterates the tile grid and
  *  draws tiles at the appropriate LOD level. `pass` is 0 (far) or 1 (near).
- *  `user_ctx` is passed through from m64_twopass_render. */
+ *  `user_ctx` is passed through from m64_twopass_render.
+ *
+ *  The callback is responsible for frustum culling — the coordinator
+ *  does not test tiles against the camera frustum. A tile that is in
+ *  the loaded window but behind the camera will still be passed to
+ *  the callback; the callback should skip it (e.g. by checking the
+ *  tile center against the scene's view-projection matrix). */
 typedef void (*M64PassDrawFn)(M64TileGrid *grid, const M64LODConfig *lod,
                               int pass, M64Scratch *scratch,
                               const M64Scene *scene, void *user_ctx);

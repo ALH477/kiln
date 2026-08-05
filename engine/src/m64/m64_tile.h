@@ -72,6 +72,9 @@ extern "C" {
 /** Maximum LOD levels per tile. 3 is enough for near/mid/far. */
 #define M64_TILE_MAX_LOD 3
 
+/** Unload queue capacity. 5×5 window (25 tiles) × 3 LOD + margin for LOD promotions. */
+#define M64_TILE_UNLOAD_QUEUE_CAP 96
+
 /** A loaded tile. The user_data pointer is set by the load callback and
  *  read by the draw callback — the manager never dereferences it. */
 typedef struct {
@@ -126,8 +129,12 @@ typedef struct {
     /* Unload queue (shared between both grids). */
     struct {
         M64TileGrid *grid;
-        uint8_t      slot_idx;   /**< index into grid->slots               */
-    } unload_queue[M64_TILE_MAX_LOD * 32];  /* bounded; see impl */
+        uint8_t      slot_idx;          /**< index into grid->slots          */
+        int16_t      saved_world_x;     /**< slot state at queue time        */
+        int16_t      saved_world_y;
+        uint8_t      saved_lod;
+        void        *saved_user_data;
+    } unload_queue[M64_TILE_UNLOAD_QUEUE_CAP];
     uint8_t unload_count;
 
     M64TileLoadFn   load_fn;
