@@ -44,6 +44,7 @@
 
 #include <t3d/t3dmath.h>
 #include <stdint.h>
+#include "m64_tile.h"  /* M64_TILE_MAX_LOD */
 
 #ifdef __cplusplus
 extern "C" {

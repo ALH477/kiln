@@ -144,7 +144,7 @@ static void pass_draw(M64TileGrid *grid, const M64LODConfig *lod,
         t3d_mat4_to_fixed_3x4(mtx, &m);
 
         t3d_matrix_push(mtx);
-        t3d_vert_load(td->verts, 2);
+        t3d_vert_load(td->verts, 0, 2);
         t3d_tri_draw(0, 1, 1);  /* degenerate triangle (demo only) */
         t3d_tri_sync();
         t3d_matrix_pop(1);
@@ -192,15 +192,14 @@ int main(void)
 
     while (1) {
         joypad_poll();
-        const joypad_buttons_t *btn = joypad_get_buttons_pressed(JOYPAD_PORT_1);
-        const joypad_inputs_t *inp = joypad_get_inputs(JOYPAD_PORT_1);
+        joypad_buttons_t btn = joypad_get_buttons_pressed(JOYPAD_PORT_1);
+        joypad_inputs_t inp = joypad_get_inputs(JOYPAD_PORT_1);
 
-        /* Move camera with D-pad. */
-        float speed = 4.0f;
-        if (btn->c_right) cam_angle += 0.05f;
-        if (btn->c_left)  cam_angle -= 0.05f;
-        cam_x += (float)inp->stick_x * 0.1f;
-        cam_z -= (float)inp->stick_y * 0.1f;
+        /* Move camera with stick. */
+        if (btn.c_right) cam_angle += 0.05f;
+        if (btn.c_left)  cam_angle -= 0.05f;
+        cam_x += (float)inp.stick_x * 0.1f;
+        cam_z -= (float)inp.stick_y * 0.1f;
 
         /* Clamp to world. */
         if (cam_x < 0) cam_x = 0;
