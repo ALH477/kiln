@@ -49,6 +49,18 @@ static uint16_t intern_key(const char *key)
     return g_key_count++;
 }
 
+/* Look up a key id without interning. Returns 0 if the key is not in the
+ * table, which is the same id intern_key returns for a table-full miss.
+ * This prevents get_* calls from filling the intern table on every miss. */
+static uint16_t lookup_key(const char *key)
+{
+    ensure_tables();
+    for (uint16_t i = 1; i < g_key_count; i++) {
+        if (strcmp(g_key_table[i], key) == 0) return i;
+    }
+    return 0;
+}
+
 /* Intern a value string into the string table, returning its id. */
 static uint16_t intern_str(const char *str)
 {
@@ -142,7 +154,7 @@ void m64_dict_set_str(M64Dict *d, const char *key, const char *v)
 
 int m64_dict_get_int(const M64Dict *d, const char *key, int def)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     if (idx < 0 || d->entries[idx].type != M64_DICT_INT) return def;
     return d->entries[idx].u.i;
@@ -150,7 +162,7 @@ int m64_dict_get_int(const M64Dict *d, const char *key, int def)
 
 float m64_dict_get_float(const M64Dict *d, const char *key, float def)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     if (idx < 0 || d->entries[idx].type != M64_DICT_FLOAT) return def;
     return d->entries[idx].u.f;
@@ -158,7 +170,7 @@ float m64_dict_get_float(const M64Dict *d, const char *key, float def)
 
 fm_vec3_t m64_dict_get_vec3(const M64Dict *d, const char *key, fm_vec3_t def)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     if (idx < 0 || d->entries[idx].type != M64_DICT_VEC3) return def;
     return d->entries[idx].u.v;
@@ -166,7 +178,7 @@ fm_vec3_t m64_dict_get_vec3(const M64Dict *d, const char *key, fm_vec3_t def)
 
 const char *m64_dict_get_str(const M64Dict *d, const char *key, const char *def)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     if (idx < 0 || d->entries[idx].type != M64_DICT_STRING) return def;
     return str_by_id(d->entries[idx].u.s_id);
@@ -174,28 +186,28 @@ const char *m64_dict_get_str(const M64Dict *d, const char *key, const char *def)
 
 int m64_dict_has_int(const M64Dict *d, const char *key)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     return idx >= 0 && d->entries[idx].type == M64_DICT_INT;
 }
 
 int m64_dict_has_float(const M64Dict *d, const char *key)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     return idx >= 0 && d->entries[idx].type == M64_DICT_FLOAT;
 }
 
 int m64_dict_has_vec3(const M64Dict *d, const char *key)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     return idx >= 0 && d->entries[idx].type == M64_DICT_VEC3;
 }
 
 int m64_dict_has_str(const M64Dict *d, const char *key)
 {
-    uint16_t kid = intern_key(key);
+    uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
     return idx >= 0 && d->entries[idx].type == M64_DICT_STRING;
 }
@@ -233,7 +245,6 @@ void m64_dict_set_auto(M64Dict *d, const char *key, const char *v)
 
     /* Try three floats first. */
     float x, y, z;
-    int is_float[3];
     char *endptr;
 
     x = (float)strtod(v, &endptr);
@@ -241,17 +252,27 @@ void m64_dict_set_auto(M64Dict *d, const char *key, const char *v)
         m64_dict_set_str(d, key, v);
         return;
     }
-    is_float[0] = (strchr(v, '.') != NULL);
+    /* strtod accepts "inf"/"infinity"/"nan" as a prefix even when not
+     * followed by a valid number (e.g. "info_player_start" parses as
+     * +Inf with endptr past "inf"). The int cast below would trap on
+     * +Inf. -ffast-math folds isfinite() to true (it assumes no inf/nan),
+     * so inspect the IEEE 754 bits directly: exponent all-ones = inf/nan. */
+    uint32_t bits;
+    memcpy(&bits, &x, sizeof(bits));
+    if ((bits & 0x7F800000u) == 0x7F800000u) {
+        m64_dict_set_str(d, key, v);
+        return;
+    }
+    int is_float0 = (strchr(v, '.') != NULL);
 
     const char *p1 = endptr;
     y = (float)strtod(p1, &endptr);
     if (endptr == p1) {
         /* Exactly one number. */
-        if (is_float[0]) m64_dict_set_float(d, key, x);
-        else             m64_dict_set_int(d, key, (int)x);
+        if (is_float0) m64_dict_set_float(d, key, x);
+        else           m64_dict_set_int(d, key, (int)x);
         return;
     }
-    is_float[1] = (strchr(p1, '.') != NULL);
 
     const char *p2 = endptr;
     z = (float)strtod(p2, &endptr);
@@ -260,7 +281,6 @@ void m64_dict_set_auto(M64Dict *d, const char *key, const char *v)
         m64_dict_set_str(d, key, v);
         return;
     }
-    is_float[2] = (strchr(p2, '.') != NULL);
 
     /* If there's extra non-whitespace after the third number, it's a
      * string that starts with a number (e.g. "1 red"); store as string. */
@@ -272,6 +292,5 @@ void m64_dict_set_auto(M64Dict *d, const char *key, const char *v)
         return;
     }
 
-    (void)is_float;
     m64_dict_set_vec3(d, key, (fm_vec3_t){{ x, y, z }});
 }

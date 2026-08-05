@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <libdragon.h>
 
 static const M64ActorProfile *g_profiles;
 static uint16_t g_profile_count;
@@ -20,6 +21,16 @@ static M64Actor *g_pool;
 static uint16_t g_pool_capacity;
 static int16_t g_free_head = -1;
 static int16_t g_category_head[M64_ACTOR_CATEGORY_COUNT];
+
+/* Deferred-despawn queue. During m64_actor_update_all, a despawn request
+ * from inside an actor's update (potentially targeting a DIFFERENT actor
+ * ahead in the same category list) is deferred here and processed after
+ * the full walk completes. This prevents reading `a->next` from a slot
+ * already returned to the free list. */
+#define M64_DEFERRED_DESPAWN_MAX 64
+static M64ActorHandle g_deferred[M64_DEFERRED_DESPAWN_MAX];
+static uint16_t g_deferred_count;
+static int g_in_update;
 
 static inline M64ActorHandle make_handle(uint16_t idx, uint16_t gen)
 {
@@ -54,6 +65,8 @@ void m64_actor_system_init(const M64ActorProfile *profiles, uint16_t profile_cou
         m64_transform_init(&pool[i].xform);
     }
     g_free_head = 0;
+    g_deferred_count = 0;
+    g_in_update = 0;
 
     for (int c = 0; c < M64_ACTOR_CATEGORY_COUNT; c++) g_category_head[c] = -1;
 }
@@ -107,7 +120,7 @@ M64ActorHandle m64_actor_spawn_in_room(uint16_t profile_id, fm_vec3_t pos, float
     return h;
 }
 
-void m64_actor_despawn(M64ActorHandle h)
+static void despawn_immediate(M64ActorHandle h)
 {
     M64Actor *a = m64_actor_resolve(h);
     if (!a) return;
@@ -123,6 +136,28 @@ void m64_actor_despawn(M64ActorHandle h)
     a->generation++;
     a->next = g_free_head;
     g_free_head = (int16_t)idx;
+}
+
+void m64_actor_despawn(M64ActorHandle h)
+{
+    if (h == M64_ACTOR_HANDLE_NONE) return;
+
+    /* If we're inside m64_actor_update_all, defer the actual despawn so
+     * that a despawn targeting an actor ahead in the same list doesn't
+     * corrupt the walk. m64_actor_update_all processes the queue after
+     * the walk completes. Self-despawn (the common case) also goes through
+     * the queue for simplicity — it's one extra function call, and the
+     * next_idx capture already handles it. */
+    if (g_in_update) {
+        if (g_deferred_count < M64_DEFERRED_DESPAWN_MAX) {
+            g_deferred[g_deferred_count++] = h;
+        } else {
+            debugf("m64_actor: deferred despawn queue full, dropping handle\n");
+        }
+        return;
+    }
+
+    despawn_immediate(h);
 }
 
 M64Actor *m64_actor_resolve(M64ActorHandle h)
@@ -145,15 +180,17 @@ M64ActorHandle m64_actor_handle_of(const M64Actor *a)
 
 void m64_actor_update_all(float dt)
 {
+    g_in_update = 1;
     for (int c = 0; c < M64_ACTOR_CATEGORY_COUNT; c++) {
         int16_t idx = g_category_head[c];
         while (idx != -1) {
             M64Actor *a = &g_pool[idx];
-            /* Captured before calling update: if the actor despawns itself,
-             * a->next would otherwise read from a slot already back on the
-             * free list. Another actor ahead in the same list despawning a
-             * DIFFERENT actor is not handled — deferred despawn would be the
-             * fix if that turns out to matter in practice. */
+            /* Captured before calling update: if the actor despawns itself
+             * (or is despawned by another actor's update), the slot may
+             * already be back on the free list by the time we read next.
+             * Deferring despawns to after the walk fixes this — the slot
+             * stays on the category list (with its next intact) until the
+             * deferred queue is drained below. */
             int16_t next_idx = a->next;
             if (!(a->flags & M64_ACTOR_FLAG_PAUSED)) {
                 const M64ActorProfile *prof = &g_profiles[a->profile_id];
@@ -162,6 +199,15 @@ void m64_actor_update_all(float dt)
             idx = next_idx;
         }
     }
+    g_in_update = 0;
+
+    /* Process deferred despawns. A despawn here may post another despawn
+     * (e.g. a destroy callback despawns a child), but g_in_update is 0 so
+     * those go through despawn_immediate directly. */
+    for (uint16_t i = 0; i < g_deferred_count; i++) {
+        despawn_immediate(g_deferred[i]);
+    }
+    g_deferred_count = 0;
 }
 
 void m64_actor_draw_all(void)

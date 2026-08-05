@@ -273,7 +273,6 @@ static void friction_and_sleep(M64PhysicsWorld *w, float dt)
             b->sleep_timer = 0.0f;
         }
     }
-    (void)w;
 }
 
 void m64_physics_step(M64PhysicsWorld *w, float dt)

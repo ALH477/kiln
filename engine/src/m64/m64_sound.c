@@ -10,7 +10,6 @@
 #include <libdragon.h>
 #include <string.h>
 #include <stdlib.h>
-#include <math.h>
 
 typedef struct {
     M64SoundShader def;
@@ -43,7 +42,11 @@ void m64_sound_init(const M64SoundShader *shaders, int count)
 {
     memset(&g_sound, 0, sizeof(g_sound));
     if (count < 0) count = 0;
-    if (count > M64_SOUND_CHANNELS) count = M64_SOUND_CHANNELS;
+    if (count > M64_SOUND_CHANNELS) {
+        debugf("m64_sound: %d shaders requested but only %d channels available; "
+               "excess shaders will be ignored\n", count, M64_SOUND_CHANNELS);
+        count = M64_SOUND_CHANNELS;
+    }
 
     for (int i = 0; i < count; i++) {
         g_sound.ch[i].def = shaders[i];
@@ -58,15 +61,6 @@ void m64_sound_update_listener(fm_vec3_t pos, fm_vec3_t facing)
     g_sound.listener_facing = facing;
     g_sound.listener_valid = 1;
     fm_vec3_norm(&g_sound.listener_facing, &g_sound.listener_facing);
-}
-
-static const M64SoundShader *find_shader(const char *name)
-{
-    for (int i = 0; i < M64_SOUND_CHANNELS; i++) {
-        if (g_sound.ch[i].def.name && strcmp(g_sound.ch[i].def.name, name) == 0)
-            return &g_sound.ch[i].def;
-    }
-    return NULL;
 }
 
 static void apply_positional(int idx)
@@ -99,13 +93,8 @@ static void apply_positional(int idx)
 int m64_sound_play(const char *name, fm_vec3_t world_pos, float pitch)
 {
     if (!name) return -1;
-    const M64SoundShader *sh = find_shader(name);
-    if (!sh) {
-        debugf("m64_sound: unknown shader '%s'\n", name);
-        return -1;
-    }
 
-    /* Find the matching shader slot. */
+    /* Single scan: find the shader slot by name. */
     int idx = -1;
     for (int i = 0; i < M64_SOUND_CHANNELS; i++) {
         if (g_sound.ch[i].def.name && strcmp(g_sound.ch[i].def.name, name) == 0) {
@@ -113,7 +102,11 @@ int m64_sound_play(const char *name, fm_vec3_t world_pos, float pitch)
             break;
         }
     }
-    if (idx < 0) return -1;
+    if (idx < 0) {
+        debugf("m64_sound: unknown shader '%s'\n", name);
+        return -1;
+    }
+    const M64SoundShader *sh = &g_sound.ch[idx].def;
     ShaderChannel *c = &g_sound.ch[idx];
     if (c->sfx_handle < 0) return -1;
 
