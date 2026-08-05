@@ -7,8 +7,9 @@
 #include <libdragon.h>
 
 #define SLOT_IDX(g, sx, sy) ((sy) * (g)->cfg.slots_x + (sx))
-#define TILE_LOADED   0x01
+#define TILE_LOADED    0x01
 #define TILE_UNLOADING 0x02
+#define TILE_PENDING   0x04
 
 #define UNLOAD_QUEUE_CAP M64_TILE_UNLOAD_QUEUE_CAP
 
@@ -42,6 +43,7 @@ void m64_tile_init(M64TileManager *m,
     m->unload_fn = unload_fn;
     m->sync_fn = sync_fn;
     m->user_ctx = user_ctx;
+    m->load_budget = 2;
 }
 
 M64TileSlot *m64_tile_lookup(M64TileGrid *grid, int16_t tx, int16_t ty)
@@ -78,7 +80,8 @@ static void queue_unload(M64TileManager *m, M64TileGrid *grid, int slot_idx)
 }
 
 static void update_grid(M64TileManager *m, M64TileGrid *grid,
-                        fm_vec3_t focus, M64LODSelectorFn lod_sel)
+                        fm_vec3_t focus, M64LODSelectorFn lod_sel,
+                        uint8_t *load_count)
 {
     M64TileGridConfig *cfg = &grid->cfg;
     int16_t ctx, cty;
@@ -95,6 +98,22 @@ static void update_grid(M64TileManager *m, M64TileGrid *grid,
     if (max_tx >= cfg->tile_count_x) max_tx = cfg->tile_count_x - 1;
     if (min_ty < 0) min_ty = 0;
     if (max_ty >= cfg->tile_count_y) max_ty = cfg->tile_count_y - 1;
+
+    /* Pass 0: service tiles whose load was deferred by the budget on a
+     * previous frame. These are still inside the window (they were
+     * desired then and haven't scrolled out yet), so load them first. */
+    for (int i = 0; i < cfg->slots_x * cfg->slots_y; i++) {
+        M64TileSlot *s = &grid->slots[i];
+        if (!(s->flags & TILE_PENDING))
+            continue;
+        if (*load_count >= m->load_budget)
+            break;
+        s->user_data = m->load_fn
+            ? m->load_fn(s->world_x, s->world_y, s->lod, m->user_ctx)
+            : NULL;
+        s->flags = TILE_LOADED;
+        (*load_count)++;
+    }
 
     /* Pass 1: mark desired tiles and load missing ones. */
     for (int ty = min_ty; ty <= max_ty; ty++) {
@@ -123,14 +142,21 @@ static void update_grid(M64TileManager *m, M64TileGrid *grid,
                 if (s->world_x == tx && s->world_y == ty) {
                     /* Already loaded — check LOD change. */
                     if (s->lod != desired_lod) {
-                        /* Unload old LOD, load new. */
-                        if (m->unload_fn)
-                            m->unload_fn(s->world_x, s->world_y, s->lod,
-                                         s->user_data, m->user_ctx);
-                        s->lod = desired_lod;
-                        s->user_data = m->load_fn
-                            ? m->load_fn(tx, ty, desired_lod, m->user_ctx)
-                            : NULL;
+                        if (s->flags & TILE_PENDING) {
+                            /* No data loaded yet — just update desired LOD. */
+                            s->lod = desired_lod;
+                        } else if (*load_count < m->load_budget) {
+                            /* Budget available — unload old LOD, load new. */
+                            if (m->unload_fn)
+                                m->unload_fn(s->world_x, s->world_y, s->lod,
+                                             s->user_data, m->user_ctx);
+                            s->lod = desired_lod;
+                            s->user_data = m->load_fn
+                                ? m->load_fn(tx, ty, desired_lod, m->user_ctx)
+                                : NULL;
+                            (*load_count)++;
+                        }
+                        /* Budget exhausted: keep current LOD, retry next frame. */
                     }
                     continue;
                 }
@@ -138,15 +164,21 @@ static void update_grid(M64TileManager *m, M64TileGrid *grid,
                 queue_unload(m, grid, idx);
             }
 
-            /* Load the tile. */
+            /* Load the tile (or defer if budget exhausted). */
             s->world_x = tx;
             s->world_y = ty;
             s->lod = desired_lod;
             s->generation++;
-            s->user_data = m->load_fn
-                ? m->load_fn(tx, ty, desired_lod, m->user_ctx)
-                : NULL;
-            s->flags = TILE_LOADED;
+            if (*load_count < m->load_budget) {
+                s->user_data = m->load_fn
+                    ? m->load_fn(tx, ty, desired_lod, m->user_ctx)
+                    : NULL;
+                s->flags = TILE_LOADED;
+                (*load_count)++;
+            } else {
+                s->user_data = NULL;
+                s->flags = TILE_LOADED | TILE_PENDING;
+            }
         }
     }
 
@@ -165,9 +197,10 @@ static void update_grid(M64TileManager *m, M64TileGrid *grid,
 void m64_tile_update(M64TileManager *m, fm_vec3_t focus,
                       M64LODSelectorFn lod_selector)
 {
-    update_grid(m, &m->visual, focus, lod_selector);
+    uint8_t load_count = 0;
+    update_grid(m, &m->visual, focus, lod_selector, &load_count);
     if (m->has_collision_grid)
-        update_grid(m, &m->collision, focus, NULL);  /* collision always LOD 0 */
+        update_grid(m, &m->collision, focus, NULL, &load_count);  /* collision always LOD 0 */
     m->visual.last_focus = focus;
     if (m->has_collision_grid)
         m->collision.last_focus = focus;
@@ -200,7 +233,8 @@ void m64_tile_flush_unload(M64TileManager *m)
 M64TileSlot *m64_tile_first(M64TileGrid *grid)
 {
     for (int i = 0; i < grid->cfg.slots_x * grid->cfg.slots_y; i++) {
-        if (grid->slots[i].flags & TILE_LOADED)
+        if ((grid->slots[i].flags & TILE_LOADED) &&
+            !(grid->slots[i].flags & TILE_PENDING))
             return &grid->slots[i];
     }
     return NULL;
@@ -210,7 +244,8 @@ M64TileSlot *m64_tile_next(M64TileGrid *grid, M64TileSlot *cur)
 {
     int start = (int)(cur - grid->slots) + 1;
     for (int i = start; i < grid->cfg.slots_x * grid->cfg.slots_y; i++) {
-        if (grid->slots[i].flags & TILE_LOADED)
+        if ((grid->slots[i].flags & TILE_LOADED) &&
+            !(grid->slots[i].flags & TILE_PENDING))
             return &grid->slots[i];
     }
     return NULL;

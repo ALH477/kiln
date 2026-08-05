@@ -82,7 +82,8 @@ typedef struct {
     int16_t  world_y;       /**< world tile Y coordinate, or -1 if empty  */
     uint8_t  lod;           /**< current LOD level (0 = highest detail)    */
     uint8_t  generation;   /**< incremented when the slot is reused       */
-    uint8_t  flags;         /**< bit 0 = loaded, bit 1 = unload-pending   */
+    uint8_t  flags;         /**< bit 0 = loaded, bit 1 = unload-pending,
+                                  bit 2 = load-pending (data not yet avail) */
     void    *user_data;     /**< caller-owned (e.g. T3DModel*, M64Brush*) */
 } M64TileSlot;
 
@@ -137,6 +138,11 @@ typedef struct {
     } unload_queue[M64_TILE_UNLOAD_QUEUE_CAP];
     uint8_t unload_count;
 
+    /** Max new tile loads per frame; excess tiles are marked TILE_PENDING
+     *  and loaded on subsequent frames. Default 2. Set to 255 for
+     *  synchronous (load-all-immediately) behaviour. */
+    uint8_t load_budget;
+
     M64TileLoadFn   load_fn;
     M64TileUnloadFn unload_fn;
     M64TileSyncFn   sync_fn;
@@ -177,7 +183,10 @@ void m64_tile_flush_unload(M64TileManager *m);
  *  is not currently resident. */
 M64TileSlot *m64_tile_lookup(M64TileGrid *grid, int16_t tx, int16_t ty);
 
-/** Iterate loaded tiles in slot order. */
+/** Iterate loaded tiles in slot order. Tiles with TILE_PENDING (load
+ *  deferred by the budget) are skipped — the draw callback never sees
+ *  a tile whose user_data has not been populated yet. Use
+ *  m64_tile_lookup to poll a specific tile's status regardless. */
 M64TileSlot *m64_tile_first(M64TileGrid *grid);
 M64TileSlot *m64_tile_next(M64TileGrid *grid, M64TileSlot *cur);
 
