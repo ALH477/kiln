@@ -57,19 +57,19 @@ int m64_dialogue_update(M64Dialogue *d, float dt, const M64Input *in)
 void m64_dialogue_draw(M64Dialogue *d)
 {
     if (!d->active) return;
-    m64_gui_panel(8, d->box_y, SCREEN_W - 16, d->box_h,
+    m64_gui_panel(8, d->box_y, 320 - 16, d->box_h,
                   RGBA32(10, 10, 24, 220), RGBA32(0, 245, 212, 255));
     const char *line = d->lines[d->current_line];
     if (line && d->char_count > 0) {
-        char buf[64];
+        char buf[192];
         int n = d->char_count;
-        if (n > 63) n = 63;
+        if (n > 191) n = 191;
         memcpy(buf, line, n);
         buf[n] = 0;
         m64_gui_text(16, d->box_y + 12, RGBA32(232, 232, 240, 255), "%s", buf);
     }
     if (d->char_count >= (line ? (int)strlen(line) : 0)) {
-        m64_gui_text(SCREEN_W - 60, d->box_y + d->box_h - 14,
+        m64_gui_text(320 - 60, d->box_y + d->box_h - 14,
                      RGBA32(0, 245, 212, 255), "A>");
     }
 }

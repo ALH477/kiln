@@ -8,10 +8,12 @@
  * otherwise — the demo in examples/oot-demo sets the basis each frame
  * from the active camera mode.
  *
- * No sqrt in the hot path: stick magnitude is squared for the walk/run
- * threshold, jump/roll velocities are constants, and footstep cadence is
- * a simple inverse of horizontal speed. The one fm_vec3_len is in the
- * ground-probe normalisation that m64_clip already does internally.
+ * No sqrt in the hot path except one: stick magnitude is squared for the
+ * walk/run threshold, jump/roll velocities are constants, and footstep
+ * cadence is a simple inverse of horizontal speed. The single sqrtf in
+ * the grounded locomotion branch (to normalise the wish direction) is
+ * one fsqrt.s under -ffast-math — 29 cycles, cheaper than the fm_vec3_len
+ * in the ground-probe normalisation that m64_clip already does internally.
  */
 
 #include "m64_player.h"

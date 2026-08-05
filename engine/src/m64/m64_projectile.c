@@ -124,10 +124,31 @@ void m64_projectile_update(float dt)
                 continue;
             }
             for (M64Actor *a = m64_actor_first(M64_ACTOR_CAT_ENEMY); a; a = m64_actor_next(a)) {
-                fm_vec3_t d = {{ a->xform.pos.v[0] - p->pos.v[0],
-                                  a->xform.pos.v[1] - p->pos.v[1],
-                                  a->xform.pos.v[2] - p->pos.v[2] }};
-                if (fm_vec3_len(&d) < 12.0f) {
+                /* Point-to-segment distance: find the closest point on the
+                 * segment [p->pos, new_pos] to the enemy, then check if
+                 * it's within the hit radius. This prevents tunnelling when
+                 * a fast projectile moves more than the hit radius in one
+                 * frame — the old point-distance check only tested p->pos. */
+                fm_vec3_t seg = {{ new_pos.v[0] - p->pos.v[0],
+                                   new_pos.v[1] - p->pos.v[1],
+                                   new_pos.v[2] - p->pos.v[2] }};
+                float seg_len2 = seg.v[0]*seg.v[0] + seg.v[1]*seg.v[1] + seg.v[2]*seg.v[2];
+                fm_vec3_t to_enemy = {{ a->xform.pos.v[0] - p->pos.v[0],
+                                        a->xform.pos.v[1] - p->pos.v[1],
+                                        a->xform.pos.v[2] - p->pos.v[2] }};
+                float t = 0.0f;
+                if (seg_len2 > 1e-6f) {
+                    t = (to_enemy.v[0]*seg.v[0] + to_enemy.v[1]*seg.v[1] + to_enemy.v[2]*seg.v[2]) / seg_len2;
+                    if (t < 0.0f) t = 0.0f;
+                    if (t > 1.0f) t = 1.0f;
+                }
+                fm_vec3_t closest = {{ p->pos.v[0] + seg.v[0] * t,
+                                       p->pos.v[1] + seg.v[1] * t,
+                                       p->pos.v[2] + seg.v[2] * t }};
+                fm_vec3_t d = {{ a->xform.pos.v[0] - closest.v[0],
+                                 a->xform.pos.v[1] - closest.v[1],
+                                 a->xform.pos.v[2] - closest.v[2] }};
+                if (d.v[0]*d.v[0] + d.v[1]*d.v[1] + d.v[2]*d.v[2] < 12.0f * 12.0f) {
                     if (p->radius > 0) explode(p->pos, p->damage, p->radius);
                     else if (g_hit_fn) g_hit_fn(a->profile_id, p->pos, p->damage, 0.0f);
                     p->active = 0;
@@ -146,11 +167,9 @@ void m64_projectile_draw_all(void)
         if (!p->active) continue;
         T3DVertPacked *v = g_proj_verts[p->type];
         if (!v) continue;
-        t3d_matrix_push(&p->pos);
         t3d_vert_load(v, 0, 8);
         for (int j = 0; j < 12; j++)
             t3d_tri_draw(CUBE_TRIS[j][0], CUBE_TRIS[j][1], CUBE_TRIS[j][2]);
         t3d_tri_sync();
-        t3d_matrix_pop(1);
     }
 }

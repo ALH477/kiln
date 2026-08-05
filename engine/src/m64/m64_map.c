@@ -55,6 +55,23 @@ static void skip_ws(const char **p)
     while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') (*p)++;
 }
 
+// Skip whitespace and C++ line comments. .map files in this repo
+// (and Quake .map files generally) start with a header preamble of
+// `// SPDX-...` comments, and authors also leave inline notes between
+// entities. The first non-comment, non-whitespace token has to be a
+// `{` for the outer entity loop to recognise an entity; without this
+// the parser sees `/` at offset 0, fails the `{` check, and exits
+// with 0 brushes and 0 spawns — a degenerate success that the
+// caller has no way to distinguish from a real empty map.
+static void skip_ws_and_comments(const char **p)
+{
+    while (1) {
+        skip_ws(p);
+        if (**p != '/' || (*p)[1] != '/') return;
+        while (**p && **p != '\n') (*p)++;
+    }
+}
+
 static int read_token(const char **p, char *out, size_t out_sz)
 {
     skip_ws(p);
@@ -109,8 +126,8 @@ static int parse_brush(const char **p, M64Brush *brush, M64MapFace *faces,
         skip_ws(p);
         if (**p == '}') { (*p)++; break; }
 
-        if (!expect_token(p, "(")) return -1;
-
+        /* Each face is 3 points (each "( x y z )") followed by a texture name
+         * and 5 UV/rotation/scale tokens. No outer parens wrap the face. */
         fm_vec3_t pts[3];
         for (int i = 0; i < 3; i++) {
             if (!expect_token(p, "(")) return -1;
@@ -127,13 +144,12 @@ static int parse_brush(const char **p, M64Brush *brush, M64MapFace *faces,
             update_aabb(&mins, &maxs, pts[i]);
         }
 
-        /* Skip the texture/UV/scale tokens (up to 5) until the next
-         * '(' starts the next face or '}' ends the brush. */
+        /* Texture name + 5 params (offset_x, offset_y, rotation, x_scale,
+         * y_scale). Fixed-count read matches the Quake format exactly;
+         * a malformed face fails cleanly rather than silently misaligning. */
         char tok[64];
-        while (1) {
-            skip_ws(p);
-            if (**p == '(' || **p == '}') break;
-            read_token(p, tok, sizeof(tok));
+        for (int i = 0; i < 6; i++) {
+            if (!read_token(p, tok, sizeof(tok))) return -1;
         }
 
         if (*face_idx >= max_faces) return -1;
@@ -158,10 +174,6 @@ static int parse_brush(const char **p, M64Brush *brush, M64MapFace *faces,
 
         fm_vec3_t verts[8] = { pts[0], pts[1], pts[2], p3, pts[0], pts[1], pts[2], p3 };
         for (int i = 0; i < 4; i++) {
-            fm_vec3_t na = verts[i * 2 + 0];
-            fm_vec3_t nb = verts[i * 2 + 1];
-            fm_vec3_norm(&na, &na);
-            fm_vec3_norm(&nb, &nb);
             v[i] = (T3DVertPacked){
                 .posA = { (int16_t)verts[i*2+0].v[0], (int16_t)verts[i*2+0].v[1], (int16_t)verts[i*2+0].v[2] },
                 .rgbaA = 0xFFFFFFFF,
@@ -185,6 +197,7 @@ static int parse_brush(const char **p, M64Brush *brush, M64MapFace *faces,
 }
 
 static int parse_entity(const char **p, M64Dict *epairs, M64Brush *brushes,
+                        int *brush_idx, int max_brushes,
                         M64MapFace *faces, int *face_idx, int max_faces,
                         M64RoomSpawn *spawn_out, int *has_spawn)
 {
@@ -194,15 +207,15 @@ static int parse_entity(const char **p, M64Dict *epairs, M64Brush *brushes,
     *has_spawn = 0;
 
     while (1) {
-        skip_ws(p);
+        skip_ws_and_comments(p);
         if (**p == '}') { (*p)++; break; }
 
         if (**p == '{') {
             M64Brush b;
             if (parse_brush(p, &b, faces, face_idx, max_faces) < 0) return -1;
-            if (brushes) {
-                /* Caller passes NULL for entity brushes if they only want
-                 * worldspawn geometry; but we always parse them to skip past. */
+            if (brushes && *brush_idx < max_brushes) {
+                brushes[*brush_idx] = b;
+                (*brush_idx)++;
             }
             continue;
         }
@@ -235,7 +248,16 @@ int m64_map_load(M64Map *out, const char *dfs_path)
 {
     memset(out, 0, sizeof(*out));
 
-    int fh = dfs_open(dfs_path);
+    // libdragon's dfs_open takes a native DFS path ("maps/foo.map"), not
+    // the newlib-style "rom:/maps/foo.map" prefix used by fopen et al.
+    // Callers in this repo were passing the newlib form by convention and
+    // seeing spurious ENOFILE — strip the prefix here so both forms work.
+    const char *native_path = dfs_path;
+    if (native_path && strncmp(native_path, "rom:/", 5) == 0) {
+        native_path += 5;
+    }
+
+    int fh = dfs_open(native_path);
     if (fh < 0) {
         debugf("m64_map: dfs_open(%s) failed\n", dfs_path);
         return -1;
@@ -267,61 +289,32 @@ int m64_map_load(M64Map *out, const char *dfs_path)
     fm_vec3_t world_max = {{ -FLT_MAX, -FLT_MAX, -FLT_MAX }};
 
     while (1) {
-        skip_ws(&p);
+        skip_ws_and_comments(&p);
         if (*p == '\0') break;
         if (*p != '{') {
             debugf("m64_map: expected '{' at offset %zu, got '%c'\n", (size_t)(p - buf), *p);
             break;
         }
 
+        int brush_count_before = brush_count;
         M64Dict epairs;
         M64RoomSpawn spawn;
         int has_spawn = 0;
-        if (parse_entity(&p, &epairs, brushes, faces, &face_count, MAX_FACES,
+        if (parse_entity(&p, &epairs, brushes, &brush_count, MAX_BRUSHES,
+                         faces, &face_count, MAX_FACES,
                          &spawn, &has_spawn) < 0) {
             debugf("m64_map: failed to parse entity\n");
             break;
         }
 
+        /* Update the world AABB from any brushes added by this entity. */
+        for (int i = brush_count_before; i < brush_count; i++) {
+            update_aabb(&world_min, &world_max, brushes[i].mins);
+            update_aabb(&world_min, &world_max, brushes[i].maxs);
+        }
+
         const char *cn = m64_dict_get_str(&epairs, "classname", "");
-        if (strcmp(cn, "worldspawn") == 0) {
-            /* Worldspawn: copy its brushes from the face-building path. We
-             * need to replay the entity to capture brush AABBs. That's
-             * awkward with the current single-pass design, so instead we
-             * special-case: worldspawn entities' brushes were already
-             * parsed into `faces`; we reconstruct their AABBs by walking
-             * the face vertex positions. For the demo this is fine because
-             * worldspawn is exactly one entity. */
-            /* In this simplified parser, worldspawn brushes got faces but
-             * not AABBs stored. We skip worldspawn spawn generation and rely
-             * on the caller to draw faces directly; collision needs brushes,
-             * which we will back-fill from faces below if no brushes were
-             * captured. */
-            for (int i = 0; i < face_count; i++) {
-                /* Recompute AABB from the four packed verts. */
-                fm_vec3_t bmin = {{ FLT_MAX, FLT_MAX, FLT_MAX }};
-                fm_vec3_t bmax = {{ -FLT_MAX, -FLT_MAX, -FLT_MAX }};
-                for (int j = 0; j < 4; j++) {
-                    fm_vec3_t pa = {{ (float)faces[i].verts[j].posA[0],
-                                      (float)faces[i].verts[j].posA[1],
-                                      (float)faces[i].verts[j].posA[2] }};
-                    fm_vec3_t pb = {{ (float)faces[i].verts[j].posB[0],
-                                      (float)faces[i].verts[j].posB[1],
-                                      (float)faces[i].verts[j].posB[2] }};
-                    update_aabb(&bmin, &bmax, pa);
-                    update_aabb(&bmin, &bmax, pb);
-                }
-                if (brush_count < MAX_BRUSHES) {
-                    brushes[brush_count].mins = bmin;
-                    brushes[brush_count].maxs = bmax;
-                    brushes[brush_count].surface = 0;
-                    brushes[brush_count].flags = 0;
-                    brush_count++;
-                }
-                update_aabb(&world_min, &world_max, bmin);
-                update_aabb(&world_min, &world_max, bmax);
-            }
-        } else if (has_spawn) {
+        if (strcmp(cn, "worldspawn") != 0 && has_spawn) {
             if (spawn_count < MAX_SPAWNS) {
                 spawns[spawn_count++] = spawn;
             }

@@ -15,6 +15,7 @@ static uint32_t g_warned_mask[M64_SURFACE_MAX / 32];
 
 void m64_surface_register(uint8_t id, const M64SurfaceDef *def)
 {
+    assertf(id < M64_SURFACE_MAX, "m64_surface: id %u >= M64_SURFACE_MAX %u", id, M64_SURFACE_MAX);
     if (g_table[id].friction != 0.0f || g_table[id].footstep_sfx != 0)
         debugf("m64_surface: overwriting surface %d\n", id);
     g_table[id] = *def;
@@ -22,6 +23,7 @@ void m64_surface_register(uint8_t id, const M64SurfaceDef *def)
 
 const M64SurfaceDef *m64_surface_get(uint8_t id)
 {
+    assertf(id < M64_SURFACE_MAX, "m64_surface: id %u >= M64_SURFACE_MAX %u", id, M64_SURFACE_MAX);
     if (g_table[id].friction == 0.0f && g_table[id].footstep_sfx == 0) {
         int bit = id % 32;
         int word = id / 32;
