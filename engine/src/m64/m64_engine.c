@@ -146,8 +146,35 @@ void m64_scene_begin(M64Scene *s)
     }
     t3d_light_set_count(n);
 
-    /* Fog is scene-wide state, so it is set once here rather than by
-     * whichever model happens to draw first. */
+    /* ── Fog needs BOTH halves ──────────────────────────────────────────
+     * N64 fog is cooperative: the RSP writes a per-vertex depth factor into
+     * SHADE ALPHA, and the RDP blender lerps each pixel toward the fog
+     * colour using it. This used to do only the RSP half —
+     * t3d_fog_set_range + t3d_fog_set_enabled — plus rdpq_set_fog_color,
+     * and never called rdpq_mode_fog.
+     *
+     * Setting the fog COLOUR is not enabling the fog STAGE. libdragon says
+     * so directly (rdpq_mode.h): "rdpq assumes that this has already been
+     * done when rdpq_mode_fog is called ... To enable fog, pass
+     * RDPQ_FOG_STANDARD to this function, and call rdpq_set_fog_color."
+     * So the RSP computed a fog factor every frame and the blender threw it
+     * away: there was no visible fog in any ROM built on this engine, and
+     * every fog range anyone tuned was inert.
+     *
+     * It has to be re-armed HERE, every frame, because t3d_frame_start()
+     * ends with an explicit rdpq_mode_fog(0) (t3d.c) — and m64_frame_begin
+     * calls that immediately before this. rdpq_set_mode_standard() in the
+     * 2D pass clears it too, for the same reason and with the same fix.
+     *
+     * rdpq_mode_combiner above does NOT clear fog, and rdpq auto-adjusts
+     * RDPQ_COMBINER_SHADE / TEX_SHADE so they stop using shade alpha as a
+     * modulation factor once fog is on — both of the combiners this engine
+     * uses are in that auto-handled set.
+     *
+     * Note the polarity when tuning: RDPQ_FOG_STANDARD is
+     * IN_RGB*SHADE_ALPHA + FOG_RGB*(1-SHADE_ALPHA), so shade alpha 0 is
+     * FULLY fogged and 255 is clear. */
+    rdpq_mode_fog(s->fog_enabled ? RDPQ_FOG_STANDARD : 0);
     if (s->fog_enabled) {
         rdpq_set_fog_color(s->fog_color);
         t3d_fog_set_range(s->fog_near, s->fog_far);

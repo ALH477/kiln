@@ -15,18 +15,18 @@
 #define PM_WORLD_GEN_H
 
 // ── The island ─────────────────────────────────────────────────────
-#define PM_ISLAND_RADIUS   8070.1f  // to the wobbled coastline
-#define PM_LAND_RADIUS     6595.3f  // where terrain crosses sea level
+#define PM_ISLAND_RADIUS   19011.2f  // to the wobbled coastline
+#define PM_LAND_RADIUS     13825.9f  // where terrain crosses sea level
 #define PM_ISLAND_TOP      1644.8f  // highest point, incl. the tower
 #define PM_ISLAND_BOTTOM   -192.0f  // the underwater skirt
-#define PM_FIELD_RADIUS    2688.0f  // the flat walkable middle
+#define PM_FIELD_RADIUS    5376.0f  // the flat walkable middle
 #define PM_FIELD_Y         153.6f  // its height above sea level
-#define PM_GATE_RADIUS     3968.0f
-#define PM_SHORE_RADIUS    5056.0f
+#define PM_GATE_RADIUS     7936.0f
+#define PM_SHORE_RADIUS    10112.0f
 
 // Where vegetation sits: the band between the plazas and the strand,
 // at the height the terrain actually is there.
-#define PM_PALM_RADIUS     4512.0f
+#define PM_PALM_RADIUS     9024.0f
 #define PM_PALM_Y          144.0f
 
 // ── The six dungeon gates ──────────────────────────────────────────
@@ -34,17 +34,20 @@
 // a spawn can be placed at one by index rather than by measurement.
 #define PM_GATE_COUNT 6
 #define PM_GATE_TABLE { \
-    {    3968.0f,   153.6f,       0.0f,    0.0f }, \
-    {    1984.0f,   153.6f,    3436.4f,   60.0f }, \
-    {   -1984.0f,   153.6f,    3436.4f,  120.0f }, \
-    {   -3968.0f,   153.6f,       0.0f,  180.0f }, \
-    {   -1984.0f,   153.6f,   -3436.4f,  240.0f }, \
-    {    1984.0f,   153.6f,   -3436.4f,  300.0f }, \
+    {    7936.0f,   153.6f,       0.0f,    0.0f }, \
+    {    3968.0f,   153.6f,    6872.8f,   60.0f }, \
+    {   -3968.0f,   153.6f,    6872.8f,  120.0f }, \
+    {   -7936.0f,   153.6f,       0.0f,  180.0f }, \
+    {   -3968.0f,   153.6f,   -6872.8f,  240.0f }, \
+    {    3968.0f,   153.6f,   -6872.8f,  300.0f }, \
 }
 
-// ── The lab ────────────────────────────────────────────────────────
-// The interior box, for pm_lab.c's collision brushes and pm_demo's
-// interior shot. A camera key outside these is outside the room.
+// ── The lab (unused) ─────────────────────────────────────────────────
+// The interior box of THIS generator's procedural build_lab(), which
+// is not what ships as PM_MODEL_LAB — that's dank_lab.obj, whose real
+// extents live in PetaByte-Madness/src/pm_lab.h (PM_LAB_REAL_*) and are
+// what pm_lab.c's collision and pm_demo's/pm_intake's cameras actually
+// use. These describe a room nothing currently draws.
 #define PM_LAB_X0  -329.6f
 #define PM_LAB_X1  329.6f
 #define PM_LAB_Y0  -35.2f

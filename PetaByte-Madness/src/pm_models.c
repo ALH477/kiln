@@ -17,7 +17,8 @@ static const char *const PATHS[PM_MODEL_COUNT] = {
     [PM_MODEL_PALMS]   = "rom:/models/palms.t3dm",
     [PM_MODEL_CENTAUR] = "rom:/models/centaur.t3dm",
     [PM_MODEL_LOACH]   = "rom:/models/loach.t3dm",
-    [PM_MODEL_LAB]     = "rom:/models/lab.t3dm",
+    // dank_lab.obj, not pm_world.py's procedural box — see pm_lab.h.
+    [PM_MODEL_LAB]     = "rom:/models/dank_lab.t3dm",
     [PM_MODEL_HORNER]  = "rom:/models/horner.t3dm",
     [PM_MODEL_GUARD]   = "rom:/models/guard_cousin.t3dm",
     // The boot splash. Root of DFS for the jingle, models/ for this.
@@ -75,4 +76,20 @@ void pm_models_close(void)
         }
         g_tried[i] = 0;
     }
+}
+
+void pm_models_unload(PMModelId id)
+{
+    if (id < 0 || id >= PM_MODEL_COUNT) return;
+    if (g_models[id]) {
+        t3d_model_free(g_models[id]);
+        g_models[id] = NULL;
+    }
+    // Reset g_tried too, not just g_models: leaving it set would make a
+    // later pm_models_get for this id return NULL forever (the "only try
+    // once" guard above), which is correct for a genuinely missing asset
+    // but wrong here — this model was never missing, it was deliberately
+    // freed, and a screen that (incorrectly) asks for it again should get
+    // a fresh load, not a permanent silent NULL.
+    g_tried[id] = 0;
 }

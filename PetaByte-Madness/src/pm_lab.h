@@ -40,6 +40,26 @@
 #include <m64/m64_input.h>
 #include <m64/m64_engine.h>
 
+// ── The room's real extents ──────────────────────────────────────────────
+// dank_lab.obj is authored in centimetres and lands in the world at
+// baseScale 64 per metre (see docs/ASSET_PIPELINE.md), so its bbox
+// X -7.06..2.80 m, Y 0..2.50, Z -2.30..2.68 becomes the numbers below.
+//
+// Exposed here (rather than kept private to pm_lab.c, where they used to
+// live) so pm_demo.c's lab_cine camera and pm_intake.c's intake camera
+// derive from the SAME source the room's own collision does, instead of
+// each independently typing a number that can drift from what is actually
+// drawn — which is exactly what happened when the shipped model was
+// pm_world.py's procedural box while these described dank_lab.obj: every
+// consumer of "the lab's extents" except pm_lab.c itself was keyed to a
+// room shape nothing drew.
+#define PM_LAB_REAL_X0   (-452.0f)
+#define PM_LAB_REAL_X1    (179.0f)
+#define PM_LAB_REAL_Y0      (0.0f)
+#define PM_LAB_REAL_Y1    (160.0f)
+#define PM_LAB_REAL_Z0   (-147.0f)
+#define PM_LAB_REAL_Z1    (171.0f)
+
 /** The lab's actor profiles, appended after the demons'. Handed to
  *  pm_actors_table, which is what m64_actor_system_init actually sees. */
 const M64ActorProfile *pm_lab_profiles(void);

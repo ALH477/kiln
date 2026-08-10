@@ -12,6 +12,7 @@
 #include "pm_models.h"
 #include "pm_env.h"
 #include "pm_world_gen.h"
+#include "pm_lab.h"
 #include "pm_types.h"
 
 // ── Director state ─────────────────────────────────────────────────────
@@ -102,10 +103,12 @@ static void draw_object_at(PMModelId id, const char *object,
 // the end, always looking at the island's mass rather than its centre so
 // the horizon sits low and the middle of the frame stays clear for the
 // skull and the menu.
-// The island is 12,813 units across and 4,954 tall (200 m at 64 units per
-// metre — see docs/ASSET_PIPELINE.md). Its half-diagonal is ~9,060, so at
-// M64Scene's 85 degree FOV the eye has to be roughly 10,000-16,000 units
-// out to hold the whole silhouette.
+// The island's footprint is PM_ISLAND_HALF_W wide and PM_ISLAND_TOP tall
+// (pm_models.h, both DERIVED from pm_world_gen.h rather than typed — this
+// used to be a literal "12,813 units across", which drifted from the real
+// generated size the moment the island stopped being the OBJ that number
+// described). At M64Scene's 85 degree FOV, holding the whole silhouette
+// needs an eye roughly 1.2-1.9x PM_ISLAND_HALF_W out.
 //
 // The first version of this table put the eye at 1,400 — INSIDE the
 // island's footprint and below its peak. It rendered black, which read as
@@ -131,7 +134,13 @@ static void draw_object_at(PMModelId id, const char *object,
 // Two corrections, both derived: more keys (so each chord is shorter) and
 // a radius scaled by 1/cos(half a segment) so the chord's MIDPOINT — its
 // closest approach — lands on the intended radius rather than its ends.
-#define FLYOVER_SEGMENTS  12
+//
+// Raised from 12 to 14 when the caye was resized to ~210 m land radius
+// (~2x): the orbit radius scales with PM_LAND_RADIUS, so the same segment
+// count now spans a proportionally longer chord. More, shorter chords keep
+// the per-segment dip (and the ridge-clearance margin it eats into) the
+// same fraction of the orbit it always was.
+#define FLYOVER_SEGMENTS  14
 #define FLYOVER_KEY_COUNT (FLYOVER_SEGMENTS + 1)   // last key == first
 static PMCamKey FLYOVER_KEYS[FLYOVER_KEY_COUNT];
 
@@ -142,15 +151,32 @@ static PMCamKey FLYOVER_KEYS[FLYOVER_KEY_COUNT];
 // flat and low and reads as nothing at all from up there. Coming in to 1.5
 // puts the beach and the scrub at a size you can see, and drops the horizon
 // so the sky band and the moon path do the work behind it.
-#define ORBIT_RADII       1.25f
+// INSIDE the island now, not around it.
+//
+// Past pm_env.c's FOG_FAR_FRAC * far_z, nothing is visible — an orbit
+// outside the coast (1.05 radii) would show an empty grey screen, the caye
+// entirely swallowed. The camera instead drifts low over the field itself
+// at roughly a quarter of the land radius, and the temple, the gates and
+// the palms loom out of the fog as it passes them. That is the shot the
+// fog wants. See below for why near_z/far_z have to move in lockstep with
+// PM_LAND_RADIUS whenever the island is resized, or this relationship
+// breaks silently.
+//
+// 0.28 keeps it inside the field (PM_FIELD_RADIUS is 0.41 of the land
+// radius) and well clear of the temple's 15 m base at the centre.
+#define ORBIT_RADII       0.28f
 #define ORBIT_WOBBLE      0.08f   // gentle in-and-out, so it is not a lathe
 // Altitude as a fraction of the LAND radius, not a multiple of the tower.
 // A caye is flat, so a camera placed relative to its highest point ends up
 // hundreds of metres over a pancake; placed relative to its width it stays
 // in the low-aerial band where the beach and the scrub still read.
-// 0.10-0.20 of 6,595 units is roughly 10-20 m up.
-#define ORBIT_HIGH        0.20f
-#define ORBIT_LOW         0.10f
+// 0.07-0.12 of PM_LAND_RADIUS is a low-aerial altitude at any island size —
+// scales with the resize automatically, unlike near_z/far_z below.
+// Ground is 2.4 m and the temple is 25.7 m; the camera stays low against both.
+// The temple therefore TOWERS over the camera rather than being looked down
+// on, which is most of why it reads as ominous rather than as a model.
+#define ORBIT_HIGH        0.12f
+#define ORBIT_LOW         0.07f
 
 static void flyover_build_keys(void)
 {
@@ -164,7 +190,14 @@ static void flyover_build_keys(void)
     // the eye half again too far out — the island came back SMALLER after a
     // change whose whole purpose was to get closer.
     const float base_r = PM_LAND_RADIUS * ORBIT_RADII * chord_fix;
-    const float dur    = 30.0f;
+    // Raised from 30s when the caye's land radius roughly doubled: base_r
+    // scales with PM_LAND_RADIUS, so the same duration would now cover
+    // proportionally more ground per second. 36s keeps the felt pace (world
+    // units travelled per second of screen time) close to what it was
+    // before the resize, rather than turning one full lap into a rushed
+    // fly-by. Feel-tuned, not derived — re-check by eye if the island's
+    // scale changes again.
+    const float dur    = 36.0f;
 
     for (int i = 0; i < FLYOVER_KEY_COUNT; i++) {
         const float u = (float)i / (float)FLYOVER_SEGMENTS;   /* 0..1 */
@@ -257,7 +290,7 @@ static void flyover_draw(float elapsed)
 // "what is this game" with a place rather than a logo.
 // The room is X -452..179, Y 0..160, Z -147..171 in world units — the
 // dank_lab mesh's own bounding box, the same numbers pm_lab.c's collision
-// brushes are built from.
+// brushes are built from (pm_lab.h's PM_LAB_REAL_*).
 //
 // The previous keys started the eye at z = 240, which is 69 units BEHIND the
 // back wall. The shot opened outside the room and flew in through it, and
@@ -266,33 +299,41 @@ static void flyover_draw(float elapsed)
 // next to the extents of what it is inside — the same lesson the flyover's
 // comment above records, in the other direction.
 //
-// So: a push down the room's LONG axis (X spans 631 units, Z only 318),
-// from the lab end toward the moon pool and the MRI at (-330, 40, 60).
-// Every eye and every target sits inside the box with margin for the near
-// plane.
-// Derived from the lab's measured interior (pm_world_gen.h) rather than
-// transcribed. INSET keeps every eye and target off the walls, so the
-// "camera opened behind the back wall" bug cannot recur: if the room
-// changes shape, the shot follows it.
+// So: a push down the room's LONG axis — X spans 631 units, Z only 318 —
+// from the entrance toward the moon pool and the MRI at (-330, 40, 60),
+// i.e. toward LOW X. Every eye and every target sits inside the box with
+// margin for the near plane, held at the room's Z midpoint rather than 0
+// (dank_lab.obj's Z range is not symmetric about the origin).
+// Derived from pm_lab.h's exposed extents rather than transcribed. INSET
+// keeps every eye and target off the walls, so the "camera opened behind
+// the back wall" bug cannot recur: if the room changes shape, the shot
+// follows it.
+//
+// This used to push along Z using pm_world_gen.h's PM_LAB_Z0/Z1 — the
+// PROCEDURAL BOX's generated dimensions, not dank_lab.obj's. The comment
+// already described the real mesh and its X-long-axis correctly; the code
+// was still keyed to the room nothing actually drew.
 #define LAB_INSET 60.0f
-#define LAB_EYE_Y (PM_LAB_Y0 + (PM_LAB_Y1 - PM_LAB_Y0) * 0.62f)
+#define LAB_EYE_Y (PM_LAB_REAL_Y0 + (PM_LAB_REAL_Y1 - PM_LAB_REAL_Y0) * 0.62f)
+#define LAB_CENTER_Z ((PM_LAB_REAL_Z0 + PM_LAB_REAL_Z1) * 0.5f)
 static PMCamKey LAB_KEYS[3];
 
 static void lab_build_keys(void)
 {
-    const float z0 = PM_LAB_Z0 + LAB_INSET;   // the dock end
-    const float z1 = PM_LAB_Z1 - LAB_INSET;   // the entrance end
+    const float x0 = PM_LAB_REAL_X0 + LAB_INSET;   // the dock/MRI end
+    const float x1 = PM_LAB_REAL_X1 - LAB_INSET;   // the entrance end
     const float y  = LAB_EYE_Y;
 
     // A push down the room's long axis, from the entrance toward the dock.
     for (int i = 0; i < 3; i++) {
         const float f = (float)i * 0.5f;              // 0, 0.5, 1
         LAB_KEYS[i].t = 5.0f * (float)i;
-        LAB_KEYS[i].eye  = (fm_vec3_t){ { 0.0f, y, z1 + (z0 - z1) * f * 0.55f } };
+        LAB_KEYS[i].eye  = (fm_vec3_t){ { x1 + (x0 - x1) * f * 0.55f, y,
+                                          LAB_CENTER_Z } };
         // Always looking further down the room than the eye is, so the shot
         // reads as travelling rather than as drifting.
-        LAB_KEYS[i].look = (fm_vec3_t){ { 0.0f, y * 0.75f,
-                                          z1 + (z0 - z1) * (f * 0.55f + 0.42f) } };
+        LAB_KEYS[i].look = (fm_vec3_t){ { x1 + (x0 - x1) * (f * 0.55f + 0.42f),
+                                          y * 0.75f, LAB_CENTER_Z } };
     }
 }
 
@@ -346,12 +387,20 @@ static void centaur_draw(float elapsed)
 #define CINE_EYE_Y  104.0f
 #define CINE_EYE_Z  120.0f
 
+// The room's real box is X -452..179, Y 0..160, Z -147..171 (pm_lab.h's
+// PM_LAB_REAL_*) — dank_lab.obj's actual bounding box, now that it's what
+// PM_MODEL_LAB draws. The first two keys below used to sit at
+// (300, _, 330) and (150, _, 230): both well past X1/Z1 (121 and 159 units
+// past, then 59 past), the same "camera opened outside the room" bug
+// pm_demo's lab shot and pm_intake's LOOK keys both had, never caught here
+// either because nothing that far outside a procedural box happened to
+// look wrong against THAT box's very different, larger footprint.
 static const PMCamKey LAB_CINE_KEYS[] = {
     // wide: him small in a room that is too big and too empty
-    { 0.0f, {{ 300.0f, 150.0f,  330.0f }},
+    { 0.0f, {{ -250.0f, 150.0f,  150.0f }},
             {{ CINE_EYE_X, 70.0f, CINE_EYE_Z }} },
     // closing, still outside him
-    { 4.0f, {{ 150.0f, 120.0f,  230.0f }},
+    { 4.0f, {{ 150.0f, 120.0f,  150.0f }},
             {{ CINE_EYE_X, 90.0f, CINE_EYE_Z }} },
     // at his shoulder
     { 5.4f, {{  78.0f, 108.0f,  152.0f }},
@@ -396,16 +445,24 @@ const PMDemoShot pm_demo_lab_cine = {
 // the game springs mid-run, and an attract reel that shows them at the
 // title has spent them before the player has pressed anything.
 const PMDemoShot pm_demo_reel[] = {
-    { .name = "flyover", .duration = 30.0f,
+    { .name = "flyover", .duration = 36.0f,   // must match flyover_build_keys' `dur`
       .keys = FLYOVER_KEYS, .key_count = FLYOVER_KEY_COUNT,
       .setup = flyover_setup, .draw = flyover_draw,
-      // 12,000, deliberately SHORTER than the island's far shore (~15,100
-      // from the eye). Under storm fog everything past ~9,000 is already
-      // solid fog colour, so the far plane cuts geometry that cannot be
-      // seen — and the point of the storm is that you never have the whole
-      // caye on screen at once. It was 40,000 for a clear night with the
-      // camera twice as far out.
-      .near_z = 120.0f, .far_z = 12000.0f, .exterior = 1 },
+      // 5,870 units — ~92 m. Raised from 2,800 in lockstep with the caye's
+      // land-radius resize (~2.10x): near_z/far_z are ABSOLUTE world-unit
+      // constants, unlike ORBIT_RADII/ORBIT_HIGH/ORBIT_LOW above, which are
+      // fractions of PM_LAND_RADIUS and rescale themselves. Left unscaled,
+      // the orbit radius (which DOES scale) would end up sitting near or
+      // past this far plane, clipping the camera's own foreground — the
+      // same "empty grey screen" failure this file's other comments
+      // describe for a mismatched geometry/frustum. The temple sits ~3,900
+      // from the eye at this orbit, so it stays inside the plane and looms;
+      // the far gates (~12,150) are cut, and are solid fog (pm_env.c's
+      // FOG_FAR_FRAC) long before the cut. Sized AGAINST THE ORBIT: change
+      // ORBIT_RADII, or resize the island again, and this has to move with
+      // it — by the SAME factor as PM_LAND_RADIUS moved, or this
+      // relationship silently breaks.
+      .near_z = 84.0f, .far_z = 5870.0f, .exterior = 1 },
     { .name = "lab", .duration = 10.0f,
       .keys = LAB_KEYS, .key_count = 3,
       .setup = lab_setup, .draw = lab_draw },

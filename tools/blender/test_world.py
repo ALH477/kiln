@@ -35,16 +35,24 @@ def tris(faces):
 
 def main():
     print("── island terrain ──")
-    v, f, c = W.build_island_terrain()
+    v, f, c, uv = W.build_island_terrain()
     check(len(v) == len(c), "one colour per vertex (%d)" % len(v))
+    check(len(v) == len(uv), "one UV per vertex (%d)" % len(v))
+    check(all(0.0 <= p[0] <= 1.0 and 0.0 <= p[1] <= 1.0 for p in uv),
+          "every UV is inside the atlas's 0..1 range")
     check(max(i for face in f for i in face) < len(v),
           "no face indexes past the vertex array")
     check(all(len(x) in (3, 4) for x in f), "faces are tris or quads")
     n = tris(f)
-    # Raised from 1,400 deliberately when the terrain density went up: the
-    # limit on this hardware is fill rate, not triangles, and the island
-    # covers the same screen area at any density.
-    check(n < 900, "terrain inside the low-poly budget (%d tris)" % n)
+    # Raised from 900 to 1,000 when the caye was resized to ~210 m land /
+    # ~300 m shelf radius (50/50 land:water by area, up from ~2:1): SECTORS
+    # stayed at 30 (facet count is a look choice, not a size one) but
+    # TERRAIN_DENSITY went from 0.62 to 0.9 so radial ring spacing doesn't
+    # get visibly coarser now that every band is ~2x wider, which lands at
+    # 930 tris — a ~1.5x increase against a ~4-5x area increase, not a
+    # linear scale-up. The limit on this hardware is fill rate, not
+    # triangles, and the island covers the same screen area at any density.
+    check(n < 1000, "terrain inside the low-poly budget (%d tris)" % n)
 
     # Regression: the ring radii must ascend and finish exactly at R_WATER.
     # They were once a literal list that stayed put through a rescale, and
@@ -140,7 +148,10 @@ def main():
     # The MEASURED radius (wobble included) is what the camera is derived
     # from, so that is what gets checked — R_WATER alone understates it.
     meas = W.measure()
-    check(4500 < meas["island_radius"] < 9000,
+    # Resized caye: ~210 m land / ~300 m shelf target (50/50 land:water by
+    # area). Measured island_radius lands at ~19,011 units (~297 m); this
+    # range is the same proportional margin the pre-resize check used.
+    check(15000 < meas["island_radius"] < 24000,
           "island radius is in the range the flyover orbit assumes (%.0f)"
           % meas["island_radius"])
     check(meas["island_top"] > meas["field_y"],

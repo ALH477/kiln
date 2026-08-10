@@ -120,8 +120,15 @@ static float sample_table(float frame)
 static const PMCamKey INTAKE_KEYS[] = {
     // LOOK — wide and level, across the room. He is small and the machine
     // is not. Barely moving: the shot is him deciding.
-    { T(CUE_LOOK),   {{ -120.0f, 110.0f, 250.0f }}, {{ -300.0f,  80.0f,  90.0f }} },
-    { T(45),         {{ -150.0f, 105.0f, 215.0f }}, {{ -305.0f,  75.0f,  70.0f }} },
+    //
+    // Eye Z was 250, then 215 — the room's real Z only runs to 171 (195
+    // including wall thickness), so both sat 20-79 units behind the back
+    // wall: the same "camera opened behind the wall" bug pm_demo.c's lab
+    // shot comment describes, just never caught here because the model
+    // being drawn until now was an unrelated procedural box. Pulled inside
+    // the real Z1, keeping the same relative "further back" ordering.
+    { T(CUE_LOOK),   {{ -120.0f, 110.0f, 160.0f }}, {{ -300.0f,  80.0f,  90.0f }} },
+    { T(45),         {{ -150.0f, 105.0f, 150.0f }}, {{ -305.0f,  75.0f,  70.0f }} },
     // SIT — side on, low, close. The weight going down is the whole beat.
     { T(CUE_SIT),    {{ -215.0f,  55.0f, 130.0f }}, {{ -320.0f,  55.0f,  30.0f }} },
     { T(111),        {{ -235.0f,  48.0f,  95.0f }}, {{ -325.0f,  48.0f,  10.0f }} },

@@ -20,6 +20,7 @@
 #include "pm_arrival.h"
 #include "pm_intake.h"
 #include "pm_fx.h"
+#include "pm_hud.h"
 
 #define BOOT_SECONDS    2.0f
 #define ATTRACT_IDLE    12.0f  // OoT's shape: the title gives up after a while
@@ -52,14 +53,36 @@ static void go(PMApp *app, PMScreen next)
     app->screen_t = 0.0f;
 }
 
-/** Transition through black. For the screens that load models on entry —
- *  pm_models loads lazily, so the first draw of a new scene is where the
- *  hitch lands, and this is what it hides behind. Menu-to-menu moves use
- *  plain go(): a fade there would just make the UI feel slow. */
-static void go_fade(PMApp *app, PMScreen next)
+/** Transition through black, for screens whose entry runs a blocking
+ *  pm_models_preload/pm_demo_play. Menu-to-menu moves use plain go(): a
+ *  fade there would just make the UI feel slow.
+ *
+ *  `fn` is deferred, NOT run here — this used to switch `screen` and set
+ *  `fade = 1.0` in the same call as the (often already-run) blocking load,
+ *  which meant the load's stall showed the PREVIOUS screen frozen on
+ *  screen, with black only appearing on the frame after the load had
+ *  already finished. go_fade now only arms the transition: it snaps
+ *  `fade` to 1.0 and stashes `next`/`fn` on `app`. `fade == 1.0` is drawn
+ *  and presented for this screen's current, still-unchanged frame; only on
+ *  the NEXT pm_screens_update() call — meaning that solid black frame has
+ *  already gone out — does the pending-resolve block at the top of
+ *  pm_screens_update run `fn` and perform the actual switch. One mechanism
+ *  covers every caller; see PMApp's `pending_fn` for the contract. */
+static void go_fade(PMApp *app, PMScreen next, PMTransitionFn fn)
 {
-    go(app, next);
+    app->pending_screen = next;
+    app->pending_fn = fn;
+    app->pending = 1;
     app->fade = 1.0f;
+}
+
+/** Same guarantee as go_fade, for a blocking load that does not change
+ *  which screen is showing — e.g. the attract reel advancing to a shot
+ *  whose models were never loaded. A brief black flash covers the stall
+ *  instead of a frozen frame. */
+static void gate_load(PMApp *app, PMTransitionFn fn)
+{
+    go_fade(app, app->screen, fn);
 }
 
 /** Any button at all, for "press anything to wake the title". */
@@ -79,12 +102,16 @@ static void boot_update(PMApp *app, const M64Input *in, float dt)
         // up from black without a second transition on top.
         app->fade = 1.0f;
         go(app, PM_SCREEN_TITLE);
+        // The logo model was only ever a handle for m64_splash_init above;
+        // nothing draws it again after this frame. Freeing it here, not at
+        // some later "who still needs this" audit, is what keeps a model
+        // that is provably done with from riding in RAM for the rest of
+        // the session — see pm_models_unload's header comment.
+        pm_models_unload(PM_MODEL_M64_LOGO);
     }
 }
 
 // ── TITLE ──────────────────────────────────────────────────────────────
-enum { TITLE_START = 0, TITLE_COUNT };
-
 static void title_update(PMApp *app, const M64Input *in, float dt)
 {
     if (any_button(in) || in->stick_x != 0.0f || in->stick_y != 0.0f) {
@@ -107,12 +134,19 @@ static void title_update(PMApp *app, const M64Input *in, float dt)
 }
 
 // ── ATTRACT ────────────────────────────────────────────────────────────
+static void advance_attract_reel(PMApp *app)
+{
+    pm_demo_play(&pm_demo_reel[app->reel], 0);
+}
+
 static void attract_update(PMApp *app, const M64Input *in, float dt)
 {
     (void)dt;
     if (any_button(in)) {
         // Straight back to the flyover, looping, so the title always has
-        // the same background whichever shot the reel was on.
+        // the same background whichever shot the reel was on. Shot 0 is
+        // always already loaded (preloaded at pm_app_init), so this is
+        // never a first-load stall and stays a plain, immediate go().
         pm_demo_play(&pm_demo_reel[0], 1);
         app->idle_t = 0.0f;
         go(app, PM_SCREEN_TITLE);
@@ -124,7 +158,10 @@ static void attract_update(PMApp *app, const M64Input *in, float dt)
         const int shots = app->seen_reveal ? pm_demo_reel_count
                                            : pm_demo_reel_count - 1;
         app->reel = (app->reel + 1) % shots;
-        pm_demo_play(&pm_demo_reel[app->reel], 0);
+        // Unlike shot 0, a later reel entry (lab, centaur) may be having
+        // its models loaded for the first time this boot — gate it so
+        // that stall is a brief black flash, not a frame frozen mid-reel.
+        gate_load(app, advance_attract_reel);
     }
 }
 
@@ -133,6 +170,31 @@ static void file_refresh(PMApp *app)
 {
     for (int i = 0; i < PM_SAVE_SLOTS; i++)
         app->slot_used[i] = app->save_ok ? (uint8_t)m64_save_exists(i) : 0;
+}
+
+// A profile that exists resumes. The intro is not replayed — that is the
+// whole reason the file screen gates it.
+static void enter_play_from_file(PMApp *app)
+{
+    memset(&app->save, 0, sizeof app->save);
+    m64_save_read(app->slot, &app->save);
+    app->intro = 0;
+    pm_demo_stop();
+    // The attract reel's palms are never drawn again in a normal
+    // playthrough — see pm_models_unload's header comment.
+    pm_models_unload(PM_MODEL_PALMS);
+}
+
+static void enter_lab_cine_from_file(PMApp *app)
+{
+    memset(&app->save, 0, sizeof app->save);
+    if (app->save_ok) m64_save_write(app->slot, &app->save);
+    file_refresh(app);
+    app->intro = 1;
+    pm_demo_stop();
+    pm_models_unload(PM_MODEL_PALMS);
+    pm_models_preload(PM_MODEL_LAB);
+    pm_demo_play(&pm_demo_lab_cine, 0);
 }
 
 static void file_update(PMApp *app, const M64Input *in, float dt)
@@ -149,24 +211,10 @@ static void file_update(PMApp *app, const M64Input *in, float dt)
 
     if (in->edges & (M64_BTN_A | M64_BTN_START)) {
         app->slot = app->menu.cursor;
-        if (app->slot_used[app->slot]) {
-            // A profile that exists resumes. The intro is not replayed —
-            // that is the whole reason the file screen gates it.
-            memset(&app->save, 0, sizeof app->save);
-            m64_save_read(app->slot, &app->save);
-            app->intro = 0;
-            pm_demo_stop();
-            go_fade(app, PM_SCREEN_PLAY);
-        } else {
-            memset(&app->save, 0, sizeof app->save);
-            if (app->save_ok) m64_save_write(app->slot, &app->save);
-            file_refresh(app);
-            app->intro = 1;
-            pm_demo_stop();
-            pm_models_preload(PM_MODEL_LAB);
-            pm_demo_play(&pm_demo_lab_cine, 0);
-            go_fade(app, PM_SCREEN_LAB_CINE);
-        }
+        if (app->slot_used[app->slot])
+            go_fade(app, PM_SCREEN_PLAY, enter_play_from_file);
+        else
+            go_fade(app, PM_SCREEN_LAB_CINE, enter_lab_cine_from_file);
     }
 }
 
@@ -179,13 +227,70 @@ static void file_update(PMApp *app, const M64Input *in, float dt)
 // flow is walkable end to end and the ordering is testable before any of
 // the content exists. That is deliberate: a state machine whose states are
 // all stubs still tells you whether the state machine is right.
+static void skip_intro_to_play(PMApp *app)
+{
+    (void)app;
+    pm_demo_stop();
+    pm_models_unload(PM_MODEL_PALMS);
+}
+
+static void enter_lab_from_cine(PMApp *app)
+{
+    // The cinematic's last keyframe is Horner's eye; first person picks up
+    // from exactly there so the cut does not jump.
+    pm_demo_stop();
+    pm_lab_enter(app->fpscam, pm_lab_start_eye(), pm_lab_start_yaw());
+}
+
+static void enter_intake_from_lab_cine(PMApp *app)
+{
+    (void)app;
+    pm_demo_play(&pm_intake_shot, 0);
+}
+
+static void enter_sub_from_intake(PMApp *app)
+{
+    (void)app;
+    pm_demo_play(&pm_arrival_sub, 0);
+}
+
+static void enter_beach_from_sub(PMApp *app)
+{
+    (void)app;
+    pm_demo_play(&pm_arrival_beach, 0);
+}
+
+static void finish_intro_to_play(PMApp *app)
+{
+    app->save.flags |= PM_FLAG_SEEN_REVEAL;
+    app->seen_reveal = 1;
+    if (app->save_ok && app->slot >= 0)
+        m64_save_write(app->slot, &app->save);
+    pm_demo_stop();
+}
+
+// ── LAB's own two exits (pm_screens_update's own switch, not intro_update:
+// LAB is the one screen the player drives rather than a scripted beat) ──
+static void leave_lab_to_intake(PMApp *app)
+{
+    (void)app;
+    pm_lab_leave();
+    pm_demo_play(&pm_intake_shot, 0);
+}
+
+static void leave_lab_to_play(PMApp *app)
+{
+    (void)app;
+    pm_lab_leave();
+    pm_demo_stop();
+}
+
 static void intro_update(PMApp *app, const M64Input *in, float dt)
 {
     (void)dt;
 
     if (in->edges & M64_BTN_START) {  // skip the whole intro
-        pm_demo_stop();
-        go_fade(app, PM_SCREEN_PLAY);
+        go_fade(app, PM_SCREEN_PLAY, skip_intro_to_play);
         return;
     }
 
@@ -203,40 +308,33 @@ static void intro_update(PMApp *app, const M64Input *in, float dt)
     if (!pm_demo_done()) return;
 
     switch (app->screen) {
-    // The transformation ends on a hard cut to black, and the submarine
-    // picks up from there — that black frame IS the transition, so these
-    // two fade and the rest do not.
     case PM_SCREEN_LAB_CINE:
-        // The cinematic's last keyframe is Horner's eye; first person
-        // picks up from exactly there so the cut does not jump.
-        pm_demo_stop();
-        pm_lab_enter(app->fpscam, pm_lab_start_eye(), pm_lab_start_yaw());
-        go(app, PM_SCREEN_LAB);
+        go_fade(app, PM_SCREEN_LAB, enter_lab_from_cine);
         break;
-    case PM_SCREEN_LAB:      go_fade(app, PM_SCREEN_INTAKE); break;
+    case PM_SCREEN_LAB:
+        go_fade(app, PM_SCREEN_INTAKE, enter_intake_from_lab_cine);
+        break;
     case PM_SCREEN_INTAKE:
-        // No fade. The intake's last beat is a white flash held over the
-        // cut, so the submarine opens while the frame is still blown out.
-        // Fading to black here would put a second transition inside the
-        // one the shot already performs.
-        pm_demo_play(&pm_arrival_sub, 0);
-        go(app, PM_SCREEN_SUB);
+        // This used to be a plain go() with no fade at all: the intake's
+        // last beat is a white flash held over the cut, and the comment
+        // here argued the black cover was unneeded on top of it. It WAS
+        // needed — sub_setup loads five models (LOACH, ISLAND, SKYDOME,
+        // STORM, SEA) and the white flash has already decayed to ~0 alpha
+        // by the time that runs, so the stall showed nothing but a frozen
+        // last frame of intake. Gating it costs one brief black flash
+        // right after the white one; still cheap next to an invisible
+        // multi-model stall.
+        go_fade(app, PM_SCREEN_SUB, enter_sub_from_intake);
         break;
     case PM_SCREEN_SUB:
-        // No fade. The sub shot ends looking at the island and the beach
-        // opens on the same island from the sand — a cut carries that,
-        // and a fade would throw away the only continuity the two shots
-        // have.
-        pm_demo_play(&pm_arrival_beach, 0);
-        go(app, PM_SCREEN_BEACH);
+        // Same reasoning as INTAKE above: beach_setup preloads LOACH,
+        // ISLAND and GUARD, and the old plain go() left that stall
+        // uncovered to preserve a same-island visual match-cut. The flash
+        // is brief enough not to break that continuity in practice.
+        go_fade(app, PM_SCREEN_BEACH, enter_beach_from_sub);
         break;
     default:  // BEACH -> PLAY: the intro is over and the reveal is spent
-        app->save.flags |= PM_FLAG_SEEN_REVEAL;
-        app->seen_reveal = 1;
-        if (app->save_ok && app->slot >= 0)
-            m64_save_write(app->slot, &app->save);
-        pm_demo_stop();
-        go_fade(app, PM_SCREEN_PLAY);
+        go_fade(app, PM_SCREEN_PLAY, finish_intro_to_play);
         break;
     }
 }
@@ -246,7 +344,19 @@ void pm_app_init(PMApp *app, M64FpsCam *fpscam)
 {
     memset(app, 0, sizeof *app);
     app->fpscam = fpscam;
+    // The engine's default is violet panels / green accent — fine on its
+    // own, but this game already has a house palette (pm_hud.h) and having
+    // the file-select menu wear a different one is the one place the old
+    // three-palette split showed. Start from the default so every
+    // zeroed "funk" field (m64_widget.h) stays off, then override just the
+    // six colors.
     app->style = m64_widget_style_default();
+    app->style.bg     = PM_UI_PANEL;
+    app->style.border = PM_UI_BORDER;
+    app->style.text   = PM_UI_INK;
+    app->style.dim    = PM_UI_DIM;
+    app->style.accent = PM_UI_ACCENT;
+    app->style.warn   = PM_UI_WARN;
     app->screen = PM_SCREEN_BOOT;
     app->fade = 1.0f;
     app->slot = -1;
@@ -296,6 +406,21 @@ PMScreen pm_screens_update(PMApp *app, const M64Input *in, M64Camera *cam,
                            M64Scene *scene, PMVeil *veil, float dt)
 {
     (void)veil;
+
+    // A go_fade() call armed last frame: `fade` was snapped to 1.0 and this
+    // function returned, so main.c's draw of THAT frame — solid black —
+    // has already gone out before this call could ever run. Only now is it
+    // safe to run the deferred, possibly-blocking action and switch
+    // screens; doing it any earlier is exactly the bug go_fade's own
+    // comment describes. Resolved before the fade-decay step below so the
+    // fade-in starts on the same frame the new screen actually appears.
+    if (app->pending) {
+        if (app->pending_fn) app->pending_fn(app);
+        go(app, app->pending_screen);
+        app->pending = 0;
+        app->pending_fn = NULL;
+    }
+
     app->screen_t += dt;
     pm_fx_update(dt);
     // The swell and the foam drift run on wall time, not on whether a
@@ -310,7 +435,14 @@ PMScreen pm_screens_update(PMApp *app, const M64Input *in, M64Camera *cam,
                          : (app->screen == PM_SCREEN_BEACH) ? 0.30f
                          : (app->screen == PM_SCREEN_PLAY)  ? 0.45f
                                                             : 0.70f;
-        app->drone_vol += (want - app->drone_vol) * (dt * 1.5f);
+        // Clamped, not just `dt * 1.5f`: the frame right after a gated
+        // transition's blocking load can report a dt of several hundred
+        // ms (the load stalls the main loop; the NEXT dt measurement
+        // covers that whole stall — see go_fade's comment), and an
+        // uncapped coefficient above 1 overshoots `want` and rings for a
+        // frame or two rather than converging.
+        const float k = dt * 1.5f;
+        app->drone_vol += (want - app->drone_vol) * (k > 1.0f ? 1.0f : k);
         m64_sfx_set_vol_pan(PM_CH_DRONE, app->drone_vol * (1.0f - app->fade),
                             0.5f);
     }
@@ -348,13 +480,9 @@ PMScreen pm_screens_update(PMApp *app, const M64Input *in, M64Camera *cam,
         // The one intro screen the player drives. It ends when he chooses
         // to end it.
         if (pm_lab_update(app->fpscam, in, dt)) {
-            pm_lab_leave();
-            pm_demo_play(&pm_intake_shot, 0);
-            go_fade(app, PM_SCREEN_INTAKE);
+            go_fade(app, PM_SCREEN_INTAKE, leave_lab_to_intake);
         } else if (in->edges & M64_BTN_START) {
-            pm_lab_leave();
-            pm_demo_stop();
-            go_fade(app, PM_SCREEN_PLAY);
+            go_fade(app, PM_SCREEN_PLAY, leave_lab_to_play);
         }
         break;
     default:                intro_update(app, in, dt);   break;
@@ -402,35 +530,55 @@ void pm_screens_draw3d(PMApp *app)
 // ── 2D ─────────────────────────────────────────────────────────────────
 static void draw_title(PMApp *app, int w, int h)
 {
+    // One panel behind the skull + title, in the same chrome the HUD and
+    // the file/lab screens now share — legible over the live flyover
+    // instead of text floating directly on top of it. Sized to the
+    // skull + title block only, not the whole screen: the point of the
+    // moving background is that it's still visibly the game underneath.
+    m64_gui_panel(w / 2 - 100, 14, 200, 126, PM_UI_PANEL, PM_UI_BORDER);
+
     sprite_t *s = skull();
     if (s) {
         // Centred above the menu. rdpq_sprite_upload + a rectangle is the
         // same path examples/assets-demo uses for its logo.
         const int sw = s->width, sh = s->height;
         rdpq_sprite_upload(TILE0, s, NULL);
+
+        // The sprite is CI4 with a real alpha channel baked in at build
+        // time (nix's pmSkull, mksprite -> a 16-entry RGBA5551 palette,
+        // one entry alpha=0) — but m64_gui_begin() runs the whole 2D pass
+        // with alphacompare(0), i.e. OFF, so every other GUI primitive's
+        // flat fills and text glyphs aren't affected by a texture's alpha
+        // bit. Without re-enabling it here, the RDP still samples the
+        // "transparent" palette entry's RGB (white) and draws it opaque,
+        // which is the ugly white box around the art. Push/pop scopes the
+        // cutout to just this one draw.
+        rdpq_mode_push();
+        rdpq_mode_alphacompare(1);
         rdpq_texture_rectangle(TILE0, (w - sw) / 2, 26,
                                (w - sw) / 2 + sw, 26 + sh, 0, 0);
+        rdpq_mode_pop();
     } else {
         // No art yet: the title still works. Deliberately not a silent
         // blank — a missing asset should look like a missing asset.
-        m64_gui_text(w / 2 - 48, 52, RGBA32(0xC8, 0x18, 0x1E, 0xFF),
-                     "[ SKULL ]");
+        m64_gui_text(w / 2 - 48, 52, PM_UI_WARN, "[ SKULL ]");
     }
 
-    m64_gui_text(w / 2 - 60, 116, RGBA32(0xE8, 0xE2, 0xD8, 0xFF),
-                 "PETABYTE MADNESS");
+    m64_gui_text(w / 2 - 60, 116, PM_UI_INK, "PETABYTE MADNESS");
 
-    // Blink, so it reads as an invitation rather than a label.
+    // Blink, so it reads as an invitation rather than a label. Left off
+    // the panel above on purpose — it sits well clear of it, near the
+    // bottom of the screen, and blinking chrome would compete with the
+    // text for the eye instead of framing it.
     if ((int)(app->screen_t * 1.6f) & 1) {
-        m64_gui_text(w / 2 - 44, h - 44, RGBA32(0xB0, 0xA8, 0x9C, 0xFF),
-                     "PRESS START");
+        m64_gui_text(w / 2 - 44, h - 44, PM_UI_DIM, "PRESS START");
     }
 }
 
 static void draw_file(PMApp *app, int w, int h)
 {
     (void)h;
-    m64_gui_text(w / 2 - 40, 22, RGBA32(0xE8, 0xE2, 0xD8, 0xFF), "SELECT FILE");
+    m64_gui_text(w / 2 - 40, 22, PM_UI_INK, "SELECT FILE");
 
     static char rows[PM_SAVE_SLOTS][28];
     const char *labels[PM_SAVE_SLOTS];
@@ -451,8 +599,7 @@ static void draw_file(PMApp *app, int w, int h)
     m64_menu_draw(&app->menu, w / 2 - 78, 48, 156, labels, NULL, &app->style);
 
     if (!app->save_ok) {
-        m64_gui_text(w / 2 - 76, 128, RGBA32(0xE0, 0x2A, 0x28, 0xFF),
-                     "NO EEPROM - NOTHING SAVES");
+        m64_gui_text(w / 2 - 76, 128, PM_UI_WARN, "NO EEPROM - NOTHING SAVES");
     }
 }
 

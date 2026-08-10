@@ -7,16 +7,46 @@
 #include <libdragon.h>
 #include <m64/m64_gui.h>
 
+// Panel alpha at a bar's safe value (full HP/air, veil at rest) vs. its
+// alert value. Nothing is ever hidden — every bar and label is always
+// drawn — but a panel that has nothing to say quiets itself down instead
+// of sitting at full opacity all game, which is most of what "minimal"
+// means for a HUD that already shows the least it can. `t` is 0 (safe) to
+// 1 (alert); the floor keeps the panel legible rather than invisible.
+static uint8_t hud_alpha(float t)
+{
+    const float floor = 0.35f, a = floor + (1.0f - floor) * t;
+    return (uint8_t)(a * 255.0f);
+}
+
+static color_t panel_at(float t)
+{
+    color_t c = PM_UI_PANEL;
+    c.a = hud_alpha(t);
+    return c;
+}
+
+static color_t border_at(float t)
+{
+    color_t c = PM_UI_BORDER;
+    c.a = hud_alpha(t);
+    return c;
+}
+
 void pm_hud_draw(const PMPlayer *pl, const PMVeil *veil, int screen_w,
                  int screen_h)
 {
-    const color_t ink    = RGBA32(0xD8, 0xD2, 0xC8, 0xFF);
-    const color_t warn   = RGBA32(0xE0, 0x2A, 0x28, 0xFF);
-    const color_t fill   = RGBA32(0x08, 0x0A, 0x0E, 0xC0);
-    const color_t border = RGBA32(0x3A, 0x40, 0x48, 0xFF);
+    const color_t ink  = PM_UI_INK;
+    const color_t warn = PM_UI_WARN;
 
-    // ── Health + air, bottom left ──────────────────────────────────────
-    m64_gui_panel(6, screen_h - 40, 108, 34, fill, border);
+    // ── Health + air, bottom left, one panel ───────────────────────────
+    // Whichever of the two is furthest from safe drives the panel's own
+    // alpha — a calm HUD when both are fine, legible chrome the moment
+    // either one genuinely needs attention.
+    const float hp_t  = 1.0f - (float)pl->health / (float)pl->max_health;
+    const float air_t = 1.0f - pl->air / pl->max_air;
+    const float left_t = hp_t > air_t ? hp_t : air_t;
+    m64_gui_panel(6, screen_h - 40, 108, 34, panel_at(left_t), border_at(left_t));
     m64_gui_text(12, screen_h - 28, ink, "HP");
     m64_gui_bar(30, screen_h - 34, 76, 8,
                 (float)pl->health / (float)pl->max_health,
@@ -35,12 +65,13 @@ void pm_hud_draw(const PMPlayer *pl, const PMVeil *veil, int screen_w,
     // The step, not the continuous t: the player is managing a filter
     // wheel with nine detents, and the readout should agree with what
     // their eyes are being shown.
-    m64_gui_panel(screen_w - 96, screen_h - 40, 90, 34, fill, border);
+    const float veil_t = (float)veil->step / (float)(PM_VEIL_STEPS - 1);
+    m64_gui_panel(screen_w - 96, screen_h - 40, 90, 34,
+                  panel_at(veil_t), border_at(veil_t));
     m64_gui_text(screen_w - 90, screen_h - 28,
                  veil->forced ? warn : ink,
                  veil->forced ? "VEIL FORCED" : "VEIL");
-    m64_gui_bar(screen_w - 90, screen_h - 18, 78, 8,
-                (float)veil->step / (float)(PM_VEIL_STEPS - 1),
+    m64_gui_bar(screen_w - 90, screen_h - 18, 78, 8, veil_t,
                 RGBA32(0x8E, 0x0C, 0x12, 0xFF), RGBA32(0x1A, 0x10, 0x12, 0xFF));
 
     // ── Reciprocity ────────────────────────────────────────────────────

@@ -103,11 +103,28 @@ typedef struct {
     uint8_t  _pad[3];
 } PMSaveData;
 
-typedef struct {
+/** A deferred, possibly-blocking transition action — see go_fade's comment
+ *  in pm_screens.c for why this exists rather than running inline. */
+struct PMApp;  // forward declaration: a tag named only inside the parameter
+               // list below would get function-prototype scope (its own,
+               // separate `struct PMApp`, incompatible with the real one) —
+               // this file-scope declaration is what makes it the same tag.
+typedef void (*PMTransitionFn)(struct PMApp *app);
+
+typedef struct PMApp {
     PMScreen screen;
     float    screen_t;   // seconds on the current screen
     float    fade;       // 1 = black, 0 = clear; drives the BOOT fade and
                          //   every transition that hides a model load
+
+    // A transition armed by go_fade(), not yet resolved. go_fade() does NOT
+    // switch `screen` itself — it snaps `fade` to 1.0 and stashes these, and
+    // the NEXT pm_screens_update() call (i.e. only once THIS frame's solid
+    // black has actually been drawn and presented) runs pending_fn and then
+    // performs the switch. See go_fade's comment for the bug this fixes.
+    PMTransitionFn pending_fn;
+    PMScreen       pending_screen;
+    uint8_t        pending;
 
     M64WidgetStyle style;
     M64Menu        menu;

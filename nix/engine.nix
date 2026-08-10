@@ -79,7 +79,8 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_char.h \
              mips64-elf/include/m64/m64_widget.h \
              mips64-elf/include/m64/m64_save.h \
-             mips64-elf/include/m64/m64_splash.h; do
+             mips64-elf/include/m64/m64_splash.h \
+             mips64-elf/include/m64/m64_crater.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';

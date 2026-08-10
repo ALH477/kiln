@@ -248,6 +248,42 @@ def tex_foam(size):
     return px
 
 
+# ── the island terrain band atlas ───────────────────────────────────────────
+# One shared island-terrain texture: 8 vertical stripes (4 px each at 32x32),
+# one per tools/blender/pm_world.py's island_height() surface `kind` (plus
+# one spare, padding 7 real kinds to a power of two). pm_world.py assigns
+# each terrain vertex a UV whose U selects its kind's stripe and whose V
+# reads around the island once per revolution; a triangle spanning two
+# kinds already interpolates a per-vertex value today for COLOUR, and U does
+# the same for which stripe gets sampled — the RDP's bilinear filter (see
+# tools/f3d_inject.py's tex0_shade preset) is what turns that interpolated
+# sample into a visual blend, since this hardware has no per-triangle
+# multi-texture blend to reach for instead.
+#
+# Order here is a CONTRACT with pm_world.py's TERRAIN_BAND_KINDS: index i's
+# content must be kind TERRAIN_BAND_KINDS[i] there, the same load-bearing
+# agreement the module docstring already describes for the `<name>.<fmt>.png`
+# filename convention. Vertex colour still carries the actual hue (KIND_COLOR
+# is untouched) — this only supplies grain so a flat tint doesn't read as
+# painted-on.
+_BAND_SEEDS = (101, 113, 127, 139, 151, 163, 173, 101)  # slot 7 is spare, reuses field's seed
+_BAND_BASE  = (0x70, 0x80, 0x58, 0x48, 0x98, 0x38, 0x50, 0x70)
+_BAND_AMP   = (0x50, 0x48, 0x60, 0x70, 0x50, 0x40, 0x60, 0x50)
+
+
+def tex_terrain_bands(size):
+    stripes = size // 8
+    px = bytearray()
+    for y in range(size):
+        for x in range(size):
+            band = min(x // stripes, 7)
+            n = fbm(x, y, size, seed=_BAND_SEEDS[band], octaves=3)
+            v = int(_BAND_BASE[band] + n * _BAND_AMP[band])
+            v = max(0, min(0xFF, v))
+            px += bytes((v, v, v, 0xFF))
+    return px
+
+
 TEXTURES = [
     ("checker.i8.png", tex_checker),
     ("grid.rgba16.png", tex_grid),
@@ -255,6 +291,7 @@ TEXTURES = [
     ("rock.i8.png", tex_rock),
     ("water.ia8.png", tex_water),
     ("foam.i8.png", tex_foam),
+    ("terrain_bands.i8.png", tex_terrain_bands),
 ]
 
 

@@ -93,25 +93,33 @@ WATER     = (28, 46, 62)
 LAMP      = (198, 160, 92)
 
 # ── Island dimensions, in metres ───────────────────────────────────────
-# Chosen so the existing flyover camera keys still frame it: the old island
-# was 200 m across and the keys orbit 16,000-19,000 world units (250-300 m)
-# out. Keeping the footprint means the camera work survives the swap.
-# These are scaled so that the WOBBLED coastline — coast_wobble peaks at
-# about +20% — lands near 100 m, i.e. a 200 m island, which is what the
-# flyover's camera keys were cut for. Sizing the nominal radius to 100 and
-# then adding the wobble on top is what made the first version 25% wider
-# than the island it replaced, and a camera key that used to sit 2.4 island
-# radii out ended up at 1.4 and flew through the hills.
-R_FIELD   = 42.0   # flat central field
-R_INNER   = 47.0   # field rolls off / hills begin
-R_GATE    = 62.0   # the gate plazas
-R_SHORE   = 79.0   # sand begins (a narrow strand, not a apron)
+# Sized so the caye is roughly half a large OoT-style hub field, split
+# 50/50 land:water by AREA — not a uniform rescale of the old ~200 m
+# island, because the old caye was already ~2:1 land:water by area. Hitting
+# 50/50 means the WATER band has to grow disproportionately more than the
+# land bands: land radii scale ~2.0x (measured land radius ~103 m -> ~210 m),
+# the water/shelf radius scales ~2.36x (measured shelf radius ~126 m ->
+# ~300 m), so r_water ends up ~sqrt(2) x r_land rather than tracking it.
+# The camera (pm_demo.c's ORBIT_RADII etc.) is expressed as a FRACTION of
+# PM_LAND_RADIUS and rescales itself; near_z/far_z there are absolute and
+# must be rescaled by hand alongside this — see pm_demo.c's comment on that.
+# Iterate these nominal (pre-wobble) inputs against `--emit-header`'s
+# emitted PM_LAND_RADIUS/PM_ISLAND_RADIUS (the post-wobble MEASURED radii)
+# rather than trusting this arithmetic by hand — the wobble inflates each
+# band by a different factor, which is exactly the kind of drift this
+# generator's self-measurement discipline exists to catch.
+R_FIELD   = 84.0   # flat central field
+R_INNER   = 94.0   # field rolls off / hills begin
+R_GATE    = 124.0  # the gate plazas
+R_SHORE   = 158.0  # sand begins (a narrow strand, not a apron)
 # The mesh runs well past the waterline as a SHALLOW SHELF. A caye does not
 # drop off at its beach — it sits in the middle of a flat that stays
 # ankle-to-waist deep for a long way out, and that broad turquoise band is
 # most of what makes an aerial read as the Keys rather than as an island in
 # deep ocean. pm_env's sea colours the water above it (SHALLOW/REEF).
-R_WATER   = 104.0
+# Scaled 2.36x rather than 2.0x (unlike the land bands above) so the shelf
+# annulus's area comes out equal to the land disk's — the 50/50 split.
+R_WATER   = 245.0
 # The rim continues under the water rather than stopping at z = 0.
 #
 # Stopping at sea level puts the island's outer ring and the sea plane at the
@@ -141,8 +149,16 @@ PATH_HALF_DEG = 9.0   # half-width of a path corridor, in degrees
 # smoothly-curved terrain, which is neither cheap nor the look — a caye is
 # flat sand and scrub and wants to read as chunky facets. 30 divides the six
 # gates evenly (5 columns each) and stays wider than PATH_HALF_DEG.
+#
+# SECTORS stays fixed across the caye resize on purpose: the facet count
+# is an angular-resolution choice about the LOOK (chunky, not smooth), and
+# bigger facets at a bigger scale still read as chunky, not as low-res.
+# TERRAIN_DENSITY (the RADIAL ring count) went up modestly, not linearly
+# with the ~4x area increase, so ring spacing doesn't get visibly coarser
+# now that every band is wider — see test_world.py's raised triangle budget
+# for the resulting count.
 SECTORS      = 30     # 12 degrees each; 30 / 6 gates = 5 columns per gate
-TERRAIN_DENSITY = 0.62 # multiplier on the per-band ring counts below
+TERRAIN_DENSITY = 0.9  # multiplier on the per-band ring counts below
 
 
 def gate_bearings():
@@ -260,6 +276,19 @@ KIND_COLOR = {
     "mangrove": MANGROVE,
 }
 
+# The terrain texture's stripe order — a CONTRACT with tools/gen_textures.py's
+# _BAND_SEEDS/_BAND_BASE/_BAND_AMP (index i here must be index i there).
+# Chosen so kinds that actually sit next to each other (radially as a ring's
+# `r` grows, or angularly between a path corridor and the hillside beside
+# it) land on adjacent stripes: field borders path/hill, hill fades toward
+# rock, rock gives way to sand, sand to mangrove to wet. This can't be
+# perfect for every real adjacency (a path vertex can radially border a sand
+# vertex, skipping hill/rock) — this hardware has no per-triangle
+# multi-texture blend to fall back on, so UV interpolation across one shared
+# atlas plus the RDP's bilinear filter is the whole blending budget; see
+# tools/gen_textures.py's tex_terrain_bands docstring.
+TERRAIN_BAND_KINDS = ("field", "path", "hill", "rock", "sand", "mangrove", "wet")
+
 
 def terrain_rings(density=TERRAIN_DENSITY):
     """Ring radii, DERIVED from the band radii rather than listed.
@@ -289,15 +318,27 @@ def terrain_rings(density=TERRAIN_DENSITY):
     return out
 
 
+def _band_uv(kind, s):
+    """UV for a terrain vertex: U selects the kind's stripe in
+    tools/gen_textures.py's terrain_bands.i8.png atlas (see
+    TERRAIN_BAND_KINDS), V walks once around the island per revolution so
+    the atlas gets spatial variation rather than one flat sampled texel.
+    """
+    u = (TERRAIN_BAND_KINDS.index(kind) + 0.5) / float(len(TERRAIN_BAND_KINDS) + 1)
+    v = float(s) / SECTORS
+    return (u, v)
+
+
 def build_island_terrain(rings=None):
-    """The polar heightfield. Returns (verts, faces, colors)."""
+    """The polar heightfield. Returns (verts, faces, colors, uvs)."""
     if rings is None:
         rings = terrain_rings()
 
-    verts, colors = [], []
+    verts, colors, uvs = [], [], []
     # The centre is one vertex, so the first ring fans rather than quads.
     verts.append((0.0, 0.0, FIELD_Z))
     colors.append(FIELD)
+    uvs.append(_band_uv("field", 0))
 
     for r in rings[1:]:
         for s in range(SECTORS):
@@ -320,6 +361,7 @@ def build_island_terrain(rings=None):
             rr = r * (1.0 + (coast_wobble(theta) - 1.0) * blend)
             verts.append((math.cos(a) * rr, math.sin(a) * rr, z))
             colors.append(KIND_COLOR[kind])
+            uvs.append(_band_uv(kind, s))
 
     faces = []
     # Fan from the centre to the first full ring.
@@ -334,7 +376,7 @@ def build_island_terrain(rings=None):
             nxt = (s + 1) % SECTORS
             faces.append((base + s, nxt_base + s, nxt_base + nxt, base + nxt))
 
-    return verts, faces, colors
+    return verts, faces, colors, uvs
 
 
 def _box(cx, cy, cz, sx, sy, sz):
@@ -900,9 +942,12 @@ def emit_header():
         add("    { %9.1ff, %7.1ff, %9.1ff, %6.1ff }, \\" % (gx, gy, gz, b))
     add("}")
     add("")
-    add("// ── The lab ────────────────────────────────────────────────────────")
-    add("// The interior box, for pm_lab.c's collision brushes and pm_demo's")
-    add("// interior shot. A camera key outside these is outside the room.")
+    add("// ── The lab (unused) ─────────────────────────────────────────────────")
+    add("// The interior box of THIS generator's procedural build_lab(), which")
+    add("// is not what ships as PM_MODEL_LAB — that's dank_lab.obj, whose real")
+    add("// extents live in PetaByte-Madness/src/pm_lab.h (PM_LAB_REAL_*) and are")
+    add("// what pm_lab.c's collision and pm_demo's/pm_intake's cameras actually")
+    add("// use. These describe a room nothing currently draws.")
     add("#define PM_LAB_X0  %.1ff" % m["lab_x0"])
     add("#define PM_LAB_X1  %.1ff" % m["lab_x1"])
     add("#define PM_LAB_Y0  %.1ff" % m["lab_y0"])
@@ -929,9 +974,10 @@ def main():
         # Three objects, not one: the game finds the gates by name to hang
         # room transitions on them, and the terrain and the landmark have
         # different collision stories.
-        tv, tf, tc = build_island_terrain()
+        tv, tf, tc, tuv = build_island_terrain()
         m.make_material("terrain")
-        m.make_mesh("terrain", tv, tf, "terrain", colors=rgba(tc), smooth=False)
+        m.make_mesh("terrain", tv, tf, "terrain", colors=rgba(tc), uvs=tuv,
+                    smooth=False)
 
         gv, gf, gc = build_gates()
         m.make_material("gates")

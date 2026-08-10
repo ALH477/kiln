@@ -15,24 +15,24 @@
 #include <m64/m64_gui.h>
 #include <m64/m64_surface.h>
 
+#include "pm_hud.h"
 #include "pm_models.h"
 #include "pm_types.h"
 
 // ── Where the lab is ───────────────────────────────────────────────────
-// dank_lab.obj is authored in centimetres and lands in the world at
-// baseScale 64 per metre (see docs/ASSET_PIPELINE.md), so its bbox
-// X -7.06..2.80 m, Y 0..2.50, Z -2.30..2.68 becomes the numbers below.
+// The real extents now live in pm_lab.h (PM_LAB_REAL_*) so pm_demo.c and
+// pm_intake.c's cameras can derive from the same numbers this file's own
+// collision does. Aliased to the short names below purely so the rest of
+// this file doesn't need touching.
 //
-// These are transcribed from the source mesh rather than measured on
-// screen, so they are right in the sense that they match the model — but
-// where the FURNITURE is inside that box is still guesswork until someone
+// Where the FURNITURE is inside this box is still guesswork until someone
 // looks at a frame. Every position marked TUNE below is a first pass.
-#define LAB_X0   (-452.0f)
-#define LAB_X1    (179.0f)
-#define LAB_Y0      (0.0f)
-#define LAB_Y1    (160.0f)
-#define LAB_Z0   (-147.0f)
-#define LAB_Z1    (171.0f)
+#define LAB_X0   PM_LAB_REAL_X0
+#define LAB_X1   PM_LAB_REAL_X1
+#define LAB_Y0   PM_LAB_REAL_Y0
+#define LAB_Y1   PM_LAB_REAL_Y1
+#define LAB_Z0   PM_LAB_REAL_Z0
+#define LAB_Z1   PM_LAB_REAL_Z1
 #define WALL       (24.0f)
 
 // A 1.8 m man at 64 units per metre: 115 units tall, eye a little below
@@ -267,17 +267,19 @@ void pm_lab_draw2d(int w, int h)
     }
 
     // The A-button prompt. OoT's rule: A always does something, and the
-    // player is told what before they press it.
+    // player is told what before they press it. Backed by the same panel
+    // pm_hud uses, sized for the longer of the two labels, so the prompt
+    // reads as this game's UI rather than debug text floating over a room.
     if (g_action != M64_CTX_NONE) {
         M64Actor *a = m64_actor_resolve(g_focus);
         const char *label = (a && a->profile_id == PM_PROFILE_MRI)
                                 ? "ACTIVATE" : "READ";
-        m64_gui_text(w / 2 - 28, h - 64, RGBA32(0xE8, 0xE2, 0xD8, 0xFF),
-                     "A: %s", label);
+        m64_gui_panel(w / 2 - 58, h - 70, 116, 20, PM_UI_PANEL, PM_UI_BORDER);
+        m64_gui_text(w / 2 - 48, h - 64, PM_UI_INK, "A: %s", label);
     }
 
-    // Crosshair — two ticks, matching pm_hud's.
+    // Crosshair — two ticks, matching pm_hud's, same ink.
     const int cx = w / 2, cy = h / 2;
-    m64_gui_rect(cx - 4, cy, 3, 1, RGBA32(0xA0, 0x9A, 0x90, 0xFF));
-    m64_gui_rect(cx + 2, cy, 3, 1, RGBA32(0xA0, 0x9A, 0x90, 0xFF));
+    m64_gui_rect(cx - 4, cy, 3, 1, PM_UI_INK);
+    m64_gui_rect(cx + 2, cy, 3, 1, PM_UI_INK);
 }

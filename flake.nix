@@ -921,6 +921,11 @@
           script = "centaur.py";
           scriptArgs = [ "--rig" "${pmCentaurRig}" ];
           animated = true;
+          # No gameplay code calls t3d_model_bvh_query_frustum (same
+          # reasoning as pmStorm's bvh=false below) — and a BVH computed
+          # against this model's rest pose is dubious value anyway for a
+          # skinned mesh whose bones move it away from that pose at runtime.
+          bvh = false;
         };
 
         # The OBJ/glTF-sourced props: the island, its palms, the work
@@ -940,6 +945,9 @@
           # loach.mtl as a sibling, and a store path for a single file has no
           # siblings.
           scriptArgs = [ "--model" name "--assets" "${./PetaByte-Madness/assets}" ];
+          # No gameplay code calls t3d_model_bvh_query_frustum — see
+          # pmStorm's bvh=false below for the precedent this reuses.
+          bvh = false;
         };
 
         pmDemonModel = name: assetLib.mkModel {
@@ -947,7 +955,26 @@
           src = ./PetaByte-Madness/assets/models/${name}.glb;
           dest = "models";
           ignoreMaterials = true;
+          # Same reasoning as pmProp above: nothing queries it.
+          bvh = false;
         };
+        # The title skull. pm_screens.c has always looked for this and the
+        # ROM never shipped it, so the title screen has been drawing its
+        # text fallback — the branch was written to survive a missing asset
+        # and did its job silently for the whole project.
+        #
+        # CI4, which pm_screens.c's own comment already specified: 64x64 at
+        # 4bpp is 2 KB against a 4 KB TMEM budget, where RGBA16 would be
+        # 8 KB and could not be loaded at all. A 16-entry palette is also
+        # the veil's TLUT format, so this can later ride
+        # pm_veil_bind_palette and bleed red as the filter rises.
+        pmSkull = assetLib.mkSprite {
+          name = "skull";
+          src = ./PetaByte-Madness/assets/images/PetaByte_Madness64.png;
+          dest = "sprites";
+          format = "CI4";
+        };
+
         pmLabMap = assetLib.mkRawAsset {
           name = "pm-lab-map";
           src = ./PetaByte-Madness/assets/pm_lab.map;
@@ -965,9 +992,32 @@
         # named sub-objects for the six dungeon gates, and metres as the
         # authoring unit. tools/blender/pm_world.py explains what the
         # OBJ-derived originals could not give the runtime.
-        pmWorld = name: blenderLib.mkBlenderModel {
-          inherit name;
-          script = "pm_world.py";
+        pmWorld = { name, materials ? [ "*=shade" ], textures ? null, bvh ? true }:
+          blenderLib.mkBlenderModel {
+            inherit name materials textures bvh;
+            script = "pm_world.py";
+          };
+
+        # Named once, used both by mkPetabyteMadness's `assets` list below and
+        # by the standalone `model-island` output — so a spot-check build and
+        # the actual ROM can never independently drift on the terrain's
+        # texture wiring the way `model-island = pmProp "island"` (the
+        # retired OBJ-sourced island) used to silently point at the wrong
+        # model entirely once pmWorld replaced it as the ROM's real source.
+        pmIslandModel = pmWorld {
+          name = "island";
+          # The terrain object gets a real UV-blended texture (the band
+          # atlas from tools/gen_textures.py); gates/tower fall through to
+          # the untextured "*" wildcard, unchanged.
+          materials = [
+            "terrain=tex0_shade,tex=textures/terrain_bands.i8.png,size=32"
+            "*=shade"
+          ];
+          inherit textures;
+          # No BVH: nothing in PetaByte-Madness ever calls
+          # t3d_model_bvh_query_frustum (see pmStorm's own bvh=false for the
+          # precedent this reuses).
+          bvh = false;
         };
 
         pmSkydome = blenderLib.mkBlenderModel {
@@ -997,6 +1047,12 @@
           # size, so the image has to be here even though the ROM ships the
           # .sprite (which rides in via `textures` in the assets list below).
           inherit textures;
+          # Not just "nothing queries it" (pmStorm's reasoning) — a BVH
+          # computed once at build time against the sea's rest pose would be
+          # actively WRONG here, since pm_env.c's swell rewrites every
+          # vertex's Y every frame and the bounds would no longer describe
+          # where the mesh actually is.
+          bvh = false;
         };
 
         # ── The theme ────────────────────────────────────────────────────
@@ -1041,8 +1097,15 @@
           # model only carries the rom:/ path to it.
           assets = [ pmLabMap pmCentaurModel pmDrone m64Logo m64Jingle
                      pmTheme pmThemeStream
-                     pmSkydome pmSea pmStorm textures ]
-            ++ [ (pmWorld "island") (pmWorld "lab") ]
+                     pmSkydome pmSea pmStorm pmSkull textures ]
+            # The lab room ships as dank_lab.obj (via pmProp), not
+            # pmWorld's procedural box — pm_lab.c's collision brushes,
+            # player start pose, and note/MRI positions were all authored
+            # against the OBJ's real bounding box from the start (see
+            # pm_lab.h's LAB_X0..Z1), so this is the model that was always
+            # meant to ship here. bvh=false and vertex-colour materials
+            # both come from pmProp's existing defaults.
+            ++ [ pmIslandModel (pmProp "dank_lab") ]
             ++ map pmProp [ "palms" "loach" "horner" "guard_cousin" ]
             ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];
         };
@@ -1093,7 +1156,7 @@
           model-quake-test = quakeTestModel;
           model-centaur = pmCentaurModel;
           model-m64-logo = m64Logo;
-          model-island = pmProp "island";
+          model-island = pmIslandModel;
           model-palms = pmProp "palms";
           model-loach = pmProp "loach";
           model-drone = pmProp "drone";

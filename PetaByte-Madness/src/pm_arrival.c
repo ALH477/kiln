@@ -110,8 +110,9 @@ static void sub_draw(float t)
     // than as scenery. It only clears the frame edge in the last third.
     //
     // The distance is load-bearing and was wrong by an order of magnitude:
-    // island_n64.obj is 26 units across, x7.7 to metres, x64 to world units
-    // (see PM_ISLAND_HALF_W) = 12,813 wide and 4,954 tall. At the old
+    // the island is PM_ISLAND_HALF_W wide and PM_ISLAND_HEIGHT tall (both
+    // derived from the generated pm_world_gen.h, so they track the actual
+    // mesh through any resize). At the old
     // z = -3200 its half-width subtended about 61 degrees — it did not read
     // as a destination on the horizon, it filled and overflowed the frame.
     // At -30000 it is roughly a sixth of the frame height, which is a place
@@ -278,8 +279,9 @@ static void beach_draw(float t)
 
     // The beach is the island's SHORELINE, so the island has to be placed
     // by its edge rather than its centre. It is a radial island — the mesh
-    // runs 0..4,954 units in Y over a 6,406-unit radius, high in the middle
-    // and at sea level at the rim — so putting its centre at z = -900, as
+    // runs 0..PM_ISLAND_HEIGHT units in Y over a PM_ISLAND_HALF_W-unit
+    // radius, high in the middle and at sea level at the rim — so putting
+    // its centre at z = -900, as
     // this did, stood every actor 900 units inside the footprint, buried in
     // the hill. Backing the centre off to just inside the rim leaves the
     // action on the low outer sand with the island rising behind it, which

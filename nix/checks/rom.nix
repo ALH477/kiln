@@ -5,7 +5,7 @@
 # A ROM that is subtly malformed boots to a black screen and tells you nothing.
 # These are the cheap structural facts that can be asserted offline, so that
 # "it built" means a bit more than "make exited 0".
-{ pkgs, rom, name ? rom.pname or "rom" }:
+{ pkgs, rom, name ? rom.pname or "rom", maxSize ? 16 * 1024 * 1024 }:
 
 pkgs.runCommand "check-rom-${name}"
 {
@@ -54,6 +54,21 @@ pkgs.runCommand "check-rom-${name}"
       echo "FAIL: ROM title contains non-ASCII bytes" >&2
       exit 1
     fi
+
+    # 4. Maximum size. A hard ceiling: unlike the minimum-size NOTE above,
+    #    this is meant to FAIL the build, because a ROM that silently grew
+    #    past a console's practical cart size should not ship past
+    #    `nix build` unnoticed.
+    if [ "$size" -gt ${toString maxSize} ]; then
+      echo "FAIL: $z64 is $size bytes, over the ${toString maxSize}-byte ceiling." >&2
+      echo "       Find what grew it, then either drop/re-encode the asset" >&2
+      echo "       (VADPCM for audio, I8/CI4 before RGBA16 for images, mkasset" >&2
+      echo "       -c 2 for uncompressed models) or raise maxSize deliberately," >&2
+      echo "       in the same commit that explains why 16 MB stopped being" >&2
+      echo "       enough." >&2
+      exit 1
+    fi
+    echo "  size ceiling: $size / ${toString maxSize} bytes OK"
 
     echo "rom check PASSED"
     mkdir -p $out

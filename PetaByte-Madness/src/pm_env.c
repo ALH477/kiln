@@ -11,6 +11,7 @@
 #include <t3d/t3dmodel.h>
 
 #include <m64/m64_texanim.h>
+#include <m64/m64_crater.h>
 
 #include "pm_models.h"
 #include "pm_fx.h"
@@ -50,41 +51,37 @@
 
 // ── Fog ────────────────────────────────────────────────────────────────
 // Expressed as FRACTIONS of the shot's own far plane, not as absolute
-// distances. Fog is camera-relative and every shot frames something at a
-// different range: the flyover now orbits 8,500 units out from a caye, while
-// the sub shot puts the same island at 30,000. One hardcoded pair cannot
-// serve both — an early attempt used 15,000-40,000 and simply never engaged
-// once the camera came in close, and an earlier one used 5,000-20,000 and
-// swallowed the island whole.
+// distances — fog is camera-relative and every shot frames something at a
+// different range (the flyover's near orbit, the sub shot's far-off island,
+// the beach's close interior). Tied to far_z, fog always finishes at or
+// before geometry is clipped: anything past FOG_FAR_FRAC is already solid
+// fog colour, so the far plane can be pulled in to meet it with the cut
+// invisible, saving fill rate.
 //
-// Tied to far_z, fog always finishes just before geometry is clipped, which
-// is what lets the far plane be pulled IN: anything past the fog end is
-// already solid horizon colour, so cutting it is invisible and the pixels
-// are saved. That is the optimisation half of "fog for effect and
-// optimisation" — the effect half is that a low, hazy horizon is most of
-// what makes a flat island read as being in the middle of an ocean.
-// FAR_FRAC is 1.0 on purpose: fog reaches full strength exactly AT the far
-// plane, so whatever the plane cuts is already solid horizon colour and the
-// cut cannot be seen. Ending fog short of it instead leaves a visible rim
-// where geometry pops out of existence.
+// FOG_FAR_FRAC used to be 1.0 — full fog exactly at the far plane, so the
+// clip is never seen. That correctly hides the far plane, but it also means
+// opacity ramps LINEARLY across the entire near..far span, and this island's
+// low, close orbit (pm_demo.c's ORBIT_RADII) puts the eye-to-look-target
+// distance at roughly 69% of far_z — most of a frame's visible foreground
+// sat well under 50% fogged despite FOG_NEAR_FRAC starting the ramp almost
+// at the lens. Starting the ramp early only clears a zone right at the
+// camera; it does not control how FAST opacity climbs afterward, which is
+// entirely (far-near). That gap between "fog is on" and "fog reads as
+// thick" is why this looked too clear.
 //
-// NEAR_FRAC is set so the island's far shore is hazy but still readable.
-// At the flyover's 18,000 far plane the eye sits ~8,500 from the island's
-// centre, so its near shore is ~1,900 away and its far shore ~15,100: fog
-// from 5,800 leaves the near half clear and the far shore about
-// three-quarters gone, which is depth rather than erasure. An earlier
-// 0.86 far-fraction put full fog at 15,480 and swallowed that shore.
-// DEEP fog, for a storm. Where a clear night started fogging at a third of
-// the far plane, this starts at a tenth: the far shore of the island is gone
-// entirely, the near shore is already hazy, and what the player gets is a
-// horizon that closes in on them. That is the ominous half.
+// FOG_FAR_FRAC now pulls full saturation to just past the mid-orbit terrain
+// and short of the temple: nearby ground still visibly ramps (the depth cue
+// survives) while the temple and the far shore arrive OUT of solid fog
+// instead of sitting clearly lit at ~69% opacity. The far PLANE (pm_demo.c's
+// far_z) is untouched — it still marks where geometry stops being drawn at
+// all, well past where fog has already gone solid, so the optimisation
+// half (an invisible cut) still holds.
 //
-// The optimisation half follows from it. Everything past FOG_FAR_FRAC is
-// solid fog colour, so the far plane can be cut to just past that point and
-// whatever it clips cannot be seen — which is why the flyover's far plane
-// came from 40,000 to 12,000 and its fill and depth precision with it.
-#define FOG_NEAR_FRAC  0.10f
-#define FOG_FAR_FRAC   0.75f
+// NEAR_FRAC is not 0 only so the few metres closest to the lens stay clear;
+// at exactly 0 even the camera's own position is tinted and the picture
+// loses its blacks.
+#define FOG_NEAR_FRAC  0.02f
+#define FOG_FAR_FRAC   0.52f
 
 // ── The swell ──────────────────────────────────────────────────────────
 // Two crossing waves rather than one, because a single wave train reads as
@@ -187,6 +184,18 @@ static int       g_bolt_variant;
 static float     g_thunder_t = -1.0f;   /* counts down to the thunder     */
 static int       g_thunder_near;
 
+// Craters, for a strike that lands over land (see strike_somewhere's land
+// check). Radius is sized against the RESIZED island's own vertex spacing
+// (tools/blender/pm_world.py's TERRAIN_DENSITY/SECTORS), not the terrain's
+// vertical relief — a wide, shallow bowl reliably catches several
+// neighbouring vertices even in the sparser outer bands near the shelf.
+// Depth is left at its pre-resize figure on purpose: FIELD_Z/HILL_Z (the
+// terrain's own vertical scale) were never rescaled, only the radii were,
+// so there is no reason to sink a crater any deeper than before.
+#define CRATER_RADIUS     1750.0f  // ~27 m
+#define CRATER_DEPTH_MAX   140.0f  // ~2.2 m
+static M64CraterField g_terrain_craters;
+
 float pm_env_bolt(void) { return g_bolt; }
 
 static void strike_somewhere(void)
@@ -200,9 +209,18 @@ static void strike_somewhere(void)
     const float r = PM_LAND_RADIUS * 2.0f * sqrtf(u > 0.0f ? u : 0.0f);
     const float a = rnd01() * 6.2831853f;
     /* Over land the channel stops at the field, over water at the surface. */
-    const float y = (r < PM_LAND_RADIUS) ? PM_FIELD_Y : 0.0f;
+    const int over_land = (r < PM_LAND_RADIUS);
+    const float y = over_land ? PM_FIELD_Y : 0.0f;
     g_bolt_pos = (fm_vec3_t){ { fm_cosf(a) * r, y, fm_sinf(a) * r } };
     g_bolt_variant = (int)(rnd01() * (float)BOLT_VARIANTS) % BOLT_VARIANTS;
+
+    // A strike over land craters the terrain where it lands (see
+    // m64_crater.h) — a no-op if the island's terrain object never
+    // resolved (m64_crater_init failed or hasn't run yet).
+    if (over_land) {
+        m64_crater_impact(&g_terrain_craters, g_bolt_pos.v[0], g_bolt_pos.v[2],
+                          CRATER_RADIUS, CRATER_DEPTH_MAX);
+    }
 
     /* Thunder follows the flash by the time sound takes to arrive. At 64
      * units to the metre and 343 m/s that is 21,950 units per second — so
@@ -245,6 +263,15 @@ void pm_env_init(void)
         .material_name = NULL,  // the sea has exactly one material
         .scroll = { .s_speed = FOAM_S_SPEED, .t_speed = FOAM_T_SPEED },
     };
+
+    // Craters, on the island's own "terrain" object — independent of the
+    // sea below, so a missing/failed sea model never skips this. Destroy
+    // before re-init: pm_env_init runs again for the beach/arrival shot
+    // later in the same session, and m64_crater_init unconditionally
+    // overwrites its own state without freeing a prior allocation.
+    m64_crater_destroy(&g_terrain_craters);
+    T3DModel *island = pm_models_get(PM_MODEL_ISLAND);
+    if (island) m64_crater_init(&g_terrain_craters, island, "terrain");
 
     // Snapshot the rest pose once. Done here rather than lazily in update
     // so that a missing model is a boot-time fact the debug overlay can
@@ -345,15 +372,22 @@ void pm_env_night(M64Scene *scene)
 
     /* The flash lights the fog itself. Leaving the fog colour alone during
      * a strike is the tell that gives away a cheap lightning effect: the
-     * world brightens and the haze in front of it does not. */
+     * world brightens and the haze in front of it does not.
+     *
+     * Capped well short of white on purpose: the ORIGINAL +150/+155/+165
+     * pushed this toward (188,203,239) — a pale colour, at exactly the
+     * frame that should feel most oppressive, undoing the storm's own
+     * thickness. The AMBIENT boost above is what should light up
+     * silhouettes during a strike; the fog colour only needs to stay
+     * believable, not turn the whole screen milky. */
     int fr = PM_ENV_HORIZON_R, fg = PM_ENV_HORIZON_G, fb = PM_ENV_HORIZON_B;
     if (g_bolt > 0.0f) {
-        fr += (int)(150.0f * g_bolt);
-        fg += (int)(155.0f * g_bolt);
-        fb += (int)(165.0f * g_bolt);
-        if (fr > 255) fr = 255;
-        if (fg > 255) fg = 255;
-        if (fb > 255) fb = 255;
+        fr += (int)(55.0f * g_bolt);
+        fg += (int)(60.0f * g_bolt);
+        fb += (int)(65.0f * g_bolt);
+        if (fr > 170) fr = 170;
+        if (fg > 170) fg = 170;
+        if (fb > 170) fb = 170;
     }
     const color_t horizon = RGBA32((uint8_t)fr, (uint8_t)fg, (uint8_t)fb, 0xFF);
     // Read from the scene, so the caller's frustum decides the range. The
@@ -428,6 +462,11 @@ void pm_env_update(float dt)
             pm_fx_flash(RGBA32(196, 206, 226, 255), 0.09f);
         }
     }
+
+    // Independent of the sea's swell below (craters live on the island, not
+    // the water) — runs before the swell's early-return so a missing sea
+    // model never skips it.
+    m64_crater_update(&g_terrain_craters, dt);
 
     if (!g_swell_ok) return;
 
@@ -506,11 +545,25 @@ void pm_env_draw_sky(const M64Scene *scene)
     // sky is invisible because the winding went the other way.
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_NO_LIGHT);
 
+    // ── And NO FOG on the dome ─────────────────────────────────────────
+    // Fog is per-vertex depth, and the dome is camera-centred at a fixed
+    // radius — so every one of its vertices is exactly the same distance
+    // from the eye. Uniform depth gives uniform fog, which would flatten
+    // the whole sky to one colour and take the zenith-to-horizon gradient
+    // with it, including the storm's deliberately lighter horizon band.
+    //
+    // The dome needs no help blending into the fog anyway: its lowest ring
+    // IS the fog colour by construction (PM_ENV_HORIZON, shared with
+    // pm_env.py). Only the RSP half is toggled — the blender stays armed,
+    // so nothing has to be put back but this flag.
+    t3d_fog_set_enabled(false);
+
     m64_transform_push(&g_sky_x);
     t3d_model_draw(sky);
     m64_transform_pop();
 
     // Hand the pass back exactly as m64_scene_begin set it up.
+    t3d_fog_set_enabled(scene->fog_enabled ? true : false);
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
 }
 

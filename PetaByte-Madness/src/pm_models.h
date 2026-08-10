@@ -31,6 +31,8 @@
 
 #include <t3d/t3dmodel.h>
 
+#include "pm_world_gen.h"
+
 typedef enum {
     PM_MODEL_ISLAND = 0,
     PM_MODEL_PALMS,
@@ -57,15 +59,20 @@ typedef enum {
 // These constants exist because guessing at them is exactly what went
 // wrong: the island was placed as though it were a prop a few hundred units
 // across, first at 3,200 units in the sub shot and then at 900 in the
-// beach, when it is 12,813 wide and 4,954 tall. Anything that positions the
-// island relative to its own extent should say so in terms of these rather
-// than a magic number that reads plausible and is off by 10x.
+// beach, when it was 12,813 wide and 4,954 tall. Anything that positions
+// the island relative to its own extent should say so in terms of these
+// rather than a magic number that reads plausible and is off by 10x.
 //
-//   island_n64.obj  26 x 10.05 x 26 units authored
-//                 x 7.7  (pm_props.py "island" scale) = 200 x 77 x 200 m
-//                 x 64   (--base-scale)               = the numbers below
-#define PM_ISLAND_HALF_W  6406.0f   // 13 * 7.7 * 64
-#define PM_ISLAND_HEIGHT  4954.0f   // 10.05 * 7.7 * 64
+// These used to be literal numbers derived by hand from island_n64.obj's
+// authored dimensions. That OBJ has not been the island's source since it
+// was replaced by tools/blender/pm_world.py's procedural generator — the
+// literals were never updated, so PM_ISLAND_HALF_W (6,406) had already
+// drifted from the generator's actual measured PM_ISLAND_RADIUS (8,070 at
+// the time this was caught) even before any resize. Deriving them from
+// pm_world_gen.h instead means they can never drift again, by the same
+// "geometry measures itself" discipline pm_world.py's own header describes.
+#define PM_ISLAND_HALF_W  PM_ISLAND_RADIUS  // the generated island's measured radius
+#define PM_ISLAND_HEIGHT  PM_ISLAND_TOP     // ...and its measured peak height
 
 // A palm out of n64_florida_keys_palms.gltf is authored in metres and is
 // 6.06 m at its tallest, so it lands at 388 units unscaled.
@@ -82,6 +89,21 @@ void pm_models_preload(PMModelId id);
 
 /** Free everything. Safe to call twice. */
 void pm_models_close(void);
+
+/** Free one model, leaving the rest of the cache intact. Safe to call on a
+ *  model that was never loaded (a no-op) or twice (a no-op the second time).
+ *
+ *  Exists because "load once, cache forever" (this header's own opening
+ *  paragraph) has a cost this project didn't pay attention to until it was
+ *  measured: nothing here ever called pm_models_close either, so by late
+ *  game the resident set was the UNION of every screen ever visited, not
+ *  the current screen's working set — the boot logo and the attract
+ *  reel's palms stayed loaded for the rest of the session. Call this for a
+ *  model a later screen provably never touches again (the boot splash, the
+ *  attract reel's decoration), not for anything shared across screens
+ *  (island/lab/centaur/... — freeing those just reintroduces a reload
+ *  hitch with no net RAM win, since they get immediately reloaded). */
+void pm_models_unload(PMModelId id);
 
 /** What happened to a model, without asking for it: 0 not requested yet,
  *  +1 loaded, -1 asked for and absent. The debug overlay reads this — a
