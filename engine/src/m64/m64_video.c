@@ -41,7 +41,21 @@ void m64_video_open(M64Video *mv, const char *dfs_path)
     // A stream with no reported rate would divide by zero below; one frame
     // per update() is a safe, if wrong, fallback rather than a crash.
     mv->framerate = info.framerate > 0.0f ? info.framerate : 30.0f;
-    mv->ready     = true;
+
+    // Prime the first frame now, not on the first update()'s throttled
+    // decode. video_get_frame() (in draw()) has no "nothing decoded yet"
+    // state of its own to fall back on — it assumes at least one
+    // video_next_frame() has already succeeded, and calling it before that
+    // reads through the decoder's still-unset internal frame pointer. A
+    // draw() landing before update() has accumulated a full frame period
+    // of dt (routine on the very first frame after open) would hit exactly
+    // that with no video_next_frame() ever having run.
+    if (!video_next_frame(v)) {
+        debugf("m64_video: %s decoded no frames\n", dfs_path);
+        video_close(v);
+        return;
+    }
+    mv->ready = true;
 }
 
 bool m64_video_update(M64Video *mv, float dt)

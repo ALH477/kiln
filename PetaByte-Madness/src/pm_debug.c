@@ -13,9 +13,17 @@
 #include "pm_models.h"
 #include "pm_music.h"
 
+// Same hand-maintained-table risk as MODEL_NAMES below, and it had the same
+// bug: PM_SCREEN_NARRATION and PM_SCREEN_CREDITS landed in the PMScreen enum
+// (pm_screens.h) with no matching entries here, so every name from
+// "LAB_CINE" on was reporting the PREVIOUS screen's name instead of its
+// own — silently, since the bounds check below only guards against running
+// off the end of a too-short array, not against the array being internally
+// misaligned with the enum it's meant to label. Caught by an actual
+// emulator run showing "LAB_CINE" while narration text was on screen.
 static const char *const SCREEN_NAMES[] = {
-    "BOOT", "TITLE", "ATTRACT", "FILE", "LAB_CINE",
-    "LAB", "INTAKE", "SUB", "BEACH", "PLAY",
+    "BOOT", "TITLE", "ATTRACT", "FILE", "NARRATION", "LAB_CINE",
+    "LAB", "INTAKE", "CREDITS", "SUB", "BEACH", "PLAY",
 };
 
 // Short enough to fit four to a line at 320 px. Order matches PMModelId.
