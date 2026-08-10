@@ -44,7 +44,7 @@ def main():
     # Raised from 1,400 deliberately when the terrain density went up: the
     # limit on this hardware is fill rate, not triangles, and the island
     # covers the same screen area at any density.
-    check(n < 3200, "terrain inside budget (%d tris)" % n)
+    check(n < 900, "terrain inside the low-poly budget (%d tris)" % n)
 
     # Regression: the ring radii must ascend and finish exactly at R_WATER.
     # They were once a literal list that stayed put through a rescale, and
@@ -94,8 +94,14 @@ def main():
     mid = (W.gate_bearings()[0] + W.gate_bearings()[1]) * 0.5
     z_mid, kind_mid = W.island_height(
         W.R_FIELD + (W.R_GATE - W.R_FIELD) * 0.5, mid)
-    check(z_mid > W.FIELD_Z + 5.0,
-          "ground between paths rises to %.1f m (kind %s)" % (z_mid, kind_mid))
+    # A caye's relief is metres, not tens of metres — but the ground between
+    # the paths must still rise, or the paths are lines painted on a disc.
+    check(z_mid > W.FIELD_Z + 0.2,
+          "ground between paths rises to %.1f m, above the %.1f m field (%s)"
+          % (z_mid, W.FIELD_Z, kind_mid))
+    check(W.HILL_Z < 8.0,
+          "the island stays caye-flat (crest %.1f m; the Keys top out ~5.5)"
+          % W.HILL_Z)
     check(kind_mid == "hill", "between-path ground is classed as hill")
 
     # The rim must CROSS sea level and finish below it. Ending exactly at

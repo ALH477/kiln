@@ -64,8 +64,14 @@ STAR     = (176, 188, 214)
 # the water reflects, and water reflects less than it receives.
 FOAM_FLOOR = 0x34 / 255.0  # MUST match tools/gen_textures.py's FOAM_FLOOR
 
-DEEP_SEA = (36, 55, 118)
-NEAR_SEA = (64, 94, 188)
+# The Keys read as the Keys because of the SHELF: a broad band of water so
+# shallow that the sand under it comes back up through the colour, ringing
+# the island in turquoise before it falls off to blue. pm_world's terrain
+# carries that shelf out to R_WATER at -3 m; these are the colours over it.
+SHALLOW  = (108, 196, 200)   # over sand, right off the beach
+REEF     = (58, 140, 168)    # the flat further out
+DEEP_SEA = (30, 52, 112)
+NEAR_SEA = REEF
 MOON_LANE = (198, 214, 244)  # the glitter path running out toward the moon
 
 # Where the moon sits, as a compass direction in the XY plane plus an
@@ -208,10 +214,22 @@ def build_skydome(radius=1.0, segments=24, rings=6, star_count=44):
 
 # ── Sea ────────────────────────────────────────────────────────────────
 
-def build_sea(inner=55.0, outer=350.0, rings=9, segments=28, uv_tiles=9.0):
+def build_sea(inner=55.0, outer=210.0, rings=7, segments=20, uv_tiles=6.0):
     """Radial grid, dense at the centre and coarsening outward.
 
     Returns (verts, faces, colors, uvs).
+
+    ── Why `outer` is smaller than the far plane ──────────────────────────
+    The water used to reach 22,400 units, well past where the fog has fully
+    saturated it. Every one of those pixels was drawn — a texture fetch and
+    a blend each — to produce exactly the horizon colour the sky dome behind
+    it is already painting. Pulling the rim in to 13,400 removes that band
+    of pure overdraw and is invisible, because the two colours are the same
+    by construction (see PM_ENV_HORIZON in pm_env.h).
+
+    Fill rate, not triangle count, is what the water costs on this console:
+    it covers most of the screen. The tessellation came down with the radius
+    because the surface is flatter than it was, not to save RSP time.
 
     ── Why `inner` is well inside the island ──────────────────────────────
     The sea does not stop at the shoreline; it runs on UNDER the island and
@@ -256,9 +274,14 @@ def build_sea(inner=55.0, outer=350.0, rings=9, segments=28, uv_tiles=9.0):
             verts.append((cx * r, cy * r, 0.0))
             uvs.append((cx * r * uv_tiles / outer, cy * r * uv_tiles / outer))
 
-            # Water darkens with distance before the fog takes over, so the
-            # near water is not the same flat slab as the far water.
-            base = _lerp(NEAR_SEA, DEEP_SEA, min(1.0, t * 1.4))
+            # Three stops, not two: turquoise over the shelf, reef blue at
+            # its edge, then open-ocean blue. The first stop is short — the
+            # shelf ends not far past the beach — which is what gives the
+            # island a distinct rim of colour rather than a smooth gradient.
+            if t < 0.22:
+                base = _lerp(SHALLOW, REEF, t / 0.22)
+            else:
+                base = _lerp(REEF, DEEP_SEA, min(1.0, (t - 0.22) / 0.55))
             # The moon path: a lane of brighter water pointing at the moon.
             # Falls off with the angle away from the moon's bearing, and
             # fades in the distance so it does not fight the horizon.

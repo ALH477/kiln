@@ -137,10 +137,20 @@ static PMCamKey FLYOVER_KEYS[FLYOVER_KEY_COUNT];
 
 // How far out the closest approach should be, in island radii, and how high
 // the eye rides above the island's highest point.
-#define ORBIT_RADII       2.45f
-#define ORBIT_WOBBLE      0.06f   // gentle in-and-out, so it is not a lathe
-#define ORBIT_HIGH        3.00f   // x PM_ISLAND_TOP at the top of the arc
-#define ORBIT_LOW         2.05f   // ...and at the bottom
+// Closer, and lower. 2.45 radii held the whole island comfortably in frame
+// with sea all round it, which suited a green headland; a Florida caye is
+// flat and low and reads as nothing at all from up there. Coming in to 1.5
+// puts the beach and the scrub at a size you can see, and drops the horizon
+// so the sky band and the moon path do the work behind it.
+#define ORBIT_RADII       1.25f
+#define ORBIT_WOBBLE      0.08f   // gentle in-and-out, so it is not a lathe
+// Altitude as a fraction of the LAND radius, not a multiple of the tower.
+// A caye is flat, so a camera placed relative to its highest point ends up
+// hundreds of metres over a pancake; placed relative to its width it stays
+// in the low-aerial band where the beach and the scrub still read.
+// 0.10-0.20 of 6,595 units is roughly 10-20 m up.
+#define ORBIT_HIGH        0.20f
+#define ORBIT_LOW         0.10f
 
 static void flyover_build_keys(void)
 {
@@ -149,7 +159,11 @@ static void flyover_build_keys(void)
     /* Push the keys out so the chord midpoint sits at ORBIT_RADII. */
     const float chord_fix = 1.0f / fm_cosf(half);
 
-    const float base_r = PM_ISLAND_RADIUS * ORBIT_RADII * chord_fix;
+    // PM_LAND_RADIUS, not PM_ISLAND_RADIUS: the latter runs out to the
+    // submerged shelf, which frames as sea. Orbiting against it quietly put
+    // the eye half again too far out — the island came back SMALLER after a
+    // change whose whole purpose was to get closer.
+    const float base_r = PM_LAND_RADIUS * ORBIT_RADII * chord_fix;
     const float dur    = 30.0f;
 
     for (int i = 0; i < FLYOVER_KEY_COUNT; i++) {
@@ -159,17 +173,21 @@ static void flyover_build_keys(void)
         /* One slow in-and-out over the orbit, and one descent-and-rise, so
          * the move has shape without any key being hand-placed. */
         const float r = base_r * (1.0f + ORBIT_WOBBLE * fm_sinf(u * 6.2831853f));
-        const float h = ORBIT_LOW + (ORBIT_HIGH - ORBIT_LOW)
-                        * (0.5f + 0.5f * fm_cosf(u * 6.2831853f));
+        const float h = PM_LAND_RADIUS
+                        * (ORBIT_LOW + (ORBIT_HIGH - ORBIT_LOW)
+                           * (0.5f + 0.5f * fm_cosf(u * 6.2831853f)));
 
         FLYOVER_KEYS[i].t = dur * u;
         FLYOVER_KEYS[i].eye = (fm_vec3_t){ {
-            fm_cosf(a) * r, PM_ISLAND_TOP * h, fm_sinf(a) * r
+            fm_cosf(a) * r, h, fm_sinf(a) * r
         } };
         /* Look at the island's mass, not its centre: aiming a third of the
          * way up keeps the horizon low and the middle of the frame clear
          * for the skull and the menu. */
-        FLYOVER_KEYS[i].look = (fm_vec3_t){ { 0.0f, PM_ISLAND_TOP * 0.35f, 0.0f } };
+        // Aim at the land, not at the tower's midpoint: on a flat caye the
+        // interesting line is the shore, so the target sits just above the
+        // field rather than a third of the way up a 32 m landmark.
+        FLYOVER_KEYS[i].look = (fm_vec3_t){ { 0.0f, PM_FIELD_Y * 1.6f, 0.0f } };
     }
 }
 
@@ -431,6 +449,20 @@ void pm_demo_update(float dt)
 int   pm_demo_done(void)    { return g_done; }
 float pm_demo_elapsed(void) { return g_elapsed; }
 
+/** Catmull-Rom through four keys, evaluated at `f` in [0,1] between p1 and p2.
+ *
+ *  Passes exactly through every key and, unlike a per-segment ease, has a
+ *  CONTINUOUS velocity across them — which is the whole point here. */
+static float spline1(float p0, float p1, float p2, float p3, float f)
+{
+    const float f2 = f * f;
+    const float f3 = f2 * f;
+    return 0.5f * ((2.0f * p1)
+                 + (-p0 + p2) * f
+                 + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * f2
+                 + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * f3);
+}
+
 void pm_demo_apply(M64Camera *cam)
 {
     if (!g_shot || g_shot->key_count == 0) return;
@@ -439,28 +471,51 @@ void pm_demo_apply(M64Camera *cam)
     const int n = g_shot->key_count;
     const float t = g_elapsed;
 
-    // Find the bracketing pair. Same linear scan examples/cinematic-demo
-    // uses: a handful of keys per shot, walked once a frame.
+    /* Find the bracketing pair. Same linear scan examples/cinematic-demo
+     * uses: a handful of keys per shot, walked once a frame. */
     int i = 0;
     while (i < n - 2 && t >= keys[i + 1].t) i++;
 
-    const PMCamKey *a = &keys[i];
-    const PMCamKey *b = &keys[i + 1 < n ? i + 1 : i];
-    float span = b->t - a->t;
-    float f = span > 0.0f ? (t - a->t) / span : 0.0f;
+    const int i1 = i;
+    const int i2 = (i + 1 < n) ? i + 1 : i;
+    const float span = keys[i2].t - keys[i1].t;
+    float f = span > 0.0f ? (t - keys[i1].t) / span : 0.0f;
     if (f < 0.0f) f = 0.0f;
     if (f > 1.0f) f = 1.0f;
 
-    // Smoothstep, not linear. A linear lerp between keys makes the camera
-    // change speed instantly at every key, which reads as a stutter on a
-    // slow shot — the same reason ph_anim_intake.h says to smoothstep its
-    // parameter ("linear on a body this heavy reads mechanical").
-    const float s = f * f * (3.0f - 2.0f * f);
+    /* ── Catmull-Rom, not a per-segment ease ────────────────────────────
+     * This used to smoothstep `f` and lerp between the two bracketing
+     * keys. Smoothstep starts and ends at zero velocity, so the camera
+     * decelerated to a near-stop at EVERY key and accelerated away from
+     * it again — on the flyover's twelve keys over thirty seconds that is
+     * a hitch every two and a half seconds, which reads as a clunky move
+     * rather than a shot.
+     *
+     * Catmull-Rom needs the keys either side of the segment as well, and
+     * gives a curve that passes through every key with a continuous
+     * velocity through it. The interpolant stays LINEAR in f: easing it
+     * would put the per-key deceleration straight back.
+     *
+     * A looping shot wraps for its neighbours, so the seam is as smooth as
+     * anywhere else. PetaByte-Madness' flyover ends on a copy of its first
+     * key, so the wrap skips that duplicate. A one-shot clamps at the ends
+     * instead, which makes the tangent zero there — a natural ease in and
+     * out at the START and END of the shot only, which is what a cut wants. */
+    int i0, i3;
+    if (g_loop && n >= 3) {
+        i0 = (i1 > 0) ? i1 - 1 : n - 2;          /* n-1 duplicates key 0 */
+        i3 = (i2 + 1 < n) ? i2 + 1 : 1;
+    } else {
+        i0 = (i1 > 0) ? i1 - 1 : i1;
+        i3 = (i2 + 1 < n) ? i2 + 1 : i2;
+    }
 
     fm_vec3_t eye, look;
     for (int k = 0; k < 3; k++) {
-        eye.v[k] = a->eye.v[k] + (b->eye.v[k] - a->eye.v[k]) * s;
-        look.v[k] = a->look.v[k] + (b->look.v[k] - a->look.v[k]) * s;
+        eye.v[k] = spline1(keys[i0].eye.v[k], keys[i1].eye.v[k],
+                           keys[i2].eye.v[k], keys[i3].eye.v[k], f);
+        look.v[k] = spline1(keys[i0].look.v[k], keys[i1].look.v[k],
+                            keys[i2].look.v[k], keys[i3].look.v[k], f);
     }
     m64_camera_set_cutscene(cam, eye, look);
 }
@@ -481,12 +536,11 @@ void pm_demo_apply_frustum(M64Scene *scene)
 
     if (g_shot->exterior) pm_env_night(scene);
     else                  pm_env_interior(scene);
+
     // m64_scene_init defaults to near 10 / far 200, which are the ENGINE's
     // units-agnostic numbers and are three metres in this world (64 units
     // to the metre — see pm_lab.h). A shot that forgot to declare its own
-    // pair therefore clipped away everything it was pointed at: the lab is
-    // 631 units wide, the LOACH 610 long, the island 12,813 across. Six of
-    // the seven shots were in that state and rendered essentially nothing.
+    // pair therefore clipped away everything it was pointed at.
     //
     // So the fallback is PM's, not the engine's. A shot still overrides it
     // when it has a reason to (the flyover needs 40,000 to reach the

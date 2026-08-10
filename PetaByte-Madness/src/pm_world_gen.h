@@ -15,30 +15,31 @@
 #define PM_WORLD_GEN_H
 
 // ── The island ─────────────────────────────────────────────────────
-#define PM_ISLAND_RADIUS   6465.5f  // to the wobbled coastline
-#define PM_ISLAND_TOP      2368.0f  // highest point, incl. the tower
-#define PM_ISLAND_BOTTOM   -384.0f  // the underwater skirt
+#define PM_ISLAND_RADIUS   8070.1f  // to the wobbled coastline
+#define PM_LAND_RADIUS     6595.3f  // where terrain crosses sea level
+#define PM_ISLAND_TOP      2073.6f  // highest point, incl. the tower
+#define PM_ISLAND_BOTTOM   -192.0f  // the underwater skirt
 #define PM_FIELD_RADIUS    2688.0f  // the flat walkable middle
-#define PM_FIELD_Y         448.0f  // its height above sea level
+#define PM_FIELD_Y         153.6f  // its height above sea level
 #define PM_GATE_RADIUS     3968.0f
 #define PM_SHORE_RADIUS    5056.0f
 
 // Where vegetation sits: the band between the plazas and the strand,
 // at the height the terrain actually is there.
 #define PM_PALM_RADIUS     4512.0f
-#define PM_PALM_Y          422.4f
+#define PM_PALM_Y          144.0f
 
 // ── The six dungeon gates ──────────────────────────────────────────
 // x, y, z and the compass bearing they face, so a room transition or
 // a spawn can be placed at one by index rather than by measurement.
 #define PM_GATE_COUNT 6
 #define PM_GATE_TABLE { \
-    {    3968.0f,   448.0f,       0.0f,    0.0f }, \
-    {    1984.0f,   448.0f,    3436.4f,   60.0f }, \
-    {   -1984.0f,   448.0f,    3436.4f,  120.0f }, \
-    {   -3968.0f,   448.0f,       0.0f,  180.0f }, \
-    {   -1984.0f,   448.0f,   -3436.4f,  240.0f }, \
-    {    1984.0f,   448.0f,   -3436.4f,  300.0f }, \
+    {    3968.0f,   153.6f,       0.0f,    0.0f }, \
+    {    1984.0f,   153.6f,    3436.4f,   60.0f }, \
+    {   -1984.0f,   153.6f,    3436.4f,  120.0f }, \
+    {   -3968.0f,   153.6f,       0.0f,  180.0f }, \
+    {   -1984.0f,   153.6f,   -3436.4f,  240.0f }, \
+    {    1984.0f,   153.6f,   -3436.4f,  300.0f }, \
 }
 
 // ── The lab ────────────────────────────────────────────────────────

@@ -63,13 +63,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Few, flat, separated in VALUE — the rule pm_props.py's _island_colors
 # states and docs/VEIL_DESIGN.md §4 requires, because the veil collapses hue
 # and anything distinguished only by hue stops being distinguishable.
-SAND      = (132, 116, 84)
-WET_SAND  = (86, 78, 60)
-GRASS     = (58, 78, 46)
-FIELD     = (72, 92, 54)   # the walkable middle, a touch lighter than scrub
-PATH      = (122, 116, 98) # trodden stone, clearly lighter than the grass
-ROCK      = (96, 92, 86)
-HILL      = (44, 56, 38)   # the raised ground between paths, darkest
+# A Florida caye, not a highland. The Keys are coral rubble and sand with
+# scrub and mangrove on top: the value range is narrow and warm, and the
+# darkest thing on the island is the mangrove at the waterline rather than a
+# hillside. Still separated by VALUE first (docs/VEIL_DESIGN.md).
+SAND      = (176, 162, 128)  # dry coral sand, the brightest land
+WET_SAND  = (118, 108, 88)   # the tide line
+SCRUB     = (86, 96, 66)     # sea grape and buttonwood
+FIELD     = (104, 112, 78)   # the open middle: thin grass over sand
+PATH      = (158, 146, 116)  # a sand track, reads by VALUE against scrub
+ROCK      = (138, 130, 112)  # exposed caprock
+MANGROVE  = (44, 58, 44)     # the dark fringe where land meets water
 GATE_STONE = (138, 132, 120)
 GATE_DARK  = (28, 30, 34)  # the opening itself: a hole, not a door
 
@@ -94,7 +98,12 @@ R_FIELD   = 42.0   # flat central field
 R_INNER   = 47.0   # field rolls off / hills begin
 R_GATE    = 62.0   # the gate plazas
 R_SHORE   = 79.0   # sand begins (a narrow strand, not a apron)
-R_WATER   = 83.0   # the mesh ends BELOW sea level - see UNDERWATER_Z
+# The mesh runs well past the waterline as a SHALLOW SHELF. A caye does not
+# drop off at its beach — it sits in the middle of a flat that stays
+# ankle-to-waist deep for a long way out, and that broad turquoise band is
+# most of what makes an aerial read as the Keys rather than as an island in
+# deep ocean. pm_env's sea colours the water above it (SHALLOW/REEF).
+R_WATER   = 104.0
 # The rim continues under the water rather than stopping at z = 0.
 #
 # Stopping at sea level puts the island's outer ring and the sea plane at the
@@ -103,19 +112,29 @@ R_WATER   = 83.0   # the mesh ends BELOW sea level - see UNDERWATER_Z
 # glitching at the waterline. Carrying the skirt down means the sea plane
 # cuts through solid ground and the shoreline is simply where the terrain
 # crosses zero, which is also where a real one is.
-UNDERWATER_Z = -6.0
+# Barely submerged: the shelf is shallow, which is the whole point. Deep
+# enough that the sea plane never touches it (that was the shimmering
+# coplanar seam), shallow enough to read as a flat rather than a drop.
+UNDERWATER_Z = -3.0
 
-FIELD_Z   = 7.0    # the field's height above sea level
-HILL_Z    = 27.0   # ridge tops between the paths
-GATE_Z    = 7.0    # plazas are level with the field, so paths are flat
+# Key West's highest natural ground is about 5.5 m and most of the Keys sit
+# at one or two. These were 7 and 27, which is a headland; at that height the
+# island reads as a green mountain with a beach stuck round it.
+FIELD_Z   = 2.4    # the open middle, barely above the tide
+HILL_Z    = 6.0    # dune and scrub crests between the paths
+GATE_Z    = 2.4    # plazas level with the field, so the paths stay flat
 
 GATE_COUNT   = 6
 PATH_HALF_DEG = 9.0   # half-width of a path corridor, in degrees
 # Must divide GATE_COUNT evenly so every gate lands on a vertex column
 # rather than straddling one, and PATH_HALF_DEG must exceed half a sector or
 # a path can fall between columns and vanish.
-SECTORS      = 54     # 6.67 degrees each; 54 / 6 gates = 9 columns per gate
-TERRAIN_DENSITY = 1.15 # multiplier on the per-band ring counts below
+# Low poly on purpose. 54 sectors and density 1.15 gave 2,106 triangles of
+# smoothly-curved terrain, which is neither cheap nor the look — a caye is
+# flat sand and scrub and wants to read as chunky facets. 30 divides the six
+# gates evenly (5 columns each) and stays wider than PATH_HALF_DEG.
+SECTORS      = 30     # 12 degrees each; 30 / 6 gates = 5 columns per gate
+TERRAIN_DENSITY = 0.62 # multiplier on the per-band ring counts below
 
 
 def gate_bearings():
@@ -214,15 +233,23 @@ def island_height(r, theta_deg):
         z = top * (1.0 - t) + 1.2 * t
         return z, "rock" if p <= 0.5 and t < 0.5 else "sand"
 
-    # The beach, across the waterline and under it.
+    # The beach, then the shelf. The drop happens in the FIRST part of this
+    # band and then flattens out, so the profile is a strand that gives way
+    # to a long shallow flat rather than a ramp to deep water.
     t = _smoothstep((r - R_SHORE) / (R_WATER - R_SHORE))
-    z = 1.2 * (1.0 - t) + UNDERWATER_Z * t
-    return z, "wet" if t > 0.45 else "sand"
+    drop = _smoothstep(min(1.0, t * 2.6))
+    z = 1.0 * (1.0 - drop) + UNDERWATER_Z * drop
+    if t < 0.22:
+        return z, "sand"
+    if t < 0.40:
+        return z, "mangrove"   # the dark fringe right at the tide line
+    return z, "wet"
 
 
 KIND_COLOR = {
-    "field": FIELD, "path": PATH, "hill": HILL,
+    "field": FIELD, "path": PATH, "hill": SCRUB,
     "rock": ROCK, "sand": SAND, "wet": WET_SAND,
+    "mangrove": MANGROVE,
 }
 
 
@@ -244,7 +271,7 @@ def terrain_rings(density=TERRAIN_DENSITY):
         (0.0,     R_FIELD, 3),   # flat middle
         (R_FIELD, R_GATE,  6),   # the ridges and the paths between them
         (R_GATE,  R_SHORE, 4),   # the fall from the plazas to the beach
-        (R_SHORE, R_WATER, 4),   # the strand and the underwater skirt
+        (R_SHORE, R_WATER, 5),   # the strand, then the shallow shelf
     )
     out = [0.0]
     for lo, hi, n in bands:
@@ -509,6 +536,19 @@ def measure():
     def lo(v):
         return min(p[2] for p in v) * BASE_SCALE
 
+    # Where the terrain crosses sea level: the outer edge of the LAND, as
+    # opposed to island_radius, which now runs out to the submerged shelf.
+    # A camera framing the island wants this one — the shelf is water and
+    # frames as sea, so orbiting against the shelf radius silently pushes
+    # the eye half again too far out.
+    land_r = R_SHORE
+    steps = 200
+    for i in range(steps + 1):
+        rr = R_SHORE + (R_WATER - R_SHORE) * i / steps
+        if island_height(rr, gate_bearings()[0] + 30.0)[0] > 0.0:
+            land_r = rr
+    land_r *= max(coast_wobble(a * 5.0) for a in range(72))
+
     gates = []
     for b in gate_bearings():
         a = math.radians(b)
@@ -531,6 +571,7 @@ def measure():
 
     return {
         "island_radius": radius(tv),
+        "land_radius": land_r * BASE_SCALE,
         "island_top": hi(tv + lv),
         "island_bottom": lo(tv),
         "field_radius": R_FIELD * BASE_SCALE,
@@ -569,6 +610,8 @@ def emit_header():
     add("// ── The island ─────────────────────────────────────────────────────")
     add("#define PM_ISLAND_RADIUS   %.1ff  // to the wobbled coastline"
         % m["island_radius"])
+    add("#define PM_LAND_RADIUS     %.1ff  // where terrain crosses sea level"
+        % m["land_radius"])
     add("#define PM_ISLAND_TOP      %.1ff  // highest point, incl. the tower"
         % m["island_top"])
     add("#define PM_ISLAND_BOTTOM   %.1ff  // the underwater skirt"
