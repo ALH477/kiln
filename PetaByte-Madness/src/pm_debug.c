@@ -19,8 +19,19 @@ static const char *const SCREEN_NAMES[] = {
 };
 
 // Short enough to fit four to a line at 320 px. Order matches PMModelId.
+//
+// This table is sized off PM_MODEL_COUNT but its contents are a SEPARATE,
+// hand-maintained list — nothing enforces the two staying in step, and
+// they didn't: PM_MODEL_LAB_ARMS landed in the enum with no matching entry
+// here, so every name from "guard" on quietly shifted one slot early and
+// the array fell one short of PM_MODEL_COUNT. The missing final slot
+// (PM_MODEL_STORM, C-zero-initialised to NULL) was never a problem until
+// the very first frame this overlay actually ran, at which point
+// m64_gui_text got NULL as a format string and read byte 0 of address
+// zero — a boot-time crash on every build, caught only once the ROM was
+// finally run in an emulator instead of just `nix build`/`nix flake check`.
 static const char *const MODEL_NAMES[PM_MODEL_COUNT] = {
-    "isle", "palm", "cent", "loch", "lab", "horn", "guard", "logo",
+    "isle", "palm", "cent", "loch", "lab", "horn", "arms", "guard", "logo",
     "sky", "sea", "bolt",
 };
 
