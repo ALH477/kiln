@@ -312,6 +312,27 @@ rec {
       '';
     };
 
+  # ── Video (FMV) ──────────────────────────────────────────────────────
+  # engine/src/m64/m64_video.h decodes raw MPEG1 elementary streams
+  # (`.m1v`, libdragon's mpeg1_codec) frame by frame at runtime. No
+  # audioconv64 step and no re-encode here: unlike mkSound's mp3/wav
+  # inputs, a `.m1v` is already exactly the bytes the console's decoder
+  # wants, so this is a straight copy into the filesystem/ convention
+  # every other builder here produces.
+  mkVideo =
+    { name
+    , src # .m1v, a raw MPEG1 elementary stream (no container — see
+          # libdragon's videoconv64 --codec mpeg1)
+    , dest ? "videos"
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.m1v";
+      convert = ''
+        cp "$src" "$outdir/${name}.m1v"
+      '';
+    };
+
   # ── Tracker music ────────────────────────────────────────────────────
   # libdragon benchmarks a 10-channel XM at "< 3% CPU and < 10% RSP", which is
   # why report §5 calls XM64 the pragmatic music engine for this target.

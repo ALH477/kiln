@@ -131,21 +131,12 @@ MODELS = {
         "color": "vertex",
         "split": "material",
     },
-    # Horner himself, for the opening cinematic. He is only ever seen in third
-    # person before the camera flies into his head, and again on the slab.
-    #
-    # Two poses, because his generator builds upright and then runs slump(),
-    # a Y-keyed deformer that rounds the spine and drops the shoulders — and
-    # its own header notes that anything between 0 and 1 is "a usable
-    # in-between for a cutscene". The default IS the character: 176 cm of a
-    # man who no longer stands to his 190.5.
-    "horner": {
-        "obj": "obj/patrick_horner.obj",
-        "scale": 0.01,
-        "decimate": None,
-        "color": "vertex",
-        "split": "material",
-    },
+    # Horner himself is no longer built here — see tools/blender/horner.py,
+    # which rebuilds him as a skinned, six-clip rig off the same
+    # patrick_horner_gen.py geometry (via ph_rig.py's joint binding) instead
+    # of importing patrick_horner.obj as a rigid prop. "horner_upright"
+    # below is kept only as provenance for that generator's `--upright`
+    # variant; nothing currently builds it.
     "horner_upright": {
         "obj": "obj/patrick_horner_upright.obj",
         "scale": 0.01,

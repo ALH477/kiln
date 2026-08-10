@@ -7,9 +7,11 @@ archives/
 
 # Raw audio drops: ~280 MB of source stems and jukebox material that the
 # build never reads. Same reasoning as archives/ above — provenance, not a
-# build input. The two files the ROM actually consumes are tracked:
+# build input. The files the ROM actually consumes are tracked:
 #   assets/music/petabyte.mid          -> the XM64 score
 #   assets/music/petabyte_theme.mp3    -> the streamed recording
+#   assets/music/ostafterstart.mp3     -> the narration crawl's score
 assets/music/*
 !assets/music/petabyte.mid
 !assets/music/petabyte_theme.mp3
+!assets/music/ostafterstart.mp3

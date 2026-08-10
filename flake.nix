@@ -928,6 +928,32 @@
           bvh = false;
         };
 
+        # Horner, rebuilt as a skinned, six-clip rig — same move as the
+        # centaur above, for the same reason (pm_intake.c needs him to act,
+        # not just stand there rigid). tools/blender/horner.py builds the
+        # armature; PetaByte-Madness/tools/ph_rig_export.py produced the
+        # committed JSON from ph_rig.py + ph_anim_clips.py (rig + mesh +
+        # clips, self-tested), so this is a static file path exactly like
+        # pmCentaurRig above, not a build-time derivation.
+        pmHornerRig = ./PetaByte-Madness/assets/rig/horner.json;
+        pmHornerModel = blenderLib.mkBlenderModel {
+          name = "horner";
+          script = "horner.py";
+          scriptArgs = [ "--rig" "${pmHornerRig}" ];
+          animated = true;
+          bvh = false; # same reasoning as pmCentaurModel's bvh=false
+        };
+
+        # The MRI bay's pair of idle-animated robotic arms — hand-authored
+        # (no external rig JSON; see tools/blender/lab_arms.py), same shape
+        # droid.py's two-bone arms use.
+        pmLabArmsModel = blenderLib.mkBlenderModel {
+          name = "lab_arms";
+          script = "lab_arms.py";
+          animated = true;
+          bvh = false; # always on screen in the lab, same reasoning as above
+        };
+
         # The OBJ/glTF-sourced props: the island, its palms, the work
         # submarine, the guard mobs, the drone. One script with a --model
         # table (tools/blender/pm_props.py), the same shape goblin.py uses,
@@ -1082,6 +1108,36 @@
           resample = 32000;
           compress = 1; # vadpcm — the RSP-accelerated one
         };
+
+        # ── The two new story-beat cues + the title-card FMV ────────────────
+        # ostafterstart.mp3 and assets/mp4/audio.wav are the clean individual
+        # sources; assets/music/intro-after-start.mp3 (not baked — reference
+        # only) is the two of them concatenated, and ffprobe confirms their
+        # durations sum to its exactly. See pm_narration.c / pm_lab.c for
+        # where each actually plays.
+        pmNarrationMusic = assetLib.mkSound {
+          name = "narration_stream";
+          src = ./PetaByte-Madness/assets/music/ostafterstart.mp3;
+          dest = "music";
+          mono = true;
+          resample = 32000;
+          compress = 1;
+        };
+        pmSurgeryOst = assetLib.mkSound {
+          name = "surgery_ost";
+          src = ./PetaByte-Madness/assets/mp4/audio.wav;
+          dest = "music";
+          mono = true;
+          resample = 32000;
+          compress = 1;
+        };
+        # intro.m1v has no audio track of its own (see pm_credits.h) — its
+        # originally-intended companion is audio.wav above, now the surgery
+        # OST instead. Plays silent until real matched audio exists.
+        pmIntroVideo = assetLib.mkVideo {
+          name = "intro";
+          src = ./PetaByte-Madness/assets/mp4/intro.m1v;
+        };
         mkPetabyteMadness = debug: mkN64Rom {
           # Deliberately the same `name` in both variants: `name` is what
           # rom.nix's passthru.romFile is built from, and the Makefile emits
@@ -1095,8 +1151,10 @@
           debugConsole = debug;
           # `textures` ships the .sprite the sea's foam material names; the
           # model only carries the rom:/ path to it.
-          assets = [ pmLabMap pmCentaurModel pmDrone m64Logo m64Jingle
+          assets = [ pmLabMap pmCentaurModel pmHornerModel pmLabArmsModel
+                     pmDrone m64Logo m64Jingle
                      pmTheme pmThemeStream
+                     pmNarrationMusic pmSurgeryOst pmIntroVideo
                      pmSkydome pmSea pmStorm pmSkull textures ]
             # The lab room ships as dank_lab.obj (via pmProp), not
             # pmWorld's procedural box — pm_lab.c's collision brushes,
@@ -1106,7 +1164,7 @@
             # meant to ship here. bvh=false and vertex-colour materials
             # both come from pmProp's existing defaults.
             ++ [ pmIslandModel (pmProp "dank_lab") ]
-            ++ map pmProp [ "palms" "loach" "horner" "guard_cousin" ]
+            ++ map pmProp [ "palms" "loach" "guard_cousin" ]
             ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];
         };
         petabyte-madness = mkPetabyteMadness false;
@@ -1162,7 +1220,8 @@
           model-drone = pmProp "drone";
           model-guard-cousin = pmProp "guard_cousin";
           model-dank-lab = pmProp "dank_lab";
-          model-horner = pmProp "horner";
+          model-horner = pmHornerModel;
+          model-lab-arms = pmLabArmsModel;
           model-gokart = gokartModel;
           model-bike = bikeModel;
           model-dank = goblinCast.dank;
@@ -1301,6 +1360,16 @@
             inherit pkgs;
             rom = petabyte-madness;
             name = "petabyte-madness";
+            # 16 MB stopped being enough the moment this ROM started
+            # shipping a full-motion video (pmIntroVideo, a raw MPEG1
+            # elementary stream — video.h's video_open makes no attempt
+            # to compress it) alongside two multi-minute VADPCM tracks
+            # (pmNarrationMusic, pmSurgeryOst). Real N64 carts shipped up to
+            # 64 MB (Conker's Bad Fur Day among them) and SC64 supports the
+            # same; 64 MB here is headroom for the FMV once its final cut
+            # replaces the current placeholder, not a number picked to
+            # exactly clear today's size.
+            maxSize = 64 * 1024 * 1024;
           };
           m64-asset = import ./nix/checks/m64-asset.nix {
             inherit pkgs;

@@ -19,6 +19,8 @@
 #include "pm_lab.h"
 #include "pm_arrival.h"
 #include "pm_intake.h"
+#include "pm_narration.h"
+#include "pm_credits.h"
 #include "pm_fx.h"
 #include "pm_hud.h"
 
@@ -185,7 +187,7 @@ static void enter_play_from_file(PMApp *app)
     pm_models_unload(PM_MODEL_PALMS);
 }
 
-static void enter_lab_cine_from_file(PMApp *app)
+static void enter_narration_from_file(PMApp *app)
 {
     memset(&app->save, 0, sizeof app->save);
     if (app->save_ok) m64_save_write(app->slot, &app->save);
@@ -193,6 +195,16 @@ static void enter_lab_cine_from_file(PMApp *app)
     app->intro = 1;
     pm_demo_stop();
     pm_models_unload(PM_MODEL_PALMS);
+    pm_demo_play(&pm_narration_shot, 0);
+}
+
+// What enter_lab_cine_from_file used to do directly, now reached once the
+// crawl finishes rather than the instant the slot is picked — the lab
+// model preload moves here with it, since there is no reason to hold it in
+// RAM for the several minutes the crawl runs.
+static void enter_lab_cine_from_narration(PMApp *app)
+{
+    (void)app;
     pm_models_preload(PM_MODEL_LAB);
     pm_demo_play(&pm_demo_lab_cine, 0);
 }
@@ -214,7 +226,7 @@ static void file_update(PMApp *app, const M64Input *in, float dt)
         if (app->slot_used[app->slot])
             go_fade(app, PM_SCREEN_PLAY, enter_play_from_file);
         else
-            go_fade(app, PM_SCREEN_LAB_CINE, enter_lab_cine_from_file);
+            go_fade(app, PM_SCREEN_NARRATION, enter_narration_from_file);
     }
 }
 
@@ -232,6 +244,13 @@ static void skip_intro_to_play(PMApp *app)
     (void)app;
     pm_demo_stop();
     pm_models_unload(PM_MODEL_PALMS);
+    // PM_CH_STORY (narration/surgery) is not any single shot's teardown to
+    // own — pm_demo_stop() above only reaches whichever PMDemoShot is
+    // CURRENTLY playing, and the surgery cue outlives LAB_CINE, LAB and
+    // INTAKE as shots come and go. Unconditional and harmless if already
+    // silent: skipping from LAB or INTAKE is exactly the case that would
+    // otherwise leave it playing on into PLAY forever.
+    m64_sfx_stop(PM_CH_STORY);
 }
 
 static void enter_lab_from_cine(PMApp *app)
@@ -246,6 +265,17 @@ static void enter_intake_from_lab_cine(PMApp *app)
 {
     (void)app;
     pm_demo_play(&pm_intake_shot, 0);
+}
+
+static void enter_credits_from_intake(PMApp *app)
+{
+    (void)app;
+    // The surgery OST (pm_lab.c) has been playing since the player entered
+    // the lab, straight through INTAKE's climb-in — it ends HERE, not in
+    // pm_intake.c's own teardown, because its owning lifetime is the whole
+    // LAB + INTAKE visit rather than just the transformation cutscene.
+    m64_sfx_stop(PM_CH_STORY);
+    pm_demo_play(&pm_credits_shot, 0);
 }
 
 static void enter_sub_from_intake(PMApp *app)
@@ -283,6 +313,9 @@ static void leave_lab_to_play(PMApp *app)
     (void)app;
     pm_lab_leave();
     pm_demo_stop();
+    // Same reason as skip_intro_to_play's: the surgery cue started at
+    // pm_lab_enter, and nothing else stops it on this path.
+    m64_sfx_stop(PM_CH_STORY);
 }
 
 static void intro_update(PMApp *app, const M64Input *in, float dt)
@@ -296,18 +329,17 @@ static void intro_update(PMApp *app, const M64Input *in, float dt)
 
     // LAB is the one intro screen the player drives, so it has no hold:
     // it ends when he activates the MRI, which pm_screens_update handles
-    // before this runs. Everything else is a scripted beat on a clock.
-    // SUB and BEACH end when their shot ends, so their length lives with
-    // the shot rather than being duplicated here and drifting from it.
-    // LAB_CINE is the same but its shot is pm_demo_lab_cine. INTAKE is
-    // still a hold until pm_intake lands.
-    // Every scripted beat now ends when its shot ends, so no length is
-    // duplicated here to drift from the shot that owns it. LAB is the
-    // exception and has no clock at all: the player ends it.
+    // before this runs. Every other screen here — NARRATION, LAB_CINE,
+    // INTAKE, CREDITS, SUB, BEACH — is a scripted PMDemoShot on a clock, and
+    // ends when ITS shot ends, so no length is duplicated here to drift
+    // from the shot that actually owns it.
     if (app->screen == PM_SCREEN_LAB) return;
     if (!pm_demo_done()) return;
 
     switch (app->screen) {
+    case PM_SCREEN_NARRATION:
+        go_fade(app, PM_SCREEN_LAB_CINE, enter_lab_cine_from_narration);
+        break;
     case PM_SCREEN_LAB_CINE:
         go_fade(app, PM_SCREEN_LAB, enter_lab_from_cine);
         break;
@@ -318,12 +350,14 @@ static void intro_update(PMApp *app, const M64Input *in, float dt)
         // This used to be a plain go() with no fade at all: the intake's
         // last beat is a white flash held over the cut, and the comment
         // here argued the black cover was unneeded on top of it. It WAS
-        // needed — sub_setup loads five models (LOACH, ISLAND, SKYDOME,
-        // STORM, SEA) and the white flash has already decayed to ~0 alpha
-        // by the time that runs, so the stall showed nothing but a frozen
-        // last frame of intake. Gating it costs one brief black flash
-        // right after the white one; still cheap next to an invisible
-        // multi-model stall.
+        // needed — credits_setup opens the FMV decoder, and the white
+        // flash has already decayed to ~0 alpha by the time that runs, so
+        // the stall showed nothing but a frozen last frame of intake.
+        // Gating it costs one brief black flash right after the white one;
+        // still cheap next to an invisible decoder-open stall.
+        go_fade(app, PM_SCREEN_CREDITS, enter_credits_from_intake);
+        break;
+    case PM_SCREEN_CREDITS:
         go_fade(app, PM_SCREEN_SUB, enter_sub_from_intake);
         break;
     case PM_SCREEN_SUB:
@@ -606,10 +640,12 @@ static void draw_file(PMApp *app, int w, int h)
 void pm_screens_draw2d(PMApp *app, int w, int h)
 {
     switch (app->screen) {
-    case PM_SCREEN_BOOT:  m64_splash_draw2d(w, h); break;
-    case PM_SCREEN_TITLE: draw_title(app, w, h); break;
-    case PM_SCREEN_FILE:  draw_file(app, w, h);  break;
-    case PM_SCREEN_LAB:   pm_lab_draw2d(w, h); break;
+    case PM_SCREEN_BOOT:      m64_splash_draw2d(w, h); break;
+    case PM_SCREEN_TITLE:     draw_title(app, w, h); break;
+    case PM_SCREEN_FILE:      draw_file(app, w, h);  break;
+    case PM_SCREEN_LAB:       pm_lab_draw2d(w, h); break;
+    case PM_SCREEN_NARRATION: pm_narration_draw2d(w, h); break;
+    case PM_SCREEN_CREDITS:   pm_credits_draw2d(w, h); break;
     case PM_SCREEN_ATTRACT:
         // Nothing. The reel is the screen — a HUD over it would give away
         // that this is a menu background rather than the game.

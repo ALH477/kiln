@@ -31,6 +31,8 @@ OBJS = $(BUILD_DIR)/main.o \
        $(BUILD_DIR)/pm_music.o \
        $(BUILD_DIR)/pm_env.o \
        $(BUILD_DIR)/pm_intake.o \
+       $(BUILD_DIR)/pm_narration.o \
+       $(BUILD_DIR)/pm_credits.o \
        $(BUILD_DIR)/pm_debug.o
 
 all: petabyte-madness.z64

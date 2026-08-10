@@ -19,6 +19,11 @@
 //     MOTOR frame 144   slab drive starts
 //     IN    frame 195   he is inside
 //
+// LOOK's own beat (frames 0-45: stands still, then turns to face it) is now
+// covered by the new leading sequence's own arrival instead — the new
+// sequence hands off at this file's original frame 45, already turned to
+// face the machine, so CUE_SIT/CUE_LIE/CUE_MOTOR/CUE_IN above are unchanged.
+//
 // ── One trap, and the header warns about it ────────────────────────────
 // From CUE_LIE onward the root translation is expressed in the SLAB's
 // frame, so the slab's own travel has to be added to it. Miss that and the
@@ -26,17 +31,22 @@
 // without him, which looks like a broken animation rather than a wrong
 // parent.
 //
-// ── What Pass A does not do ────────────────────────────────────────────
-// Horner is drawn as a RIGID body here: the root position and pitch are
-// animated, the seventeen joint tracks are not. He tips from standing to
-// flat in one piece rather than bending at the waist.
+// ── Pass B is live ──────────────────────────────────────────────────────
+// Horner is a skinned M64Skel now (tools/blender/horner.py, built from
+// ph_rig.py + ph_anim_clips.py via ph_rig_export.py — see that file for the
+// coordinate/Euler derivation). The ROOT position and pitch below are still
+// animated exactly as Pass A left them — a skinned mesh needs its overall
+// placement driven the same way a rigid one did — but the joint bends
+// (sitting, reclining, lying) now come from the `climb_in` clip instead of
+// tipping the whole rigid body over in one piece.
 //
-// The camera is cut to hide it — wide while he is upright, overhead once
-// he is flat, then at the mouth of the bore — and at those distances a
-// low-poly figure reads by silhouette and motion, which are both correct.
-// It is still a stand-in. Pass B runs ph_rig.py through the same pipeline
-// that gave the centaur its thirteen animations (docs/ASSET_PIPELINE.md),
-// after which the pose keys play and the camera can go anywhere.
+// Ahead of this file's original beats (which now start at ORIG_HANDOFF_FRAME
+// rather than frame 0), a new leading sequence plays out the same way
+// pm_arrival.c drives the centaur: named clips switched on state changes,
+// gated by m64_skel_is_done() for one-shots, with the ROOT path a plain
+// per-state position lerp rather than a transcribed spline — there is no
+// mocap to transcribe for "walks to a console and sits down", unlike the
+// scanner sequence below.
 
 #ifndef PM_INTAKE_H
 #define PM_INTAKE_H

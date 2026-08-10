@@ -73,3 +73,9 @@ void m64_skel_draw(const M64Skel *sk)
     t3d_skeleton_use(&sk->skel);
     t3d_model_draw_skinned(sk->model, &sk->skel);
 }
+
+bool m64_skel_is_done(const M64Skel *sk)
+{
+    if (!sk->has_anim) return true;
+    return !t3d_anim_is_playing(&sk->anim);
+}

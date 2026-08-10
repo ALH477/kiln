@@ -20,6 +20,7 @@ static const char *const PATHS[PM_MODEL_COUNT] = {
     // dank_lab.obj, not pm_world.py's procedural box — see pm_lab.h.
     [PM_MODEL_LAB]     = "rom:/models/dank_lab.t3dm",
     [PM_MODEL_HORNER]  = "rom:/models/horner.t3dm",
+    [PM_MODEL_LAB_ARMS] = "rom:/models/lab_arms.t3dm",
     [PM_MODEL_GUARD]   = "rom:/models/guard_cousin.t3dm",
     // The boot splash. Root of DFS for the jingle, models/ for this.
     [PM_MODEL_M64_LOGO] = "rom:/models/m64_logo.t3dm",

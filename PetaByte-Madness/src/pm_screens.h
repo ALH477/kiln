@@ -18,7 +18,7 @@
 //              │
 //              └── empty slot ──► the intro ──► PLAY
 //
-//                  LAB_CINE ─► LAB ─► INTAKE ─► SUB ─► BEACH
+//     NARRATION ─► LAB_CINE ─► LAB ─► INTAKE ─► CREDITS ─► SUB ─► BEACH
 //
 // The intro plays on a NEW PROFILE ONLY, which is what makes the file
 // select the gate rather than a formality — the same thing Ocarina of
@@ -30,6 +30,9 @@
 // It does not own the beats:
 //   * LAB_CINE / SUB / BEACH are PMDemoShots (pm_demo.h) — keyframed
 //     cameras over live geometry.
+//   * NARRATION / CREDITS are also PMDemoShots (pm_narration.c/pm_credits.c)
+//     but draw nothing in the 3D pass — both expose their own *_draw2d,
+//     called directly below, the same way LAB exposes pm_lab_draw2d.
 //   * LAB is the playable section; pm_lab.c owns it.
 //   * INTAKE is the transformation; pm_intake.c owns it.
 // A screen here is a few lines of "start that, wait for it, go to the
@@ -66,14 +69,25 @@
 // not need a reservation: XM64 plays in the mixer's separate music range.
 #define PM_CH_MUSIC 1
 
+// Mixer channel for the two story-beat music cues: the narration crawl's
+// score (pm_narration.c) and the surgery OST (pm_lab.c, spanning LAB and
+// INTAKE). Fixed and shared between them, same priority-255 reservation as
+// PM_CH_DRONE/PM_CH_MUSIC above — safe because the two never overlap: the
+// narration cue's own teardown (pm_demo_stop, called from inside
+// pm_demo_play before LAB_CINE's setup runs) always stops it two screens
+// before the surgery cue ever starts.
+#define PM_CH_STORY 2
+
 typedef enum {
     PM_SCREEN_BOOT = 0,   // fade up from black, no input
     PM_SCREEN_TITLE,      // skull + menu over the drone flyover
     PM_SCREEN_ATTRACT,    // the reel cycles; any button returns to TITLE
     PM_SCREEN_FILE,       // three profiles
+    PM_SCREEN_NARRATION,  // the backstory crawl, on an empty slot only
     PM_SCREEN_LAB_CINE,   // Horner in the lab, then into his head
     PM_SCREEN_LAB,        // first person: read, explore, find the MRI
     PM_SCREEN_INTAKE,     // the machine takes him
+    PM_SCREEN_CREDITS,    // title card + FMV, before the beach
     PM_SCREEN_SUB,        // the LOACH, rising toward the island
     PM_SCREEN_BEACH,      // the crash, the guards, the reveal
     PM_SCREEN_PLAY,

@@ -60,6 +60,22 @@
 #define PM_LAB_REAL_Z0   (-147.0f)
 #define PM_LAB_REAL_Z1    (171.0f)
 
+// ── Set dressing near the MRI, shared across every screen that shows it ─
+// dank_lab_gen.py authors in centimetres at the same 0.64-per-cm scale the
+// bbox above was derived from (world = cm * 0.01 m/cm * 64 world/m). Reading
+// the generator's own numbers here — workstations()'s STOOL_X/STOOL_Z for the
+// desk, a hand-picked spot beside scanner()'s R_OUT=92 clearance for the
+// arms — keeps pm_intake.c's walk-up path, pm_lab.c's playable-lab arms, and
+// pm_demo.c's LAB_CINE arms agreeing by construction rather than by each
+// guessing its own copy.
+#define PM_LAB_DESK_X    (113.92f)  // dank_lab_gen.py workstations(): STOOL_X (178) * 0.64
+#define PM_LAB_DESK_Y     (61.44f)  // standing/seated hip height: 96 cm * 0.64
+#define PM_LAB_DESK_Z     (21.76f)  // STOOL_Z (34) * 0.64
+
+#define PM_LAB_ARMS_X     (12.8f)   // mounted just clear of the scanner's cx=-70
+#define PM_LAB_ARMS_Y     (89.6f)   // high on the wall, reaching down to table height
+#define PM_LAB_ARMS_Z      (0.0f)
+
 /** The lab's actor profiles, appended after the demons'. Handed to
  *  pm_actors_table, which is what m64_actor_system_init actually sees. */
 const M64ActorProfile *pm_lab_profiles(void);

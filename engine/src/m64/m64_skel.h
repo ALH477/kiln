@@ -99,6 +99,14 @@ void m64_skel_update(M64Skel *sk, float dt);
  *  between m64_transform_push/pop). */
 void m64_skel_draw(const M64Skel *sk);
 
+/** True once the primary clip has finished — the inverse of Tiny3D's own
+ *  t3d_anim_is_playing: never true for a looping clip (it runs forever
+ *  once started), true once a non-looping clip reaches its last frame.
+ *  True if no clip is attached (nothing to wait for). This is what a state
+ *  machine polls to chain one-shot clips — e.g. "cut to sit_type once
+ *  sit_down finishes" — rather than guessing a fixed frame count. */
+bool m64_skel_is_done(const M64Skel *sk);
+
 #ifdef __cplusplus
 }
 #endif

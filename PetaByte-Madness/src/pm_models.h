@@ -40,6 +40,7 @@ typedef enum {
     PM_MODEL_LOACH,
     PM_MODEL_LAB,
     PM_MODEL_HORNER,
+    PM_MODEL_LAB_ARMS,   // the MRI bay's two idle-animated robotic arms
     PM_MODEL_GUARD,
     PM_MODEL_M64_LOGO,
     // The night exterior (pm_env.h): a backdrop dome and the sea.

@@ -9,15 +9,25 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
 
+#include <m64/m64_audio.h>
 #include <m64/m64_clip.h>
 #include <m64/m64_context.h>
 #include <m64/m64_dialogue.h>
+#include <m64/m64_engine.h>
 #include <m64/m64_gui.h>
+#include <m64/m64_skel.h>
 #include <m64/m64_surface.h>
 
 #include "pm_hud.h"
 #include "pm_models.h"
+#include "pm_screens.h"  // PM_CH_STORY
 #include "pm_types.h"
+
+// The surgery OST. Starts here — the moment the player steps into the lab
+// — and runs straight through INTAKE's climb-in without restarting; it is
+// stopped from the outside, in pm_screens.c's enter_credits_from_intake,
+// because its owning lifetime is the whole visit, not just this screen.
+#define SURGERY_OST_PATH "rom:/music/surgery_ost.wav64"
 
 // ── Where the lab is ───────────────────────────────────────────────────
 // The real extents now live in pm_lab.h (PM_LAB_REAL_*) so pm_demo.c and
@@ -176,6 +186,13 @@ void pm_lab_body(M64FpsCam *cam)
 
 float pm_lab_eye_height(void) { return EYE_H; }
 
+// The MRI bay's idle-animated arms — same PM_LAB_ARMS_* position pm_demo.c's
+// LAB_CINE and pm_intake.c place them at (pm_lab.h), so the machine reads as
+// the same fixture across every screen that shows it, not three separate
+// props that happen to look alike.
+static M64Skel g_arms_skel;
+static int     g_arms_ready;
+
 void pm_lab_enter(M64FpsCam *cam, fm_vec3_t eye, float yaw)
 {
     m64_clip_set_world(LAB_BRUSHES,
@@ -193,6 +210,25 @@ void pm_lab_enter(M64FpsCam *cam, fm_vec3_t eye, float yaw)
     }
     g_mri = m64_actor_spawn(PM_PROFILE_MRI, MRI_POS, 0.0f, NULL);
 
+    pm_models_preload(PM_MODEL_LAB_ARMS);
+    T3DModel *arms = pm_models_get(PM_MODEL_LAB_ARMS);
+    if (arms && !g_arms_ready) {
+        m64_skel_create(&g_arms_skel, arms);
+        m64_skel_play(&g_arms_skel, "idle", true);
+        g_arms_ready = 1;
+    }
+
+    const int ost = m64_dfs_exists(SURGERY_OST_PATH)
+                        ? m64_sfx_load(SURGERY_OST_PATH) : -1;
+    if (ost >= 0) {
+        // Priority 255 on the shared story channel — see PM_CH_STORY's
+        // comment in pm_screens.h for why sharing it with the narration
+        // crawl is safe.
+        m64_sfx_play(ost, PM_CH_STORY, 255);
+    } else {
+        debugf("pm_lab: no %s, running silent\n", SURGERY_OST_PATH);
+    }
+
     memset(&g_dialogue, 0, sizeof g_dialogue);
     g_mri_activated = 0;
 }
@@ -206,6 +242,11 @@ void pm_lab_leave(void)
     m64_actor_despawn(g_mri);
     g_mri = M64_ACTOR_HANDLE_NONE;
     m64_clip_set_world(NULL, 0);
+
+    if (g_arms_ready) {
+        m64_skel_destroy(&g_arms_skel);
+        g_arms_ready = 0;
+    }
 }
 
 // ── Frame ──────────────────────────────────────────────────────────────
@@ -223,6 +264,7 @@ int pm_lab_update(M64FpsCam *cam, const M64Input *in, float dt)
     }
 
     m64_fpscam_update(cam, in, dt);
+    if (g_arms_ready) m64_skel_update(&g_arms_skel, dt);
 
     // ~2 m and a 60 degree cone, in this world's units.
     g_action = m64_context_scan(cam->pos, cam->yaw, 150.0f, 0.52f, &g_focus);
@@ -257,6 +299,19 @@ void pm_lab_draw3d(void)
     m64_transform_push(&xform);
     t3d_model_draw(model);
     m64_transform_pop();
+
+    if (g_arms_ready) {
+        static M64Transform arms_x;
+        static int arms_ready_x;
+        if (!arms_ready_x) { m64_transform_init(&arms_x); arms_ready_x = 1; }
+        arms_x.pos = (fm_vec3_t){{ PM_LAB_ARMS_X, PM_LAB_ARMS_Y, PM_LAB_ARMS_Z }};
+        arms_x.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
+        arms_x.rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
+        arms_x.rot_angle = 0.0f;
+        m64_transform_push(&arms_x);
+        m64_skel_draw(&g_arms_skel);
+        m64_transform_pop();
+    }
 }
 
 void pm_lab_draw2d(int w, int h)

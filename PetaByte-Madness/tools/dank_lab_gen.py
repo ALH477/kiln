@@ -393,6 +393,47 @@ def scanner():
     box(cx - 8.0, cx + 8.0, 18.0, 78.0, 88.0, 104.0, CHROME, "table_base")
 
 
+def debris():
+    """Two severed limbs off a machine centaur, dumped on the floor beside
+    the scanner — foreshadowing dressing for a monster the player has not
+    met yet (see pm_demo.c's attract reel and pm_arrival.c for where he
+    actually appears). Abstract tapered tubes in this room's own steel/rust
+    palette, NOT the real centaur mesh (tools/blender/centaur.py) — pulling
+    that generator's exact geometry into a different generator's coordinate
+    space bought correctness this scene doesn't need over just building the
+    same silhouette with this file's own primitives.
+
+    Sits west of the scanner (more negative X than the machine's own
+    R_OUT=92 radius clears), on the floor, out of the walk-up path a player
+    or Horner's intake sequence takes to the machine's face.
+    """
+    # A leg: thigh-thick, tapering to an ankle stump. Each ring's own radius
+    # is used as its Y-centre, so the tube's underside sits flush on the
+    # floor along its whole taper rather than at one end only.
+    LX0, LX1 = -230.0, -140.0
+    LR0, LR1 = 26.0, 14.0
+    LZ = -90.0
+    la, lca = ring("x", LX0, LR0, 8, STEEL, LR0, LZ, group="debris")
+    lb, lcb = ring("x", LX1, LR1, 8, STEEL_DARK, LR1, LZ, group="debris")
+    loft(la, lca, lb, lcb, "debris")
+    lcap_a = vert((LX0 - 4.0, LR0, LZ), RUST)
+    disc(la, lca, lcap_a, (LX1 + 100.0, LR0, LZ), "debris")
+    lcap_b = vert((LX1 + 4.0, LR1, LZ), RUST)
+    disc(lb, lcb, lcap_b, (LX0 - 100.0, LR1, LZ), "debris")
+
+    # A gun-arm: slimmer, dumped at an angle nearby, tapering the other way.
+    AX0, AX1 = -150.0, -70.0
+    AR0, AR1 = 12.0, 20.0
+    AZ = -170.0
+    aa, aca = ring("x", AX0, AR0, 8, STEEL_DARK, AR0, AZ, group="debris")
+    ab, acb = ring("x", AX1, AR1, 8, STEEL, AR1, AZ, group="debris")
+    loft(aa, aca, ab, acb, "debris")
+    acap_a = vert((AX0 - 4.0, AR0, AZ), BLACKPLAST)
+    disc(aa, aca, acap_a, (AX1 + 100.0, AR0, AZ), "debris")
+    acap_b = vert((AX1 + 4.0, AR1, AZ), BLACKPLAST)
+    disc(ab, acb, acap_b, (AX0 - 100.0, AR1, AZ), "debris")
+
+
 def workstations():
     """CRT bank on a folding table plus a rack that never got bolted down."""
     dx0, dx1 = 196.0, 268.0
@@ -423,6 +464,17 @@ def workstations():
     box(178.0, 190.0, 8.0, 34.0, 236.0, 268.0, PELICAN, "cable")
     cable([(196.0, 20.0, 226.0), (170.0, 3.0, 168.0), (40.0, 3.0, 110.0),
            (-120.0, 3.0, 48.0), (-250.0, 3.0, 62.0)], 4.0, CABLE, "cable")
+
+    # A stool at the middle CRT station (zc=34 above), the one place in the
+    # lab that already reads as "a computer" — Horner's intake sequence
+    # (pm_intake.c) sits him here before he ever gets to the scanner. Its
+    # own group, "stool", so a caller can measure it separately from "desk"
+    # if the seat height ever needs to be read back rather than guessed.
+    STOOL_X, STOOL_Z = 178.0, 34.0
+    box(STOOL_X - 14.0, STOOL_X + 14.0, 44.0, 50.0, STOOL_Z - 14.0,
+        STOOL_Z + 14.0, PLASTIC_D, "stool")
+    box(STOOL_X - 5.0, STOOL_X + 5.0, 0.0, 44.0, STOOL_Z - 5.0, STOOL_Z + 5.0,
+        CHROME, "stool", faces="xXzZ")
 
 
 def benches():
@@ -657,6 +709,7 @@ def build():
     porthole(-120.0, 175.0)
     porthole(60.0, 175.0)
     scanner()
+    debris()
     workstations()
     benches()
     services()

@@ -8,6 +8,7 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
 #include <m64/m64_engine.h>
+#include <m64/m64_skel.h>
 
 #include "pm_models.h"
 #include "pm_env.h"
@@ -360,14 +361,54 @@ static const PMCamKey CENTAUR_KEYS[] = {
     { 8.0f, {{ -60,  60,  90 }}, {{ 0, 65, 10 }} },
 };
 
-static void centaur_setup(void) { pm_models_preload(PM_MODEL_CENTAUR); }
+static M64Skel g_centaur_skel;
+static int     g_centaur_ready;
+
+static void centaur_setup(void)
+{
+    pm_models_preload(PM_MODEL_CENTAUR);
+    T3DModel *centaur = pm_models_get(PM_MODEL_CENTAUR);
+    if (centaur && !g_centaur_ready) {
+        m64_skel_create(&g_centaur_skel, centaur);
+        m64_skel_play(&g_centaur_skel, "walk", true);
+        g_centaur_ready = 1;
+    }
+}
+
+static void centaur_teardown(void)
+{
+    if (g_centaur_ready) {
+        m64_skel_destroy(&g_centaur_skel);
+        g_centaur_ready = 0;
+    }
+}
+
+static void centaur_update(float elapsed, float dt)
+{
+    (void)elapsed;
+    if (g_centaur_ready) m64_skel_update(&g_centaur_skel, dt);
+}
 
 static void centaur_draw(float elapsed)
 {
     // Turning slowly on the spot, so eight seconds of shot shows the whole
-    // silhouette without needing a locomotion path.
-    draw_at(PM_MODEL_CENTAUR, (fm_vec3_t){{ 0, 0, 0 }}, 1.0f,
-            elapsed * 0.35f);
+    // silhouette without needing a locomotion path. `walk` plays throughout
+    // (see centaur_setup) so the turn shows the rig moving, not just a
+    // static mesh spinning.
+    if (!g_centaur_ready) {
+        draw_at(PM_MODEL_CENTAUR, (fm_vec3_t){{ 0, 0, 0 }}, 1.0f,
+                elapsed * 0.35f);
+        return;
+    }
+
+    M64Transform *t = xform();
+    t->pos = (fm_vec3_t){{ 0, 0, 0 }};
+    t->scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
+    t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
+    t->rot_angle = elapsed * 0.35f;
+    m64_transform_push(t);
+    m64_skel_draw(&g_centaur_skel);
+    m64_transform_pop();
 }
 
 // ── The opening cinematic ──────────────────────────────────────────────
@@ -410,10 +451,29 @@ static const PMCamKey LAB_CINE_KEYS[] = {
             {{ CINE_EYE_X - 200.0f, CINE_EYE_Y, CINE_EYE_Z }} },
 };
 
+static M64Skel g_lab_arms_skel;
+static int     g_lab_arms_ready;
+
 static void lab_cine_setup(void)
 {
     pm_models_preload(PM_MODEL_LAB);
     pm_models_preload(PM_MODEL_HORNER);
+    pm_models_preload(PM_MODEL_LAB_ARMS);
+
+    T3DModel *arms = pm_models_get(PM_MODEL_LAB_ARMS);
+    if (arms && !g_lab_arms_ready) {
+        m64_skel_create(&g_lab_arms_skel, arms);
+        m64_skel_play(&g_lab_arms_skel, "idle", true);
+        g_lab_arms_ready = 1;
+    }
+}
+
+static void lab_cine_teardown(void)
+{
+    if (g_lab_arms_ready) {
+        m64_skel_destroy(&g_lab_arms_skel);
+        g_lab_arms_ready = 0;
+    }
 }
 
 static void lab_cine_draw(float elapsed)
@@ -428,12 +488,33 @@ static void lab_cine_draw(float elapsed)
                 (fm_vec3_t){{ CINE_EYE_X, 0.0f, CINE_EYE_Z }},
                 1.0f, -1.5708f);
     }
+
+    // The MRI bay's arms, idling in the background — same PM_LAB_ARMS_*
+    // position pm_intake.c and pm_lab.c place them at (pm_lab.h), so the
+    // hand-off between screens shows the same machine in the same place.
+    if (g_lab_arms_ready) {
+        M64Transform *t = xform();
+        t->pos = (fm_vec3_t){{ PM_LAB_ARMS_X, PM_LAB_ARMS_Y, PM_LAB_ARMS_Z }};
+        t->scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
+        t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
+        t->rot_angle = 0.0f;
+        m64_transform_push(t);
+        m64_skel_draw(&g_lab_arms_skel);
+        m64_transform_pop();
+    }
+}
+
+static void lab_cine_update(float elapsed, float dt)
+{
+    (void)elapsed;
+    if (g_lab_arms_ready) m64_skel_update(&g_lab_arms_skel, dt);
 }
 
 const PMDemoShot pm_demo_lab_cine = {
     .name = "lab_cine", .duration = 6.0f,
     .keys = LAB_CINE_KEYS, .key_count = 4,
-    .setup = lab_cine_setup, .draw = lab_cine_draw,
+    .setup = lab_cine_setup, .teardown = lab_cine_teardown,
+    .draw = lab_cine_draw, .update = lab_cine_update,
 };
 
 // ── The reel ───────────────────────────────────────────────────────────
@@ -468,7 +549,8 @@ const PMDemoShot pm_demo_reel[] = {
       .setup = lab_setup, .draw = lab_draw },
     { .name = "centaur", .duration = 8.0f,
       .keys = CENTAUR_KEYS, .key_count = 3,
-      .setup = centaur_setup, .draw = centaur_draw },
+      .setup = centaur_setup, .teardown = centaur_teardown,
+      .draw = centaur_draw, .update = centaur_update },
 };
 const int pm_demo_reel_count =
     (int)(sizeof pm_demo_reel / sizeof pm_demo_reel[0]);
