@@ -80,9 +80,18 @@ void pm_env_update(float dt);
  *  geometry: it disables depth so that whatever follows paints over it. */
 void pm_env_draw_sky(const M64Scene *scene);
 
+/** Draw the lightning channel, if one is striking this frame. Call with
+ *  the world geometry — it is depth-tested so the temple can occlude it. */
+void pm_env_draw_bolt(const M64Scene *scene);
+
 /** Draw the sea. Call AFTER the island, so the island's own depth rejects
  *  the water behind it instead of the water overdrawing the shore. */
 void pm_env_draw_sea(void);
+
+/** Lightning intensity this frame, 0..1. Non-zero only during the few
+ *  frames of a strike. Exposed so gameplay can react to being lit up —
+ *  the veil's whole premise is that being visible has a cost. */
+float pm_env_bolt(void);
 
 /** Whether the swell is actually displacing vertices — 0 if the sea model
  *  is missing or its vertex buffer could not be snapshotted. The debug

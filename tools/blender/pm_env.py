@@ -46,12 +46,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 #
 # These are the colours BEFORE lighting. The sky and moon draw unlit, so what
 # is here is what ships; the sea is lit, so moonlight lands on top of it.
-ZENITH   = (6, 9, 26)      # deep night blue, straight up
-MID_SKY  = (14, 20, 44)
-HORIZON  = (38, 48, 74)    # ALSO the fog colour and the sea's outer ring
-MOON     = (236, 240, 226) # not pure white: the moon is a rock
-MOON_HALO = (92, 104, 132)
-STAR     = (176, 188, 214)
+# A storm sky, not a clear one. Overcast has almost no gradient — the
+# interesting variation is horizontal, in the cloud, not vertical — so these
+# sit close together and the horizon is the LIGHTEST band because that is
+# where the last of the light gets under the cloud base.
+ZENITH   = (14, 16, 22)    # cloud base directly overhead, nearly black
+MID_SKY  = (22, 26, 34)
+HORIZON  = (52, 58, 70)    # ALSO the fog colour and the sea's outer ring
+# The moon is BEHIND the cloud: a diffuse bright patch, not a disc, and much
+# dimmer than the rock it used to be. It still marks a direction, which is
+# what the sea's lane and the key light are aligned to.
+MOON     = (96, 102, 116)
+MOON_HALO = (58, 64, 78)
+STAR     = (40, 46, 58)    # all but extinguished; a hint of break in cloud
 
 # ── The sea's colours are CEILINGS, not water colours ──────────────────
 # The sea is drawn texel * vertex-colour, and the foam texture's floor is
@@ -68,11 +75,17 @@ FOAM_FLOOR = 0x34 / 255.0  # MUST match tools/gen_textures.py's FOAM_FLOOR
 # shallow that the sand under it comes back up through the colour, ringing
 # the island in turquoise before it falls off to blue. pm_world's terrain
 # carries that shelf out to R_WATER at -3 m; these are the colours over it.
-SHALLOW  = (108, 196, 200)   # over sand, right off the beach
-REEF     = (58, 140, 168)    # the flat further out
-DEEP_SEA = (30, 52, 112)
+# Storm water. The shelf still reads lighter than the deep — the sand under
+# it does not go away — but the turquoise does: under cloud there is no sun
+# to put it there, and a bright tropical shallow would fight the mood the
+# fog is building.
+SHALLOW  = (74, 96, 104)     # over sand, right off the beach
+REEF     = (46, 62, 78)      # the flat further out
+DEEP_SEA = (22, 30, 44)
 NEAR_SEA = REEF
-MOON_LANE = (198, 214, 244)  # the glitter path running out toward the moon
+# Not a moon path any more: a dull sheen where the brightest part of the sky
+# reflects. Kept because a completely unbroken sea reads as a plane.
+MOON_LANE = (92, 100, 116)
 
 # Where the moon sits, as a compass direction in the XY plane plus an
 # elevation. pm_env.c derives its key light direction from the same two
@@ -98,7 +111,7 @@ def _lerp(c0, c1, t):
 
 # ── Sky ────────────────────────────────────────────────────────────────
 
-def build_skydome(radius=1.0, segments=24, rings=6, star_count=44):
+def build_skydome(radius=1.0, segments=24, rings=6, star_count=10):
     """Upper hemisphere, inward-facing, plus a moon disc and star quads.
 
     Returns (verts, faces, colors). `radius` is 1.0 because pm_env.c scales
@@ -146,7 +159,8 @@ def build_skydome(radius=1.0, segments=24, rings=6, star_count=44):
     ex = tuple(c / n for c in ex)
     ey = (my * ex[2] - mz * ex[1], mz * ex[0] - mx * ex[2], mx * ex[1] - my * ex[0])
 
-    core = math.radians(MOON_ANGULAR_RADIUS_DEG)
+    # Bloated and soft: light diffusing through cloud, not a disc.
+    core = math.radians(MOON_ANGULAR_RADIUS_DEG * 2.2)
     halo = core * 2.6
     # Slightly inside the dome so it can never z-fight with it.
     mr = radius * 0.995
@@ -302,6 +316,58 @@ def build_sea(inner=55.0, outer=210.0, rings=7, segments=20, uv_tiles=6.0):
     return verts, faces, colors, uvs
 
 
+# ── Lightning ──────────────────────────────────────────────────────────
+BOLT_VARIANTS = 3
+BOLT_SEGMENTS = 17
+BOLT_CORE  = (238, 242, 255)
+BOLT_EDGE  = (120, 150, 210)
+
+
+def build_bolt(variant, segments=BOLT_SEGMENTS):
+    """One lightning bolt as a flat ribbon. Returns (verts, faces, colors).
+
+    Authored in a UNIT box: x is the jag, z runs 0 (ground) to 1 (cloud),
+    and the ribbon faces +Y. pm_env.c scales it to the real strike height
+    and yaws it to face the camera, so one mesh serves every strike.
+
+    A ribbon rather than a billboarded line because Tiny3D draws models, not
+    immediate-mode geometry — and a model placed by a transform is something
+    this engine already does well. Turning it to face the camera each strike
+    is one yaw, and a bolt seen edge-on for a few frames is not a bug anyone
+    will catch at 60 fps in a storm.
+
+    Colour runs bright core at the top to dimmer at the ground: the channel
+    is brightest where the charge comes from, and it gives the eye a
+    direction without needing a gradient texture.
+    """
+    verts, faces, colors = [], [], []
+    # Deterministic jag: no `random` anywhere in this pipeline (m64lib.py).
+    # Two incommensurate sines per variant give a path that never repeats
+    # over the length of the bolt and differs between variants.
+    for i in range(segments + 1):
+        t = i / float(segments)
+        phase = 3.0 + variant * 2.7
+        jag = (math.sin(t * phase * 6.0 + variant * 1.9) * 0.16
+               + math.sin(t * phase * 13.0 + variant * 4.1) * 0.085)
+        # The strike point is fixed; the spread grows toward the cloud.
+        jag *= t
+        # A LINE, not a ribbon of triangles. These fractions are multiplied
+        # by the strike height (BOLT_TOP, ~140 m), so the first version's
+        # 0.012-0.042 came out between 1.7 and 5.9 METRES across — a wedge,
+        # not a lightning channel. 0.0015-0.0040 is 20-50 cm, which at N64
+        # resolution is the one-to-three pixels a bolt should be.
+        w = 0.0015 + 0.0025 * math.sin(t * math.pi)
+        col = _lerp(BOLT_EDGE, BOLT_CORE, t)
+        verts.append((jag - w, 0.0, t))
+        colors.append(col)
+        verts.append((jag + w, 0.0, t))
+        colors.append(col)
+    for i in range(segments):
+        a = i * 2
+        faces.append((a, a + 1, a + 3, a + 2))
+    return verts, faces, colors
+
+
 # ── Blender entry point ────────────────────────────────────────────────
 
 def main():
@@ -329,8 +395,19 @@ def main():
         m.make_material("water")
         m.make_mesh("water", verts, faces, "water",
                     colors=rgba(colors), uvs=uvs, smooth=False)
+    elif name == "storm":
+        # Several bolts as named objects in one model, so a strike can pick
+        # a different channel each time without a draw-call per variant or a
+        # model load per strike.
+        for i in range(BOLT_VARIANTS):
+            bv, bf, bc = build_bolt(i)
+            nm = "bolt_%d" % i
+            m.make_material(nm)
+            m.make_mesh(nm, bv, bf, nm, colors=rgba(bc), smooth=False)
+
     else:
-        raise SystemExit("pm_env.py: no model '%s' (have: skydome, sea)" % name)
+        raise SystemExit(
+            "pm_env.py: no model '%s' (have: skydome, sea, storm)" % name)
 
     m.report()
     m.export_gltf(m.arg("--out"))

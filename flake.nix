@@ -977,6 +977,13 @@
           # always entirely in frame and frustum-culling it can only cost.
           bvh = false;
         };
+        pmStorm = blenderLib.mkBlenderModel {
+          name = "storm";
+          script = "pm_env.py";
+          # Bolts are drawn unlit and are on screen for a handful of frames;
+          # frustum-culling 66 triangles would cost more than it saves.
+          bvh = false;
+        };
         pmSea = blenderLib.mkBlenderModel {
           name = "sea";
           script = "pm_env.py";
@@ -1034,7 +1041,7 @@
           # model only carries the rom:/ path to it.
           assets = [ pmLabMap pmCentaurModel pmDrone m64Logo m64Jingle
                      pmTheme pmThemeStream
-                     pmSkydome pmSea textures ]
+                     pmSkydome pmSea pmStorm textures ]
             ++ [ (pmWorld "island") (pmWorld "lab") ]
             ++ map pmProp [ "palms" "loach" "horner" "guard_cousin" ]
             ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];

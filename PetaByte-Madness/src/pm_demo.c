@@ -247,6 +247,7 @@ static void flyover_draw(float elapsed)
                        PALM_SCALE, a);
     }
 
+    pm_env_draw_bolt(pm_demo_scene());
     pm_env_draw_sea();
 }
 
@@ -398,7 +399,13 @@ const PMDemoShot pm_demo_reel[] = {
     { .name = "flyover", .duration = 30.0f,
       .keys = FLYOVER_KEYS, .key_count = FLYOVER_KEY_COUNT,
       .setup = flyover_setup, .draw = flyover_draw,
-      .near_z = 200.0f, .far_z = 40000.0f, .exterior = 1 },
+      // 12,000, deliberately SHORTER than the island's far shore (~15,100
+      // from the eye). Under storm fog everything past ~9,000 is already
+      // solid fog colour, so the far plane cuts geometry that cannot be
+      // seen — and the point of the storm is that you never have the whole
+      // caye on screen at once. It was 40,000 for a clear night with the
+      // camera twice as far out.
+      .near_z = 120.0f, .far_z = 12000.0f, .exterior = 1 },
     { .name = "lab", .duration = 10.0f,
       .keys = LAB_KEYS, .key_count = 3,
       .setup = lab_setup, .draw = lab_draw },
@@ -534,9 +541,9 @@ void pm_demo_apply_frustum(M64Scene *scene)
     g_scene = scene;
     if (!g_shot) return;
 
-    if (g_shot->exterior) pm_env_night(scene);
-    else                  pm_env_interior(scene);
-
+    // ORDER MATTERS: the frustum is applied first because pm_env_night
+    // derives its fog range from scene->far_z. Lighting a scene before it
+    // knows how far it can see gives fog for a different shot.
     // m64_scene_init defaults to near 10 / far 200, which are the ENGINE's
     // units-agnostic numbers and are three metres in this world (64 units
     // to the metre — see pm_lab.h). A shot that forgot to declare its own
@@ -547,6 +554,9 @@ void pm_demo_apply_frustum(M64Scene *scene)
     // island); it just can no longer inherit a 3 m far plane by omission.
     scene->near_z = g_shot->near_z > 0.0f ? g_shot->near_z : PM_SHOT_NEAR_Z;
     scene->far_z  = g_shot->far_z  > 0.0f ? g_shot->far_z  : PM_SHOT_FAR_Z;
+
+    if (g_shot->exterior) pm_env_night(scene);
+    else                  pm_env_interior(scene);
 }
 
 void pm_demo_draw(void)

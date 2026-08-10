@@ -77,6 +77,14 @@ MANGROVE  = (44, 58, 44)     # the dark fringe where land meets water
 GATE_STONE = (138, 132, 120)
 GATE_DARK  = (28, 30, 34)  # the opening itself: a hole, not a door
 
+# The temple. Aztec step-pyramid in weathered limestone, with a white
+# shrine on top banded in blue — the one saturated colour on the island,
+# which is what makes it read as built rather than grown.
+TEMPLE_STONE = (128, 120, 104)
+TEMPLE_STEP  = (104, 97, 84)   # the tread faces, a step darker
+TEMPLE_WHITE = (226, 224, 214)
+TEMPLE_BLUE  = (54, 92, 158)
+
 # Lab
 DECK      = (92, 96, 100)
 BULKHEAD  = (66, 72, 78)
@@ -345,55 +353,158 @@ def _box(cx, cy, cz, sx, sy, sz):
     return v, f
 
 
-def build_gates():
-    """Six gate structures on the gate ring. Returns (verts, faces, colors).
+# Tunnel mouth dimensions, in metres.
+GATE_OPEN_W   = 4.4     # the opening
+GATE_OPEN_H   = 5.0
+GATE_JAMB     = 1.5     # stone either side
+GATE_LINTEL   = 1.4
+GATE_BERM_W   = 15.0    # the mound it is cut into
+GATE_BERM_D   = 9.0
+GATE_BERM_H   = 7.5
+GATE_SHAFT    = 4       # receding rings that give the hole depth
 
-    Each is a trilithon — two posts and a lintel — around a dark recess. It
-    is deliberately a silhouette rather than a modelled door: at flyover
-    altitude what has to read is "there is a way in there", and six doors
-    modelled in detail is six times the triangles for something the player
-    only ever sees up close one at a time.
+
+def build_gates():
+    """Six tunnel mouths on the gate ring. Returns (verts, faces, colors).
+
+    ── Why these are not arches any more ───────────────────────────────
+    The first version was a trilithon: two posts and a lintel standing in
+    the open. It read as a doorframe someone had left on a beach, because
+    that is what it was — nothing was BEHIND it, so there was no sense of
+    going anywhere. A dungeon entrance has to promise an interior.
+
+    So each gate is now a mouth cut INTO a berm: a mound of land, a stone
+    facade set into its face, and a shaft of receding rings that get darker
+    as they go back. The depth is what does the work. Even at flyover
+    altitude the eye reads a dark hole with something around it rather than
+    a gap between two blocks, and up close the shaft keeps going when you
+    walk toward it.
+
+    Local axes per gate: `t` runs along the tangent (across the mouth), `r`
+    runs radially OUTWARD from the island centre (into the mound), and z is
+    up. The mouth faces the centre, so the approach is from the temple.
     """
     verts, faces, colors = [], [], []
+
     for bearing in gate_bearings():
         a = math.radians(bearing)
         cx, cy = math.cos(a) * R_GATE, math.sin(a) * R_GATE
-        # Tangent direction, so the gate faces the centre.
-        tx, ty = -math.sin(a), math.cos(a)
+        tx, ty = -math.sin(a), math.cos(a)      # tangent, across the mouth
+        rx, ry = math.cos(a), math.sin(a)       # radial, into the mound
 
-        def place(ox, oy, oz, sx, sy, sz, col):
-            # Offset along the tangent (ox) and the radial (oy).
-            px = cx + tx * ox - math.cos(a) * oy
-            py = cy + ty * ox - math.sin(a) * oy
-            v, f = _box(px, py, GATE_Z + oz, sx, sy, sz)
+        def place(t_off, r_off, z, w_t, d_r, h, col):
+            px = cx + tx * t_off + rx * r_off
+            py = cy + ty * t_off + ry * r_off
+            # The box is axis-aligned in world space, which is exact on the
+            # four cardinal gates and close enough on the others at this
+            # size — and it keeps every gate to twelve triangles a block.
+            v, f = _box(px, py, GATE_Z + z, w_t, d_r, h)
             base = len(verts)
             verts.extend(v)
             faces.extend(tuple(i + base for i in face) for face in f)
             colors.extend([col] * len(v))
 
-        place(-3.0, 0.0, 0.0, 1.6, 2.2, 7.0, GATE_STONE)   # left post
-        place(3.0, 0.0, 0.0, 1.6, 2.2, 7.0, GATE_STONE)    # right post
-        place(0.0, 0.0, 7.0, 7.6, 2.2, 1.6, GATE_STONE)    # lintel
-        place(0.0, 0.6, 0.0, 4.4, 1.0, 7.0, GATE_DARK)     # the opening
+        # The berm. Sits behind the facade so the tunnel has something to be
+        # inside; a mound is also the one landform a flat caye can plausibly
+        # carry, being what you get when you dig the tunnel out.
+        place(0.0, GATE_BERM_D * 0.5 + 1.0, 0.0,
+              GATE_BERM_W, GATE_BERM_D, GATE_BERM_H, SCRUB)
+
+        # The facade, cut with an opening: jambs either side, lintel over.
+        jamb_off = (GATE_OPEN_W + GATE_JAMB) * 0.5
+        place(-jamb_off, 0.0, 0.0, GATE_JAMB, 2.0, GATE_OPEN_H, GATE_STONE)
+        place(+jamb_off, 0.0, 0.0, GATE_JAMB, 2.0, GATE_OPEN_H, GATE_STONE)
+        place(0.0, 0.0, GATE_OPEN_H,
+              GATE_OPEN_W + GATE_JAMB * 2.0, 2.0, GATE_LINTEL, GATE_STONE)
+
+        # The shaft. Each ring is set further back and darker than the last,
+        # so the hole has a floor to it rather than being a flat black
+        # rectangle — the difference between a tunnel and a painted door.
+        for i in range(GATE_SHAFT):
+            f = (i + 1) / float(GATE_SHAFT)
+            shade = 1.0 - f * 0.85
+            col = tuple(max(0, int(GATE_DARK[k] + (78 - GATE_DARK[k]) * shade))
+                        for k in range(3))
+            place(0.0, 1.2 + i * 1.6, 0.0,
+                  GATE_OPEN_W - f * 0.6, 1.7, GATE_OPEN_H - f * 0.5, col)
+
     return verts, faces, colors
 
 
-def build_landmark():
-    """A tower at the island's centre.
+# Temple dimensions, in metres.
+TEMPLE_TIERS   = 5
+TEMPLE_BASE    = 30.0   # the bottom tier, across
+TEMPLE_TOP     = 12.0   # the top tier, across
+TEMPLE_TIER_H  = 3.2
+SHRINE_W       = 9.0
+SHRINE_BANDS   = 5      # white/blue/white/blue/white
+SHRINE_BAND_H  = 1.3
 
+
+def build_landmark():
+    """The temple at the island's centre — where every path leads.
+
+    An Aztec step-pyramid: square tiers narrowing as they rise, a stair up
+    one face, and a white shrine on top banded horizontally in blue.
+
+    ── Why this and not a tower ────────────────────────────────────────
     Hyrule Field is navigable because the castle is visible from all of it.
-    This is the same job in one object: something tall at the origin that
-    tells the player which way they are facing from anywhere on the hub.
+    This does that job, and it also gives the six gates something to be
+    gates TO: the paths do not merely radiate, they converge on a building.
+
+    ── Why the stripes are geometry ────────────────────────────────────
+    The shrine is a STACK of thin slabs rather than one box with banded
+    vertex colours. A box only has vertices at its corners, so colouring
+    bands into it would need it subdivided anyway — and subdividing into
+    slabs gives crisp edges where interpolated vertex colours would give a
+    gradient. Same triangle count, better result.
     """
     verts, faces, colors = [], [], []
-    tiers = [(0.0, 14.0, 12.0, ROCK), (12.0, 10.0, 10.0, GATE_STONE),
-             (22.0, 6.0, 8.0, GATE_STONE)]
-    for oz, w, h, col in tiers:
-        v, f = _box(0.0, 0.0, FIELD_Z + oz, w, w, h)
+
+    def add(v, f, col):
         base = len(verts)
         verts.extend(v)
         faces.extend(tuple(i + base for i in face) for face in f)
         colors.extend([col] * len(v))
+
+    # ── The stepped body ────────────────────────────────────────────────
+    z = FIELD_Z
+    for i in range(TEMPLE_TIERS):
+        t = i / float(TEMPLE_TIERS - 1)
+        w = TEMPLE_BASE + (TEMPLE_TOP - TEMPLE_BASE) * t
+        v, f = _box(0.0, 0.0, z, w, w, TEMPLE_TIER_H)
+        # Alternate the tier colour slightly so the steps read from the air,
+        # where the silhouette alone would be a smooth cone.
+        add(v, f, TEMPLE_STONE if (i % 2 == 0) else TEMPLE_STEP)
+        z += TEMPLE_TIER_H
+
+    # ── The stair ───────────────────────────────────────────────────────
+    # Up the face that looks toward gate 0, so the approach from the
+    # island's main path arrives at the bottom of the steps.
+    a = math.radians(gate_bearings()[0])
+    nx, ny = math.cos(a), math.sin(a)
+    stair_w = 7.0
+    sz = FIELD_Z
+    for i in range(TEMPLE_TIERS):
+        t = i / float(TEMPLE_TIERS - 1)
+        w = TEMPLE_BASE + (TEMPLE_TOP - TEMPLE_BASE) * t
+        # Each flight sits against its tier and juts out half a metre.
+        out = w * 0.5 + 0.6
+        v, f = _box(nx * out, ny * out, sz, stair_w, 2.2, TEMPLE_TIER_H)
+        add(v, f, TEMPLE_STEP)
+        sz += TEMPLE_TIER_H
+
+    # ── The shrine ──────────────────────────────────────────────────────
+    for i in range(SHRINE_BANDS):
+        col = TEMPLE_WHITE if (i % 2 == 0) else TEMPLE_BLUE
+        v, f = _box(0.0, 0.0, z, SHRINE_W, SHRINE_W, SHRINE_BAND_H)
+        add(v, f, col)
+        z += SHRINE_BAND_H
+
+    # A flat white lintel to cap it, so the top band is not a stripe.
+    v, f = _box(0.0, 0.0, z, SHRINE_W + 1.0, SHRINE_W + 1.0, 0.8)
+    add(v, f, TEMPLE_WHITE)
+
     return verts, faces, colors
 
 

@@ -17,7 +17,7 @@
 // ── The island ─────────────────────────────────────────────────────
 #define PM_ISLAND_RADIUS   8070.1f  // to the wobbled coastline
 #define PM_LAND_RADIUS     6595.3f  // where terrain crosses sea level
-#define PM_ISLAND_TOP      2073.6f  // highest point, incl. the tower
+#define PM_ISLAND_TOP      1644.8f  // highest point, incl. the tower
 #define PM_ISLAND_BOTTOM   -192.0f  // the underwater skirt
 #define PM_FIELD_RADIUS    2688.0f  // the flat walkable middle
 #define PM_FIELD_Y         153.6f  // its height above sea level

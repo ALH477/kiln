@@ -5,6 +5,7 @@
 #include "pm_env.h"
 
 #include <libdragon.h>
+#include <math.h>
 #include <stdlib.h>
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
@@ -12,6 +13,8 @@
 #include <m64/m64_texanim.h>
 
 #include "pm_models.h"
+#include "pm_fx.h"
+#include "pm_sfx.h"
 #include "pm_world_gen.h"
 
 // ── Where the moon is ──────────────────────────────────────────────────
@@ -46,23 +49,42 @@
 #define SKY_SCALE   4000.0f
 
 // ── Fog ────────────────────────────────────────────────────────────────
-// These are distances from the CAMERA, and the flyover's camera orbits
-// 16,000-19,000 units out from an island 12,813 across. So the island
-// itself spans roughly 10,000 to 26,000 from the lens, and the sea's far
-// rim reaches about 38,000.
+// Expressed as FRACTIONS of the shot's own far plane, not as absolute
+// distances. Fog is camera-relative and every shot frames something at a
+// different range: the flyover now orbits 8,500 units out from a caye, while
+// the sub shot puts the same island at 30,000. One hardcoded pair cannot
+// serve both — an early attempt used 15,000-40,000 and simply never engaged
+// once the camera came in close, and an earlier one used 5,000-20,000 and
+// swallowed the island whole.
 //
-// The first attempt used 5,000-20,000 — reasoning about distances from the
-// island's centre rather than from the eye. That put the whole island past
-// the far plane of the fog, so it drew as a flat silhouette in exactly the
-// horizon colour and read as a hole in the sea with sky showing through.
-// Fog ranges are camera-relative; a range that sounds right for the size of
-// the subject is usually wrong for the distance to it.
+// Tied to far_z, fog always finishes just before geometry is clipped, which
+// is what lets the far plane be pulled IN: anything past the fog end is
+// already solid horizon colour, so cutting it is invisible and the pixels
+// are saved. That is the optimisation half of "fog for effect and
+// optimisation" — the effect half is that a low, hazy horizon is most of
+// what makes a flat island read as being in the middle of an ocean.
+// FAR_FRAC is 1.0 on purpose: fog reaches full strength exactly AT the far
+// plane, so whatever the plane cuts is already solid horizon colour and the
+// cut cannot be seen. Ending fog short of it instead leaves a visible rim
+// where geometry pops out of existence.
 //
-// Now: nothing fogs until past the island's near shore, the far side of the
-// island carries enough haze to read as depth, and the sea's outer rim is
-// fully gone before it ends.
-#define FOG_NEAR  15000.0f
-#define FOG_FAR   40000.0f
+// NEAR_FRAC is set so the island's far shore is hazy but still readable.
+// At the flyover's 18,000 far plane the eye sits ~8,500 from the island's
+// centre, so its near shore is ~1,900 away and its far shore ~15,100: fog
+// from 5,800 leaves the near half clear and the far shore about
+// three-quarters gone, which is depth rather than erasure. An earlier
+// 0.86 far-fraction put full fog at 15,480 and swallowed that shore.
+// DEEP fog, for a storm. Where a clear night started fogging at a third of
+// the far plane, this starts at a tenth: the far shore of the island is gone
+// entirely, the near shore is already hazy, and what the player gets is a
+// horizon that closes in on them. That is the ominous half.
+//
+// The optimisation half follows from it. Everything past FOG_FAR_FRAC is
+// solid fog colour, so the far plane can be cut to just past that point and
+// whatever it clips cannot be seen — which is why the flyover's far plane
+// came from 40,000 to 12,000 and its fill and depth precision with it.
+#define FOG_NEAR_FRAC  0.10f
+#define FOG_FAR_FRAC   0.75f
 
 // ── The swell ──────────────────────────────────────────────────────────
 // Two crossing waves rather than one, because a single wave train reads as
@@ -74,14 +96,15 @@
 // each, which turned the sea into blue mountains taller than the island and
 // filled the whole frame with them. If the water ever looks like terrain,
 // this is the number to check first.
-#define SWELL_A_AMP   35.0f
-#define SWELL_B_AMP   22.0f
+// Storm swell: roughly double the calm-night figures.
+#define SWELL_A_AMP   72.0f
+#define SWELL_B_AMP   46.0f
 // Frequencies are per world unit, so these are wavelengths of roughly 1,300
 // and 700 units — long, low swell rather than chop.
 #define SWELL_A_FREQ  0.00078f
 #define SWELL_B_FREQ  0.00142f
-#define SWELL_A_SPEED  0.055f
-#define SWELL_B_SPEED (-0.037f)
+#define SWELL_A_SPEED  0.105f
+#define SWELL_B_SPEED (-0.072f)
 
 // Foam drift, in texels per second. Slow: the scroll is what supplies the
 // sense of direction the texture itself does not have (see tools/
@@ -119,11 +142,76 @@ static inline float fast_sin(float turns)
 }
 
 // ── State ──────────────────────────────────────────────────────────────
-static M64Transform g_sky_x, g_sea_x;
+static M64Transform g_sky_x, g_sea_x, g_bolt_x;
 static int          g_xform_ready;
 
 static M64TexAnim   g_foam;
 static float        g_swell_t;
+
+// ── Lightning ──────────────────────────────────────────────────────────
+// A strike is a short burst of flashes rather than one: real lightning
+// flickers as the stepped leader and return strokes fire, and a single
+// square pulse reads as a bug in the fade code. Two or three flashes over
+// a couple of hundred milliseconds is what sells it.
+//
+// The schedule is a small xorshift rather than a fixed period. Determinism
+// is a BUILD requirement in this project (nix/checks/assets.nix rebuilds and
+// compares); at runtime a storm that strikes on a metronome is worse than
+// one that does not.
+#define STRIKE_MIN_GAP   3.2f
+#define STRIKE_MAX_GAP  11.0f
+#define FLASH_LEN        0.055f
+
+static uint32_t g_rng = 0x1BADB002u;
+static float    g_strike_t;      /* counts down to the next strike        */
+static float    g_flash_t;       /* time inside the current strike        */
+static int      g_flash_count;   /* flashes left in this strike           */
+static float    g_bolt;          /* 0..1 light contribution, this frame   */
+
+static float rnd01(void)
+{
+    g_rng ^= g_rng << 13;
+    g_rng ^= g_rng >> 17;
+    g_rng ^= g_rng << 5;
+    return (float)(g_rng & 0xFFFFFF) / (float)0xFFFFFF;
+}
+
+/* Where the current strike came down, and which channel it used. A strike
+ * lands anywhere from the middle of the island out onto the water — over
+ * land it silhouettes the temple and the palms, over water it puts a hard
+ * vertical in an otherwise flat horizon, and both are worth having. */
+#define BOLT_VARIANTS  3
+#define BOLT_TOP       9000.0f   /* cloud base, world units (~140 m) */
+static fm_vec3_t g_bolt_pos;
+static int       g_bolt_variant;
+static float     g_thunder_t = -1.0f;   /* counts down to the thunder     */
+static int       g_thunder_near;
+
+float pm_env_bolt(void) { return g_bolt; }
+
+static void strike_somewhere(void)
+{
+    /* Uniform over the disc: sqrt on the radius, or strikes bunch in the
+     * middle. Out to twice the land radius, so roughly three quarters of
+     * them are over water. */
+    const float u = rnd01();
+    /* sqrtf, not fm_sqrtf: fmath has no fm_sqrtf because plain sqrtf
+     * already compiles to the sqrt.s opcode (fmath.h says so). */
+    const float r = PM_LAND_RADIUS * 2.0f * sqrtf(u > 0.0f ? u : 0.0f);
+    const float a = rnd01() * 6.2831853f;
+    /* Over land the channel stops at the field, over water at the surface. */
+    const float y = (r < PM_LAND_RADIUS) ? PM_FIELD_Y : 0.0f;
+    g_bolt_pos = (fm_vec3_t){ { fm_cosf(a) * r, y, fm_sinf(a) * r } };
+    g_bolt_variant = (int)(rnd01() * (float)BOLT_VARIANTS) % BOLT_VARIANTS;
+
+    /* Thunder follows the flash by the time sound takes to arrive. At 64
+     * units to the metre and 343 m/s that is 21,950 units per second — so
+     * a strike on the far side of the water is a beat and a half late.
+     * That delay is the whole reason a storm reads as having distance in
+     * it, and it costs one float. */
+    g_thunder_t = r / 21950.0f;
+    g_thunder_near = (r < PM_LAND_RADIUS * 1.1f);
+}
 
 // The sea's rest pose. The swell writes absolute positions every frame
 // rather than accumulating deltas, so drift and rounding cannot build up
@@ -139,6 +227,7 @@ static void xforms_init(void)
     if (g_xform_ready) return;
     m64_transform_init(&g_sky_x);
     m64_transform_init(&g_sea_x);
+    m64_transform_init(&g_bolt_x);
     g_xform_ready = 1;
 }
 
@@ -148,6 +237,7 @@ void pm_env_init(void)
     xforms_init();
 
     pm_models_preload(PM_MODEL_SKYDOME);
+    pm_models_preload(PM_MODEL_STORM);
     T3DModel *sea = pm_models_get(PM_MODEL_SEA);
 
     g_foam = (M64TexAnim){
@@ -232,14 +322,46 @@ void pm_env_night(M64Scene *scene)
     // Ambient is blue and low. The engine default is grey 45, which over
     // this island's daylight vertex colours reads as an overcast afternoon
     // no matter what the directional lights do.
-    scene->ambient[0] = 26;
-    scene->ambient[1] = 32;
-    scene->ambient[2] = 50;
+    /* Overcast ambient: flat, cold and low. Under cloud there is no key
+     * light worth the name, so most of what lands on the island comes from
+     * here rather than from a direction — which is exactly why a storm
+     * reads as shapeless until the lightning gives it one. */
+    int amb_r = 24, amb_g = 29, amb_b = 40;
+
+    /* The strike. Lifts ambient hard and briefly whitens it, so for a few
+     * frames the island is lit flat and bright from everywhere at once. */
+    if (g_bolt > 0.0f) {
+        amb_r += (int)(190.0f * g_bolt);
+        amb_g += (int)(198.0f * g_bolt);
+        amb_b += (int)(214.0f * g_bolt);
+        if (amb_r > 255) amb_r = 255;
+        if (amb_g > 255) amb_g = 255;
+        if (amb_b > 255) amb_b = 255;
+    }
+    scene->ambient[0] = (uint8_t)amb_r;
+    scene->ambient[1] = (uint8_t)amb_g;
+    scene->ambient[2] = (uint8_t)amb_b;
     scene->ambient[3] = 0xFF;
 
-    const color_t horizon = RGBA32(PM_ENV_HORIZON_R, PM_ENV_HORIZON_G,
-                                   PM_ENV_HORIZON_B, 0xFF);
-    m64_scene_set_fog(scene, horizon, FOG_NEAR, FOG_FAR);
+    /* The flash lights the fog itself. Leaving the fog colour alone during
+     * a strike is the tell that gives away a cheap lightning effect: the
+     * world brightens and the haze in front of it does not. */
+    int fr = PM_ENV_HORIZON_R, fg = PM_ENV_HORIZON_G, fb = PM_ENV_HORIZON_B;
+    if (g_bolt > 0.0f) {
+        fr += (int)(150.0f * g_bolt);
+        fg += (int)(155.0f * g_bolt);
+        fb += (int)(165.0f * g_bolt);
+        if (fr > 255) fr = 255;
+        if (fg > 255) fg = 255;
+        if (fb > 255) fb = 255;
+    }
+    const color_t horizon = RGBA32((uint8_t)fr, (uint8_t)fg, (uint8_t)fb, 0xFF);
+    // Read from the scene, so the caller's frustum decides the range. The
+    // director applies the shot's near/far BEFORE calling this, precisely so
+    // this line has something true to read.
+    m64_scene_set_fog(scene, horizon,
+                      scene->far_z * FOG_NEAR_FRAC,
+                      scene->far_z * FOG_FAR_FRAC);
 
     // The clear colour matters less than it used to now that the dome
     // covers the sky, but it is what shows for the one frame before the
@@ -270,6 +392,42 @@ void pm_env_update(float dt)
 {
     g_swell_t += dt;
     m64_texanim_update(&g_foam, 1, dt);
+
+    /* ── The storm ──────────────────────────────────────────────────── */
+    if (g_thunder_t >= 0.0f) {
+        g_thunder_t -= dt;
+        if (g_thunder_t < 0.0f) {
+            pm_sfx_play(g_thunder_near ? PM_SFX_THUNDER_NEAR
+                                       : PM_SFX_THUNDER_FAR);
+        }
+    }
+    g_bolt = 0.0f;
+    if (g_flash_count > 0) {
+        g_flash_t -= dt;
+        /* Alternate on/off through the burst; the last flash is the
+         * brightest, which is how a return stroke reads. */
+        const float k = (float)g_flash_count;
+        g_bolt = (g_flash_count & 1) ? (0.55f + 0.45f / k) : 0.0f;
+        if (g_flash_t <= 0.0f) {
+            g_flash_count--;
+            g_flash_t = FLASH_LEN * (0.6f + rnd01() * 0.9f);
+            if (g_flash_count <= 0) {
+                g_strike_t = STRIKE_MIN_GAP
+                           + rnd01() * (STRIKE_MAX_GAP - STRIKE_MIN_GAP);
+            }
+        }
+    } else {
+        g_strike_t -= dt;
+        if (g_strike_t <= 0.0f) {
+            g_flash_count = 3 + (int)(rnd01() * 3.0f);   /* 3-5 flashes */
+            g_flash_t = FLASH_LEN;
+            strike_somewhere();
+            /* A white pop on the 2D pass as well, so the strike registers
+             * even when the camera is looking away from the geometry the
+             * light lands on. pm_fx owns the screen; this only asks. */
+            pm_fx_flash(RGBA32(196, 206, 226, 255), 0.09f);
+        }
+    }
 
     if (!g_swell_ok) return;
 
@@ -353,6 +511,40 @@ void pm_env_draw_sky(const M64Scene *scene)
     m64_transform_pop();
 
     // Hand the pass back exactly as m64_scene_begin set it up.
+    t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
+}
+
+void pm_env_draw_bolt(const M64Scene *scene)
+{
+    if (g_bolt <= 0.0f || !scene) return;
+    T3DModel *storm = pm_models_get(PM_MODEL_STORM);
+    if (!storm) return;
+
+    char name[8] = { 'b','o','l','t','_','0',0,0 };
+    name[5] = (char)('0' + g_bolt_variant);
+    T3DObject *obj = t3d_model_get_object(storm, name);
+    if (!obj) return;
+
+    xforms_init();
+
+    /* Yaw the ribbon to face the camera. The mesh is authored facing +Y in
+     * its own space, so this is one angle rather than a full billboard
+     * basis — and a bolt is a vertical line, so the only axis that matters
+     * is the one it is turned about. */
+    const float dx = scene->cam_pos.v[0] - g_bolt_pos.v[0];
+    const float dz = scene->cam_pos.v[2] - g_bolt_pos.v[2];
+    g_bolt_x.pos = g_bolt_pos;
+    g_bolt_x.scale = (fm_vec3_t){ { BOLT_TOP, BOLT_TOP, BOLT_TOP } };
+    g_bolt_x.rot_axis = (fm_vec3_t){ { 0.0f, 1.0f, 0.0f } };
+    g_bolt_x.rot_angle = fm_atan2f(dx, dz);
+
+    /* Unlit and depth-tested: the channel is its own light source, so
+     * shading it would be wrong, but it must still be occluded by the
+     * temple when it comes down behind it. */
+    t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH | T3D_FLAG_NO_LIGHT);
+    m64_transform_push(&g_bolt_x);
+    t3d_model_draw_object(obj, NULL);
+    m64_transform_pop();
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
 }
 

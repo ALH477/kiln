@@ -119,6 +119,7 @@ static void sub_draw(float t)
     draw_at(PM_MODEL_ISLAND, (fm_vec3_t){{ 0.0f, -80.0f, -30000.0f }},
             1.0f, 0.6f);
 
+    pm_env_draw_bolt(pm_demo_scene());
     pm_env_draw_sea();
 }
 

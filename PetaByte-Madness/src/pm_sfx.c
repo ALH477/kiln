@@ -29,6 +29,11 @@ static const PMSfxDef DEFS[PM_SFX_COUNT] = {
     [PM_SFX_PAGE]        = { "rom:/sfx/page.wav64",         90 },
     [PM_SFX_STEP]        = { "rom:/sfx/step.wav64",         40 },
 
+    // The storm. Thunder outranks ambience but not the scripted kills.
+    [PM_SFX_THUNDER_NEAR] = { "rom:/sfx/thunder_near.wav64", 210 },
+    [PM_SFX_THUNDER_FAR]  = { "rom:/sfx/thunder_far.wav64",  150 },
+    [PM_SFX_RAIN]         = { "rom:/sfx/rain.wav64",          60 },
+
     [PM_SFX_CURSOR]      = { "rom:/sfx/cursor.wav64",      120 },
     [PM_SFX_CONFIRM]     = { "rom:/sfx/confirm.wav64",     130 },
 };

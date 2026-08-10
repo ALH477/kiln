@@ -24,6 +24,7 @@ static const char *const PATHS[PM_MODEL_COUNT] = {
     [PM_MODEL_M64_LOGO] = "rom:/models/m64_logo.t3dm",
     [PM_MODEL_SKYDOME] = "rom:/models/skydome.t3dm",
     [PM_MODEL_SEA]     = "rom:/models/sea.t3dm",
+    [PM_MODEL_STORM]   = "rom:/models/storm.t3dm",
 };
 
 T3DModel *pm_models_get(PMModelId id)

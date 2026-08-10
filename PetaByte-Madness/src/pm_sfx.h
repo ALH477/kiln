@@ -48,6 +48,14 @@ typedef enum {
     PM_SFX_PAGE,            // reading a note
     PM_SFX_STEP,            // footsteps; surface-keyed later
 
+    // The storm. Thunder is split near/far because the delay between the
+    // flash and the sound is what tells the player how close the strike
+    // was — one sample played at two volumes does not sell that, a close
+    // crack and a distant roll do.
+    PM_SFX_THUNDER_NEAR,
+    PM_SFX_THUNDER_FAR,
+    PM_SFX_RAIN,            // looping bed, if authored
+
     // Menus.
     PM_SFX_CURSOR,
     PM_SFX_CONFIRM,

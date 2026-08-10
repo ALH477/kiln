@@ -43,6 +43,7 @@ typedef enum {
     // The night exterior (pm_env.h): a backdrop dome and the sea.
     PM_MODEL_SKYDOME,
     PM_MODEL_SEA,
+    PM_MODEL_STORM,   // lightning channels, bolt_0..2
     PM_MODEL_COUNT,
 } PMModelId;
 

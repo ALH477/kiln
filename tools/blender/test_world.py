@@ -150,7 +150,17 @@ def main():
     print("── gates ──")
     gv, gf, gc = W.build_gates()
     check(len(gv) == len(gc), "one colour per vertex (%d)" % len(gv))
-    check(tris(gf) < 500, "gates inside budget (%d tris)" % tris(gf))
+    # Raised from 500 when the gates stopped being free-standing arches and
+    # became tunnel mouths cut into berms: a berm, a facade with jambs and a
+    # lintel, and a four-ring shaft is 96 triangles a gate. The depth is the
+    # point — an arch with nothing behind it does not read as an entrance.
+    check(tris(gf) < 700, "gates inside budget (%d tris)" % tris(gf))
+    # The shaft must actually recede and darken, or it is a painted door.
+    dark = min(sum(c) for c in gc)
+    lit  = max(sum(c) for c in gc)
+    check(dark < lit * 0.35,
+          "the tunnel interior is far darker than its facade (%d vs %d)"
+          % (dark, lit))
     check(len(W.gate_bearings()) == 6, "six gates")
     check(len(set(W.gate_bearings())) == 6, "six DISTINCT bearings")
     # Every gate sits on the gate ring, near its bearing.
@@ -165,7 +175,10 @@ def main():
     top = max(p[2] for p in lv)
     check(top > W.HILL_Z, "the tower clears the ridges (%.1f m > %.1f m)"
           % (top, W.HILL_Z))
-    check(tris(lf) < 100, "tower inside budget (%d tris)" % tris(lf))
+    # Raised from 100 when the plain box tower became the temple: five
+    # stepped tiers, a stair and a banded shrine. Still the smallest thing
+    # on the island after the gates.
+    check(tris(lf) < 320, "temple inside budget (%d tris)" % tris(lf))
 
     print("── lab ──")
     bv, bf, bc = W.build_lab()

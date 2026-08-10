@@ -21,7 +21,7 @@ static const char *const SCREEN_NAMES[] = {
 // Short enough to fit four to a line at 320 px. Order matches PMModelId.
 static const char *const MODEL_NAMES[PM_MODEL_COUNT] = {
     "isle", "palm", "cent", "loch", "lab", "horn", "guard", "logo",
-    "sky", "sea",
+    "sky", "sea", "bolt",
 };
 
 static int   g_on = 1;   // on by default: a debug ROM is built to be read
