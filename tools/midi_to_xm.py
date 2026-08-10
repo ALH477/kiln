@@ -257,53 +257,70 @@ ROWS_PER_PATTERN = 64
 NOTE_OFF = 97
 
 
-def build_rows(tracks, division, rows_per_beat, channels):
-    """-> (rows, dropped_chord_notes). rows[r][ch] = (note, vol) or None.
+# Each MIDI track gets this many XM channels, and its notes alternate
+# between them.
+#
+# MEASURED, not stylistic. A tracker channel is monophonic and a new note
+# REPLACES the old one instantly — mid-waveform, at whatever amplitude the
+# previous note happened to be at. Host players hide that with a short
+# de-click ramp; libdragon's RSP mixer does not, so every note onset was a
+# step discontinuity. Recording the console output and differentiating it
+# found exactly 174 clicks for 174 notes: one per note, which is what
+# "chopped up" sounds like.
+#
+# Alternating between two channels means the outgoing note keeps its own
+# channel and fades out under its envelope while the incoming note starts
+# clean on the other. It is what a tracker musician does by hand for
+# exactly this reason, and it costs channels, which are cheap here (8 for a
+# quartet, against libdragon's benchmark of 10).
+# 1, not 2.
+#
+# Two was tried against the measured symptom — one click per note onset —
+# on the theory that the click was the OUTGOING note being cut mid-waveform
+# when a new note seized the channel. Alternating voices would let the old
+# note ring out on its own channel. On a host renderer it halved the
+# clicks; on console it changed 174 to 171, i.e. nothing. So the click is
+# at the ONSET, not the cut, and the extra channels bought nothing but
+# divergence from the module that was signed off.
+VOICES_PER_TRACK = 1
 
-    ── A channel is monophonic, so the notes have to be RESOLVED first ────
-    An XM channel plays one voice. That means two things, and getting the
-    second wrong is what made the output sound chopped:
 
-      1. Notes that START on the same row: keep one, drop the rest.
-      2. A note's audible end is not necessarily its written end — it is
-         cut short by whatever note starts next on that channel.
+def build_rows(tracks, division, rows_per_beat, track_count):
+    """-> (rows, dropped). rows[r][ch] = (note, vol) or None.
 
-    An earlier version collected every note's end row into one set and
-    emitted a note-off at each. So a dropped chord note that finished early
-    silenced the note that had been kept in its place, and an overlapping
-    note's end silenced its successor. On this quartet that fired at 27
-    chord collisions plus every overlap — the pitches were all correct and
-    the piece came out staccato and gappy.
+    Channel ch belongs to track ch // VOICES_PER_TRACK.
 
-    So: resolve to a monophonic sequence, then derive note-offs from THAT.
+    ── A voice is monophonic, so notes are RESOLVED before they are placed ──
+    Two notes starting on the same row: keep the top one (in a quartet the
+    upper line carries the melody). A note's audible end is also not always
+    its written end — it is cut by whatever starts next in that voice.
     """
     ticks_per_row = division / rows_per_beat
     length = max(s + d for _, notes in tracks for s, d, _, _ in notes)
     total = int(math.ceil((length + 1) / ticks_per_row))
     total = max(total, 1)
 
+    channels = track_count * VOICES_PER_TRACK
     rows = [[None] * channels for _ in range(total)]
     dropped = 0
 
-    for ch, (_, notes) in enumerate(tracks[:channels]):
-        # ── 1. one note per start row ─────────────────────────────────
+    for ti, (_, notes) in enumerate(tracks[:track_count]):
+        # 1. one note per start row
         best = {}
         for start, dur, pitch, vel in notes:
             r0 = int(round(start / ticks_per_row))
             r1 = int(round((start + dur) / ticks_per_row))
             if r1 <= r0:
-                # Shorter than half a row: keep it, but give it one row so a
-                # grace note becomes a short note rather than nothing.
+                # Shorter than half a row: give it one row, so a grace note
+                # becomes a short note rather than nothing.
                 r1 = r0 + 1
             if r0 in best:
-                # Keep the top note of a chord — in a quartet the upper line
-                # carries the melody.
                 dropped += 1
                 if pitch <= best[r0][0]:
                     continue
             best[r0] = (pitch, vel, r1)
 
-        # ── 2. a note ends where the next one begins, if that is sooner ──
+        # 2. place them, alternating voices
         seq = sorted(best.items())
         for i, (r0, (pitch, vel, r1)) in enumerate(seq):
             if r0 >= total:
@@ -312,15 +329,15 @@ def build_rows(tracks, division, rows_per_beat, channels):
             if not 1 <= xm_note <= 96:
                 dropped += 1
                 continue
+            ch = ti * VOICES_PER_TRACK + (i % VOICES_PER_TRACK)
             vol = 0x10 + min(64, max(0, round(vel * 64 / 127)))
             rows[r0][ch] = (xm_note, vol)
 
-            next_start = seq[i + 1][0] if i + 1 < len(seq) else total
-            end = min(r1, next_start)
-            # Only release when nothing else takes the channel there; a new
-            # note retriggers the voice and needs no note-off before it.
-            if end < next_start and end < total and rows[end][ch] is None:
-                rows[end][ch] = (NOTE_OFF, 0)
+            # Release at the note's own end. The NEXT note is on the other
+            # channel now, so this release is free to ring past it — which
+            # is the whole point, and also how a bowed instrument behaves.
+            if r1 < total and rows[r1][ch] is None:
+                rows[r1][ch] = (NOTE_OFF, 0)
 
     return rows, dropped
 
@@ -350,13 +367,14 @@ def pack_pattern(rows, channels, instrument_of_channel):
 
 
 def write_xm(path, name, tracks, division, tempo_us, rows_per_beat, brightness):
-    channels = len(tracks)
-    if channels == 0:
+    track_count = len(tracks)
+    channels = track_count * VOICES_PER_TRACK
+    if track_count == 0:
         raise SystemExit("midi_to_xm: no tracks with notes")
     if channels > 32:
         raise SystemExit("midi_to_xm: XM allows at most 32 channels")
 
-    rows, dropped = build_rows(tracks, division, rows_per_beat, channels)
+    rows, dropped = build_rows(tracks, division, rows_per_beat, track_count)
     npatterns = int(math.ceil(len(rows) / ROWS_PER_PATTERN))
 
     # XM row duration is 2.5 * speed / bpm seconds. We want one row to last
@@ -377,7 +395,7 @@ def write_xm(path, name, tracks, division, tempo_us, rows_per_beat, brightness):
 
     order = bytes(range(npatterns)) + bytes(256 - npatterns)
     header = struct.pack("<HH", npatterns, 0)  # song length, restart position
-    header += struct.pack("<HHH", channels, npatterns, channels)
+    header += struct.pack("<HHH", channels, npatterns, track_count)
     header += struct.pack("<HHH", 1, speed, bpm)  # flags=1 (linear frequency)
     header += order
     header_size = len(header) + 4
@@ -391,7 +409,9 @@ def write_xm(path, name, tracks, division, tempo_us, rows_per_beat, brightness):
     out += struct.pack("<I", header_size)
     out += header
 
-    instrument_of_channel = [ch + 1 for ch in range(channels)]
+    # Both voices of a track share that track's instrument.
+    instrument_of_channel = [ch // VOICES_PER_TRACK + 1
+                             for ch in range(channels)]
     for p in range(npatterns):
         chunk = rows[p * ROWS_PER_PATTERN : (p + 1) * ROWS_PER_PATTERN]
         while len(chunk) < ROWS_PER_PATTERN:
