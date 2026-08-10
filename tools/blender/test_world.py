@@ -154,7 +154,24 @@ def main():
     # became tunnel mouths cut into berms: a berm, a facade with jambs and a
     # lintel, and a four-ring shaft is 96 triangles a gate. The depth is the
     # point — an arch with nothing behind it does not read as an entrance.
-    check(tris(gf) < 700, "gates inside budget (%d tris)" % tris(gf))
+    check(tris(gf) < 1100, "gates inside budget (%d tris)" % tris(gf))
+    # Six DIFFERENT entrances, not one repeated. On a hub whose premise is
+    # that a direction is a destination, identical doors break navigation.
+    import pm_world as _W
+    seen = set()
+    for fn in _W.ENTRANCES:
+        part = _W._Part()
+        fn(part)
+        seen.add((len(part.v), len(part.f), tuple(sorted(set(part.c)))[:3]))
+    check(len(seen) == len(_W.ENTRANCES),
+          "all %d entrances are structurally distinct" % len(_W.ENTRANCES))
+    # Every one still has to promise an interior.
+    for fn in _W.ENTRANCES:
+        part = _W._Part()
+        fn(part)
+        darkest = min(sum(c) for c in part.c)
+        check(darkest < 110,
+              "%s has a dark recess (darkest %d)" % (fn.__name__[5:], darkest))
     # The shaft must actually recede and darken, or it is a painted door.
     dark = min(sum(c) for c in gc)
     lit  = max(sum(c) for c in gc)

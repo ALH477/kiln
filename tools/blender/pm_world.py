@@ -353,6 +353,86 @@ def _box(cx, cy, cz, sx, sy, sz):
     return v, f
 
 
+def _cyl(cx, cy, cz, r_bot, r_top, h, segs=8):
+    """Cylinder / cone frustum. Local, for the same reason _box is."""
+    verts, faces = [], []
+    for i in range(segs):
+        a = 2.0 * math.pi * i / segs
+        verts.append((cx + math.cos(a) * r_bot, cy + math.sin(a) * r_bot, cz))
+    for i in range(segs):
+        a = 2.0 * math.pi * i / segs
+        verts.append((cx + math.cos(a) * r_top, cy + math.sin(a) * r_top, cz + h))
+    for i in range(segs):
+        j = (i + 1) % segs
+        faces.append((i, j, segs + j, segs + i))
+    faces.append(tuple(range(segs - 1, -1, -1)))
+    faces.append(tuple(range(segs, segs * 2)))
+    return verts, faces
+
+
+def _rot_y(verts, deg, ox=0.0, oz=0.0):
+    """Tilt about the tangent axis — for leaning stones and wrecks."""
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    out = []
+    for (x, y, z) in verts:
+        dx, dz = x - ox, z - oz
+        out.append((ox + dx * c - dz * s, y, oz + dx * s + dz * c))
+    return out
+
+
+class _Part:
+    """Accumulates geometry in a gate's LOCAL space.
+
+    x runs along the tangent (across the mouth), y runs radially OUTWARD
+    from the island centre (into the mound), z is up from the plaza. Each
+    entrance builder works in these axes and build_gates rotates the result
+    onto its bearing, so an entrance can be authored as if it faced you.
+    """
+
+    def __init__(self):
+        self.v, self.f, self.c = [], [], []
+
+    def add(self, verts, faces, col):
+        base = len(self.v)
+        self.v.extend(verts)
+        self.f.extend(tuple(i + base for i in face) for face in faces)
+        self.c.extend([col] * len(verts))
+
+    def box(self, cx, cy, cz, sx, sy, sz, col):
+        v, f = _box(cx, cy, cz, sx, sy, sz)
+        self.add(v, f, col)
+
+    def cyl(self, cx, cy, cz, rb, rt, h, col, segs=8):
+        v, f = _cyl(cx, cy, cz, rb, rt, h, segs)
+        self.add(v, f, col)
+
+    def lean(self, cx, cy, cz, sx, sy, sz, deg, col):
+        v, f = _box(cx, cy, cz, sx, sy, sz)
+        self.add(_rot_y(v, deg, cx, cz), f, col)
+
+    def shaft(self, rings, w, h, back, col_from=None):
+        """The dark recess every entrance needs: receding, darkening rings.
+
+        This is the part that makes a hole read as a way IN rather than as a
+        black rectangle painted on a wall, so every entrance gets one no
+        matter how different its architecture is."""
+        src = col_from or (78, 78, 84)
+        for i in range(rings):
+            t = (i + 1) / float(rings)
+            # Reaches GATE_DARK exactly at the back, whatever the facade is
+            # made of. Fading only PART of the way toward it left a pale
+            # entrance with a pale hole: the ruin's deepest ring came out at
+            # 127 where the basalt maw's was 101, so the same architecture
+            # read as "a way in" on one gate and "a recess" on another. The
+            # exponent puts most of the darkening in the first ring, which
+            # is where the eye decides whether it is looking at a hole.
+            shade = (1.0 - t) ** 1.6
+            col = tuple(max(0, int(GATE_DARK[k] + (src[k] - GATE_DARK[k]) * shade))
+                        for k in range(3))
+            self.box(0.0, back + i * 1.6, 0.0,
+                     w - t * 0.5, 1.7, h - t * 0.4, col)
+
+
 # Tunnel mouth dimensions, in metres.
 GATE_OPEN_W   = 4.4     # the opening
 GATE_OPEN_H   = 5.0
@@ -364,69 +444,141 @@ GATE_BERM_H   = 7.5
 GATE_SHAFT    = 4       # receding rings that give the hole depth
 
 
+# Extra materials the entrances want. Ominous means low value and low
+# saturation with ONE thing that is neither — rust, or bone.
+MOSS      = (52, 64, 46)
+CONCRETE  = (108, 108, 104)
+RUST      = (112, 66, 40)
+BONE      = (198, 190, 168)
+BASALT    = (58, 58, 64)
+
+
+def _ent_cenote(p):
+    """0 — a sinkhole. The way in is DOWN, which is the most unsettling
+    entrance a flat island can offer: no facade, no promise, just a hole
+    with water somewhere below."""
+    for i in range(3):                       # stepped rim, descending
+        t = i / 2.0
+        p.cyl(0.0, 2.0, -0.4 - i * 1.1, 7.0 - i * 1.4, 6.2 - i * 1.4,
+              1.1, _lerp_c(ROCK, BASALT, t), segs=10)
+    p.cyl(0.0, 2.0, -4.2, 4.0, 3.4, 3.0, (16, 20, 26), segs=10)   # the dark
+    p.box(0.0, 2.0, -5.0, 6.0, 6.0, 0.4, (24, 40, 48))            # water below
+    for a in (-1, 1):                        # two leaning slabs, like teeth
+        p.lean(a * 5.4, -1.4, 0.0, 1.2, 1.6, 4.2, a * 13.0, ROCK)
+
+
+def _ent_ruin(p):
+    """1 — a collapsed arch. One jamb still standing, the lintel dropped and
+    tilted across the gap, rubble where the other side used to be."""
+    p.box(-3.2, 0.0, 0.0, 1.6, 2.0, 6.4, GATE_STONE)
+    p.lean(3.2, 0.0, 0.0, 1.6, 2.0, 4.6, 9.0, GATE_STONE)
+    p.lean(0.4, 0.0, 5.0, 8.4, 1.8, 1.2, -12.0, GATE_STONE)       # fallen lintel
+    p.box(2.6, -2.2, 0.0, 2.2, 1.8, 1.0, ROCK)                    # rubble
+    p.box(-2.0, -3.0, 0.0, 1.4, 1.2, 0.7, ROCK)
+    p.box(0.0, 3.0, 0.0, 9.0, 5.0, 5.0, MOSS)                     # the mound
+    p.shaft(4, 4.2, 5.0, 1.2, GATE_STONE)
+
+
+def _ent_maw(p):
+    """2 — a carved mouth. Teeth top and bottom around a wide low opening.
+    The one entrance that is unambiguously a threat rather than a ruin."""
+    p.box(0.0, 3.2, 0.0, 13.0, 6.0, 7.0, BASALT)
+    for i in range(5):                        # upper teeth
+        x = -4.0 + i * 2.0
+        p.lean(x, 0.0, 3.4, 1.1, 1.6, 1.8, 180.0, BONE)
+    for i in range(4):                        # lower
+        x = -3.0 + i * 2.0
+        p.box(x, 0.0, 0.0, 1.0, 1.6, 1.3, BONE)
+    p.shaft(4, 8.0, 3.4, 1.4, BASALT)
+    for a in (-1, 1):                         # brow
+        p.lean(a * 5.0, 0.2, 4.6, 3.6, 1.4, 1.2, a * -14.0, BASALT)
+
+
+def _ent_bunker(p):
+    """3 — a concrete blockhouse. The Keys are full of them, and a square
+    of poured concrete on a coral island is its own kind of wrong."""
+    p.box(0.0, 3.0, 0.0, 12.0, 7.0, 5.2, CONCRETE)
+    p.box(0.0, -0.6, 0.0, 6.4, 1.6, 4.2, CONCRETE)      # entry throat
+    p.box(0.0, -0.7, 3.6, 7.4, 2.0, 0.9, CONCRETE)      # brow
+    p.box(-4.6, 0.4, 1.8, 2.6, 0.6, 0.5, (28, 30, 32))  # gun slit
+    p.box(4.6, 0.4, 1.8, 2.6, 0.6, 0.5, (28, 30, 32))
+    p.box(0.0, -1.6, 0.0, 7.0, 0.5, 0.35, RUST)         # rusted sill
+    p.box(6.6, 1.4, 0.0, 3.0, 4.0, 1.6, SAND)           # drifted sand
+    p.shaft(4, 3.8, 4.2, 1.0, CONCRETE)
+
+
+def _ent_wreck(p):
+    """4 — a hull driven onto the shelf and left. You go in through the
+    broken side; the ribs are still standing."""
+    p.lean(0.0, 4.0, 0.4, 6.0, 14.0, 5.0, -14.0, RUST)   # the hull, canted
+    for i in range(4):                                    # ribs
+        y = -0.6 + i * 2.2
+        p.lean(0.0, y, 0.0, 7.4, 0.5, 4.2, -14.0, (74, 48, 32))
+    p.box(0.0, -1.4, 0.0, 5.0, 1.6, 4.0, (40, 28, 22))   # the breach
+    p.box(-4.4, -2.0, 0.0, 2.0, 2.4, 0.9, SAND)
+    p.shaft(4, 4.4, 4.0, 0.6, (74, 48, 32))
+
+
+def _ent_monolith(p):
+    """5 — standing stones over a stair going down. No structure at all:
+    just two things put there by someone, and a way under."""
+    for a in (-1, 1):
+        p.lean(a * 4.2, 0.0, 0.0, 1.8, 1.8, 9.0, a * 6.0, BASALT)
+        p.box(a * 4.2, 0.0, 9.0, 2.4, 2.2, 0.8, BASALT)
+    for i in range(4):                                    # descending steps
+        p.box(0.0, -1.2 + i * 1.3, -i * 0.9, 5.0, 1.3, 0.9,
+              _lerp_c(ROCK, BASALT, i / 3.0))
+    p.box(0.0, 3.4, -3.2, 5.6, 4.0, 3.4, (18, 20, 26))    # the dark under
+    p.box(0.0, 3.4, 0.4, 7.0, 4.6, 0.7, BASALT)           # capstone over it
+    p.shaft(3, 4.6, 3.0, 4.6, BASALT)
+
+
+def _lerp_c(c0, c1, t):
+    t = max(0.0, min(1.0, t))
+    return tuple(int(round(a + (b - a) * t)) for a, b in zip(c0, c1))
+
+
+ENTRANCES = (_ent_cenote, _ent_ruin, _ent_maw,
+             _ent_bunker, _ent_wreck, _ent_monolith)
+
+
 def build_gates():
-    """Six tunnel mouths on the gate ring. Returns (verts, faces, colors).
+    """Six entrances, one per bearing — and six DIFFERENT entrances.
 
-    ── Why these are not arches any more ───────────────────────────────
-    The first version was a trilithon: two posts and a lintel standing in
-    the open. It read as a doorframe someone had left on a beach, because
-    that is what it was — nothing was BEHIND it, so there was no sense of
-    going anywhere. A dungeon entrance has to promise an interior.
+    ── Why they are not all the same ───────────────────────────────────
+    They were: one berm-and-facade repeated six times. On a hub whose whole
+    navigational premise is that a direction is a destination, six identical
+    doors is the one thing that breaks it — you cannot tell where you have
+    already been. Now each is its own object with its own architecture: a
+    sinkhole, a collapsed arch, a carved maw, a concrete bunker, a wrecked
+    hull, and standing stones over a stair.
 
-    So each gate is now a mouth cut INTO a berm: a mound of land, a stone
-    facade set into its face, and a shaft of receding rings that get darker
-    as they go back. The depth is what does the work. Even at flyover
-    altitude the eye reads a dark hole with something around it rather than
-    a gap between two blocks, and up close the shaft keeps going when you
-    walk toward it.
+    What they share is the part that makes an entrance an entrance: a dark
+    recess with DEPTH (see _Part.shaft). An opening with nothing behind it
+    reads as decoration however it is dressed.
 
-    Local axes per gate: `t` runs along the tangent (across the mouth), `r`
-    runs radially OUTWARD from the island centre (into the mound), and z is
-    up. The mouth faces the centre, so the approach is from the temple.
+    Each builder works in local axes — x across the mouth, y radially out,
+    z up — and is rotated onto its bearing here, so entrances can be
+    authored facing the reader.
     """
     verts, faces, colors = [], [], []
 
-    for bearing in gate_bearings():
+    for gi, bearing in enumerate(gate_bearings()):
+        part = _Part()
+        ENTRANCES[gi % len(ENTRANCES)](part)
+
         a = math.radians(bearing)
         cx, cy = math.cos(a) * R_GATE, math.sin(a) * R_GATE
-        tx, ty = -math.sin(a), math.cos(a)      # tangent, across the mouth
-        rx, ry = math.cos(a), math.sin(a)       # radial, into the mound
+        tx, ty = -math.sin(a), math.cos(a)      # local +x
+        rx, ry = math.cos(a), math.sin(a)       # local +y, radially out
 
-        def place(t_off, r_off, z, w_t, d_r, h, col):
-            px = cx + tx * t_off + rx * r_off
-            py = cy + ty * t_off + ry * r_off
-            # The box is axis-aligned in world space, which is exact on the
-            # four cardinal gates and close enough on the others at this
-            # size — and it keeps every gate to twelve triangles a block.
-            v, f = _box(px, py, GATE_Z + z, w_t, d_r, h)
-            base = len(verts)
-            verts.extend(v)
-            faces.extend(tuple(i + base for i in face) for face in f)
-            colors.extend([col] * len(v))
-
-        # The berm. Sits behind the facade so the tunnel has something to be
-        # inside; a mound is also the one landform a flat caye can plausibly
-        # carry, being what you get when you dig the tunnel out.
-        place(0.0, GATE_BERM_D * 0.5 + 1.0, 0.0,
-              GATE_BERM_W, GATE_BERM_D, GATE_BERM_H, SCRUB)
-
-        # The facade, cut with an opening: jambs either side, lintel over.
-        jamb_off = (GATE_OPEN_W + GATE_JAMB) * 0.5
-        place(-jamb_off, 0.0, 0.0, GATE_JAMB, 2.0, GATE_OPEN_H, GATE_STONE)
-        place(+jamb_off, 0.0, 0.0, GATE_JAMB, 2.0, GATE_OPEN_H, GATE_STONE)
-        place(0.0, 0.0, GATE_OPEN_H,
-              GATE_OPEN_W + GATE_JAMB * 2.0, 2.0, GATE_LINTEL, GATE_STONE)
-
-        # The shaft. Each ring is set further back and darker than the last,
-        # so the hole has a floor to it rather than being a flat black
-        # rectangle — the difference between a tunnel and a painted door.
-        for i in range(GATE_SHAFT):
-            f = (i + 1) / float(GATE_SHAFT)
-            shade = 1.0 - f * 0.85
-            col = tuple(max(0, int(GATE_DARK[k] + (78 - GATE_DARK[k]) * shade))
-                        for k in range(3))
-            place(0.0, 1.2 + i * 1.6, 0.0,
-                  GATE_OPEN_W - f * 0.6, 1.7, GATE_OPEN_H - f * 0.5, col)
+        base = len(verts)
+        for (lx, ly, lz) in part.v:
+            verts.append((cx + tx * lx + rx * ly,
+                          cy + ty * lx + ry * ly,
+                          GATE_Z + lz))
+        faces.extend(tuple(i + base for i in face) for face in part.f)
+        colors.extend(part.c)
 
     return verts, faces, colors
 
