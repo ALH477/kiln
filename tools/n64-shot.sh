@@ -98,7 +98,60 @@ if [ -z "$GEOM" ]; then
   exit 1
 fi
 
+# ── The workspace trap ────────────────────────────────────────────────
+# grim captures the COMPOSITED OUTPUT at a screen rectangle. It has no
+# concept of a window. So if Ares opened on workspace 1 while the monitor
+# is showing workspace 3, `grim -g` returns workspace 3's pixels at Ares'
+# coordinates — a perfectly plausible-looking frame of the wrong thing.
+#
+# This cost real time: two different ROMs captured with an IDENTICAL 64
+# non-black pixels, which was read as "the emulator isn't compositing"
+# when it actually meant "both captures are of the same wrong workspace".
+# The identical pixel count was the tell.
+#
+# So: move Ares onto whatever workspace is actually on screen, and assert
+# it afterwards rather than trusting the dispatch.
+ares_ws() {
+  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" python3 -c '
+import json, os, sys
+try: clients = json.load(sys.stdin)
+except Exception: sys.exit()
+pid = int(os.environ["EMU_PID"])
+for c in clients:
+    if c.get("pid") == pid and c.get("mapped") and not c.get("hidden"):
+        print(c["workspace"]["id"]); break
+' 2>/dev/null || true
+}
+active_ws() {
+  hyprctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+for m in json.load(sys.stdin):
+    if m.get("focused"): print(m["activeWorkspace"]["id"]); break
+' 2>/dev/null || true
+}
+
+AWS="$(active_ws)"
+EWS="$(ares_ws)"
+if [ -n "$AWS" ] && [ -n "$EWS" ] && [ "$AWS" != "$EWS" ]; then
+  echo "n64-shot: ares is on workspace $EWS, screen is showing $AWS — moving it"
+  hyprctl dispatch movetoworkspacesilent "$AWS,pid:$EMU_PID" >/dev/null 2>&1 || true
+  hyprctl dispatch focuswindow "pid:$EMU_PID" >/dev/null 2>&1 || true
+  sleep 1
+  GEOM="$(find_ares_geom)"
+fi
+
 sleep "$SETTLE"
+
+# Assert, don't hope. If the window is still not on the visible workspace
+# the capture would be of something else entirely, and a wrong PNG that
+# looks right is worse than no PNG.
+AWS="$(active_ws)"
+EWS="$(ares_ws)"
+if [ -n "$AWS" ] && [ -n "$EWS" ] && [ "$AWS" != "$EWS" ]; then
+  echo "n64-shot: ares is on workspace $EWS but the screen shows $AWS." >&2
+  echo "n64-shot: grim would capture the wrong workspace — refusing." >&2
+  exit 1
+fi
 
 # Re-check right before capturing, not just at match time. Ares can map a
 # window and then die seconds later (a GPU/driver failure after startup is

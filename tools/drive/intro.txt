@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# tools/drive/intro.txt — every screen PetaByte Madness has, in order,
+# captured. Run with: ./dev drive petabyte-madness tools/drive/intro.txt
+#
+# The waits are the screens' own durations, read off the source rather
+# than guessed, so a shot lands mid-screen instead of on a transition:
+#
+#   m64_splash.c   T_END 3.8 s          the boot logo
+#   pm_screens.c   ATTRACT_IDLE 12 s    title gives up and starts the reel
+#   pm_demo.c      flyover 30 s, lab 10 s, centaur 8 s (locked)
+#   pm_demo.c      lab_cine 6 s
+#   pm_intake.c    PH_FRAMES/PH_FPS = 14.53 s
+#   pm_arrival.c   sub 12 s, beach B_END 13 s
+#
+# Read the PIXEL STATISTICS each shot prints, not the PNGs. A 320x240
+# horror title upscaled into a big screenshot reads as "black" to the eye
+# when the picture is right there — that misread has already cost this
+# project real time (CLAUDE.md, "Screenshots").
+
+log BOOT — the M64 splash
+wait 0.6
+shot 01-boot-splash.png
+wait 4.0
+
+log TITLE — skull and menu over the live drone flyover
+shot 02-title.png
+
+log ATTRACT — the title idles into the reel after 12 s
+wait 13.0
+shot 03-attract-flyover.png
+wait 10.0
+shot 04-attract-flyover-late.png
+wait 12.0
+shot 05-attract-lab.png
+
+log Any button goes straight back to TITLE
+press a
+wait 1.0
+shot 06-title-again.png
+
+log TITLE -> FILE
+press start
+wait 1.2
+shot 07-file-select.png
+
+log An empty slot starts the intro: LAB_CINE, 6 s, ending inside his head
+press a
+wait 2.0
+shot 08-lab-cine.png
+wait 4.5
+
+log LAB — first person, his own eyes, facing down the room
+shot 09-lab-first-person.png
+
+# Start (60, ., 120) facing -X; the MRI sits at (-330, ., 60) and
+# m64_context_scan reaches 150 units. 1.8 s at the lab's 190 u/s walk
+# covers ~340 of the ~390, which lands inside the prompt's range without
+# walking into the machine.
+log Walk to the MRI and take the prompt
+stick 0 1 1.8
+wait 0.6
+shot 10-lab-mri-prompt.png
+press a
+wait 2.0
+
+log INTAKE — the machine draws him in, 14.5 s
+shot 11-intake.png
+wait 13.0
+
+log SUB — the LOACH rising off the seabed, 12 s
+shot 12-sub.png
+wait 7.0
+shot 13-sub-surface.png
+wait 6.0
+
+log BEACH — crash, guards, fire, slash, shout, the face, MADNESS
+shot 14-beach-crash.png
+wait 5.0
+shot 15-beach-fire.png
+wait 4.0
+shot 16-beach-shout.png
+wait 5.0
+
+log PLAY — the corridor
+shot 17-play.png
+
+log The veil is Z, held. Its whole visible half is fog + the rebated far plane.
+down z
+wait 1.5
+shot 18-play-veil-up.png
+up z
+wait 1.0
+shot 19-play-veil-down.png

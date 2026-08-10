@@ -34,6 +34,10 @@
 #include <m64/m64_surface.h>
 #include <m64/m64_sound.h>
 #include <m64/m64_audio.h>
+#ifdef M64_DEBUG
+#include <m64/m64_console.h>
+#include <m64/m64_prof.h>
+#endif
 
 #include <malloc.h>
 
@@ -205,6 +209,13 @@ int main(void)
     m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
     m64_event_init();
 
+#ifdef M64_DEBUG
+    m64_prof_init();
+    m64_console_init();
+    m64_console_log("oot-demo debug console ready");
+    m64_console_log("hold Start + C-Up Left Down Right");
+#endif
+
     m64_map_register_classname("info_player_start", PROFILE_PLAYER);
     m64_map_register_classname("info_enemy", PROFILE_ENEMY);
 
@@ -253,9 +264,16 @@ int main(void)
     uint32_t last_ticks = get_ticks();
 
     for (;;) {
-        m64_input_update();
-        const M64Input *in = m64_input_get(1);
         float dt = 1.0f / 60.0f;
+#ifdef M64_DEBUG
+        M64_PROF_BEGIN(M64_PROF_UPDATE);
+#endif
+
+        m64_input_update();
+#ifdef M64_DEBUG
+        m64_console_update(1);
+#endif
+        const M64Input *in = m64_input_get(1);
 
         /* Set the camera-relative movement basis BEFORE the player update
          * so stick-up moves the player in the camera's forward direction. */
@@ -313,14 +331,28 @@ int main(void)
             last_ticks = now;
         }
 
+#ifdef M64_DEBUG
+        M64_PROF_END(M64_PROF_UPDATE);
+        m64_prof_frame_done();
+#endif
+
         /* ── 3D ───────────────────────────────────────────────────── */
         m64_frame_begin();
+#ifdef M64_DEBUG
+        M64_PROF_BEGIN(M64_PROF_SCENE);
+#endif
         m64_scene_begin(&g_scene);
         m64_map_draw(&g_map);
         m64_actor_draw_all();
+#ifdef M64_DEBUG
+        M64_PROF_END(M64_PROF_SCENE);
+#endif
 
         /* ── 2D ───────────────────────────────────────────────────── */
         m64_gui_begin();
+#ifdef M64_DEBUG
+        M64_PROF_BEGIN(M64_PROF_GUI);
+#endif
         m64_gui_panel(8, 8, 200, 90,
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
         m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 OOT+IDTECH4");
@@ -354,6 +386,10 @@ int main(void)
             }
         }
 
+#ifdef M64_DEBUG
+        m64_console_draw();
+        M64_PROF_END(M64_PROF_GUI);
+#endif
         m64_gui_end();
         m64_frame_end();
 

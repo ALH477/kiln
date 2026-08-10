@@ -1,0 +1,8 @@
+newmtl shade
+Kd 1 1 1
+illum 1
+
+newmtl face
+Kd 1 1 1
+map_Kd ph_face.png
+illum 1

@@ -182,12 +182,79 @@ def tex_water(size):
     return px
 
 
+# The dark floor of the foam texture, as a fraction of full intensity.
+#
+# This number is a CONTRACT with tools/blender/pm_env.py. The sea is drawn
+# with a multiply combiner (texel * vertex colour), so the vertex colour is a
+# CEILING, not the water's colour: flat water is `vertex * FOAM_FLOOR` and a
+# crest is `vertex * 1.0`. pm_env.py therefore authors the sea's vertex
+# colours at CREST brightness and lets this texture carve the troughs back
+# down. Raise the floor here and the whole sea gets lighter and flatter.
+FOAM_FLOOR = 0x34
+
+
+def tex_foam(size):
+    """I8: moonlit crests on dark water, for the sea's scrolling overlay.
+
+    Not tex_water: that one is a general-purpose transparent water sheet for
+    a multiply blender over terrain. This is the sea SURFACE at night, where
+    almost everything is dark trough and only the occasional crest catches
+    the moon — so the field is thresholded hard rather than smoothly varying.
+    A smooth noise here reads as fog on the water, not as swell.
+
+    Plain wrapping fbm, thresholded hard. The crests are isotropic: two
+    attempts at making them directional — scaling the sample coordinates,
+    and averaging along a wrapped axis — were both dropped, the first
+    because fbm only tiles when x and y each span exactly `size` (scaling a
+    coordinate silently breaks the seam, measured as a 15/255 discontinuity
+    across the tile edge) and the second because it attenuated the field
+    without elongating it (anisotropy ratio moved 0.95 -> 1.07, i.e. not at
+    all). Direction comes from the SCROLL instead, which is free and which
+    the eye reads as flow anyway. Seamlessness is the property worth
+    protecting here, because this is the one texture in this file that
+    moves.
+
+    KNEE is the 90th percentile of the field, so about a tenth of the tile
+    is crest. That number is the look: at a quarter the sea is milk, at a
+    fiftieth the moon path is bare.
+
+    Measuring the seam: compare the wrap edge against the TYPICAL adjacent
+    row/column difference of the raw field, not the finished bytes. The knee
+    turns a 0.01 field difference into a 30-value jump wherever it happens to
+    fall near the threshold, so the output edges can read as a seam when the
+    field underneath is continuous — which it is here, measured at roughly
+    half the typical adjacent variation on both axes.
+    """
+    KNEE = 0.697  # p90 of fbm(seed=311, octaves=3) over a 32x32 tile
+    px = bytearray()
+    for y in range(size):
+        for x in range(size):
+            n = fbm(x, y, size, seed=311, octaves=3)
+            if n <= KNEE:
+                # Troughs still vary a little, or flat water looks like a
+                # painted plane once the swell tilts it toward the moon.
+                i = FOAM_FLOOR + int((n / KNEE) * 0x14)
+            else:
+                t = min(1.0, (n - KNEE) / 0.09)
+                i = FOAM_FLOOR + 0x14 + int(t * (0xFF - FOAM_FLOOR - 0x14))
+            # RGBA, like every other generator here: write_png always emits
+            # colour type 6 and the `.i8.` in the filename only tells mksprite
+            # what to quantise DOWN to. Emitting one byte per pixel because
+            # the target is I8 produces a PNG whose IDAT is a quarter the
+            # length the header promises, which decodes as
+            # "invalid decompressed idat size" three tools later.
+            i = min(0xFF, i)
+            px += bytes((i, i, i, 0xFF))
+    return px
+
+
 TEXTURES = [
     ("checker.i8.png", tex_checker),
     ("grid.rgba16.png", tex_grid),
     ("grass.i8.png", tex_grass),
     ("rock.i8.png", tex_rock),
     ("water.ia8.png", tex_water),
+    ("foam.i8.png", tex_foam),
 ]
 
 

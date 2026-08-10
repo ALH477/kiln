@@ -290,17 +290,25 @@ rec {
     , loop ? false
     , loopOffset ? 0
     }:
+    let
+      # audioconv64 dispatches on the FILE EXTENSION, so the staged copy has
+      # to keep the source's. This used to hardcode `.wav`, which meant the
+      # documented ".wav / .mp3" contract was only half true: an mp3 arrived
+      # named .wav and audioconv64 tried to parse an MPEG frame header as a
+      # RIFF chunk and failed. Anything audioconv64 accepts is fine here.
+      srcExt = if lib.hasSuffix ".mp3" (lib.toLower (toString src)) then "mp3" else "wav";
+    in
     mkAsset {
       inherit name src dest;
       outName = "${name}.wav64";
       convert = ''
-        cp "$src" "${name}.wav"
+        cp "$src" "${name}.${srcExt}"
         audioconv64 -v \
           --wav-compress ${toString compress} \
           ${lib.optionalString (resample != null) "--wav-resample ${toString resample}"} \
           ${lib.optionalString mono "--wav-mono"} \
           ${lib.optionalString loop "--wav-loop true --wav-loop-offset ${toString loopOffset}"} \
-          -o "$outdir" "${name}.wav"
+          -o "$outdir" "${name}.${srcExt}"
       '';
     };
 
@@ -324,6 +332,55 @@ rec {
         audioconv64 -v \
           ${lib.optionalString (ext == "ym" && ymCompress) "--ym-compress true"} \
           -o "$outdir" "${name}.${ext}"
+      '';
+    };
+
+  # ── MIDI as tracker music ────────────────────────────────────────────
+  # A score authored in a DAW arrives as MIDI, and the console has neither a
+  # MIDI synthesiser nor the RAM for a soundfont. tools/midi_to_xm.py turns
+  # the score into an XM module with synthesised single-cycle instruments,
+  # which then takes mkMusic's ordinary path to .xm64.
+  #
+  # This is the cheap half of the "how do I get this song into the ROM"
+  # question: PetaByte-Madness' 64-second string quartet is 4.7 KB as an XM
+  # and loops exactly, where the same piece as a streamed wav64 is ~1.2 MB
+  # and has to be cross-faded by hand to loop at all. Use mkSound for the
+  # latter when a recording's exact timbre is the point.
+  mkMidiMusic =
+    { name
+    , src # .mid / .midi
+    , converter # path to tools/midi_to_xm.py
+    , dest ? "music"
+    , songName ? name
+    , rowsPerBeat ? 4
+      # Per-channel harmonic rolloff, brightest first. The default is tuned
+      # for a string quartet: two violins, viola, cello.
+    , brightness ? "0.62,0.58,0.45,0.32"
+    }:
+    mkAsset {
+      inherit name src dest;
+      outName = "${name}.xm64";
+      extraInputs = [ pkgs.python3 ];
+      convert = ''
+        python3 ${converter} \
+          --in "$src" \
+          --out "${name}.xm" \
+          --name "${songName}" \
+          --rows-per-beat ${toString rowsPerBeat} \
+          --brightness "${brightness}"
+        # --xm-compress 0: do NOT VADPCM the samples.
+        #
+        # midi_to_xm's instruments are SINGLE-CYCLE waveforms, 128 samples
+        # looping every cycle. VADPCM is ADPCM with a predictor per 16-sample
+        # frame, so at the loop point the decoder's state does not carry —
+        # and for a cycle that repeats a few hundred times a second that
+        # discontinuity is a rasp on top of every note. It is inaudible on a
+        # long recorded sample, which is what the default is tuned for, and
+        # ruinous on a synthesised one.
+        #
+        # Uncompressed costs 128 bytes per instrument. That is the entire
+        # price of the fix.
+        audioconv64 -v --xm-compress 0 -o "$outdir" "${name}.xm"
       '';
     };
 

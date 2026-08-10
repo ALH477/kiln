@@ -33,6 +33,21 @@ void m64_camera_init(M64Camera *cam)
     cam->cutscene_eye  = (fm_vec3_t){ { 0, 0, 0 } };
     cam->cutscene_look = (fm_vec3_t){ { 0, 0, 0 } };
     cam->stack_depth = 0;
+
+    /* BOARD defaults. A zero radius would divide the fit distance to
+     * nothing, so seed a usable board rather than a degenerate one; a
+     * caller that pushes BOARD without set_board gets a sane wide shot
+     * instead of the eye inside the look-at point. */
+    cam->board_center = (fm_vec3_t){ { 0, 0, 0 } };
+    cam->board_radius = 10.0f;
+    cam->board_dist = 20.0f;
+    cam->board_sin_pitch = 0.70710678f;   /* 45 degrees */
+    cam->board_cos_pitch = 0.70710678f;
+    cam->board_orbit = 0.0f;
+    cam->board_spin = 0.0f;
+    cam->board_focus = 0.0f;
+    cam->board_focus_target = 0.0f;
+    cam->board_focus_speed = 2.0f;
 }
 
 /** Boom position for a given target position + heading: `distance` behind
@@ -128,12 +143,79 @@ static void update_targeting(M64Camera *cam, fm_vec3_t target_pos, float dt)
 
 static void update_cutscene(M64Camera *cam, float dt)
 {
+    (void)dt;
     fm_vec3_t desired_eye  = cam->cutscene_eye;
     fm_vec3_t desired_look = cam->cutscene_look;
     if (cam->collision_enabled) desired_eye = collide_boom(desired_look, desired_eye);
+
+    /* A cutscene pose is FOLLOWED EXACTLY, not damped toward.
+     *
+     * This used to lerp with the same pos_speed damper the follow camera
+     * uses, which is wrong in three compounding ways:
+     *
+     *   - It double-smooths. A scripted shot already interpolates between
+     *     its own keyframes (smoothstepped, in PetaByte-Madness' case), so
+     *     damping that motion again only adds lag. At 60 fps and speed 10
+     *     the camera closes 17% of the gap per frame, so it trails a
+     *     moving shot by several frames and never arrives.
+     *
+     *   - The lag is on the LOOK target too, so a moving shot is not
+     *     merely late, it is aimed somewhere the director did not choose.
+     *
+     *   - Worst: when one shot cuts to another, the damper TRAVELS between
+     *     them. A cut from an aerial to a room interior became a half
+     *     second of the camera flying across the world and through
+     *     whatever was in the way, which reads as the camera spazzing and
+     *     as geometry clipping through the lens.
+     *
+     * A cut should cut. If a shot wants easing it belongs in the shot's
+     * own keyframes, where the author can see it. */
+    cam->eye  = desired_eye;
+    cam->look = desired_look;
+}
+
+/** BOARD framing for the current orbit/focus. Split out so update and snap
+ *  agree by construction — a snap that recomputed the framing differently
+ *  from update would pop on the very next frame. */
+static void board_frame(const M64Camera *cam, fm_vec3_t target_pos,
+                        fm_vec3_t *out_eye, fm_vec3_t *out_look)
+{
+    float f = cam->board_focus;
+    fm_vec3_t look = {{
+        cam->board_center.v[0] + (target_pos.v[0] - cam->board_center.v[0]) * f,
+        cam->board_center.v[1] + (target_pos.v[1] - cam->board_center.v[1]) * f,
+        cam->board_center.v[2] + (target_pos.v[2] - cam->board_center.v[2]) * f,
+    }};
+    /* Fully focused sits at 45% of the wide shot's distance — close enough
+     * to read a token's animation, far enough that the neighbouring spaces
+     * stay on screen so a move still has context. */
+    float dist = cam->board_dist * (1.0f - 0.55f * f);
+    float horiz = dist * cam->board_cos_pitch;
+    *out_look = look;
+    *out_eye = (fm_vec3_t){ {
+        look.v[0] - fm_sinf(cam->board_orbit) * horiz,
+        look.v[1] + dist * cam->board_sin_pitch,
+        look.v[2] - fm_cosf(cam->board_orbit) * horiz,
+    } };
+}
+
+static void update_board(M64Camera *cam, fm_vec3_t target_pos, float dt)
+{
+    cam->board_orbit += cam->board_spin * dt;
+    cam->board_focus += (cam->board_focus_target - cam->board_focus) *
+                        damp_t(cam->board_focus_speed, dt);
+
+    fm_vec3_t desired_eye, desired_look;
+    board_frame(cam, target_pos, &desired_eye, &desired_look);
+    if (cam->collision_enabled) desired_eye = collide_boom(desired_look, desired_eye);
+
     float t = damp_t(cam->pos_speed, dt);
     fm_vec3_lerp(&cam->eye, &cam->eye, &desired_eye, t);
     fm_vec3_lerp(&cam->look, &cam->look, &desired_look, t);
+    /* Keep yaw following the orbit so a pop back to NORMAL resumes from the
+     * heading the player was last looking along, same contract as
+     * update_targeting. */
+    cam->yaw = cam->board_orbit;
 }
 
 void m64_camera_update(M64Camera *cam, fm_vec3_t target_pos, float target_yaw, float dt)
@@ -141,9 +223,54 @@ void m64_camera_update(M64Camera *cam, fm_vec3_t target_pos, float target_yaw, f
     switch (cam->mode) {
     case M64_CAM_TARGETING: update_targeting(cam, target_pos, dt); break;
     case M64_CAM_CUTSCENE:  update_cutscene(cam, dt); break;
+    case M64_CAM_BOARD:     update_board(cam, target_pos, dt); break;
     case M64_CAM_NORMAL:
     default:                update_normal(cam, target_pos, target_yaw, dt); break;
     }
+}
+
+void m64_camera_set_board(M64Camera *cam, fm_vec3_t center, float radius,
+                          float pitch_deg, float fov_deg)
+{
+    if (radius < 0.1f) radius = 0.1f;
+    cam->board_center = center;
+    cam->board_radius = radius;
+
+    /* Fit distance: the eye must be far enough that a sphere of `radius`
+     * subtends at most the FOV. d = r / sin(fov/2). Clamp the FOV to a sane
+     * band first — a 0 or 180 degree FOV divides by ~0 and puts the eye at
+     * infinity or inside the board. */
+    if (fov_deg < 10.0f)  fov_deg = 10.0f;
+    if (fov_deg > 150.0f) fov_deg = 150.0f;
+    float half = fov_deg * 0.5f * 0.017453292f;
+    float s = fm_sinf(half);
+    cam->board_dist = radius / (s > 1e-3f ? s : 1e-3f);
+
+    if (pitch_deg < 5.0f)  pitch_deg = 5.0f;
+    if (pitch_deg > 85.0f) pitch_deg = 85.0f;
+    float p = pitch_deg * 0.017453292f;
+    cam->board_sin_pitch = fm_sinf(p);
+    cam->board_cos_pitch = fm_cosf(p);
+}
+
+void m64_camera_set_board_spin(M64Camera *cam, float radians_per_sec)
+{
+    cam->board_spin = radians_per_sec;
+}
+
+void m64_camera_set_board_focus(M64Camera *cam, float focus, float speed)
+{
+    if (focus < 0.0f) focus = 0.0f;
+    if (focus > 1.0f) focus = 1.0f;
+    cam->board_focus_target = focus;
+    if (speed > 0.0f) cam->board_focus_speed = speed;
+}
+
+void m64_camera_snap_board(M64Camera *cam, fm_vec3_t target_pos)
+{
+    cam->board_focus = cam->board_focus_target;
+    board_frame(cam, target_pos, &cam->eye, &cam->look);
+    cam->yaw = cam->board_orbit;
 }
 
 void m64_camera_apply(const M64Camera *cam, M64Scene *scene)

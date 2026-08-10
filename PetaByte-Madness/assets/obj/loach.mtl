@@ -1,0 +1,69 @@
+# DSV LOACH
+newmtl hull
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+map_Kd loach_hull.png
+
+newmtl ribs
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+map_Kd loach_hull.png
+
+newmtl dome
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl hatch
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl shroud
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl prop
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl skids
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl pods
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl lights
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl basket
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+
+newmtl fins
+Kd 1.0 1.0 1.0
+Ka 0 0 0
+Ks 0 0 0
+illum 1
+

@@ -105,52 +105,16 @@ M64ActorHandle m64_target_switch(M64ActorHandle cur, fm_vec3_t eye, fm_vec3_t fw
 void m64_target_draw_reticle(const M64Scene *scene, fm_vec3_t world,
                              int screen_w, int screen_h, color_t color)
 {
-    /* Build a view basis from the scene's camera fields. */
-    fm_vec3_t fwd = {{ scene->cam_target.v[0] - scene->cam_pos.v[0],
-                       scene->cam_target.v[1] - scene->cam_pos.v[1],
-                       scene->cam_target.v[2] - scene->cam_pos.v[2] }};
-    fm_vec3_norm(&fwd, &fwd);
-    fm_vec3_t up = scene->cam_up;
-    fm_vec3_t right;
-    fm_vec3_cross(&right, &fwd, &up);
-    fm_vec3_norm(&right, &right);
-    fm_vec3_t real_up;
-    fm_vec3_cross(&real_up, &right, &fwd);
-
-    fm_vec3_t d = {{ world.v[0] - scene->cam_pos.v[0],
-                     world.v[1] - scene->cam_pos.v[1],
-                     world.v[2] - scene->cam_pos.v[2] }};
-    float vz = d.v[0] * fwd.v[0] + d.v[1] * fwd.v[1] + d.v[2] * fwd.v[2];
-    float vx = d.v[0] * right.v[0] + d.v[1] * right.v[1] + d.v[2] * right.v[2];
-    float vy = d.v[0] * real_up.v[0] + d.v[1] * real_up.v[1] + d.v[2] * real_up.v[2];
-
-    /* Behind the camera: clamp to the nearer edge. */
+    /* m64_scene_project does the view-basis + perspective divide (this
+     * function used to inline it; m64_widget's board view needs the same
+     * maths, so it lives in m64_engine now). The reticle's own policy is to
+     * clamp to the screen edge in BOTH the in-front-but-off-screen and the
+     * behind-the-camera cases — a reticle that vanishes when the target
+     * leaves the frame is the same information, harder to read. */
     int sx, sy;
-    if (vz <= 0.001f) {
-        /* Project to the screen edge in the direction of vx/vy. */
-        float inv = 1.0f / (vz < 0 ? -1e-3f : 1e-3f);
-        float nx = vx * inv;
-        float ny = vy * inv;
-        sx = (int)((nx + 1.0f) * 0.5f * screen_w);
-        sy = (int)((1.0f - ny) * 0.5f * screen_h);
-        if (sx < 8) sx = 8; else if (sx > screen_w - 8) sx = screen_w - 8;
-        if (sy < 8) sy = 8; else if (sy > screen_h - 8) sy = screen_h - 8;
-    } else {
-        float aspect = (float)screen_w / (float)screen_h;
-        float fov_rad = T3D_DEG_TO_RAD(scene->fov_deg);
-        /* fmath has no tanf (it would be a libm call); sinf/cosf are inlined,
-         * so tan = sin/cos costs two multiplies and a divide, no libm. */
-        float half = fov_rad * 0.5f;
-        float tan_half_y = fm_sinf(half) / fm_cosf(half);
-        float tan_half_x = tan_half_y * aspect;
-        float nx = (vx / vz) / tan_half_x;
-        float ny = (vy / vz) / tan_half_y;
-        sx = (int)((nx + 1.0f) * 0.5f * screen_w);
-        sy = (int)((1.0f - ny) * 0.5f * screen_h);
-        /* Off-screen in front: clamp to edge so the reticle is still visible. */
-        if (sx < 8) sx = 8; else if (sx > screen_w - 8) sx = screen_w - 8;
-        if (sy < 8) sy = 8; else if (sy > screen_h - 8) sy = screen_h - 8;
-    }
+    m64_scene_project(scene, world, screen_w, screen_h, &sx, &sy);
+    if (sx < 8) sx = 8; else if (sx > screen_w - 8) sx = screen_w - 8;
+    if (sy < 8) sy = 8; else if (sy > screen_h - 8) sy = screen_h - 8;
 
     /* Four corner brackets, 12×12, 2 px thick (m64_gui has no thick rect;
      * draw three 2-px-wide rects per corner). Keep it small so it reads as

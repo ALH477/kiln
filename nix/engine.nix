@@ -71,7 +71,15 @@ pkgs.stdenv.mkDerivation {
              mips64-elf/include/m64/m64_cache.h \
              mips64-elf/include/m64/m64_tile.h \
              mips64-elf/include/m64/m64_lod.h \
-             mips64-elf/include/m64/m64_twopass.h; do
+             mips64-elf/include/m64/m64_twopass.h \
+             mips64-elf/include/m64/m64_rng.h \
+             mips64-elf/include/m64/m64_dice.h \
+             mips64-elf/include/m64/m64_board.h \
+             mips64-elf/include/m64/m64_turn.h \
+             mips64-elf/include/m64/m64_char.h \
+             mips64-elf/include/m64/m64_widget.h \
+             mips64-elf/include/m64/m64_save.h \
+             mips64-elf/include/m64/m64_splash.h; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
   '';

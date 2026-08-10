@@ -43,6 +43,11 @@ in
       SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6014", MODE="0660", GROUP="${cfg.group}", TAG+="uaccess"
       # The same device once the ftdi_sio driver binds it as a tty.
       SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6014", MODE="0660", GROUP="${cfg.group}", TAG+="uaccess"
+      # EverDrive 64 / ED64 (FTDI FT245R) — ROM upload + debugf stdio via UNFLoader.
+      # Some revisions use different FTDI chips; run `lsusb` and extend the rule
+      # if yours differs.
+      SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6001", MODE="0660", GROUP="${cfg.group}", TAG+="uaccess"
+      SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", MODE="0660", GROUP="${cfg.group}", TAG+="uaccess"
     '';
   };
 }

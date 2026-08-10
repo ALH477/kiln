@@ -637,6 +637,354 @@ def mirror_x(points):
     return [(-p[0],) + tuple(p[1:]) for p in reversed(points)]
 
 
+def sweep(path, section, up=(0.0, 0.0, 1.0), cap_start=True, cap_end=True):
+    """Sweep a 2D cross-section along a 3D polyline. Returns (verts, faces).
+
+    path      [(x,y,z), ...]   >=2 centreline points
+    section   [(u,v), ...]     >=3 points, CCW in the (u,v) plane
+    up        reference vector used to resolve the frame's roll
+
+    loft() can already express any swept solid, but only if you write out
+    every ring by hand in world space — which for anything that CURVES means
+    doing the frame maths at every station in the caller. Exhaust pipes,
+    fenders over a wheel, handlebars and roll bars are all that shape, and
+    doing it four times in a model file is where sign errors come from.
+
+    ── The frame ──────────────────────────────────────────────────────────
+    At each station: T is the centreline tangent (central difference in the
+    middle, one-sided at the ends), U = normalise(T x up), V = normalise(U x T).
+    For a path running along +Y with the default +Z up that gives U = +X and
+    V = +Z, so `u` reads as "across" and `v` as "up" — which is the whole
+    point of taking a 2D section rather than rings.
+
+    `up` only resolves roll; it does not have to be perpendicular to the path,
+    and it is re-projected at every station. A path that turns to run parallel
+    to `up` has no defined roll there (T x up collapses), so that is rejected
+    rather than silently producing a twisted or zero-area ring.
+
+    ── Winding ────────────────────────────────────────────────────────────
+    loft()'s rings are correctly wound when U x V = -T, NOT +T — verify it
+    against a cylinder built the way loft's own docstring describes (ring
+    points at increasing atan2(z, x), sweeping +Y) and the sign falls out.
+    V = U x T is exactly that: U x (U x T) = U(U.T) - T(U.U) = -T, for any
+    tangent, because U is perpendicular to T by construction. That identity is
+    why this builder cannot be inside-out for one path and correct for
+    another, which a hand-rolled frame very much can be. Checked in
+    tools/blender/test_prims.py on a straight path, an arc, and a helix.
+
+    The section must be CCW in (u,v) and convex, for loft()'s fan-cap reason.
+    """
+    if len(path) < 2:
+        raise SystemExit("m64lib: sweep needs at least two path points")
+    if len(section) < 3:
+        raise SystemExit("m64lib: sweep sections need at least three points")
+
+    def sub(a, b):
+        return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0])
+
+    def norm(v):
+        n = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        if n < 1e-9:
+            raise SystemExit(
+                "m64lib: sweep has a degenerate frame — either two path points "
+                "coincide, or the path runs parallel to `up` (no defined roll "
+                "there; pass a different `up`)")
+        return (v[0] / n, v[1] / n, v[2] / n)
+
+    rings = []
+    for i, p in enumerate(path):
+        if i == 0:
+            tangent = sub(path[1], path[0])
+        elif i == len(path) - 1:
+            tangent = sub(path[-1], path[-2])
+        else:
+            tangent = sub(path[i + 1], path[i - 1])
+        t = norm(tangent)
+        u_axis = norm(cross(t, up))
+        v_axis = norm(cross(u_axis, t))
+        rings.append([(p[0] + u * u_axis[0] + v * v_axis[0],
+                       p[1] + u * u_axis[1] + v * v_axis[1],
+                       p[2] + u * u_axis[2] + v * v_axis[2])
+                      for u, v in section])
+
+    return loft(rings, cap_start=cap_start, cap_end=cap_end)
+
+
+def arc_path(centre, radius, start_deg, end_deg, steps, plane="yz"):
+    """Centreline points along a circular arc, for sweep().
+
+    `plane` names the two axes the arc lies in, in the order (cos, sin): "yz"
+    sweeps from +Y toward +Z, which is the one a fender over a wheel wants
+    (wheels here roll about X). Angles are degrees, inclusive of both ends.
+    """
+    axes = {"xy": (0, 1), "yz": (1, 2), "zx": (2, 0), "xz": (0, 2)}
+    if plane not in axes:
+        raise SystemExit(f"m64lib: arc_path has no plane '{plane}'")
+    ia, ib = axes[plane]
+    out = []
+    for i in range(steps):
+        a = math.radians(start_deg + (end_deg - start_deg) * i / (steps - 1))
+        p = [centre[0], centre[1], centre[2]]
+        p[ia] += radius * math.cos(a)
+        p[ib] += radius * math.sin(a)
+        out.append(tuple(p))
+    return out
+
+
+def rotated(verts, axis, degrees, origin=(0.0, 0.0, 0.0)):
+    """Rigid rotation of a vertex list about `axis` through `origin`.
+
+    A PROPER rotation (determinant +1), so unlike mirror_x() the point list is
+    not reversed and must not be: winding survives untouched. This is what
+    stands a slab on its edge or lays a cylinder on its side without the
+    hand-written rotate-and-shear matrices interceptor.py's `_upright` needed,
+    and without the risk that made that function worth a comment — an axis
+    swap that looks like a rotation but is actually a reflection turns the
+    solid inside out.
+    """
+    a = math.radians(degrees)
+    n = math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2)
+    if n < 1e-9:
+        raise SystemExit("m64lib: rotated needs a non-zero axis")
+    kx, ky, kz = axis[0] / n, axis[1] / n, axis[2] / n
+    c, s = math.cos(a), math.sin(a)
+    out = []
+    for v in verts:
+        x, y, z = v[0] - origin[0], v[1] - origin[1], v[2] - origin[2]
+        # Rodrigues: v cos + (k x v) sin + k (k.v)(1 - cos)
+        cx = ky * z - kz * y
+        cy = kz * x - kx * z
+        cz = kx * y - ky * x
+        d = (kx * x + ky * y + kz * z) * (1.0 - c)
+        out.append((x * c + cx * s + kx * d + origin[0],
+                    y * c + cy * s + ky * d + origin[1],
+                    z * c + cz * s + kz * d + origin[2]))
+    return out
+
+
+# ── quantisation ───────────────────────────────────────────────────────────
+# Tiny3D stores a vertex position as int16 — the integer part of an s16.16
+# (T3DVertPacked in t3d.h). gltf_to_t3d multiplies by --base-scale on the way
+# in, so with the default 64 the console's vertex grid is exactly 1/64 of a
+# Blender unit and NOTHING finer survives the conversion.
+#
+# That has two consequences worth building a pass around rather than hoping
+# about, and both get worse the more detail you author:
+#
+#   * Detail below the grid is not merely lost, it is DESTRUCTIVE. Two
+#     vertices 1/200 of a unit apart land on the same integer position, and
+#     the triangle between them becomes a zero-area sliver — which still
+#     costs a vertex slot, still costs RSP transform time, and draws nothing.
+#     A high-poly model converted naively pays for geometry that cannot
+#     exist.
+#   * Where two parts are meant to touch, float positions that agree to six
+#     decimal places can still round to different integers, opening a
+#     one-pixel crack that only appears on hardware.
+#
+# So: snap at author time, on purpose, and then reclaim what the snapping
+# made redundant. Authoring high and welding down is strictly better than
+# authoring low — you get the silhouette of the detailed model and the
+# triangle count of a hand-tuned one, and the numbers are reported rather
+# than assumed.
+N64_GRID = 1.0 / 64.0
+
+
+def quantize(verts, step=N64_GRID):
+    """Snap positions to the console's vertex grid.
+
+    Idempotent, and worth applying before any measurement you intend to
+    trust: after this, what a test measures is what the ROM will contain.
+    """
+    return [tuple(round(c / step) * step for c in v) for v in verts]
+
+
+def _face_area(verts, face):
+    """Newell area magnitude — judges a non-planar quad by its whole outline
+    rather than by whichever triangle you happened to fan from."""
+    nx = ny = nz = 0.0
+    for i in range(len(face)):
+        x0, y0, z0 = verts[face[i]]
+        x1, y1, z1 = verts[face[(i + 1) % len(face)]]
+        nx += (y0 - y1) * (z0 + z1)
+        ny += (z0 - z1) * (x0 + x1)
+        nz += (x0 - x1) * (y0 + y1)
+    return 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz)
+
+
+def weld(verts, faces, colors=None, step=N64_GRID, min_area=None):
+    """Quantise, merge coincident vertices, and drop what collapsed.
+
+    Returns (verts, faces, colors, stats) where stats is a dict of the
+    before/after counts — print them, do not assume them.
+
+    ── What may and may not be merged ─────────────────────────────────────
+    Two vertices merge only when they land on the same grid point AND carry
+    the same COLOR_0. The colour half of that key is not optional: box()
+    splits all 24 corners precisely so each face can hold its own colour, and
+    a position-only weld would collapse them back into 8 shared corners and
+    average the cube's faces into mush. With the colour in the key, a cube
+    stays a cube and only genuinely redundant vertices go.
+
+    Faces then have consecutive duplicate indices removed (a quad with one
+    collapsed edge becomes a triangle — kept, not discarded) and anything
+    left with fewer than three distinct corners, or with an area below
+    `min_area`, is dropped as a sliver that could never have rasterised.
+
+    The default `min_area` is a quarter of a grid cell: small enough that no
+    face anyone meant to see is at risk, large enough to catch the near-
+    degenerate triangles that quantisation produces at a tapered tip.
+    """
+    if min_area is None:
+        min_area = (step * step) * 0.25
+
+    snapped = quantize(verts, step)
+
+    by_key = {}
+    out_verts = []
+    out_colors = [] if colors is not None else None
+    index_of = []
+    for i, v in enumerate(snapped):
+        if colors is not None:
+            # RGBA8 is the wire format, so two colours the console cannot
+            # tell apart must not keep two vertices alive.
+            key = (v, tuple(int(round(ch * 255.0)) for ch in colors[i]))
+        else:
+            key = (v, None)
+        if key not in by_key:
+            by_key[key] = len(out_verts)
+            out_verts.append(v)
+            if out_colors is not None:
+                out_colors.append(colors[i])
+        index_of.append(by_key[key])
+
+    out_faces = []
+    dropped = 0
+    for face in faces:
+        mapped = [index_of[i] for i in face]
+        # Strip consecutive duplicates, including across the wrap.
+        cleaned = []
+        for idx in mapped:
+            if not cleaned or cleaned[-1] != idx:
+                cleaned.append(idx)
+        while len(cleaned) > 1 and cleaned[0] == cleaned[-1]:
+            cleaned.pop()
+        if len(cleaned) < 3 or len(set(cleaned)) < 3:
+            dropped += 1
+            continue
+        if _face_area(out_verts, cleaned) < min_area:
+            dropped += 1
+            continue
+        out_faces.append(tuple(cleaned))
+
+    # Compact away vertices no surviving face references.
+    used = sorted({i for f in out_faces for i in f})
+    compact = {old: new for new, old in enumerate(used)}
+    final_verts = [out_verts[i] for i in used]
+    final_colors = ([out_colors[i] for i in used]
+                    if out_colors is not None else None)
+    final_faces = [tuple(compact[i] for i in f) for f in out_faces]
+
+    def tris(fs):
+        return sum(len(f) - 2 for f in fs)
+
+    stats = {
+        "verts_in": len(verts), "verts_out": len(final_verts),
+        "faces_in": len(faces), "faces_out": len(final_faces),
+        "tris_in": tris(faces), "tris_out": tris(final_faces),
+        "dropped": dropped,
+    }
+    return final_verts, final_faces, final_colors, stats
+
+
+# ── easing ─────────────────────────────────────────────────────────────────
+
+def ease(t, mode="inout"):
+    """Remap 0..1 through an easing curve.
+
+    make_action forces LINEAR interpolation on every F-curve, for the reason
+    documented there: the importer resamples at a fixed 60 Hz and Blender's
+    default Bezier would bake in overshoot nobody asked for. That is the
+    right call and it leaves animation with no easing at all — every move in
+    the first version of these actions travelled at a constant speed from key
+    to key, which is exactly what reads as "programmer animation".
+
+    The fix under a linear constraint is to put the curve in the KEYS: sample
+    an eased curve at several intermediate frames and let the straight lines
+    between them approximate it. This function is that curve. Four or five
+    samples is enough to be indistinguishable at 60 Hz.
+
+    Modes: "in" (accelerate), "out" (decelerate), "inout" (both),
+    "over" (decelerate past the target and settle back — anticipation's
+    partner, and what makes a limb feel like it has mass).
+    """
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    if mode == "in":
+        return t * t
+    if mode == "out":
+        return 1.0 - (1.0 - t) * (1.0 - t)
+    if mode == "over":
+        # Back-out: overshoots to about 1.07 near t=0.75, settles to 1.
+        s = 1.70158 * 0.6
+        u = t - 1.0
+        return u * u * ((s + 1.0) * u + s) + 1.0
+    return t * t * (3.0 - 2.0 * t)      # inout / smoothstep
+
+
+def segment(a, b, r_a, r_b, segments=5, twist=0.0):
+    """A tapered prism from point `a` to point `b`. Returns (verts, faces).
+
+    cylinder() only builds along +Z, so anything that runs at an angle — an
+    arm, a thigh, a fork leg — has to be built upright and then rotated onto
+    its axis. Doing that per call is three lines of Rodrigues bookkeeping and
+    one chance to write a reflection; doing it here means a limb is one call
+    that takes the two joint positions it spans.
+
+    That matters most for a rigged character: a bone from the shoulder to the
+    elbow runs diagonally, and geometry built as an upright box centred on
+    the bone's midpoint only *approximately* covers it. The approximation is
+    what makes a low-poly character look like unrelated blocks floating near
+    a skeleton rather than like a limb.
+
+    `twist` spins the cross-section about its own axis — with 4 segments,
+    45 degrees is the difference between a limb with a flat face toward the
+    camera and one presenting an edge.
+    """
+    dx, dy, dz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length < 1e-6:
+        raise SystemExit("m64lib: segment endpoints coincide")
+
+    verts, faces = cylinder(r_a, length, segments, cz=0.0, top_radius=r_b)
+    if twist:
+        verts = rotated(verts, (0.0, 0.0, 1.0), twist)
+
+    # Rotate +Z onto the segment direction. The axis is Z x d; when d is
+    # already parallel to Z that cross product vanishes and there is nothing
+    # to do (or, for d = -Z, any perpendicular axis will serve — X is picked
+    # so the 180-degree case stays a proper rotation rather than a mirror).
+    ux, uy, uz = dx / length, dy / length, dz / length
+    axis = (-uy, ux, 0.0)
+    if abs(axis[0]) < 1e-9 and abs(axis[1]) < 1e-9:
+        if uz < 0.0:
+            verts = rotated(verts, (1.0, 0.0, 0.0), 180.0)
+    else:
+        angle = math.degrees(math.acos(max(-1.0, min(1.0, uz))))
+        verts = rotated(verts, axis, angle)
+
+    return translated(verts, a[0], a[1], a[2]), faces
+
+
+def translated(verts, dx=0.0, dy=0.0, dz=0.0):
+    """Offset a vertex list. Trivial, but it keeps a builder's assembly step
+    reading as a list of placements rather than a list of loops."""
+    return [(v[0] + dx, v[1] + dy, v[2] + dz) for v in verts]
+
+
 # ── Morph targets ────────────────────────────────────────────────────────
 # gltf_to_t3d does not parse glTF morph targets (prim.targets / WEIGHTS_0).
 # The engine's m64_morph module works around this by loading sibling .t3dm

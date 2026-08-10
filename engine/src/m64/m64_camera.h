@@ -46,6 +46,30 @@
  * hit, the eye moves to endpos (less a small margin so the camera doesn't
  * sit exactly on the wall plane and jitter). Default OFF so existing
  * examples don't change behaviour; opt in with m64_camera_set_collision.
+ *
+ * ── M64_CAM_BOARD (Phase 4, party-game board view) ─────────────────────
+ * The other three modes all frame ONE thing — a player, a lock-on pair, a
+ * scripted shot. A party-game board camera frames a *region*: the whole
+ * board when nothing is happening, tightening onto the active token while
+ * it moves, then pulling back out. Doing that with NORMAL means feeding it
+ * a fake target whose position and boom length you recompute every frame,
+ * which is exactly the kind of caller-side hack a mode exists to avoid.
+ *
+ * BOARD holds a centre + a bounding radius (m64_board's aabb_min/max feeds
+ * this directly) and an orbit angle, and derives the eye from a pitch and
+ * a fit distance computed once at set time from the scene's FOV — the one
+ * trig-heavy step is not in the frame loop. `focus` in [0,1] lerps the
+ * look-at from the board centre toward the update()'s target_pos and
+ * shortens the boom, so the same mode covers both the wide establishing
+ * shot and the tight follow with no push/pop churn between them. `spin`
+ * drifts the orbit angle for the design's "wobbly camera" feel; set it to
+ * 0 for a static board.
+ *
+ * Deliberately NOT a true orthographic isometric projection: M64Scene
+ * builds a perspective matrix, and swapping in an ortho projection for one
+ * camera mode would mean a second projection path through the whole scene
+ * layer for a look a high-pitch perspective camera approximates closely
+ * enough at board scale.
  */
 #ifndef M64_CAMERA_H
 #define M64_CAMERA_H
@@ -63,6 +87,7 @@ typedef enum {
     M64_CAM_NORMAL = 0,
     M64_CAM_TARGETING,
     M64_CAM_CUTSCENE,
+    M64_CAM_BOARD,
 } M64CamMode;
 
 #define M64_CAM_STACK_DEPTH 4
@@ -96,6 +121,19 @@ typedef struct {
     M64ActorHandle target_actor;   /**< for TARGETING mode            */
     fm_vec3_t cutscene_eye;        /**< for CUTSCENE mode overrides  */
     fm_vec3_t cutscene_look;
+
+    /* M64_CAM_BOARD state. board_dist/sin_pitch/cos_pitch are derived once
+     * by m64_camera_set_board so the per-frame path is one sin/cos pair for
+     * the orbit angle and no FOV trig at all. */
+    fm_vec3_t board_center;
+    float board_radius;
+    float board_dist;      /**< fit distance derived from radius + FOV */
+    float board_sin_pitch, board_cos_pitch;
+    float board_orbit;     /**< current orbit angle, radians           */
+    float board_spin;      /**< orbit drift, radians/second (0 = static) */
+    float board_focus;     /**< 0 = whole board, 1 = on target_pos      */
+    float board_focus_target;
+    float board_focus_speed;
 
     struct {
         M64CamMode mode;
@@ -153,6 +191,31 @@ void m64_camera_set_target_actor(M64Camera *cam, M64ActorHandle h);
 /** Set the explicit eye/look for CUTSCENE mode. The camera damps toward
  *  these (so a scripted pan still moves smoothly) rather than teleporting. */
 void m64_camera_set_cutscene(M64Camera *cam, fm_vec3_t eye, fm_vec3_t look);
+
+/** Configure M64_CAM_BOARD's framing. `center` and `radius` are the board's
+ *  bounding sphere — M64Board's aabb_min/aabb_max midpoint and half-diagonal
+ *  feed this directly. `pitch_deg` is how far above the board the eye sits
+ *  (0 = level with it, 90 = straight down; 45-60 reads as isometric).
+ *  `fov_deg` must match the M64Scene this camera is applied to, or the board
+ *  will not fill the frame as intended. Does trig; call it on board load,
+ *  not per frame. */
+void m64_camera_set_board(M64Camera *cam, fm_vec3_t center, float radius,
+                          float pitch_deg, float fov_deg);
+
+/** Orbit drift rate in radians/second for M64_CAM_BOARD. 0 holds the angle. */
+void m64_camera_set_board_spin(M64Camera *cam, float radians_per_sec);
+
+/** Where M64_CAM_BOARD should settle between the wide board shot (0) and the
+ *  update()'s target_pos (1). Damped, so a token starting to move can just
+ *  request 1 and a token finishing can request 0. `speed` is a damper rate
+ *  like pos_speed; pass <= 0 to keep the current one (default 2.0). */
+void m64_camera_set_board_focus(M64Camera *cam, float focus, float speed);
+
+/** Teleport M64_CAM_BOARD's smoothed eye/look to its current framing, with
+ *  no damping. The BOARD-mode analogue of m64_camera_snap — use it right
+ *  after a push into BOARD so the camera doesn't swim in from wherever the
+ *  previous mode left it. */
+void m64_camera_snap_board(M64Camera *cam, fm_vec3_t target_pos);
 
 /** Enable or disable the collision-aware boom. Off by default. When on,
  *  every m64_camera_update raycasts look→desired_eye and pulls the eye in

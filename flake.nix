@@ -47,9 +47,27 @@
       url = "github:HailToDodongo/tiny3d";
       flake = false;
     };
+
+    # N64-UNFLoader — cross-flashcart loader + debugf stdio bridge. ED64 fallback
+    # when the connected cart is an FT245R (VID 0403, PID 6001) rather than SC64.
+    unfloader-src = {
+      url = "github:buu342/N64-UNFLoader";
+      flake = false;
+    };
+
+    # Claude Code CLI, packaged for Nix. Used only by packages.dev-image (see
+    # nix/dev-image.nix) — not part of the N64 build at all.
+    claude-code-nix.url = "github:sadjow/claude-code-nix";
+
+    # Builds a NixOS system config into a docker-loadable image. Also only
+    # used by packages.dev-image.
+    nixos-generators = {
+      url = "github:nix-community/nixos-generators";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb }:
+  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -286,6 +304,26 @@
           animated = true;
         };
 
+        # Ganja Goblin's four playable characters, from the same script and
+        # the same skeleton — see tools/blender/goblin.py on why the rig is
+        # byte-identical across all four. That is what lets one set of
+        # animations (Idle/Walk/Wave/Taunt plus the five Ride* actions) play
+        # on whichever character a player picked, instead of four copies of
+        # the animation data in the ROM.
+        #
+        # They are separate derivations rather than one model with four
+        # palettes because the geometry genuinely differs — Moss is a wider
+        # mass with clumps growing on him, Sparky is thinner with goggles —
+        # and a runtime palette swap cannot do that.
+        goblinCast = pkgs.lib.genAttrs
+          [ "dank" "sparky" "moss" "glimmer" ]
+          (character: blenderLib.mkBlenderModel {
+            name = character;
+            script = "goblin.py";
+            model = character;
+            animated = true;
+          });
+
         # The hero prop: not a test shape, but a piece of content authored the
         # way a game's content is — one silhouette from six interpenetrating
         # parts, shaded entirely by COLOR_0 through the same `shade` combiner
@@ -295,6 +333,28 @@
         interceptorModel = blenderLib.mkBlenderModel {
           name = "interceptor";
           script = "interceptor.py";
+        };
+
+        # The goblins' rides. Same authoring path as interceptorModel — one
+        # silhouette from interpenetrating solids, COLOR_0 only, no TMEM —
+        # but built with m64lib's sweep()/rotated(), which exist because a
+        # vehicle is mostly swept tube (exhaust, roll bars, fenders, forks)
+        # and hand-rolling that frame per part is where inside-out geometry
+        # comes from. tools/blender/test_vehicles.py checks every part's
+        # signed volume on the host before Blender is ever started.
+        #
+        # `--accent RRGGBB` retints the bodywork only, so four karts that
+        # match gg_player_tint's four seat colours are four derivations over
+        # one script and no runtime support — cheaper than four textures.
+        # Only the default green is built here; add a variant when the game
+        # actually places per-player vehicles on the board.
+        gokartModel = blenderLib.mkBlenderModel {
+          name = "gokart";
+          script = "vehicles.py";
+        };
+        bikeModel = blenderLib.mkBlenderModel {
+          name = "bike";
+          script = "vehicles.py";
         };
 
         # Cinematic-demo extras: a service droid (rigged+animated, two bones
@@ -499,6 +559,11 @@
           src = summercart64;
         };
 
+        unfloader = import ./nix/tools/unfloader.nix {
+          inherit pkgs;
+          src = unfloader-src;
+        };
+
         # Phase A verification: a ROM that loads one of each converted asset
         # kind — proves gltf_to_t3d, mksprite and audioconv64 actually run,
         # not just that the Nix glue around them evaluates.
@@ -609,6 +674,29 @@
           assets = [ ootMap stepSound ];
         };
 
+        # Same integration proof, but with the retro console + profiler wired in.
+        # This is the debug build of oot-demo; keep the vanilla one lean.
+        oot-demo-debug = mkN64Rom {
+          name = "oot-demo-debug";
+          src = ./examples/oot-demo;
+          romTitle = "M64 OoT Debug";
+          assets = [ ootMap stepSound ];
+          debugConsole = true;
+        };
+
+        # The on-screen retro debug console. Built with `debugConsole = true`
+        # so M64_DEBUG=1 reaches the example's main.c (gating the
+        # m64_console_* calls). The console module itself is always in
+        # libm64.a; the flag only controls whether the example wires it up.
+        # Toggle in-rom by holding Start and pressing C-Up → C-Left →
+        # C-Down → C-Right (counter-clockwise around the C cluster).
+        debug-demo = mkN64Rom {
+          name = "debug-demo";
+          src = ./examples/debug-demo;
+          romTitle = "M64 Debug";
+          debugConsole = true;
+        };
+
         # The single-screen showcase: title + 3-mode flight + engine streaks +
         # credit HUD. Loads the hand-authored Interceptor starfighter through
         # the same mkBlenderModel path tools/blender/interceptor.py documents.
@@ -686,13 +774,299 @@
           assets = bassWavFlat;
           audioRate = 32000;
         };
+
+        # ── Ganja Goblin ─────────────────────────────────────────────────
+        # A standalone top-level game (not an examples/ entry). Standalone
+        # because it's a real product target, not a worked example: its own
+        # package namespace, its own game/src/, its own game/assets/, sized
+        # for a releaseable ROM rather than a single-file demo. Phase 0 wires
+        # up the skeleton; engine primitives (RNG, dice, board, turn) land
+        # in Phase 1, the game-side board loop in Phase 2, the 4 goblins in
+        # Phase 3, menus/HUD in Phase 4, items/status in Phase 5, audio in
+        # Phase 6, particle VFX + polish in Phase 7. Mini-games are deferred
+        # (Phase 8, future work).
+        #
+        # See /home/asher/.claude/plans/ganja-goblin-is-a-buzzing-rabbit.md
+        # for the full roadmap. No assets yet — they arrive in Phase 3+
+        # (goblin models) and Phase 6 (audio).
+        ganja-goblin = mkN64Rom {
+          name = "ganja-goblin";
+          src = ./game;
+          romTitle = "Ganja Goblin";
+          saveType = "eeprom4k"; # match-progress + per-goblin unlock flags
+        };
+
+        # Phase 1 verification: m64_rng + m64_dice + m64_board + m64_turn
+        # end-to-end. 4 tokens, 5 rounds, a 10-node branching path, an
+        # auto-advancing state machine. No assets — the proof is the
+        # topology and the turn transitions, drawn as a 2D HUD schematic.
+        board-demo = mkN64Rom {
+          name = "board-demo";
+          src = ./examples/board-demo;
+          romTitle = "M64 Board";
+        };
+
+        # ── PetaByte Madness ─────────────────────────────────────────────
+        # The second standalone game target, same shape as ganja-goblin
+        # above: its own top-level directory, its own package namespace, its
+        # own assets. A first-person horror game in an underwater lab, built
+        # around one mechanic — the scarlet veil, a filter the player raises
+        # to see the demons, which raises their ability to see the player
+        # too. PetaByte-Madness/docs/VEIL_DESIGN.md is the spec for that
+        # mechanic in the same way the compass report is the spec for the
+        # build system; read it before changing PetaByte-Madness/src/pm_veil.*.
+        #
+        # Unlike ganja-goblin, this one arrived with its art: an asset drop
+        # of rigged demons, a work submarine, guards, and the lab itself
+        # lives in PetaByte-Madness/archives/. PetaByte-Madness/README.md
+        # says what came from where and what is not yet on a hermetic path.
+        #
+        # The four demon models are the only glTF in the drop and so the
+        # only meshes mkModel can eat today; --ignore-materials is required
+        # because they carry no fast64 material block (see CLAUDE.md's
+        # "gltf_to_t3d aborts on a glTF material with no fast64 data").
+        # The machine centaur — Dr. Horner after the MRI, and the player
+        # character. Not on the mkModel path the demons use, because the
+        # demons arrive as .glb NODE animations on an unskinned hierarchy and
+        # gltf_to_t3d drops every one of those channels ("Channel target not
+        # found"). The centaur is one bone per limb across 23 bones, which is
+        # one bone per vertex — exactly the rigid binding the importer wants —
+        # so it is rebuilt as a real armature and the 13 animations survive.
+        #
+        # Two conversions stand between the original F3DEX2 rig and this, and
+        # each carries its own numerical self-test rather than an argument:
+        #   PetaByte-Madness/tools/mc_rig_export.py  ->  .json  (--verify)
+        #   tools/blender/centaur.py                 ->  .gltf  (--selftest)
+        # See both files' headers; the second one is why the coordinate
+        # change is (x,-z,y) and not the reflection (x,z,y).
+        # The ambience bed: a 55 Hz pressure drone with the design's
+        # gameplay pulse baked into it (docs/VEIL_DESIGN.md §7). Baked
+        # rather than live for the reason report Stage 1 gives — it never
+        # has to respond to anything, so every cycle it would cost on the
+        # VR4300 is a cycle the demons get to keep.
+        #
+        # 8 seconds and looping: long enough that the detune beats between
+        # the three partials do not audibly repeat, short enough to sit in
+        # RAM without a streamed read. mkBakedInstrument's silence,
+        # over-quiet and clipping gates all apply.
+        pmDrone = faust.mkBakedInstrument {
+          name = "pmdrone";
+          src = ./PetaByte-Madness/dsp/pm_drone.dsp;
+          sampleRate = 32000;
+          duration = 8.0;
+          params = { f0 = 55; gain = 0.35; };
+          loop = true;
+          # MONO, and this is load-bearing. pm_drone.dsp ends
+          # `process = mono <: _, (_ : de.delay(...))` — two channels — and
+          # libdragon's mixer plays a STEREO waveform across two ADJACENT
+          # mixer channels. So a stereo bed started on channel 0 silently
+          # occupies 0 AND 1, and anything else placed on 1 collides with
+          # it: one of the two ends up with a sample buffer and no reader,
+          # and mixer_poll asserts "samplebuffer_get: no reader to extend"
+          # a few seconds into the boot.
+          #
+          # The stereo widening was a few milliseconds of delay on one side
+          # that collapses to mono on a console speaker anyway, so this
+          # costs nothing audible and halves the ROM cost.
+          mono = true;
+        };
+
+        # ── The M64 boot splash ──────────────────────────────────────────
+        # A parody of the Nintendo 64's boot, and a publisher mark rather
+        # than any one game's title screen — which is why the runtime half
+        # is in the engine (engine/src/m64/m64_splash.h) and only the two
+        # assets live here. Ganja Goblin can adopt it with four calls.
+        m64Logo = blenderLib.mkBlenderModel {
+          name = "m64_logo";
+          script = "m64_logo.py";
+          # baseScale is MODEL UNITS PER BLENDER UNIT, not a "keep my units"
+          # switch — flake.nix's own demoModel note says so ("a 1x1x1 Blender
+          # unit cube; the default baseScale of 64 turns that into a 64-unit
+          # cube"). At 1, this 3.1-unit-wide wordmark became 3 integer units
+          # and collapsed into an unreadable grey slab on screen. Tiny3D
+          # stores vertices as integers; sub-unit detail simply does not
+          # survive. 64 keeps it consistent with every other model here, and
+          # m64_splash's camera is placed in the same units.
+          baseScale = 64;
+        };
+
+        # The jingle. Its chord resolves 1.25 s in, which m64_splash.c
+        # times the logo's assembly and the screen flash to meet — picture
+        # can be nudged a frame at runtime, audio cannot, so the sound is
+        # the master here.
+        m64Jingle = faust.mkBakedInstrument {
+          name = "m64jingle";
+          src = ./dsp/m64_jingle.dsp;
+          sampleRate = 32000;
+          duration = 4.0;
+          params = { gain = 0.5; };
+          # loop = true even though the jingle plays ONCE.
+          #
+          # A non-looping wav64 reaching its end crashed the mixer:
+          # libdragon asserts "samplebuffer_get: no reader to extend" a
+          # couple of seconds later, because a finished one-shot is still in
+          # mixer_poll's rotation with nothing left to read. The looping
+          # ambience bed never showed it, and that difference is the whole
+          # clue. A looping sample simply never reaches that state.
+          #
+          # m64_splash stops the channel at 3.8 s and the sample is 4.0 s,
+          # so it is stopped before it would ever wrap — the loop flag costs
+          # nothing audible and removes the end-of-sample path entirely.
+          loop = true;
+        };
+
+        pmCentaurRig = ./PetaByte-Madness/assets/rig/machine_centaur.json;
+        pmCentaurModel = blenderLib.mkBlenderModel {
+          name = "centaur";
+          script = "centaur.py";
+          scriptArgs = [ "--rig" "${pmCentaurRig}" ];
+          animated = true;
+        };
+
+        # The OBJ/glTF-sourced props: the island, its palms, the work
+        # submarine, the guard mobs, the drone. One script with a --model
+        # table (tools/blender/pm_props.py), the same shape goblin.py uses,
+        # because each is the same three steps — read, colour, decimate.
+        # Parsing lives in tools/blender/objkit.py, which imports no bpy and
+        # is testable with a bare python3.
+        #
+        # See PetaByte-Madness/docs/ASSET_PIPELINE.md for why these do NOT go
+        # through mkModel the way the demons do, and for the three mesh
+        # defects in this drop that fail silently if unhandled.
+        pmProp = name: blenderLib.mkBlenderModel {
+          inherit name;
+          script = "pm_props.py";
+          # The whole assets directory, not one file: loach.obj resolves
+          # loach.mtl as a sibling, and a store path for a single file has no
+          # siblings.
+          scriptArgs = [ "--model" name "--assets" "${./PetaByte-Madness/assets}" ];
+        };
+
+        pmDemonModel = name: assetLib.mkModel {
+          inherit name;
+          src = ./PetaByte-Madness/assets/models/${name}.glb;
+          dest = "models";
+          ignoreMaterials = true;
+        };
+        pmLabMap = assetLib.mkRawAsset {
+          name = "pm-lab-map";
+          src = ./PetaByte-Madness/assets/pm_lab.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
+
+        # ── The night exterior ───────────────────────────────────────────
+        # The sky and the sea, from tools/blender/pm_env.py. See
+        # PetaByte-Madness/src/pm_env.h for what the game does with them and
+        # why the horizon colour appears in three places.
+        # The island hub and the lab, authored FOR the engine rather than
+        # imported: flat walkable surfaces the AABB collision can match,
+        # named sub-objects for the six dungeon gates, and metres as the
+        # authoring unit. tools/blender/pm_world.py explains what the
+        # OBJ-derived originals could not give the runtime.
+        pmWorld = name: blenderLib.mkBlenderModel {
+          inherit name;
+          script = "pm_world.py";
+        };
+
+        pmSkydome = blenderLib.mkBlenderModel {
+          name = "skydome";
+          script = "pm_env.py";
+          # No BVH: the dome is drawn camera-centred with depth off, so it is
+          # always entirely in frame and frustum-culling it can only cost.
+          bvh = false;
+        };
+        pmSea = blenderLib.mkBlenderModel {
+          name = "sea";
+          script = "pm_env.py";
+          # tex0_shade is texel * shade, which is exactly the contract
+          # pm_env.py's sea palette is authored against: the vertex colour is
+          # a crest ceiling and the foam texture carves the troughs out of it.
+          materials = [
+            "water=tex0_shade,tex=textures/foam.i8.png,size=32"
+          ];
+          # gltf_to_t3d decodes the PNG at conversion time to learn its pixel
+          # size, so the image has to be here even though the ROM ships the
+          # .sprite (which rides in via `textures` in the assets list below).
+          inherit textures;
+        };
+
+        # ── The theme ────────────────────────────────────────────────────
+        # The game's main theme, authored as a string quartet, shipped TWICE
+        # on purpose — see pm_music.h for what the game does with the pair.
+        #
+        # `pmTheme` is the score: MIDI -> XM (tools/midi_to_xm.py) -> XM64,
+        # sequenced live by the RSP mixer. 4.7 KB, loops exactly, costs
+        # almost nothing per frame.
+        #
+        # `pmThemeStream` is the recording: the mastered MP3 -> VADPCM
+        # wav64, streamed from ROM. About 1.2 MB, and it is the arrangement
+        # as it actually sounds rather than four synthesised waveforms.
+        pmTheme = assetLib.mkMidiMusic {
+          name = "petabyte";
+          src = ./PetaByte-Madness/assets/music/petabyte.mid;
+          converter = ./tools/midi_to_xm.py;
+          songName = "PetaByte Madness";
+        };
+        # Mono and resampled to the ROM's own 32 kHz: the mixer would resample
+        # anyway, and doing it at build time spends the cycles on the host.
+        pmThemeStream = assetLib.mkSound {
+          name = "petabyte_stream";
+          src = ./PetaByte-Madness/assets/music/petabyte_theme.mp3;
+          dest = "music";
+          mono = true;
+          resample = 32000;
+          compress = 1; # vadpcm — the RSP-accelerated one
+        };
+        mkPetabyteMadness = debug: mkN64Rom {
+          # Deliberately the same `name` in both variants: `name` is what
+          # rom.nix's passthru.romFile is built from, and the Makefile emits
+          # petabyte-madness.z64 either way. The two are separate store
+          # paths because their makeFlags differ.
+          name = "petabyte-madness";
+          src = ./PetaByte-Madness;
+          romTitle = "PetaByte Madness";
+          saveType = "eeprom4k"; # three profiles; see m64_save.h's budget
+          audioRate = 32000;     # cross-checked against pmDrone's bake rate
+          debugConsole = debug;
+          # `textures` ships the .sprite the sea's foam material names; the
+          # model only carries the rom:/ path to it.
+          assets = [ pmLabMap pmCentaurModel pmDrone m64Logo m64Jingle
+                     pmTheme pmThemeStream
+                     pmSkydome pmSea textures ]
+            ++ [ (pmWorld "island") (pmWorld "lab") ]
+            ++ map pmProp [ "palms" "loach" "horner" "guard_cousin" ]
+            ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];
+        };
+        petabyte-madness = mkPetabyteMadness false;
+        # The same ROM with pm_debug's state readout compiled in: screen,
+        # the camera the scene was actually built from, near/far, and which
+        # models resolved versus returned NULL. Every one of the four
+        # defects behind the black-screen hunt would have been one glance
+        # at this — see PetaByte-Madness/src/pm_debug.h. Kept out of the
+        # shipping ROM so it pays nothing there.
+        petabyte-madness-debug = mkPetabyteMadness true;
+
+        # A NixOS-in-Docker image for collaborators: real Nix (so `nix
+        # build`/`nix develop`/`./dev` work inside it against a cloned
+        # checkout of this repo) plus the Claude Code CLI and Tailscale, for
+        # private delivery/updates over a tailnet. See nix/dev-image.nix for
+        # what it deliberately does and does not contain.
+        dev-image = nixos-generators.nixosGenerate {
+          inherit system;
+          format = "docker";
+          modules = [ ./nix/dev-image.nix ];
+          specialArgs = { inherit claude-code-nix; };
+        };
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo ganja-goblin board-demo petabyte-madness petabyte-madness-debug;
           engine = m64-engine;
           streamdb = streamdb-emb;
           inherit textures;
+          inherit dev-image;
         }
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
@@ -710,6 +1084,21 @@
           model-droid = droidModel;
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
+          model-centaur = pmCentaurModel;
+          model-m64-logo = m64Logo;
+          model-island = pmProp "island";
+          model-palms = pmProp "palms";
+          model-loach = pmProp "loach";
+          model-drone = pmProp "drone";
+          model-guard-cousin = pmProp "guard_cousin";
+          model-dank-lab = pmProp "dank_lab";
+          model-horner = pmProp "horner";
+          model-gokart = gokartModel;
+          model-bike = bikeModel;
+          model-dank = goblinCast.dank;
+          model-sparky = goblinCast.sparky;
+          model-moss = goblinCast.moss;
+          model-glimmer = goblinCast.glimmer;
           default = hello;
         };
 
@@ -793,6 +1182,16 @@
             rom = oot-demo;
             name = "oot-demo";
           };
+          rom-oot-demo-debug = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = oot-demo-debug;
+            name = "oot-demo-debug";
+          };
+          rom-debug-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = debug-demo;
+            name = "debug-demo";
+          };
           rom-interceptor-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = interceptor-demo;
@@ -818,6 +1217,21 @@
             rom = bass-synth;
             name = "bass-synth";
           };
+          rom-ganja-goblin = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = ganja-goblin;
+            name = "ganja-goblin";
+          };
+          rom-board-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = board-demo;
+            name = "board-demo";
+          };
+          rom-petabyte-madness = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = petabyte-madness;
+            name = "petabyte-madness";
+          };
           m64-asset = import ./nix/checks/m64-asset.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
@@ -836,7 +1250,7 @@
           mapmaker-roundtrip = import ./nix/checks/mapmaker-roundtrip.nix {
             inherit pkgs;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth ganja-goblin board-demo petabyte-madness petabyte-madness-debug;
         };
 
         apps = {
@@ -865,6 +1279,12 @@
               exec ${sc64deployer}/bin/sc64deployer "$@"
             '');
           };
+          unfloader = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "m64-unfloader" ''
+              exec ${unfloader}/bin/unfloader "$@"
+            '');
+          };
           dev = {
             type = "app";
             program = toString (pkgs.writeShellScript "m64-dev" ''
@@ -883,6 +1303,31 @@
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8000
             '');
           };
+          # The animation editor. Same shape as mapmaker: a static page of
+          # ES modules served by python's http.server, three.js vendored
+          # once and shared between the two tools. `stage` first, because
+          # the editor loads the real pipeline's own .gltf intermediate
+          # rather than a special export — see tools/poser/stage.sh.
+          poser = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "m64-poser" ''
+              cd "''${M64_REPO:-$PWD}"
+              if [ ! -f tools/poser/data/dank.gltf ]; then
+                echo "staging models for the poser (first run)…"
+                ./tools/poser/stage.sh dank
+              fi
+              cd tools/poser
+              echo "poser on http://localhost:8001"
+              exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8001
+            '');
+          };
+          poser-verify = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "m64-poser-verify" ''
+              exec ${pkgs.python3Minimal}/bin/python3 \
+                "''${M64_REPO:-$PWD}/tools/poser/verify.py" "$@"
+            '');
+          };
           map-validate = {
             type = "app";
             program = toString (pkgs.writeShellScript "m64-map-validate" ''
@@ -899,6 +1344,13 @@
             pkgs.faust
             pkgs.ares
             pkgs.pkg-config
+            # The capture loop's python: evdev drives tools/n64-input.py's
+            # uinput gamepad (there is no way to reach a screen behind
+            # "press start" without it), and pillow is what turns a
+            # screenshot into the pixel statistics ./dev shot reports —
+            # CLAUDE.md's own warning is that eyeballing the PNG has
+            # already cost this project real time.
+            (pkgs.python3.withPackages (ps: [ ps.evdev ps.pillow ]))
           ];
 
           # Bare metal: see nix/libdragon.nix.

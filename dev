@@ -17,18 +17,25 @@ usage() {
 ./dev — the M64 developer CLI
   build [rom]              nix build .#<rom>            (default: hello)
   shot  <rom> [out] [s]    boot in Ares on Hyprland, screenshot + pixel stats
-  rec   <rom> [dur] [out]  boot in Ares on Hyprland, record MP4 (default 60 s,
-                           Ares-only audio via PipeWire app routing)
+  rec   <rom> [out] [dur] [--native]
+                           boot in Ares on Hyprland, record MP4 (default 60 s,
+                           Ares-only audio via PipeWire app routing; out and
+                           dur are order-free — a bare number is the duration)
+  drive <rom> <script> [outdir]
+                           boot in Ares with a uinput virtual pad and run an
+                           input script (wait/press/hold/stick/shot)
   run   <rom>              boot the ROM in Ares (report §7: iterate here,
                            but never trust an emulator for audio work)
+  inspect <rom>            Ares with GDB server + print attach command
   deploy <rom>             sc64deployer upload -> SummerCart64
-  debug                    sc64deployer debug — debugf() stdio over USB
+  debug                    read debugf() stdio from SC64 or ED64
   faust [target]           show a voice's gate output + cycle budget
   bake  [target]           show baked VADPCM assets + reference render
   check                    nix flake check (the pre-push gate)
   doctor                   toolchain, libdragon, cart presence, versions
 Examples:
   ./dev build hello        ./dev run hello        ./dev deploy hello
+  ./dev inspect hello      ./dev debug
   ./dev mapmaker                        three.js .map maker on http://localhost:8000
   ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
 H
@@ -69,6 +76,36 @@ case "$cmd" in
     nix run .#ares -- "$z64"
     ;;
 
+  inspect)
+    rom="${1:-hello}"
+    z64="$(rom_path "$rom")" || exit 1
+
+    # Ares mutates its settings file, so use a throwaway config dir.
+    cfgdir="$(mktemp -d)"
+    trap 'rm -rf "$cfgdir"' EXIT
+
+    # Find the debug ELF produced by mkN64Rom.
+    out="$(nix build --no-link --print-out-paths ".#$rom")"
+    elf="$(find "$out" -path '*/lib/debug/*.elf' | head -1)"
+
+    echo "dev: launching Ares with GDB server for $rom"
+    echo "dev: GDB server on localhost:24689"
+    if [ -n "$elf" ]; then
+      echo "dev: attach: gdb-multiarch -ex 'target remote :24689' '$elf'"
+    else
+      echo "dev: no debug ELF found in $out (ROM may not have debug info)"
+    fi
+    echo "dev: press Ctrl-C in this terminal to stop Ares"
+
+    nix run .#ares -- "$z64" \
+        --settings-file "$cfgdir/ares-settings.bml" \
+        --setting Boot/Debugger=true \
+        --setting Boot/AwaitGDBClient=true \
+        --setting DebugServer/Enabled=true \
+        --setting DebugServer/Port=24689 \
+        --setting DebugServer/UseIPv4=true
+    ;;
+
   shot)
     # Boot the ROM in Ares on the live Hyprland session and capture the window.
     rom="${1:-hello}"; out="${2:-$rom.png}"; settle="${3:-8}"
@@ -102,15 +139,49 @@ if nonblack < total * 0.0005:
 PY
     ;;
 
+  drive)
+    # Boot the ROM in Ares with a uinput virtual gamepad and run an input
+    # script against it. This is what makes screens behind "press start"
+    # reachable at all: a fresh ares config has every binding empty, so
+    # without it nothing past the boot splash can ever be captured.
+    rom="${1:-petabyte-madness}"; script="${2:-$REPO/tools/drive/intro.txt}"
+    outdir="${3:-$rom-shots}"
+    # 3 s, not `shot`'s 8: the first thing intro.txt captures is the boot
+    # splash, which is over 3.8 s after the ROM starts.
+    settle="${4:-3}"
+    z64="$(rom_path "$rom")" || exit 1
+    export ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}"
+    bash "$REPO/tools/n64-drive.sh" "$z64" "$script" "$outdir" "$settle" || exit 1
+    ;;
+
   rec)
     # Boot the ROM in Ares on the live Hyprland session and record a clip.
     # Mirrors `shot` above; tools/n64-rec.sh drives gpu-screen-recorder with
     # Ares-only audio (-a app:ares) so other apps playing on the desktop do
     # not bleed into the soundtrack.
-    rom="${1:-cinematic-demo}"; dur="${2:-60}"; out="${3:-$rom.mp4}"
+    # `./dev rec <rom> [out.mp4] [dur] [--native]`, in any order after the
+    # ROM: a bare number is the duration, anything else is the output path.
+    # The two used to be strictly positional and the usage text disagreed
+    # with the code about which came first, so both orders now work and
+    # neither can be silently misread as the other.
+    native=0; rom=""; dur=""; out=""
+    for a in "$@"; do
+      case "$a" in
+        --native) native=1 ;;
+        *) if   [ -z "$rom" ]; then rom="$a"
+           elif [[ "$a" =~ ^[0-9]+([.][0-9]+)?$ ]]; then dur="$a"
+           else out="$a"; fi ;;
+      esac
+    done
+    rom="${rom:-cinematic-demo}"; dur="${dur:-60}"; out="${out:-$rom.mp4}"
     z64="$(rom_path "$rom")" || exit 1
-    ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}" \
-      bash "$REPO/tools/n64-rec.sh" "$z64" "$out" "$dur" || exit 1
+    # export, not a command prefix: the prefix form was written with a
+    # trailing backslash onto a COMMENT line, which made it a plain shell
+    # assignment. ARES then never reached n64-rec.sh's environment and the
+    # script silently fell back to whatever `ares` was on PATH — or failed
+    # outright when none was.
+    export ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}"
+    NATIVE="$native" bash "$REPO/tools/n64-rec.sh" "$z64" "$out" "$dur" || exit 1
     ;;
 
   deploy)
@@ -120,8 +191,18 @@ PY
     ;;
 
   debug)
-    echo "dev: reading debugf() stdio (ctrl-c to stop)"
-    nix run .#sc64 -- debug
+    # Auto-detect the connected flashcart by USB VID/PID.
+    if lsusb 2>/dev/null | grep -q '0403:6014'; then
+      echo "dev: SC64 (0403:6014) detected — reading debugf() stdio (ctrl-c to stop)"
+      nix run .#sc64 -- debug
+    elif lsusb 2>/dev/null | grep -q '0403:6001'; then
+      echo "dev: ED64 (0403:6001) detected — reading debugf() stdio (ctrl-c to stop)"
+      nix run .#unfloader -- -d
+    else
+      echo "dev: no supported flashcart detected (looked for 0403:6014 SC64, 0403:6001 ED64)"
+      echo "dev: if a cart is plugged in, ensure nixosModules.n64-flashcart is enabled"
+      exit 1
+    fi
     ;;
 
   faust)
@@ -159,6 +240,19 @@ PY
     nix run .#mapmaker
     ;;
 
+  poser)
+    # Launch the three.js animation editor (tools/poser/) on :8001.
+    # Dev-only, same split as mapmaker and tools/blender-mcp/.
+    nix run .#poser
+    ;;
+  poser-stage)
+    # Rebuild the models the poser loads and re-dump their source keyframes.
+    ./tools/poser/stage.sh "$@"
+    ;;
+  poser-verify)
+    # Prove the editor's Euler convention against Blender's own export.
+    nix run .#poser-verify -- "$@"
+    ;;
   map-validate)
     # Round-trip a .map through quake_map.py's pure-Python CSG + report counts
     # vs. the engine's limits. Run after exporting from the map maker.
@@ -184,9 +278,15 @@ PY
       echo "  SummerCart64 (FT232H 0403:6014): present"
     else
       echo "  SummerCart64: not detected"
-      echo "  (if it is plugged in, you likely need nixosModules.n64-flashcart)"
     fi
+    if lsusb 2>/dev/null | grep -qi '0403:6001'; then
+      echo "  ED64 (FT245R 0403:6001): present"
+    else
+      echo "  ED64: not detected"
+    fi
+    echo "  (if a cart is plugged in, you likely need nixosModules.n64-flashcart)"
     ;;
+
 
   *)
     echo "dev: unknown command '$cmd'" >&2

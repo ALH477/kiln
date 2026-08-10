@@ -1,0 +1,24 @@
+newmtl shade
+Kd 1 1 1
+illum 1
+
+newmtl wall
+Kd 1 1 1
+illum 1
+map_Kd lab_wall.png
+
+newmtl floor
+Kd 1 1 1
+illum 1
+map_Kd lab_floor.png
+
+newmtl screen
+Kd 1 1 1
+illum 1
+map_Kd lab_screen.png
+
+newmtl caustic
+Kd 1 1 1
+illum 1
+map_Kd lab_caustic.png
+

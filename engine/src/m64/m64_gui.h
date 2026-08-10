@@ -33,7 +33,11 @@ extern "C" {
 #endif
 
 /** Font slot used for the built-in monospace debug font. Registered by
- *  m64_gui_init(); needs no font asset in the filesystem. */
+ *  m64_gui_init(); needs no font asset in the filesystem.
+ *
+ *  m64_engine_init() ALREADY CALLS THIS. Calling it again is safe (the
+ *  function is idempotent) but unnecessary — a ROM only needs it if it
+ *  brought up display/rdpq/t3d by hand instead of via m64_engine_init. */
 #define M64_GUI_FONT 1
 
 /** Called by m64_engine_init(). Registers the built-in font. */

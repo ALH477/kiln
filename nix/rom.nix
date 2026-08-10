@@ -39,6 +39,11 @@
   # from mkBakedInstrument export this; mkSound/mkMusic do not (they inherit
   # the rate from their source WAV, which is the ROM author's responsibility).
 , audioRate ? null
+  # Build the ROM with the on-screen retro debug console wired in (sets
+  # M64_DEBUG=1, which the example's main.c gates `m64_console_*` calls on).
+  # See engine/src/m64/m64_console.h and examples/debug-demo. Off by default
+  # so non-debug ROMs stay byte-identical.
+, debugConsole ? false
 , ...
 }@args:
 
@@ -65,7 +70,16 @@ let
     "assets"
     "makeFlags"
     "nativeBuildInputs"
+    "debugConsole"
   ];
+
+  # Caller-supplied makeFlags, with the debug-console flag appended when the
+  # ROM opts in. The flag is passed as the make variable M64_DEBUG=1; the
+  # included m64-inst.mk translates it to -DM64_DEBUG=1 *after* n64.mk has
+  # established N64_CFLAGS, avoiding the command-line precedence trap where
+  # passing N64_CFLAGS+=... would override n64.mk's defaults and drop the
+  # include paths.
+  makeFlagsWithDebug = makeFlags ++ lib.optional debugConsole "M64_DEBUG=1";
 
 in
 pkgs.stdenv.mkDerivation (passthruArgs // {
@@ -86,7 +100,7 @@ pkgs.stdenv.mkDerivation (passthruArgs // {
   N64_INST = n64Inst;
   N64_GCCPREFIX = toolchain;
 
-  inherit makeFlags;
+  makeFlags = makeFlagsWithDebug;
 
   dontConfigure = true;
 

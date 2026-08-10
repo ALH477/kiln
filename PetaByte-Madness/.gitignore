@@ -1,0 +1,15 @@
+# The original asset drops, verbatim: 24 MB of mostly .mp4/.gif turntables and
+# animation reels. The useful subset is extracted into assets/, docs/, tools/
+# and reference/ and IS tracked; these are the provenance record, not a build
+# input, and putting them in git history would cost more than they are worth.
+# See README.md's "What came from where".
+archives/
+
+# Raw audio drops: ~280 MB of source stems and jukebox material that the
+# build never reads. Same reasoning as archives/ above — provenance, not a
+# build input. The two files the ROM actually consumes are tracked:
+#   assets/music/petabyte.mid          -> the XM64 score
+#   assets/music/petabyte_theme.mp3    -> the streamed recording
+assets/music/*
+!assets/music/petabyte.mid
+!assets/music/petabyte_theme.mp3

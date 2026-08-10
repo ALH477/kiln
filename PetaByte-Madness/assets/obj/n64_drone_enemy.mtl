@@ -1,0 +1,30 @@
+# N64-style materials - simple colors, no textures needed (vertex color friendly or flat)
+# For true N64 feel use these as vertex colors or small 16x16/32x32 textures
+
+newmtl Body
+Ka 0.1 0.1 0.12
+Kd 0.25 0.28 0.32
+Ks 0.3 0.3 0.35
+Ns 20
+illum 2
+
+newmtl Accent
+Ka 0.2 0.05 0.02
+Kd 0.7 0.15 0.08
+Ks 0.4 0.2 0.1
+Ns 40
+illum 2
+
+newmtl Prop
+Ka 0.05 0.05 0.05
+Kd 0.12 0.12 0.14
+Ks 0.5 0.5 0.5
+Ns 60
+illum 2
+
+newmtl Eye
+Ka 0.3 0.0 0.0
+Kd 1.0 0.1 0.05
+Ks 0.8 0.3 0.2
+Ns 80
+illum 2

@@ -35,6 +35,27 @@ static uint8_t m64_style_for(color_t c)
 
 void m64_gui_init(void)
 {
+    /* Idempotent, and that is load-bearing rather than defensive.
+     *
+     * m64_engine_init() already calls this (see m64_engine.c) — so any ROM
+     * that ALSO calls it, which reads as the obvious thing to do next to
+     * m64_input_init(), used to hard-assert at boot:
+     *
+     *   ASSERTION FAILED: Trying to load already loaded font data
+     *   memcmp(fnt->magic, FONT_MAGIC_LOADED, 3)
+     *
+     * rdpq_font_load_builtin hands back a pointer into a buffer compiled
+     * into libdragon and stamps a magic into it, so loading it twice is a
+     * hard failure. The ROM dies on a black screen with the LibDragon
+     * Inspector up, which looks exactly like "my game renders nothing" and
+     * sends you hunting through cameras and near/far planes instead.
+     * Three ROMs in this repo had the bug simultaneously.
+     *
+     * A public init that cannot be called twice — when the engine's own
+     * init already called it — is a landmine, so it is defused here rather
+     * than documented at each of the call sites that stepped on it. */
+    if (m64_font) return;
+
     /* The built-in debug font is compiled into libdragon, so the 2D layer has
      * no filesystem dependency at all — a ROM with no DFS image can still draw
      * a HUD. Swap in rdpq_font_load("rom:/x.font64") for a real typeface. */
@@ -47,6 +68,11 @@ void m64_gui_init(void)
 
 void m64_gui_close(void)
 {
+    /* Deliberately does NOT clear m64_font. rdpq_font_load_builtin hands back
+     * a buffer compiled into libdragon and stamps a magic into it, so it can
+     * only ever be loaded once per boot — there is nothing to free, and
+     * nulling the pointer here would re-arm the double-load assert for any
+     * caller that closed and re-initialised. The asymmetry is the point. */
 }
 
 void m64_gui_begin(void)

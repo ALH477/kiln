@@ -5,6 +5,12 @@
 #
 # Usage: n64-rec.sh <rom.z64> <out.mp4> [duration-seconds] [settle-seconds]
 #
+# Set NATIVE=1 for a "90s grade" master: the capture is reduced to the N64's
+# actual 320x240 output and then point-upscaled back to 4x (1280x960) with
+# nearest-neighbour, so every pixel on screen is one console pixel drawn as a
+# hard 4x4 block. See the NATIVE stage at the bottom of this file for why
+# that is a downscale followed by an upscale rather than just a crop.
+#
 # Mirrors tools/n64-shot.sh's window-finding logic; only the capture backend
 # differs — gpu-screen-recorder records the Ares window's screen region for
 # the requested duration instead of grim grabbing a single PNG. Audio is
@@ -88,6 +94,25 @@ if match:
 ' 2>/dev/null || true
 }
 
+ares_ws() {
+  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" python3 -c '
+import json, os, sys
+try: clients = json.load(sys.stdin)
+except Exception: sys.exit()
+pid = int(os.environ["EMU_PID"])
+for c in clients:
+    if c.get("pid") == pid and c.get("mapped") and not c.get("hidden"):
+        print(c["workspace"]["id"]); break
+' 2>/dev/null || true
+}
+active_ws() {
+  hyprctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+for m in json.load(sys.stdin):
+    if m.get("focused"): print(m["activeWorkspace"]["id"]); break
+' 2>/dev/null || true
+}
+
 GEOM=""
 for _ in $(seq 1 60); do
   sleep 0.5
@@ -101,7 +126,36 @@ if [ -z "$GEOM" ]; then
   exit 1
 fi
 
+# ── The workspace trap ────────────────────────────────────────────────
+# gpu-screen-recorder's -w region records a SCREEN RECTANGLE off the
+# composited output, exactly as grim does — it has no concept of a window
+# either. Ares opening on workspace 1 while the monitor shows workspace 3
+# therefore yields a full-length, correctly-sized MP4 of workspace 3.
+#
+# That failure mode has already cost this project real time in the still
+# path (see n64-shot.sh's note on two ROMs capturing an identical 64
+# non-black pixels), and it is worse here: a 45-second video of the wrong
+# thing looks far more convincing than a wrong PNG. So move Ares onto the
+# visible workspace and then assert it, rather than trusting the dispatch.
+AWS="$(active_ws)"
+EWS="$(ares_ws)"
+if [ -n "$AWS" ] && [ -n "$EWS" ] && [ "$AWS" != "$EWS" ]; then
+  echo "n64-rec: ares is on workspace $EWS, screen is showing $AWS — moving it"
+  hyprctl dispatch movetoworkspacesilent "$AWS,pid:$EMU_PID" >/dev/null 2>&1 || true
+  hyprctl dispatch focuswindow "pid:$EMU_PID" >/dev/null 2>&1 || true
+  sleep 1
+  GEOM="$(find_ares_geom)"
+fi
+
 sleep "$SETTLE"
+
+AWS="$(active_ws)"
+EWS="$(ares_ws)"
+if [ -n "$AWS" ] && [ -n "$EWS" ] && [ "$AWS" != "$EWS" ]; then
+  echo "n64-rec: ares is on workspace $EWS but the screen shows $AWS." >&2
+  echo "n64-rec: the recorder would capture the wrong workspace — refusing." >&2
+  exit 1
+fi
 
 # Re-check before capturing: if Ares died during settle, fail loudly.
 GEOM2="$(find_ares_geom)"
@@ -171,3 +225,60 @@ HAS_AUDIO="$(ffprobe -v error -select_streams a:0 \
     -show_entries stream=codec_name -of csv=s=x:p=0 "$OUT" 2>/dev/null || echo none)"
 
 echo "n64-rec: wrote $OUT (region $REGION, ${DURATION}s requested, dur ${DUR}s, video ${SUMMARY}, audio ${HAS_AUDIO})"
+
+# ── NATIVE: the 90s-grade master ──────────────────────────────────────
+# The N64 renders 320x240. Ares presents that scaled up to whatever the
+# window is, with its own filtering and (because the window is rarely 4:3)
+# its own letterboxing. A capture of that window is neither the console's
+# resolution nor its aspect.
+#
+# So this does three things, in this order, and the order is the point:
+#
+#   1. CROP to the largest 4:3 region in the middle of the capture. Ares'
+#      pillar/letterbox bars are not content and scaling them in would
+#      squash the picture.
+#   2. SCALE DOWN to 320x240 with `area`. This throws away Ares' upscaling
+#      and gets back to one sample per console pixel; `neighbor` here would
+#      alias badly because it is a >3x reduction, which is the one place a
+#      point filter is the wrong choice.
+#   3. SCALE UP 4x with `neighbor`. Now every console pixel is a hard 4x4
+#      block — the "point-upscaled, so the pixel count you see is the pixel
+#      count you get" convention PetaByte-Madness/docs/VEIL_DESIGN.md §10
+#      already uses for its own renders.
+#
+# ── The encoder settings are not decoration ───────────────────────────
+# A point-upscale is only worth doing if the codec does not then smear it.
+# Measured on a 1256x776 synthetic capture, counting 4x4 blocks that are
+# NOT a single flat value (i.e. pixels the upscale should have made
+# identical, and the encoder did not):
+#
+#   -crf 16 (default psy-rd)              5.30% not flat    651 KB
+#   -crf 12 -tune animation               3.24% not flat    790 KB
+#   -crf 10 psy-rd=0 deblock=-3,-3        0.04% not flat    750 KB
+#   -crf 0  (lossless)                    0.00% not flat   4561 KB
+#
+# x264's psychovisual optimisation deliberately adds detail near hard
+# edges, which is exactly wrong for content whose whole point is hard
+# edges — it is the single biggest term here, bigger than the quantiser.
+# Turning it off with deblocking down gets within noise of lossless for a
+# sixth of the size. The scaler itself is exact: the same chain written
+# straight to PNG measures 0.00%.
+#
+# Audio is copied, not re-encoded: the jingle and the ambience bed are the
+# one thing in this capture that is already exactly right.
+if [ "${NATIVE:-0}" = "1" ]; then
+  NATIVE_OUT="${OUT%.mp4}-320x240.mp4"
+  echo "n64-rec: rendering 90s-grade master -> $NATIVE_OUT"
+  if ffmpeg -y -v error -i "$OUT" \
+      -vf "crop='min(iw,ih*4/3)':'min(ih,iw*3/4)',scale=320:240:flags=area,scale=1280:960:flags=neighbor,setsar=1" \
+      -c:v libx264 -preset slow -crf 10 \
+      -x264-params psy-rd=0:deblock=-3,-3 -pix_fmt yuv420p \
+      -c:a copy "$NATIVE_OUT" 2>"$WORK/native.log"; then
+    NSUM="$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height -of csv=s=x:p=0 "$NATIVE_OUT" 2>/dev/null || echo "?")"
+    echo "n64-rec: wrote $NATIVE_OUT (${NSUM}, 320x240 native point-upscaled 4x)"
+  else
+    echo "n64-rec: native pass failed; the raw capture at $OUT is still good" >&2
+    sed -n '1,10p' "$WORK/native.log" >&2
+  fi
+fi
