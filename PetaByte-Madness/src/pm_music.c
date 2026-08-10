@@ -6,6 +6,7 @@
 
 #include <libdragon.h>
 #include <m64/m64_audio.h>
+#include <m64/m64_engine.h>
 
 #include "pm_screens.h"  // PM_CH_MUSIC
 
@@ -37,8 +38,9 @@ static float g_quiet;   // how long every voice has been silent
 
 void pm_music_init(void)
 {
-    g_xm     = m64_music_load(XM_PATH);
-    g_stream = m64_sfx_load(STREAM_PATH);
+    // Same probe-first rule as pm_sfx: both of these are optional.
+    g_xm     = m64_dfs_exists(XM_PATH)     ? m64_music_load(XM_PATH)   : -1;
+    g_stream = m64_dfs_exists(STREAM_PATH) ? m64_sfx_load(STREAM_PATH) : -1;
     g_state  = ST_SILENT;
     g_active = 0;
 
@@ -110,14 +112,15 @@ void pm_music_update(float dt, float vol)
     switch (g_state) {
     case ST_SCORE:
         m64_music_set_volume(g_xm, vol);
-        // Silence has to persist to count — see QUIET_HANDOVER. The one
-        // second of grace at the start is for the frames between
-        // xm64player_play and the RSP actually filling a buffer, where
-        // every channel legitimately reads as idle.
-        if (g_elapsed > 1.0f && !m64_music_playing(g_xm)) g_quiet += dt;
-        else                                             g_quiet = 0.0f;
-
-        if (g_elapsed >= XM_SECONDS || g_quiet >= QUIET_HANDOVER) {
+        // The CLOCK is the whole test. m64_music_playing reports whether
+        // the track's FIRST mixer channel has a note sounding, so on a
+        // quartet whose lead rests for bars at a time it reads "stopped"
+        // most of the piece — it fired the handover 11 seconds into a
+        // 64-second score. The score's length is a property of the module
+        // (tools/midi_to_xm.py prints it), so it is known here exactly and
+        // does not need to be inferred from the mixer at all.
+        (void)g_quiet;
+        if (g_elapsed >= XM_SECONDS) {
             m64_music_stop(g_xm);
             start_stream();
         }

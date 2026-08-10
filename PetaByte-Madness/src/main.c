@@ -189,6 +189,26 @@ int main(void)
         m64_widget_tick(dt);
         const M64Input *in = m64_input_get(0);
 
+        // ── Pump the RSP mixer FIRST, before any geometry is queued ──────
+        // mixer_poll mixes on the RSP, and so does Tiny3D. This call used to
+        // sit at the BOTTOM of the loop, "after everything that could have
+        // started a sound" — which meant it queued behind the entire frame's
+        // 3D command list and had to wait for it.
+        //
+        // That was survivable while the flyover drew ~1,900 triangles. Once
+        // it drew a sky dome, denser terrain, a textured sea and ten palms,
+        // the mixer missed a buffer roughly once per buffer cycle: recording
+        // the console output found the audio sitting at exactly digital zero
+        // for 0.4-10 ms every 0.16 s — the configured latency — in BOTH the
+        // XM64 and the streamed wav64 path, because both go through this
+        // same mixer.
+        //
+        // Pumped first, the mixer takes an idle RSP and the geometry queues
+        // behind IT. Video has a whole frame of slack; audio has none. The
+        // cost is that a sound triggered this frame starts one frame later,
+        // which is 16 ms.
+        m64_audio_update();
+
         // Which screen is up, and what drives the camera on it. Everything
         // before PLAY is a scripted shot; pm_screens owns that.
         const PMScreen screen =
@@ -303,10 +323,6 @@ int main(void)
         pm_debug_draw(&app, &scene, fps_active ? &g_cam : NULL, &veil,
                       dt, PM_SCREEN_W, PM_SCREEN_H);
         m64_gui_end();
-
-        // Pump the RSP mixer. Once per frame, after everything that could
-        // have started a sound.
-        m64_audio_update();
 
         m64_frame_end();
     }

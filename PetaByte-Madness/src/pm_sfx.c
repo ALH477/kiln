@@ -6,6 +6,7 @@
 
 #include <libdragon.h>
 #include <m64/m64_audio.h>
+#include <m64/m64_engine.h>
 
 #include "pm_screens.h"  // PM_CH_DRONE — the one channel never used here
 
@@ -39,7 +40,13 @@ void pm_sfx_init(void)
 {
     g_loaded = 0;
     for (int i = 0; i < PM_SFX_COUNT; i++) {
-        g_handle[i] = DEFS[i].path ? m64_sfx_load(DEFS[i].path) : -1;
+        // Probe before loading. wav64_open asserts through libdragon's
+        // must_open on a missing file, so an unauthored sound would kill the
+        // ROM at boot rather than run silent — and none of these nine exist
+        // yet. The check lives here, in the module that knows these assets
+        // are optional, rather than in the engine.
+        g_handle[i] = (DEFS[i].path && m64_dfs_exists(DEFS[i].path))
+                        ? m64_sfx_load(DEFS[i].path) : -1;
         if (g_handle[i] >= 0) g_loaded++;
     }
     // Loud in the log, silent in the game. A build with no sounds is a

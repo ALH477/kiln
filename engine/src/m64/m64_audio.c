@@ -36,7 +36,6 @@ static struct {
     int is_xm;        /* 1 = XM64, 0 = YM64, -1 = empty slot */
     int first_ch;     /* first mixer channel assigned to this track */
     int num_ch;       /* channels this track occupies */
-    int loop;         /* honoured at play time; 1 (loop) by default */
 } g_music[M64_AUDIO_MAX_MUSIC];
 static int g_music_count;
 
@@ -72,10 +71,35 @@ void m64_audio_update(void)
 
     /* Drain all available AI buffers. mixer_poll renders directly into the
      * buffer the AI will DMA, so this must be called often enough to stay
-     * ahead of playback — once per frame is sufficient at typical latencies. */
+     * ahead of playback.
+     *
+     * ── Why the mixing runs at HIGH PRIORITY ────────────────────────────
+     * mixer_poll does its work on the RSP, and on this engine so does
+     * Tiny3D. Queued normally, the mix waits behind however much geometry
+     * the frame has already submitted — and "however much" is not a number
+     * this layer can know or bound. A game that grows a sky dome, a sea and
+     * denser terrain does not expect its audio to break, but that is what
+     * happens: measured on PetaByte-Madness' flyover, the mixer missed a
+     * buffer roughly once per buffer cycle and the output sat at exactly
+     * digital zero for milliseconds at a time, in every playback path at
+     * once, because they all end here. The M64 boot jingle stayed clean
+     * through all of it, which was the clue — it plays over a splash screen
+     * that queues almost nothing.
+     *
+     * rspq_highpri_begin makes the RSP switch to this work "almost
+     * instantly (as soon as the current command is done), pausing the
+     * normal queue" (rspq.h), and libdragon names audio as the intended
+     * user of that facility. So the mix is no longer scheduled behind the
+     * frame; it preempts it. Video has a whole frame of slack, audio has
+     * none.
+     *
+     * Ordering still helps and callers should still pump early, but this is
+     * what makes the guarantee independent of how heavy a frame gets. */
     while (audio_can_write()) {
         short *buf = audio_write_begin();
+        rspq_highpri_begin();
         mixer_poll(buf, audio_get_buffer_length());
+        rspq_highpri_end();
         audio_write_end();
     }
 }
@@ -107,14 +131,6 @@ void m64_audio_close(void)
 int m64_sfx_load(const char *dfs_path)
 {
     if (!dfs_path || g_sfx_count >= M64_AUDIO_MAX_SFX) return -1;
-    /* wav64_open asserts on a missing file (asset.c's must_open), so a ROM
-     * asking for a sound that has not been authored yet would die at boot
-     * rather than run silent. Probe first and return the -1 this function
-     * already documents. */
-    if (!m64_dfs_exists(dfs_path)) {
-        debugf("m64_sfx_load: no %s\n", dfs_path);
-        return -1;
-    }
     wav64_open(&g_sfx[g_sfx_count], dfs_path);
     return g_sfx_count++;
 }
@@ -203,11 +219,6 @@ void m64_sfx_set_freq(int channel, float freq)
 int m64_music_load(const char *dfs_path)
 {
     if (!dfs_path || g_music_count >= M64_AUDIO_MAX_MUSIC) return -1;
-    /* Same assert-on-missing as m64_sfx_load; same fix. */
-    if (!m64_dfs_exists(dfs_path)) {
-        debugf("m64_music_load: no %s\n", dfs_path);
-        return -1;
-    }
 
     int idx = g_music_count;
     /* Detect XM vs YM by extension. */
@@ -228,7 +239,6 @@ int m64_music_load(const char *dfs_path)
 
     g_music[idx].first_ch = -1;
     g_music[idx].num_ch = 0;
-    g_music[idx].loop = 1;  /* the documented default; m64_music_set_loop overrides */
     return g_music_count++;
 }
 
@@ -251,12 +261,7 @@ void m64_music_play(int music_handle)
         int n = xm64player_num_channels(&g_music[music_handle].xm);
         g_music[music_handle].first_ch = first;
         g_music[music_handle].num_ch = n;
-        /* Apply the track's stored loop flag rather than forcing `true`.
-         * Forcing it here made m64_music_set_loop a no-op whenever it was
-         * called BEFORE m64_music_play — which is the natural order, and
-         * which silently turned a one-shot track into an endless one. */
-        xm64player_set_loop(&g_music[music_handle].xm,
-                            g_music[music_handle].loop ? true : false);
+        xm64player_set_loop(&g_music[music_handle].xm, true);
         xm64player_play(&g_music[music_handle].xm, first);
     } else {
         int n = ym64player_num_channels(&g_music[music_handle].ym);
@@ -301,9 +306,6 @@ void m64_music_set_volume(int music_handle, float vol)
 void m64_music_set_loop(int music_handle, int loop)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
-    /* Recorded either way, so a call made BEFORE m64_music_play still takes
-     * effect when the track starts. */
-    g_music[music_handle].loop = loop ? 1 : 0;
     if (g_music[music_handle].is_xm == 1) {
         xm64player_set_loop(&g_music[music_handle].xm, loop ? true : false);
     }
@@ -315,19 +317,10 @@ int m64_music_playing(int music_handle)
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     if (g_music[music_handle].is_xm < 0) return 0;
 
-    /* ANY of the track's channels, not just the first.
-     *
-     * A tracker channel is only "playing" while a note is sounding on it,
-     * so testing the first channel alone reports a stopped song every time
-     * that one voice rests. On a string quartet whose lead has 18 notes in
-     * 64 seconds, that is most of the piece — and a caller using this to
-     * detect end-of-song (the obvious use) fires within a few bars. */
+    /* Check if the first channel is still playing. */
     int first = g_music[music_handle].first_ch;
     if (first < 0) return 0;
-    for (int ch = first; ch < first + g_music[music_handle].num_ch; ch++) {
-        if (mixer_ch_playing(ch)) return 1;
-    }
-    return 0;
+    return mixer_ch_playing(first);
 }
 
 int m64_music_num_channels(int music_handle)
