@@ -23,10 +23,10 @@ const GGBoardDef gg_board_defs[GG_BOARD_COUNT] = {
     },
 };
 
-void gg_boards_load(M64Board *b, int index)
+void gg_boards_load(KilnBoard *b, int index)
 {
     if (index < 0) index = 0;
     if (index >= GG_BOARD_COUNT) index = GG_BOARD_COUNT - 1;
     const GGBoardDef *d = &gg_board_defs[index];
-    m64_board_init(b, d->nodes, d->node_count, d->start_node);
+    kiln_board_init(b, d->nodes, d->node_count, d->start_node);
 }

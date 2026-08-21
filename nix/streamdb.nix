@@ -7,13 +7,13 @@
 # why this is a separate implementation rather than a port of the upstream C
 # edition (short version: pthreads, flock, fsync and a 1 KB-per-node trie).
 #
-# Installed with the same layout as libdragon/Tiny3D/libm64 so it merges into
+# Installed with the same layout as libdragon/Tiny3D/libkiln so it merges into
 # the one $N64_INST prefix and a ROM links it with -lstreamdb_emb.
 #
 # Built against libdragon alone (not n64InstBase): streamdb-embedded needs only
 # libdragon's n64.mk and the DFS backend's <libdragon.h>. Keeping it decoupled
 # from tiny3d lets it land in n64InstBase's extraLibs, which the engine needs
-# because m64_asset.c includes <streamdb_embedded.h>. See flake.nix for the
+# because kiln_asset.c includes <streamdb_embedded.h>. See flake.nix for the
 # build-order: libdragon → streamdb-emb → n64InstBase (+tiny3d) → engine.
 { pkgs, src, toolchain, libdragon }:
 

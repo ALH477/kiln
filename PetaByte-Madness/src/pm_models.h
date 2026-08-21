@@ -10,7 +10,7 @@
 //
 // So: load once, borrow by id, free at the end. Same contract T3DModel
 // itself has — pm_models_get returns a borrowed pointer the caller must
-// not free — and the same reason m64_skel documents for borrowing its
+// not free — and the same reason kiln_skel documents for borrowing its
 // `model` rather than owning it.
 //
 // ── Loaded on demand, not all at boot ──────────────────────────────────
@@ -33,20 +33,46 @@
 
 #include "pm_world_gen.h"
 
+// ── The model list ─────────────────────────────────────────────────────
+// One list, three consumers: the PMModelId enum, pm_models.c's DFS path
+// table, and pm_debug.c's residency-overlay labels.
+//
+// It is an X-macro because the three used to be three hand-maintained
+// lists and they drifted: PM_MODEL_LAB_ARMS landed in the enum with no
+// entry in pm_debug.c's names array, which shifted every label from
+// "guard" on one slot early and left the array one short of
+// PM_MODEL_COUNT. The missing final slot was C-zero-initialised to NULL,
+// which reached kiln_gui_text as a format string on the very first frame
+// the overlay drew — a boot crash on every debug build, and one that
+// `nix build` and `nix flake check` both pass cleanly (7163ca0). Deriving
+// all three from one list makes the drift unrepresentable.
+//
+//   X(id, dfs_path, short_name)
+// short_name is the residency overlay's label: four characters, because
+// the overlay fits all PM_MODEL_COUNT of them onto one 320 px line.
+#define PM_MODEL_LIST(X)                                                     \
+    X(PM_MODEL_ISLAND,   "rom:/models/island.t3dm",        "isle")           \
+    X(PM_MODEL_PALMS,    "rom:/models/palms.t3dm",         "palm")           \
+    X(PM_MODEL_CENTAUR,  "rom:/models/centaur.t3dm",       "cent")           \
+    X(PM_MODEL_LOACH,    "rom:/models/loach.t3dm",         "loch")           \
+    /* dank_lab.obj, not pm_world.py's procedural box — see pm_lab.h. */     \
+    X(PM_MODEL_LAB,      "rom:/models/dank_lab.t3dm",      "lab")            \
+    X(PM_MODEL_HORNER,   "rom:/models/horner.t3dm",        "horn")           \
+    /* the MRI bay's two idle-animated robotic arms */                       \
+    X(PM_MODEL_LAB_ARMS, "rom:/models/lab_arms.t3dm",      "arms")           \
+    X(PM_MODEL_GUARD,    "rom:/models/guard_cousin.t3dm",  "guard")          \
+    /* The boot splash. Root of DFS for the jingle, models/ for this. */     \
+    X(PM_MODEL_KILN_LOGO, "rom:/models/kiln_logo.t3dm",      "logo")           \
+    /* The night exterior (pm_env.h): a backdrop dome and the sea. */        \
+    X(PM_MODEL_SKYDOME,  "rom:/models/skydome.t3dm",       "sky")            \
+    X(PM_MODEL_SEA,      "rom:/models/sea.t3dm",           "sea")            \
+    /* lightning channels, bolt_0..2 */                                      \
+    X(PM_MODEL_STORM,    "rom:/models/storm.t3dm",         "bolt")
+
 typedef enum {
-    PM_MODEL_ISLAND = 0,
-    PM_MODEL_PALMS,
-    PM_MODEL_CENTAUR,
-    PM_MODEL_LOACH,
-    PM_MODEL_LAB,
-    PM_MODEL_HORNER,
-    PM_MODEL_LAB_ARMS,   // the MRI bay's two idle-animated robotic arms
-    PM_MODEL_GUARD,
-    PM_MODEL_M64_LOGO,
-    // The night exterior (pm_env.h): a backdrop dome and the sea.
-    PM_MODEL_SKYDOME,
-    PM_MODEL_SEA,
-    PM_MODEL_STORM,   // lightning channels, bolt_0..2
+#define PM_MODEL_ENUM(id, path, name) id,
+    PM_MODEL_LIST(PM_MODEL_ENUM)
+#undef PM_MODEL_ENUM
     PM_MODEL_COUNT,
 } PMModelId;
 
@@ -117,5 +143,9 @@ int pm_models_status(PMModelId id);
 
 /** The DFS path for a model id, for the same overlay. NULL if out of range. */
 const char *pm_models_path(PMModelId id);
+
+/** The short overlay label for a model id. Never NULL — returns "?" out of
+ *  range, because the caller hands it to kiln_gui_text as a format string. */
+const char *pm_models_name(PMModelId id);
 
 #endif // PM_MODELS_H

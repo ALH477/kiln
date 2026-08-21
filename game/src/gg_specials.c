@@ -21,7 +21,7 @@ void gg_specials_set_players(GGPlayer *players, int count)
 
 // ── Passives ────────────────────────────────────────────────────────────
 
-void gg_passive_dank(M64CharState *self, void *game_player, float dt)
+void gg_passive_dank(KilnCharState *self, void *game_player, float dt)
 {
     (void)self; (void)dt;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -30,7 +30,7 @@ void gg_passive_dank(M64CharState *self, void *game_player, float dt)
     p->pending_bud_bonus = 1;
 }
 
-void gg_passive_sparky(M64CharState *self, void *game_player, float dt)
+void gg_passive_sparky(KilnCharState *self, void *game_player, float dt)
 {
     (void)self; (void)dt;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -41,7 +41,7 @@ void gg_passive_sparky(M64CharState *self, void *game_player, float dt)
     }
 }
 
-void gg_passive_moss(M64CharState *self, void *game_player, float dt)
+void gg_passive_moss(KilnCharState *self, void *game_player, float dt)
 {
     (void)self; (void)dt; (void)game_player;
     // Phase 5 will extend item durations by 1 when this player holds an
@@ -49,7 +49,7 @@ void gg_passive_moss(M64CharState *self, void *game_player, float dt)
     // and the HUD can advertise it.
 }
 
-void gg_passive_glimmer(M64CharState *self, void *game_player, float dt)
+void gg_passive_glimmer(KilnCharState *self, void *game_player, float dt)
 {
     (void)self; (void)dt;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -68,7 +68,7 @@ void gg_passive_glimmer(M64CharState *self, void *game_player, float dt)
 
 // ── Specials ────────────────────────────────────────────────────────────
 
-int gg_special_dank(M64CharState *self, void *game_player, void *target)
+int gg_special_dank(KilnCharState *self, void *game_player, void *target)
 {
     (void)self;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -81,7 +81,7 @@ int gg_special_dank(M64CharState *self, void *game_player, void *target)
     return 1;
 }
 
-int gg_special_sparky(M64CharState *self, void *game_player, void *target)
+int gg_special_sparky(KilnCharState *self, void *game_player, void *target)
 {
     (void)self; (void)target;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -92,7 +92,7 @@ int gg_special_sparky(M64CharState *self, void *game_player, void *target)
     return 1;
 }
 
-int gg_special_moss(M64CharState *self, void *game_player, void *target)
+int gg_special_moss(KilnCharState *self, void *game_player, void *target)
 {
     (void)self; (void)target;
     GGPlayer *p = (GGPlayer *)game_player;
@@ -104,7 +104,7 @@ int gg_special_moss(M64CharState *self, void *game_player, void *target)
     return 1;
 }
 
-int gg_special_glimmer(M64CharState *self, void *game_player, void *target)
+int gg_special_glimmer(KilnCharState *self, void *game_player, void *target)
 {
     (void)self; (void)target;
     GGPlayer *p = (GGPlayer *)game_player;

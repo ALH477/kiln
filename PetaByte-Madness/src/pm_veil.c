@@ -15,6 +15,10 @@
 #include <libdragon.h>
 #include <rdpq_tri.h>
 #include <t3d/t3d.h>
+#include <t3d/t3dmodel.h>
+#include <t3d/t3dskeleton.h>
+#include <stdio.h>
+#include <string.h>
 
 // The tint. Deep arterial, not fire-engine. Slightly toward magenta so the
 // mid band does not collide with the orange of the lab's lamp light.
@@ -95,7 +99,7 @@ static inline float lerpf(float a, float b, float t)
     return a + (b - a) * t;
 }
 
-void pm_veil_apply_scene(const PMVeil *v, M64Scene *scene)
+void pm_veil_apply_scene(const PMVeil *v, KilnScene *scene)
 {
     const float t = v->t;
 
@@ -116,8 +120,8 @@ void pm_veil_apply_scene(const PMVeil *v, M64Scene *scene)
 
     // The rebate. Under the veil the horizon is opaque crimson anyway, so
     // pull the far plane in and reclaim the triangles for the demons.
-    // m64_scene_update rebuilds the projection from this field, so writing
-    // it here — before the caller's m64_scene_update — is the whole wiring.
+    // kiln_scene_update rebuilds the projection from this field, so writing
+    // it here — before the caller's kiln_scene_update — is the whole wiring.
     scene->far_z = lerpf(v->far_normal, v->far_veiled, t);
 }
 
@@ -188,7 +192,7 @@ void pm_veil_draw_vignette(const PMVeil *v, int w, int h)
 
     // Called inside the 2D pass, so depth is already off and the standard
     // combiner is already set — only the blender and combiner need moving,
-    // and m64_gui_end puts them back for the next frame's GUI draws.
+    // and kiln_gui_end puts them back for the next frame's GUI draws.
     rdpq_set_mode_standard();
     rdpq_mode_blender(RDPQ_BLENDER_MULTIPLY);
     rdpq_mode_combiner(RDPQ_COMBINER_SHADE);
@@ -229,4 +233,334 @@ void pm_veil_ramp_build(uint16_t out[PM_VEIL_STEPS][PM_VEIL_TLUT_LEN],
             out[s][e] = (uint16_t)((r << 11) | (g << 6) | (b << 1) | al);
         }
     }
+}
+
+// ── Loading a baked pair ───────────────────────────────────────────────
+bool pm_veil_load_palette(const char *dfs_path,
+                          uint16_t ramp[PM_VEIL_STEPS][PM_VEIL_TLUT_LEN],
+                          uint8_t tmem_tile, uint8_t flags,
+                          PMVeilPalette *out)
+{
+    if (!dfs_path || !ramp || !out) return false;
+
+    // Probe first. dfs_open asserts through libdragon's must_open on a missing
+    // file and kills the ROM — the same trap pm_models.c documents, and the
+    // reason the "a missing asset is survivable" contract in the header is
+    // actually true rather than aspirational.
+    if (!kiln_dfs_exists(dfs_path)) {
+        debugf("pm_veil: no %s (fog + far-plane only)\n", dfs_path);
+        return false;
+    }
+
+    // stdio, NOT dfs_open — and this is the one detail that has to be right.
+    // kiln_dfs_exists' own comment says it: dfs_open wants a path WITHOUT the
+    // "rom:/" prefix that every caller here writes, while fopen goes through
+    // libdragon's filesystem hook and takes the path as spelled. Probing with
+    // fopen and then reading with dfs_open meant the probe passed and the open
+    // failed on every palette, so the ROM reported "veil-pal 0/3" while the
+    // files were demonstrably present. Use one convention for both.
+    FILE *f = fopen(dfs_path, "rb");
+    if (!f) {
+        debugf("pm_veil: fopen failed for %s\n", dfs_path);
+        return false;
+    }
+
+    // 16 cold + 16 veiled, RGBA5551 BIG-ENDIAN. Read as bytes and assembled
+    // explicitly rather than read straight into a uint16_t array: the VR4300 is
+    // big-endian so a direct read happens to work today, and writing it out is
+    // what keeps it working if this ever runs on a host check.
+    uint8_t raw[PM_VEIL_TLUT_LEN * 2 * 2];
+    const size_t got = fread(raw, 1, sizeof raw, f);
+    fclose(f);
+
+    if (got != sizeof raw) {
+        debugf("pm_veil: %s is %u bytes, expected %u\n",
+               dfs_path, (unsigned)got, (unsigned)sizeof raw);
+        return false;
+    }
+
+    uint16_t cold[PM_VEIL_TLUT_LEN], veiled[PM_VEIL_TLUT_LEN];
+    for (int i = 0; i < PM_VEIL_TLUT_LEN; i++) {
+        cold[i]   = (uint16_t)((raw[i * 2] << 8) | raw[i * 2 + 1]);
+        const int j = (PM_VEIL_TLUT_LEN + i) * 2;
+        veiled[i] = (uint16_t)((raw[j] << 8) | raw[j + 1]);
+    }
+
+    pm_veil_ramp_build(ramp, cold, veiled);
+
+    out->ramp = (const uint16_t (*)[PM_VEIL_TLUT_LEN])ramp;
+    out->tmem_tile = tmem_tile;
+    out->flags = flags;
+    return true;
+}
+
+// ── The game's palette registry ────────────────────────────────────────
+// One place that owns the loaded pairs, for the same reason pm_models.c owns
+// the loaded models: several screens want the centaur, and each loading its own
+// copy would put four 288-byte ramps in RAM and make "who owns this" a question
+// with four answers.
+//
+// The ramps must be 8-byte aligned for rdpq_tex_upload_tlut, which is what the
+// alignas is for — a misaligned TLUT upload does not fail, it DMAs from the
+// wrong offset and the material comes out in a neighbouring palette.
+static _Alignas(8) uint16_t g_ramps[PM_VEIL_PAL_COUNT]
+                                   [PM_VEIL_STEPS][PM_VEIL_TLUT_LEN];
+static PMVeilPalette g_pals[PM_VEIL_PAL_COUNT];
+static uint8_t       g_pal_ok[PM_VEIL_PAL_COUNT];
+
+// Order matches PMVeilPaletteId. Every one is `demon` class (see flake.nix's
+// pmVeilTextures on why the centaur takes the full value range).
+static const struct { const char *path; uint8_t flags; } PAL_SRC[PM_VEIL_PAL_COUNT] = {
+    { "rom:/textures/mc_face.pal",  PM_VEIL_PAL_DEMON },
+    { "rom:/textures/mc_plate.pal", PM_VEIL_PAL_DEMON },
+    { "rom:/textures/mc_gore.pal",  PM_VEIL_PAL_DEMON },
+};
+
+int pm_veil_palettes_init(void)
+{
+    int n = 0;
+    for (int i = 0; i < PM_VEIL_PAL_COUNT; i++) {
+        // The TMEM tile IS the index: each material owns one 16-entry slot, and
+        // two materials sharing a slot would have the second overwrite the
+        // first's upload mid-frame.
+        // TMEM tile 0 for every palette, not `i`. pm_veil_draw_model draws
+        // one material at a time and re-uploads before each, so two palettes
+        // never need to be resident together — and a CI4 tile selects its
+        // 16-entry block with a palette index f3d_inject does not set, which is
+        // 0. Uploading elsewhere would put the entries where the tile is not
+        // looking, and the material would render in whatever was at slot 0.
+        g_pal_ok[i] = pm_veil_load_palette(PAL_SRC[i].path, g_ramps[i],
+                                           0, PAL_SRC[i].flags,
+                                           &g_pals[i]) ? 1 : 0;
+        n += g_pal_ok[i];
+    }
+    debugf("pm_veil: %d/%d baked palettes loaded\n", n, PM_VEIL_PAL_COUNT);
+    return n;
+}
+
+const PMVeilPalette *pm_veil_palette(PMVeilPaletteId id)
+{
+    if (id < 0 || id >= PM_VEIL_PAL_COUNT || !g_pal_ok[id]) return NULL;
+    return &g_pals[id];
+}
+
+int pm_veil_palettes_loaded(void)
+{
+    int n = 0;
+    for (int i = 0; i < PM_VEIL_PAL_COUNT; i++) n += g_pal_ok[i];
+    return n;
+}
+
+// ── Drawing a model THROUGH the veil ───────────────────────────────────
+//
+// This is the call site the whole palette-swap half of the design was written
+// for and never had. `pm_veil_bind_palette`, `_material_pass` and `_prim_alpha`
+// existed with zero callers because binding a TLUT per material means drawing
+// per material, and `t3d_model_draw` draws the whole model in one go with no
+// seam to hook.
+//
+// Tiny3D already supports the seam: `t3d_model_iter_*` walks the objects and
+// `t3d_model_draw_material` applies one object's material before
+// `t3d_model_draw_object` draws it — which its own doc names as the way to
+// change material settings. So this is that loop with three decisions added per
+// object.
+//
+// ── Order is load-bearing ───────────────────────────────────────────────
+// The TLUT upload must come AFTER t3d_model_draw_material, not before: that
+// call is what uploads the texture and sets the tile's TLUT mode, and a palette
+// bound first is simply overwritten. Nothing warns; the material just renders in
+// whatever palette was last resident, which for a CI4 texture is a plausible
+// wrong picture rather than an obvious failure.
+
+// ── The callback pair, and why it is not "bind after draw_material" ────
+// The first version of this bound the TLUT after t3d_model_draw_material and
+// before t3d_model_draw_object. It loaded, ran, rendered the model correctly
+// and had NO EFFECT on any pixel: the tile — and with it the TLUT the texels
+// are looked up through — is configured inside the draw, so a palette uploaded
+// beforehand is simply replaced.
+//
+// kiln_texanim.h already records the general form of this: "Scrolling and
+// palette modes must change tile params per frame, which is impossible with a
+// pre-recorded display list", which is why its PALETTE mode uses Tiny3D's
+// `tileCb` — the callback documented as hooking "into the tile-setting
+// section". That is the only correct place to put a TLUT.
+//
+// The catch kiln_texanim's own comment admits is that tileCb does not receive
+// the material, so it cannot tell which palette to bind. `filterCb` does
+// receive the T3DObject — and it is called per object, before that object's
+// tiles are set. So the two together are exactly the hook this needs:
+//
+//   filterCb  picks the object's palette, stashes it, and returns false to
+//             DROP the object entirely (which is the phantom rule, for free —
+//             a creature you cannot see is never submitted).
+//   tileCb    binds whatever filterCb stashed.
+//
+// The stash is module-static rather than in the context struct because tileCb
+// gets the same userData and needs the value filterCb chose for the object
+// currently being drawn; Tiny3D drives them strictly in that order per object.
+typedef struct {
+    const PMVeil *v;
+    const PMVeilMaterial *mats;
+    int count;
+    const PMVeilPalette *pending;   /* chosen by filterCb, read by tileCb */
+} VeilDrawCtx;
+
+static const PMVeilPalette *find_mat(const PMVeilMaterial *mats, int count,
+                                     const char *name)
+{
+    if (!name) return NULL;
+    for (int i = 0; i < count; i++) {
+        if (mats[i].material && strcmp(mats[i].material, name) == 0)
+            return mats[i].pal;
+    }
+    return NULL;
+}
+
+static bool veil_filter_cb(void *userData, const T3DObject *obj)
+{
+    VeilDrawCtx *ctx = (VeilDrawCtx *)userData;
+
+    ctx->pending = (obj && obj->material)
+                 ? find_mat(ctx->mats, ctx->count, obj->material->name)
+                 : NULL;
+
+    // Not a veil material: drawn exactly as it always was. Most of a model is
+    // not the veil's business, and an integration that changed how the rest of
+    // it looks would be a regression dressed as a feature.
+    if (!ctx->pending) return true;
+
+    // PM_VEIL_PASS_SKIP means the display list is never walked at all. This is
+    // where the effect pays for itself rather than costing: with the veil down
+    // a corridor can hold a dozen creatures for nothing.
+    return pm_veil_material_pass(ctx->v, ctx->pending) != PM_VEIL_PASS_SKIP;
+}
+
+static void veil_tile_cb(void *userData, rdpq_texparms_t *tileParams,
+                         rdpq_tile_t tile)
+{
+    (void)tileParams; (void)tile;
+    VeilDrawCtx *ctx = (VeilDrawCtx *)userData;
+    if (ctx->pending) pm_veil_bind_palette(ctx->v, ctx->pending);
+}
+
+void pm_veil_draw_model(const PMVeil *v, const T3DModel *model,
+                        const T3DMat4FP *bones,
+                        const PMVeilMaterial *mats, int count)
+{
+    if (!model) return;
+    if (!v || !mats || count <= 0) {
+        // No veil state or no veil materials: this is just a model.
+        t3d_model_draw_custom(model, (T3DModelDrawConf){ .matrices = bones });
+        return;
+    }
+
+    VeilDrawCtx ctx = { .v = v, .mats = mats, .count = count, .pending = NULL };
+    t3d_model_draw_custom(model, (T3DModelDrawConf){
+        .userData = &ctx,
+        .filterCb = veil_filter_cb,
+        .tileCb   = veil_tile_cb,
+        .matrices = bones,
+    });
+
+    // ── On the 400 ms crossfade ─────────────────────────────────────────
+    // pm_veil_prim_alpha is NOT used here. Fading a body in needs the body's
+    // alpha to come from PRIM, and the material's authored combiner
+    // (tex0_decal) sources alpha from the texture — deliberately, because
+    // VEIL_DESIGN section 9 requires demons to draw near-DECAL so they keep the
+    // bright end of the palette. Overriding the combiner from a tile callback
+    // would fight the material Tiny3D is in the middle of applying.
+    //
+    // What happens instead is pm_veil_ramp_build's documented fallback: the
+    // ramp's 1-bit alpha flips at the halfway step, so a phantom appears on the
+    // step that crosses 0.5 rather than fading in over nine. On a 400 ms
+    // transition that is one frame's difference in feel and it is honest about
+    // what the hardware does with a 1-bit alpha. A real fade wants a second
+    // material variant with a PRIM alpha term, which is a change to the
+    // ASSET's combiner rather than to this file.
+}
+
+void pm_veil_draw_skinned(const PMVeil *v, const T3DModel *model,
+                          const T3DSkeleton *skel,
+                          const PMVeilMaterial *mats, int count)
+{
+    if (!skel) { pm_veil_draw_model(v, model, NULL, mats, count); return; }
+
+    // Exactly what t3d_model_draw_skinned does to pick its matrices, restated
+    // because that helper takes no draw config and so cannot be used here.
+    // A buffered skeleton addresses its matrices through a segment, which
+    // t3d_skeleton_use is what installs.
+    t3d_skeleton_use(skel);
+    const T3DMat4FP *bones =
+        skel->bufferCount == 1
+            ? skel->boneMatricesFP
+            : (const T3DMat4FP *)t3d_segment_placeholder(T3D_SEGMENT_SKELETON);
+
+    pm_veil_draw_model(v, model, bones, mats, count);
+}
+
+// ── The centaur's veil materials ───────────────────────────────────────
+// Which .t3dm material each baked palette belongs to. The names are the
+// machine_centaur.json prim groups that centaur.py turns into Blender
+// materials, and the same names flake.nix's pmCentaurModel gives `tex0_decal`
+// specs for — three places that must agree, and this is the one the runtime
+// reads. A typo here is silent: the material simply never gets a palette and
+// draws unveiled, which looks like the veil not working rather than like a
+// name being wrong.
+//
+// `hull` and `ribs` share mc_plate. That is fine and deliberate: the palette is
+// bound per DRAW, not per material, so two materials pointing at one ramp
+// upload it twice and cost 32 bytes of DMA extra.
+static const struct { const char *material; PMVeilPaletteId id; }
+CENTAUR_MATS[] = {
+    { "face", PM_VEIL_PAL_MC_FACE  },
+    { "gore", PM_VEIL_PAL_MC_GORE  },
+    { "hull", PM_VEIL_PAL_MC_PLATE },
+    { "ribs", PM_VEIL_PAL_MC_PLATE },
+};
+
+int pm_veil_centaur_materials(PMVeilMaterial *out, int max)
+{
+    if (!out || max <= 0) return 0;
+    int n = 0;
+    for (int i = 0; i < (int)(sizeof CENTAUR_MATS / sizeof CENTAUR_MATS[0]); i++) {
+        if (n >= max) break;
+        const PMVeilPalette *p = pm_veil_palette(CENTAUR_MATS[i].id);
+        // An absent palette is skipped rather than listed with a NULL: a
+        // listed-but-NULL entry would make pm_veil_draw_model take its veil
+        // branch and then bind nothing. Skipping leaves the material on the
+        // ordinary draw path, which is exactly right for a ROM built without
+        // the veil assets.
+        if (!p) continue;
+        out[n].material = CENTAUR_MATS[i].material;
+        out[n].pal = p;
+        n++;
+    }
+    return n;
+}
+
+// ── The veil main() owns, borrowed by the draw sites ───────────────────
+// Same arrangement pm_demons_bind uses, and for the same reason: the PMVeil
+// lives on main()'s stack because it is per-session state, and the shots that
+// draw the centaur (pm_demo.c's reel, pm_arrival.c's beach) are called through
+// PMDemoShot::draw, whose signature is `void (*)(float elapsed)`. Threading a
+// veil pointer through every shot callback so that two of them can use it is
+// the wrong trade.
+static const PMVeil *g_current;
+
+void pm_veil_bind(const PMVeil *v) { g_current = v; }
+
+void pm_veil_draw_centaur(const T3DModel *model, const T3DSkeleton *skel)
+{
+    PMVeilMaterial mats[4];
+    const int n = pm_veil_centaur_materials(mats, 4);
+
+    // No veil bound or no palettes resident: identical to the kiln_skel_draw
+    // this replaced. That is the state a ROM built without the veil assets is
+    // in, and it must still draw the character.
+    if (!g_current || n == 0) {
+        t3d_skeleton_use(skel);
+        t3d_model_draw_skinned(model, skel);
+        return;
+    }
+    pm_veil_draw_skinned(g_current, model, skel, mats, n);
 }

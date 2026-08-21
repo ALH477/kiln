@@ -56,7 +56,7 @@ Those are *node* animations on an unskinned hierarchy, and `gltf_to_t3d` wants
 a skin. The mesh converts fine, so nothing fails; you just get a statue.
 
 The centaur is one bone per limb across 23 bones — which is **one bone per
-vertex**, exactly the constraint `tools/blender/m64lib.py` documents:
+vertex**, exactly the constraint `tools/blender/kilnlib.py` documents:
 
 > the importer allows ONE bone per vertex and at most three bones per triangle
 
@@ -74,7 +74,7 @@ centaur.gltf ──► centaur.t3dm + centaur.0..12.sdata
 ```
 
 Result: **0 dropped channels, 23 bones, 13 animation sidecars, 49 KB total**
-(23 KB mesh + 26 KB animations). Play them with `m64_skel`.
+(23 KB mesh + 26 KB animations). Play them with `kiln_skel`.
 
 **This is also the fix for the demons.** Same pipeline, when someone gets to it.
 
@@ -138,7 +138,7 @@ no duplicates. The bug was caught only by the printed count disagreeing with
 
 ### And one that only bites the checker
 
-`m64lib.make_action` stashes each action in its own NLA track, and **every one
+`kilnlib.make_action` stashes each action in its own NLA track, and **every one
 of them evaluates unless muted**. Assigning `animation_data.action` on top of
 13 live strips poses the rig with all fourteen at once, which shows up as bones
 drifting in animations that never key them. The glTF exporter walks actions
@@ -197,5 +197,5 @@ file has no siblings.
   veil's TLUT format — the natural first real customer for
   `pm_veil_bind_palette`.
 - **Island tiling + LOD.** The decimated mesh is for the flyover. Walking on it
-  needs `m64_tile` + `m64_lod` + `m64_twopass`; `examples/openworld-demo` is
+  needs `kiln_tile` + `kiln_lod` + `kiln_twopass`; `examples/openworld-demo` is
   the worked example.

@@ -16,7 +16,7 @@ all: hello.z64
 
 $(BUILD_DIR)/hello.elf: $(OBJS)
 
-hello.z64: N64_ROM_TITLE = "M64 Hello"
+hello.z64: N64_ROM_TITLE = "Kiln Hello"
 
 clean:
 	rm -rf $(BUILD_DIR) hello.z64

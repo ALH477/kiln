@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// Phase B verification: the room streaming system (m64_room.h) with a 2×2
+// Phase B verification: the room streaming system (kiln_room.h) with a 2×2
 // grid of rooms A/B/C/D, each 80×80, sharing borders. The camera starts in
 // room A and moves with the stick; the HUD shows the current room and the
 // number of loaded rooms.
@@ -8,24 +8,24 @@
 // What this exercises:
 //   * AABB-overlap streaming — moving from A to B unloads A's diagonal
 //     neighbour and loads B's diagonal neighbour
-//   * spawn-on-load / despawn-on-unload via M64Actor.room_id
+//   * spawn-on-load / despawn-on-unload via KilnActor.room_id
 //   * per-room callback (each room builds its own coloured floor quad in
 //     on_load and frees it in on_unload)
 //   * brush auto-install: each room's on_load also sets room->brushes to a
-//     static M64Brush[5] (floor + 4 walls). m64_room concatenates loaded
+//     static KilnBrush[5] (floor + 4 walls). kiln_room concatenates loaded
 //     rooms' brushes into one clip world, so the player now stops at walls
-//     — no m64_clip_set_world call in this ROM.
+//     — no kiln_clip_set_world call in this ROM.
 //
 // Like the other Phase B demos, geometry is hand-built. The asset pipeline
 // would replace the quad with a .t3dm from gltf_to_t3d, but that's a swap of
 // the load_fn body, not the room system itself.
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_actor.h>
-#include <m64/m64_room.h>
-#include <m64/m64_clip.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_actor.h>
+#include <kiln/kiln_room.h>
+#include <kiln/kiln_clip.h>
 
 #include <malloc.h>
 
@@ -125,17 +125,17 @@ static T3DVertPacked *g_cube_prop;
 
 static joypad_inputs_t g_input;
 
-static void player_update(M64Actor *self, float dt)
+static void player_update(KilnActor *self, float dt)
 {
     self->xform.pos.v[0] += (float)g_input.stick_x * 0.20f * dt * 60.0f;
     self->xform.pos.v[2] -= (float)g_input.stick_y * 0.20f * dt * 60.0f;
     self->xform.rot_angle += dt * 0.5f;
 }
-static void player_draw(M64Actor *self) { (void)self; draw_cube(g_cube_player); }
+static void player_draw(KilnActor *self) { (void)self; draw_cube(g_cube_player); }
 
 typedef struct { float angle, radius, speed; } EnemyState;
 
-static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
+static void enemy_init(KilnActor *self, const KilnDict *spawn_args)
 {
     (void)spawn_args;
     EnemyState *s = (EnemyState *)self->state;
@@ -143,7 +143,7 @@ static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
     s->radius = 12.0f;
     s->speed = 1.2f;
 }
-static void enemy_update(M64Actor *self, float dt)
+static void enemy_update(KilnActor *self, float dt)
 {
     EnemyState *s = (EnemyState *)self->state;
     s->angle += s->speed * dt;
@@ -151,25 +151,25 @@ static void enemy_update(M64Actor *self, float dt)
     self->xform.pos.v[2] += fm_sinf(s->angle) * s->radius * dt * 0.3f;
     self->xform.rot_angle = s->angle;
 }
-static void enemy_draw(M64Actor *self) { (void)self; draw_cube(g_cube_enemy); }
+static void enemy_draw(KilnActor *self) { (void)self; draw_cube(g_cube_enemy); }
 
-static void prop_draw(M64Actor *self) { (void)self; draw_cube(g_cube_prop); }
+static void prop_draw(KilnActor *self) { (void)self; draw_cube(g_cube_prop); }
 
-static const M64ActorProfile PROFILES[PROFILE_COUNT] = {
-    [PROFILE_PLAYER] = { .name = "player", .category = M64_ACTOR_CAT_PLAYER,
+static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
+    [PROFILE_PLAYER] = { .name = "player", .category = KILN_ACTOR_CAT_PLAYER,
                           .state_size = 0, .update = player_update, .draw = player_draw },
-    [PROFILE_ENEMY]  = { .name = "enemy", .category = M64_ACTOR_CAT_ENEMY,
+    [PROFILE_ENEMY]  = { .name = "enemy", .category = KILN_ACTOR_CAT_ENEMY,
                           .state_size = sizeof(EnemyState),
                           .init = enemy_init, .update = enemy_update, .draw = enemy_draw },
-    [PROFILE_PROP]   = { .name = "prop", .category = M64_ACTOR_CAT_PROP,
+    [PROFILE_PROP]   = { .name = "prop", .category = KILN_ACTOR_CAT_PROP,
                           .state_size = 0, .draw = prop_draw },
 };
 
-static M64Actor g_pool[ACTOR_POOL_CAP];
+static KilnActor g_pool[ACTOR_POOL_CAP];
 
-// The room system (mirrors m64_actor's pool-with-handle convention — the
+// The room system (mirrors kiln_actor's pool-with-handle convention — the
 // storage is caller-owned, the engine only holds a static pointer to it).
-static M64RoomSystem g_sys;
+static KilnRoomSystem g_sys;
 
 // ── Rooms ───────────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ static M64RoomSystem g_sys;
 
 // A=(0,0)→(80,80) yellow, B=(80,0)→(160,80) blue, C=(0,80)→(80,160) green, D=(80,80)→(160,160) violet.
 // Centre of A is (40, 0, 40) — that's where the camera spawns.
-static M64Room g_rooms[ROOM_COUNT] = {
+static KilnRoom g_rooms[ROOM_COUNT] = {
     [0] = {
         .id = 0,
         .aabb_min = {{   0, 0,   0 }},
@@ -237,15 +237,15 @@ static const uint32_t FLOOR_COLOURS[ROOM_COUNT] = {
 
 // One static brush array per room — floor + 4 walls. The walls are 4 units
 // thick, sitting on the room's border. Designated initialisers, no malloc:
-// the brushes live in .bss, m64_room copies them into its module-static
+// the brushes live in .bss, kiln_room copies them into its module-static
 // world buffer on load. surface 0 (default) — the demo doesn't register a
 // surface table, so footstep SFX would just use whatever index 0 holds.
 #define WALL_H  20.0f
 #define WALL_T  4.0f
 
-static M64Brush make_floor_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max)
+static KilnBrush make_floor_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max)
 {
-    M64Brush b = { .surface = 0, .flags = 0 };
+    KilnBrush b = { .surface = 0, .flags = 0 };
     b.mins = aabb_min;
     b.maxs = aabb_max;
     /* Floor at aabb_min.y, 1 unit thick so it has real volume. */
@@ -254,9 +254,9 @@ static M64Brush make_floor_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max)
     return b;
 }
 
-static M64Brush make_wall_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max, int side)
+static KilnBrush make_wall_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max, int side)
 {
-    M64Brush b = { .surface = 0, .flags = 0 };
+    KilnBrush b = { .surface = 0, .flags = 0 };
     b.mins = aabb_min; b.maxs = aabb_max;
     b.maxs.v[1] = aabb_min.v[1] + WALL_H;
     switch (side) {
@@ -269,14 +269,14 @@ static M64Brush make_wall_brush(fm_vec3_t aabb_min, fm_vec3_t aabb_max, int side
 }
 
 // Per-room brush storage. Five brushes per room: floor + 4 walls. The
-// m64_room system copies these into its module-static clip world on load
+// kiln_room system copies these into its module-static clip world on load
 // (and drops them on unload). room->brushes points here for the room's
 // loaded lifetime; on_unload just clears the pointer.
-static M64Brush g_room_brushes[ROOM_COUNT][5];
+static KilnBrush g_room_brushes[ROOM_COUNT][5];
 
-static void room_install_brushes(M64Room *room)
+static void room_install_brushes(KilnRoom *room)
 {
-    M64Brush *bs = g_room_brushes[room->id];
+    KilnBrush *bs = g_room_brushes[room->id];
     bs[0] = make_floor_brush(room->aabb_min, room->aabb_max);
     bs[1] = make_wall_brush(room->aabb_min, room->aabb_max, 0);
     bs[2] = make_wall_brush(room->aabb_min, room->aabb_max, 1);
@@ -288,19 +288,19 @@ static void room_install_brushes(M64Room *room)
 
 // ── Room callbacks ─────────────────────────────────────────────────
 
-static void room_load(M64Room *room, void *user)
+static void room_load(KilnRoom *room, void *user)
 {
     (void)user;
     FloorMesh *m = malloc_uncached(sizeof(FloorMesh));
     m->verts = make_floor_quad(room->aabb_min, room->aabb_max, FLOOR_COLOURS[room->id]);
     m->rgba  = FLOOR_COLOURS[room->id];
     room->user_mesh = m;
-    /* Install this room's brushes; m64_room will copy them into the clip
+    /* Install this room's brushes; kiln_room will copy them into the clip
      * world right after this callback returns. */
     room_install_brushes(room);
 }
 
-static void room_unload(M64Room *room, void *user)
+static void room_unload(KilnRoom *room, void *user)
 {
     (void)user;
     if (room->user_mesh) {
@@ -314,13 +314,13 @@ static void room_unload(M64Room *room, void *user)
     room->brush_count = 0;
 }
 
-static void room_spawn(M64Room *room, const M64RoomSpawn *spawn, void *user)
+static void room_spawn(KilnRoom *room, const KilnRoomSpawn *spawn, void *user)
 {
     (void)user;
-    m64_actor_spawn_in_room(spawn->profile_id, spawn->pos, spawn->yaw, room->id, &spawn->dict);
+    kiln_actor_spawn_in_room(spawn->profile_id, spawn->pos, spawn->yaw, room->id, &spawn->dict);
 }
 
-static void room_draw(M64Room *room, void *user)
+static void room_draw(KilnRoom *room, void *user)
 {
     (void)user;
     if (!room->user_mesh) return;
@@ -341,35 +341,35 @@ static void room_draw(M64Room *room, void *user)
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
 
     g_cube_player = make_color_cube(8, 0xFFD94CFF);
     g_cube_enemy  = make_color_cube(6, 0x4C6AFFFF);
     g_cube_prop   = make_color_cube(10, 0x00F5D4FF);
 
-    m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
 
-    m64_room_system_init(&g_sys, g_rooms, ROOM_COUNT, MAX_LOADED,
+    kiln_room_system_init(&g_sys, g_rooms, ROOM_COUNT, MAX_LOADED,
                           room_load, room_unload, room_spawn, room_draw, NULL,
                           /*owns_clip_world=*/1);
 
-    // The player is *not* in any room — it has room_id == M64_ACTOR_ROOM_NONE
+    // The player is *not* in any room — it has room_id == KILN_ACTOR_ROOM_NONE
     // and is never auto-despawned by the room system.
-    m64_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 40, 0, 40 }}, 0.0f, NULL);
+    kiln_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 40, 0, 40 }}, 0.0f, NULL);
 
-    M64Scene scene;
-    m64_scene_init(&scene);
+    KilnScene scene;
+    kiln_scene_init(&scene);
     scene.far_z = 400.0f;
     scene.fov_deg = 70.0f;
 
     // The camera follows the player from a fixed offset; this is the same
     // follow pattern the actor-demo uses. A real game would have collision
-    // pushing the camera against walls, but that's m64_collision's job.
+    // pushing the camera against walls, but that's kiln_collision's job.
     fm_vec3_t player_pos = {{ 40, 0, 40 }};
     scene.cam_pos    = (fm_vec3_t){{ 40, 60, -70 }};
     scene.cam_target = (fm_vec3_t){{ 40,  0,  40 }};
-    m64_scene_update(&scene);
+    kiln_scene_update(&scene);
 
     uint32_t frames = 0;
     float fps = 0.0f;
@@ -383,24 +383,24 @@ int main(void)
 
         // Move the player (room-less; the room system doesn't track it).
         // The walls installed by room_load now stop the player — the
-        // WORLD_MIN/MAX clamps are gone, m64_clip_slide handles it. The
+        // WORLD_MIN/MAX clamps are gone, kiln_clip_slide handles it. The
         // player is a 16-unit cube (half=8); 4 slide iterations is the
-        // convention from m64_player.
+        // convention from kiln_player.
         fm_vec3_t half = {{ 8, 8, 8 }};
         fm_vec3_t disp = {{ (float)g_input.stick_x * 0.25f * dt * 60.0f,
                             0.0f,
                            -(float)g_input.stick_y * 0.25f * dt * 60.0f }};
-        player_pos = m64_clip_slide(player_pos, disp, half, half, 4);
+        player_pos = kiln_clip_slide(player_pos, disp, half, half, 4);
 
-        M64Actor *player = m64_actor_first(M64_ACTOR_CAT_PLAYER);
+        KilnActor *player = kiln_actor_first(KILN_ACTOR_CAT_PLAYER);
         if (player) player->xform.pos = player_pos;
 
-        m64_actor_update_all(dt);
-        m64_room_system_update(&g_sys, player_pos);
+        kiln_actor_update_all(dt);
+        kiln_room_system_update(&g_sys, player_pos);
 
         scene.cam_pos = (fm_vec3_t){{ player_pos.v[0], 60, player_pos.v[2] - 70 }};
         scene.cam_target = player_pos;
-        m64_scene_update(&scene);
+        kiln_scene_update(&scene);
 
         if (++frames % 30 == 0) {
             uint32_t now = get_ticks();
@@ -408,34 +408,34 @@ int main(void)
             last_ticks = now;
         }
 
-        m64_frame_begin();
-        m64_scene_begin(&scene);
-        m64_room_draw_all(&g_sys);
-        m64_actor_draw_all();
+        kiln_frame_begin();
+        kiln_scene_begin(&scene);
+        kiln_room_draw_all(&g_sys);
+        kiln_actor_draw_all();
 
-        m64_gui_begin();
-        m64_gui_panel(8, 8, 168, 84,
+        kiln_gui_begin();
+        kiln_gui_panel(8, 8, 168, 84,
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-        m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 ROOMS");
+        kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN ROOMS");
 
-        M64Room *cur = m64_room_current(&g_sys);
+        KilnRoom *cur = kiln_room_current(&g_sys);
         char room_label[8] = "—";
         if (cur) room_label[0] = (char)('A' + cur->id);
-        m64_gui_text(14, 34, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 34, RGBA32(232, 232, 240, 255),
                      "room    %s", room_label);
-        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 46, RGBA32(232, 232, 240, 255),
                      "loaded  %u / %u",
-                     m64_room_loaded_count(&g_sys), MAX_LOADED);
-        m64_gui_text(14, 58, RGBA32(232, 232, 240, 255),
+                     kiln_room_loaded_count(&g_sys), MAX_LOADED);
+        kiln_gui_text(14, 58, RGBA32(232, 232, 240, 255),
                      "enemy %u  prop %u",
-                     m64_actor_count(M64_ACTOR_CAT_ENEMY),
-                     m64_actor_count(M64_ACTOR_CAT_PROP));
-        m64_gui_text(14, 70, RGBA32(232, 232, 240, 255),
+                     kiln_actor_count(KILN_ACTOR_CAT_ENEMY),
+                     kiln_actor_count(KILN_ACTOR_CAT_PROP));
+        kiln_gui_text(14, 70, RGBA32(232, 232, 240, 255),
                      "fps %5.1f", fps);
-        m64_gui_text(14, 82, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 82, RGBA32(232, 232, 240, 255),
                      "stick: move player");
-        m64_gui_end();
+        kiln_gui_end();
 
-        m64_frame_end();
+        kiln_frame_end();
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// uipreview — render m64_widget's screens on the host, to a PNG-able PPM.
+// uipreview — render kiln_widget's screens on the host, to a PNG-able PPM.
 //
 //     make -C tools/uipreview && tools/uipreview/uipreview out-prefix
 //
@@ -13,8 +13,8 @@
 // designed blind — and a UI whose whole brief is "off-kilter" is exactly the
 // thing you cannot tune without looking at it.
 //
-// m64_widget.c happens to be trivially portable: it calls nothing but
-// m64_gui's four primitives and fm_sinf. So it compiles natively against two
+// kiln_widget.c happens to be trivially portable: it calls nothing but
+// kiln_gui's four primitives and fm_sinf. So it compiles natively against two
 // small shim headers and the four primitives implemented here as a software
 // rasteriser. What you see is the real widget code doing its real layout
 // arithmetic — not a mock-up of it.
@@ -32,7 +32,7 @@
 #include <stdarg.h>
 #include <math.h>
 
-#include "m64_widget.h"
+#include "kiln_widget.h"
 
 #define W 320
 #define H 240
@@ -40,7 +40,7 @@
 
 static uint8_t fb[H][W][3];
 
-// ── the four m64_gui primitives, in software ──────────────────────────────
+// ── the four kiln_gui primitives, in software ──────────────────────────────
 
 static void blend(int x, int y, color_t c)
 {
@@ -51,37 +51,37 @@ static void blend(int x, int y, color_t c)
     fb[y][x][2] = (uint8_t)(fb[y][x][2] * (1 - a) + c.b * a);
 }
 
-void m64_gui_rect(int x, int y, int w, int h, color_t c)
+void kiln_gui_rect(int x, int y, int w, int h, color_t c)
 {
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++)
             blend(x + i, y + j, c);
 }
 
-void m64_gui_panel(int x, int y, int w, int h, color_t fill, color_t border)
+void kiln_gui_panel(int x, int y, int w, int h, color_t fill, color_t border)
 {
-    m64_gui_rect(x, y, w, h, border);
-    if (w > 2 && h > 2) m64_gui_rect(x + 1, y + 1, w - 2, h - 2, fill);
+    kiln_gui_rect(x, y, w, h, border);
+    if (w > 2 && h > 2) kiln_gui_rect(x + 1, y + 1, w - 2, h - 2, fill);
 }
 
-void m64_gui_bar(int x, int y, int w, int h, float frac, color_t fg,
+void kiln_gui_bar(int x, int y, int w, int h, float frac, color_t fg,
                  color_t bg)
 {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    m64_gui_rect(x, y, w, h, bg);
-    m64_gui_rect(x, y, (int)(w * frac), h, fg);
+    kiln_gui_rect(x, y, w, h, bg);
+    kiln_gui_rect(x, y, (int)(w * frac), h, fg);
 }
 
-void m64_gui_init(void) {}
-void m64_gui_close(void) {}
-void m64_gui_begin(void) {}
-void m64_gui_end(void) {}
+void kiln_gui_init(void) {}
+void kiln_gui_close(void) {}
+void kiln_gui_begin(void) {}
+void kiln_gui_end(void) {}
 
 // ── a 3x5 font ────────────────────────────────────────────────────────────
 // Enough to read the labels back. Not libdragon's built-in debug font — that
 // one lives in the ROM and has different metrics — so glyph SHAPES here are
-// indicative and glyph ADVANCE is exact (M64_WIDGET_CHAR_W), which is the
+// indicative and glyph ADVANCE is exact (KILN_WIDGET_CHAR_W), which is the
 // half that layout depends on.
 static const char *glyph(char c)
 {
@@ -113,7 +113,7 @@ static const char *glyph(char c)
     }
 }
 
-void m64_gui_text(int x, int y, color_t c, const char *fmt, ...)
+void kiln_gui_text(int x, int y, color_t c, const char *fmt, ...)
 {
     char buf[256];
     va_list ap;
@@ -121,17 +121,17 @@ void m64_gui_text(int x, int y, color_t c, const char *fmt, ...)
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
 
-    // m64_gui_text takes a BASELINE; the glyphs hang above it.
+    // kiln_gui_text takes a BASELINE; the glyphs hang above it.
     for (int i = 0; buf[i]; i++) {
         char ch = buf[i];
         if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
         const char *g = glyph(ch);
         if (!g) continue;
-        int gx = x + i * M64_WIDGET_CHAR_W;
+        int gx = x + i * KILN_WIDGET_CHAR_W;
         for (int row = 0; row < 5; row++)
             for (int col = 0; col < 3; col++)
                 if (g[row * 3 + col] == '1')
-                    m64_gui_rect(gx + col * 2, y - 10 + row * 2, 2, 2, c);
+                    kiln_gui_rect(gx + col * 2, y - 10 + row * 2, 2, 2, c);
     }
 }
 
@@ -169,148 +169,148 @@ static const char *const TITLE_ITEMS[] = {
 };
 static const char *const GOBLINS[] = { "DANK", "SPARKY", "MOSS", "GLIMMER" };
 
-static void motes(const M64WidgetStyle *st)
+static void motes(const KilnWidgetStyle *st)
 {
-    float t = m64_widget_time();
+    float t = kiln_widget_time();
     for (int i = 0; i < 12; i++) {
-        float ax = 0.7f + 0.5f * m64_widget_jitter(i * 3u + 1u);
-        float ay = 0.5f + 0.4f * m64_widget_jitter(i * 3u + 2u);
-        float ph = m64_widget_jitter(i * 3u + 5u) * 3.1416f;
+        float ax = 0.7f + 0.5f * kiln_widget_jitter(i * 3u + 1u);
+        float ay = 0.5f + 0.4f * kiln_widget_jitter(i * 3u + 2u);
+        float ph = kiln_widget_jitter(i * 3u + 5u) * 3.1416f;
         int x = (int)(W * 0.5f + sinf(t * 0.11f * ax + ph) * W * 0.46f);
         int y = (int)(H * 0.5f + cosf(t * 0.09f * ay + ph * 1.7f) * H * 0.44f);
         int sz = 2 + (i % 3);
         color_t c = (i & 1) ? st->accent : st->border;
-        m64_gui_rect(x, y, sz, sz, RGBA32(c.r, c.g, c.b, 40 + (i % 3) * 14));
+        kiln_gui_rect(x, y, sz, sz, RGBA32(c.r, c.g, c.b, 40 + (i % 3) * 14));
     }
 }
 
 static void wobble_title(int cx, int y, const char *text,
-                         const M64WidgetStyle *st, float amp, float rate)
+                         const KilnWidgetStyle *st, float amp, float rate)
 {
-    float t = m64_widget_time();
+    float t = kiln_widget_time();
     int len = (int)strlen(text);
-    int x = cx - len * M64_WIDGET_CHAR_W / 2;
+    int x = cx - len * KILN_WIDGET_CHAR_W / 2;
     for (int i = 0; i < len; i++) {
         if (text[i] == ' ') continue;
         float ph = (float)i * 0.55f;
         int dy = (int)(amp * sinf(t * rate * 6.2831853f + ph));
         int dx = (int)(amp * 0.35f * cosf(t * rate * 4.4f + ph * 1.3f));
-        m64_gui_text(x + i * M64_WIDGET_CHAR_W + dx, y + dy, st->accent,
+        kiln_gui_text(x + i * KILN_WIDGET_CHAR_W + dx, y + dy, st->accent,
                      "%c", text[i]);
     }
 }
 
-static void screen_title(const M64WidgetStyle *st, M64Menu *menu)
+static void screen_title(const KilnWidgetStyle *st, KilnMenu *menu)
 {
     motes(st);
-    m64_widget_panel_skew(38, 26, W - 76, 48, -st->lean * 1.6f,
+    kiln_widget_panel_skew(38, 26, W - 76, 48, -st->lean * 1.6f,
                           st->bg, st->accent);
     wobble_title(W / 2, 52, "GANJA GOBLIN", st, 3.2f, 0.30f);
-    m64_gui_text(W / 2 - 11 * M64_WIDGET_CHAR_W, 68, st->dim,
+    kiln_gui_text(W / 2 - 11 * KILN_WIDGET_CHAR_W, 68, st->dim,
                  "A HARVEST FOR FOUR GOBLINS");
-    m64_menu_draw(menu, 98, 100, 124, TITLE_ITEMS, NULL, st);
-    m64_gui_text(W / 2 - 13 * M64_WIDGET_CHAR_W, H - 14, st->dim,
+    kiln_menu_draw(menu, 98, 100, 124, TITLE_ITEMS, NULL, st);
+    kiln_gui_text(W / 2 - 13 * KILN_WIDGET_CHAR_W, H - 14, st->dim,
                  "D-PAD MOVE   A CONFIRM   B BACK");
 }
 
-static void screen_select(const M64WidgetStyle *st, M64Menu *menu)
+static void screen_select(const KilnWidgetStyle *st, KilnMenu *menu)
 {
     static const color_t tint[4] = {
         { 0, 245, 120, 255 }, { 255, 90, 190, 255 },
         { 255, 190, 60, 255 }, { 90, 200, 255, 255 },
     };
-    float t = m64_widget_time();
+    float t = kiln_widget_time();
     motes(st);
-    m64_widget_panel_skew(-4, -2, W + 8, 20, -st->lean, st->bg, st->border);
-    m64_gui_text(8, 13, st->accent, "PLAYER 2 - PICK YOUR GOBLIN");
+    kiln_widget_panel_skew(-4, -2, W + 8, 20, -st->lean, st->bg, st->border);
+    kiln_gui_text(8, 13, st->accent, "PLAYER 2 - PICK YOUR GOBLIN");
     int pulse = (int)(2.0f * sinf(t * 5.0f));
-    m64_gui_rect(W - 22 - pulse, 3 - pulse, 12 + pulse * 2, 10 + pulse * 2,
+    kiln_gui_rect(W - 22 - pulse, 3 - pulse, 12 + pulse * 2, 10 + pulse * 2,
                  tint[1]);
 
     uint8_t avail[4] = { 0, 1, 1, 1 };
-    m64_menu_draw(menu, 10, 30, 122, GOBLINS, avail, st);
+    kiln_menu_draw(menu, 10, 30, 122, GOBLINS, avail, st);
 
     int cx = 142 + (int)(1.8f * sinf(t * 1.9f));
     int cy = 30 + (int)(1.4f * cosf(t * 1.5f));
-    m64_widget_panel_skew(cx, cy, W - cx - 8, 98, -st->lean * 1.2f,
+    kiln_widget_panel_skew(cx, cy, W - cx - 8, 98, -st->lean * 1.2f,
                           st->bg, tint[1]);
     wobble_title(cx + (W - cx - 8) / 2, cy + 16, "SPARKY", st, 1.8f, 0.55f);
-    m64_gui_text(cx + 8, cy + 34, st->text, "PASSIVE");
-    m64_gui_text(cx + 8, cy + 46, st->dim, "MOVE +1 EVERY 3RD");
-    m64_gui_text(cx + 6, cy + 64, st->text, "SPECIAL");
-    m64_gui_text(cx + 6, cy + 76, st->dim, "SPARK PLUG");
-    m64_gui_text(cx + 4, cy + 92, st->warn, "CHARGE: 12 BUDS");
+    kiln_gui_text(cx + 8, cy + 34, st->text, "PASSIVE");
+    kiln_gui_text(cx + 8, cy + 46, st->dim, "MOVE +1 EVERY 3RD");
+    kiln_gui_text(cx + 6, cy + 64, st->text, "SPECIAL");
+    kiln_gui_text(cx + 6, cy + 76, st->dim, "SPARK PLUG");
+    kiln_gui_text(cx + 4, cy + 92, st->warn, "CHARGE: 12 BUDS");
 
     for (int p = 0; p < 4; p++) {
-        int bx = 12 + p * 76 + (int)(st->jitter * m64_widget_jitter(p + 40u));
-        int by = 176 + (int)(st->jitter * 0.8f * m64_widget_jitter(p + 60u));
+        int bx = 12 + p * 76 + (int)(st->jitter * kiln_widget_jitter(p + 40u));
+        int by = 176 + (int)(st->jitter * 0.8f * kiln_widget_jitter(p + 60u));
         int taken = (p < 1);
         color_t edge = taken ? tint[p] : st->dim;
-        m64_widget_panel_skew(bx, by, 68, 28,
+        kiln_widget_panel_skew(bx, by, 68, 28,
                               (p & 1) ? st->lean : -st->lean, st->bg, edge);
-        m64_gui_text(bx + 6, by + 12, taken ? st->text : st->dim, "P%d", p + 1);
-        m64_gui_text(bx + 6, by + 24, taken ? edge : st->dim,
+        kiln_gui_text(bx + 6, by + 12, taken ? st->text : st->dim, "P%d", p + 1);
+        kiln_gui_text(bx + 6, by + 24, taken ? edge : st->dim,
                      "%s", taken ? GOBLINS[p] : "...");
     }
-    m64_gui_text(W / 2 - 13 * M64_WIDGET_CHAR_W, H - 12, st->dim,
+    kiln_gui_text(W / 2 - 13 * KILN_WIDGET_CHAR_W, H - 12, st->dim,
                  "A LOCK IN    B BACK A PLAYER");
 }
 
-static void screen_results(const M64WidgetStyle *st, M64Menu *menu)
+static void screen_results(const KilnWidgetStyle *st, KilnMenu *menu)
 {
     static const color_t tint[4] = {
         { 0, 245, 120, 255 }, { 255, 90, 190, 255 },
         { 255, 190, 60, 255 }, { 90, 200, 255, 255 },
     };
-    M64PlayerSlot slots[4];
+    KilnPlayerSlot slots[4];
     static const char *names[4] = { "DANK", "SPARKY", "MOSS", "GLIMMER" };
     static const int32_t score[4] = { 31, 47, 22, 39 };
     for (int i = 0; i < 4; i++) {
-        slots[i] = (M64PlayerSlot){ .name = names[i], .note = NULL,
+        slots[i] = (KilnPlayerSlot){ .name = names[i], .note = NULL,
                                     .score = score[i], .charge = -1.0f,
                                     .tint = tint[i], .active = 0, .ready = 0 };
     }
     int order[4] = { 1, 3, 0, 2 };
     motes(st);
     wobble_title(W / 2, 26, "SPARKY", st, 3.6f, 0.42f);
-    m64_gui_text(W / 2 - 2 * M64_WIDGET_CHAR_W, 38, st->text, "WINS");
-    m64_widget_results(46, 46, W - 92, "FINAL", slots, order, 4, st);
+    kiln_gui_text(W / 2 - 2 * KILN_WIDGET_CHAR_W, 38, st->text, "WINS");
+    kiln_widget_results(46, 46, W - 92, "FINAL", slots, order, 4, st);
     static const char *const again[] = { "REMATCH", "BACK TO TITLE" };
-    m64_menu_draw(menu, 86, 152, 148, again, NULL, st);
+    kiln_menu_draw(menu, 86, 152, 148, again, NULL, st);
 }
 
-static void screen_hud(const M64WidgetStyle *st)
+static void screen_hud(const KilnWidgetStyle *st)
 {
     static const color_t tint[4] = {
         { 0, 245, 120, 255 }, { 255, 90, 190, 255 },
         { 255, 190, 60, 255 }, { 90, 200, 255, 255 },
     };
-    M64PlayerSlot slots[4];
+    KilnPlayerSlot slots[4];
     static const char *names[4] = { "DANK", "SPARKY", "MOSS", "GLIMMER" };
     for (int i = 0; i < 4; i++) {
-        slots[i] = (M64PlayerSlot){
+        slots[i] = (KilnPlayerSlot){
             .name = names[i], .note = (i == 2) ? "COUCH" : NULL,
             .score = 12 + i * 7, .charge = 0.2f + i * 0.26f,
             .tint = tint[i], .active = (i == 1), .ready = (i == 3),
         };
     }
-    m64_gui_panel(0, 0, W, 16, st->bg, st->border);
-    m64_gui_text(4, 12, st->accent, "GANJA GROVE");
-    m64_gui_text(W - 15 * M64_WIDGET_CHAR_W, 12, st->text, "R 3/10  MOVE");
-    m64_widget_hud_strip(4, 20, 150, slots, 4, st);
-    m64_widget_dice(W - 40, 22, 32, 5, 0, 0.0f, st);
-    m64_widget_banner(W / 2 - 92, 118, 184, 26, "HARVEST EVENT", 1.0f, st);
+    kiln_gui_panel(0, 0, W, 16, st->bg, st->border);
+    kiln_gui_text(4, 12, st->accent, "GANJA GROVE");
+    kiln_gui_text(W - 15 * KILN_WIDGET_CHAR_W, 12, st->text, "R 3/10  MOVE");
+    kiln_widget_hud_strip(4, 20, 150, slots, 4, st);
+    kiln_widget_dice(W - 40, 22, 32, 5, 0, 0.0f, st);
+    kiln_widget_banner(W / 2 - 92, 118, 184, 26, "HARVEST EVENT", 1.0f, st);
 }
 
 int main(int argc, char **argv)
 {
     const char *prefix = (argc > 1) ? argv[1] : "ui";
-    M64WidgetStyle funky = m64_widget_style_funky();
-    M64WidgetStyle plain = m64_widget_style_default();
+    KilnWidgetStyle funky = kiln_widget_style_funky();
+    KilnWidgetStyle plain = kiln_widget_style_default();
     color_t bg = RGBA32(14, 10, 26, 255);
     char path[512];
 
-    struct { const char *name; void (*fn)(const M64WidgetStyle *, M64Menu *);
+    struct { const char *name; void (*fn)(const KilnWidgetStyle *, KilnMenu *);
              int count, cursor; } screens[] = {
         { "title",   screen_title,   3, 1 },
         { "select",  screen_select,  4, 1 },
@@ -321,11 +321,11 @@ int main(int argc, char **argv)
     // motes have moved: a preview rendered at t=0 shows the one frame where
     // every animated offset happens to be zero, which is exactly the frame
     // that tells you nothing.
-    m64_widget_tick(2.35f);
+    kiln_widget_tick(2.35f);
 
     for (size_t i = 0; i < sizeof screens / sizeof *screens; i++) {
-        M64Menu menu;
-        m64_menu_init(&menu, screens[i].count, 0);
+        KilnMenu menu;
+        kiln_menu_init(&menu, screens[i].count, 0);
         menu.cursor = screens[i].cursor;
         clear(bg);
         screens[i].fn(&funky, &menu);
@@ -341,8 +341,8 @@ int main(int argc, char **argv)
     // The same title screen with the funk dialled to zero, as the control.
     // If these two are hard to tell apart, the funk is not doing anything.
     {
-        M64Menu menu;
-        m64_menu_init(&menu, 3, 0);
+        KilnMenu menu;
+        kiln_menu_init(&menu, 3, 0);
         menu.cursor = 1;
         clear(bg);
         screen_title(&plain, &menu);

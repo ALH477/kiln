@@ -4,16 +4,16 @@
 //
 // The layout is a 200×200 unit room with a 30×30 raised metal pad in the
 // centre for the Interceptor. Walls/floor carry surface id 0 (stone);
-// the pad carries surface id 1 (metal). m64_map's current parser tags
-// every worldspawn brush with surface=0 (see m64_map.c:182), so the
+// the pad carries surface id 1 (metal). kiln_map's current parser tags
+// every worldspawn brush with surface=0 (see kiln_map.c:182), so the
 // surface id distinction is currently *authored-only*; the cinematic
 // uses surface for an audio shader ("step_metal" vs "step_stone") that
-// is played by player footsteps via m64_surface_play_footstep. The pad
+// is played by player footsteps via kiln_surface_play_footstep. The pad
 // geometry is what gives the goblin a different footstep SFX as he walks
 // across it.
 //
 // Brushes are 6-plane AABBs (each face uses 3 coplanar plane points).
-// m64_map reduces each brush to its AABB for collision and builds 6
+// kiln_map reduces each brush to its AABB for collision and builds 6
 // parallelogram faces for rendering, which is exactly the right shape
 // for these rectangular rooms.
 //

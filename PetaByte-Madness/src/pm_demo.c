@@ -7,14 +7,15 @@
 #include <libdragon.h>
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_skel.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_skel.h>
 
 #include "pm_models.h"
 #include "pm_env.h"
 #include "pm_world_gen.h"
 #include "pm_lab.h"
 #include "pm_types.h"
+#include "pm_veil.h"
 
 // ── Director state ─────────────────────────────────────────────────────
 static const PMDemoShot *g_shot;
@@ -23,11 +24,11 @@ static int   g_loop;
 static int   g_done;
 
 // ── Why a RING of transforms, not one ──────────────────────────────────
-// M64Transform owns an UNCACHED matrix that the RSP reads ASYNCHRONOUSLY:
-// m64_transform_push records a command referencing that buffer, and the RSP
+// KilnTransform owns an UNCACHED matrix that the RSP reads ASYNCHRONOUSLY:
+// kiln_transform_push records a command referencing that buffer, and the RSP
 // consumes it later, when the frame's command list actually runs.
 //
-// This used to be a single shared M64Transform, on the reasoning that the
+// This used to be a single shared KilnTransform, on the reasoning that the
 // uncached allocation is expensive and one is cheaper than many. That is
 // true and it is also unusable: every draw in the frame overwrote the same
 // matrix before the RSP had read any of them, so every object in the frame
@@ -45,17 +46,17 @@ static int   g_done;
 // never rewritten inside the frame that is still using it, and by the time
 // the index wraps that frame has long since presented.
 #define XFORM_RING 16
-static M64Transform g_xform[XFORM_RING];
+static KilnTransform g_xform[XFORM_RING];
 static int          g_xform_ready;
 static int          g_xform_next;
 
-static M64Transform *xform(void)
+static KilnTransform *xform(void)
 {
     if (!g_xform_ready) {
-        for (int i = 0; i < XFORM_RING; i++) m64_transform_init(&g_xform[i]);
+        for (int i = 0; i < XFORM_RING; i++) kiln_transform_init(&g_xform[i]);
         g_xform_ready = 1;
     }
-    M64Transform *t = &g_xform[g_xform_next];
+    KilnTransform *t = &g_xform[g_xform_next];
     g_xform_next = (g_xform_next + 1) & (XFORM_RING - 1);
     return t;
 }
@@ -66,15 +67,15 @@ static void draw_at(PMModelId id, fm_vec3_t pos, float scale, float yaw)
     T3DModel *model = pm_models_get(id);
     if (!model) return;
 
-    M64Transform *t = xform();
+    KilnTransform *t = xform();
     t->pos = pos;
     t->scale = (fm_vec3_t){{ scale, scale, scale }};
     t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
     t->rot_angle = yaw;
 
-    m64_transform_push(t);
+    kiln_transform_push(t);
     t3d_model_draw(model);
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 /** Draw one named object out of a model — how the palms get placed
@@ -87,15 +88,15 @@ static void draw_object_at(PMModelId id, const char *object,
     T3DObject *obj = t3d_model_get_object(model, object);
     if (!obj) return;
 
-    M64Transform *t = xform();
+    KilnTransform *t = xform();
     t->pos = pos;
     t->scale = (fm_vec3_t){{ scale, scale, scale }};
     t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
     t->rot_angle = yaw;
 
-    m64_transform_push(t);
+    kiln_transform_push(t);
     t3d_model_draw_object(obj, NULL);
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Shot 1: the drone flyover ──────────────────────────────────────────
@@ -108,7 +109,7 @@ static void draw_object_at(PMModelId id, const char *object,
 // (pm_models.h, both DERIVED from pm_world_gen.h rather than typed — this
 // used to be a literal "12,813 units across", which drifted from the real
 // generated size the moment the island stopped being the OBJ that number
-// described). At M64Scene's 85 degree FOV, holding the whole silhouette
+// described). At KilnScene's 85 degree FOV, holding the whole silhouette
 // needs an eye roughly 1.2-1.9x PM_ISLAND_HALF_W out.
 //
 // The first version of this table put the eye at 1,400 — INSIDE the
@@ -353,7 +354,7 @@ static void lab_draw(float elapsed)
 
 // ── Shot 3: the centaur ────────────────────────────────────────────────
 // What you become, walking. The attract reel's closer, and the one shot
-// that exists to show the rig doing its job: m64_skel plays `walk` while
+// that exists to show the rig doing its job: kiln_skel plays `walk` while
 // the camera tracks alongside.
 static const PMCamKey CENTAUR_KEYS[] = {
     { 0.0f, {{ 200,  90, 240 }}, {{ 0, 80,  0 }} },
@@ -361,7 +362,7 @@ static const PMCamKey CENTAUR_KEYS[] = {
     { 8.0f, {{ -60,  60,  90 }}, {{ 0, 65, 10 }} },
 };
 
-static M64Skel g_centaur_skel;
+static KilnSkel g_centaur_skel;
 static int     g_centaur_ready;
 
 static void centaur_setup(void)
@@ -369,8 +370,8 @@ static void centaur_setup(void)
     pm_models_preload(PM_MODEL_CENTAUR);
     T3DModel *centaur = pm_models_get(PM_MODEL_CENTAUR);
     if (centaur && !g_centaur_ready) {
-        m64_skel_create(&g_centaur_skel, centaur);
-        m64_skel_play(&g_centaur_skel, "walk", true);
+        kiln_skel_create(&g_centaur_skel, centaur);
+        kiln_skel_play(&g_centaur_skel, "walk", true);
         g_centaur_ready = 1;
     }
 }
@@ -378,7 +379,7 @@ static void centaur_setup(void)
 static void centaur_teardown(void)
 {
     if (g_centaur_ready) {
-        m64_skel_destroy(&g_centaur_skel);
+        kiln_skel_destroy(&g_centaur_skel);
         g_centaur_ready = 0;
     }
 }
@@ -386,7 +387,7 @@ static void centaur_teardown(void)
 static void centaur_update(float elapsed, float dt)
 {
     (void)elapsed;
-    if (g_centaur_ready) m64_skel_update(&g_centaur_skel, dt);
+    if (g_centaur_ready) kiln_skel_update(&g_centaur_skel, dt);
 }
 
 static void centaur_draw(float elapsed)
@@ -401,14 +402,18 @@ static void centaur_draw(float elapsed)
         return;
     }
 
-    M64Transform *t = xform();
+    KilnTransform *t = xform();
     t->pos = (fm_vec3_t){{ 0, 0, 0 }};
     t->scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
     t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
     t->rot_angle = elapsed * 0.35f;
-    m64_transform_push(t);
-    m64_skel_draw(&g_centaur_skel);
-    m64_transform_pop();
+    kiln_transform_push(t);
+    // Through the veil rather than kiln_skel_draw: his face, gore and armour
+    // are CI4 now, so their palettes have to be bound per material. With the
+    // veil down this is byte-identical output — step 0 of a ramp IS the cold
+    // palette — so the reel looks exactly as it did.
+    pm_veil_draw_centaur(pm_models_get(PM_MODEL_CENTAUR), &g_centaur_skel.skel);
+    kiln_transform_pop();
 }
 
 // ── The opening cinematic ──────────────────────────────────────────────
@@ -451,7 +456,7 @@ static const PMCamKey LAB_CINE_KEYS[] = {
             {{ CINE_EYE_X - 200.0f, CINE_EYE_Y, CINE_EYE_Z }} },
 };
 
-static M64Skel g_lab_arms_skel;
+static KilnSkel g_lab_arms_skel;
 static int     g_lab_arms_ready;
 
 static void lab_cine_setup(void)
@@ -462,8 +467,8 @@ static void lab_cine_setup(void)
 
     T3DModel *arms = pm_models_get(PM_MODEL_LAB_ARMS);
     if (arms && !g_lab_arms_ready) {
-        m64_skel_create(&g_lab_arms_skel, arms);
-        m64_skel_play(&g_lab_arms_skel, "idle", true);
+        kiln_skel_create(&g_lab_arms_skel, arms);
+        kiln_skel_play(&g_lab_arms_skel, "idle", true);
         g_lab_arms_ready = 1;
     }
 }
@@ -471,7 +476,7 @@ static void lab_cine_setup(void)
 static void lab_cine_teardown(void)
 {
     if (g_lab_arms_ready) {
-        m64_skel_destroy(&g_lab_arms_skel);
+        kiln_skel_destroy(&g_lab_arms_skel);
         g_lab_arms_ready = 0;
     }
 }
@@ -484,8 +489,12 @@ static void lab_cine_draw(float elapsed)
     // last half-second is spent inside his skull, looking at the back of
     // his own face — the model is not built to be seen from in there.
     if (elapsed < 5.5f) {
+        // PM_HORNER_HIP_Y, not 0: his model origin is the root bone, so the
+        // Y here is his hip height and 0 buries him to the waist. See
+        // pm_lab.h — this call site and pm_intake.c's used to disagree by
+        // exactly this constant.
         draw_at(PM_MODEL_HORNER,
-                (fm_vec3_t){{ CINE_EYE_X, 0.0f, CINE_EYE_Z }},
+                (fm_vec3_t){{ CINE_EYE_X, PM_HORNER_HIP_Y, CINE_EYE_Z }},
                 1.0f, -1.5708f);
     }
 
@@ -493,21 +502,21 @@ static void lab_cine_draw(float elapsed)
     // position pm_intake.c and pm_lab.c place them at (pm_lab.h), so the
     // hand-off between screens shows the same machine in the same place.
     if (g_lab_arms_ready) {
-        M64Transform *t = xform();
+        KilnTransform *t = xform();
         t->pos = (fm_vec3_t){{ PM_LAB_ARMS_X, PM_LAB_ARMS_Y, PM_LAB_ARMS_Z }};
         t->scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
         t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
         t->rot_angle = 0.0f;
-        m64_transform_push(t);
-        m64_skel_draw(&g_lab_arms_skel);
-        m64_transform_pop();
+        kiln_transform_push(t);
+        kiln_skel_draw(&g_lab_arms_skel);
+        kiln_transform_pop();
     }
 }
 
 static void lab_cine_update(float elapsed, float dt)
 {
     (void)elapsed;
-    if (g_lab_arms_ready) m64_skel_update(&g_lab_arms_skel, dt);
+    if (g_lab_arms_ready) kiln_skel_update(&g_lab_arms_skel, dt);
 }
 
 const PMDemoShot pm_demo_lab_cine = {
@@ -573,6 +582,8 @@ void pm_demo_stop(void)
     g_done = 0;
 }
 
+const PMDemoShot *pm_demo_current(void) { return g_shot; }
+
 void pm_demo_update(float dt)
 {
     if (!g_shot) return;
@@ -595,75 +606,30 @@ void pm_demo_update(float dt)
 int   pm_demo_done(void)    { return g_done; }
 float pm_demo_elapsed(void) { return g_elapsed; }
 
-/** Catmull-Rom through four keys, evaluated at `f` in [0,1] between p1 and p2.
- *
- *  Passes exactly through every key and, unlike a per-segment ease, has a
- *  CONTINUOUS velocity across them — which is the whole point here. */
-static float spline1(float p0, float p1, float p2, float p3, float f)
-{
-    const float f2 = f * f;
-    const float f3 = f2 * f;
-    return 0.5f * ((2.0f * p1)
-                 + (-p0 + p2) * f
-                 + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * f2
-                 + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * f3);
-}
+int   pm_demo_looping(void) { return g_loop; }
 
-void pm_demo_apply(M64Camera *cam)
+// ── The curve ──────────────────────────────────────────────────────────
+// The bracketing search and the Catmull-Rom that used to live here moved to
+// pm_camkey.h, unchanged. Not for tidiness: THREE things now have to agree
+// about the curve this camera flies, and agreeing by inspection was not good
+// enough for any of them.
+//
+//   * this, the runtime — what the player actually sees
+//   * pm_debug.c's overlay, which draws the flown path next to the straight
+//     line between the keys, because the gap between the two IS the overshoot
+//   * pm_cine_lint, which MEASURES that gap and reports it as a number
+//
+// A validator measuring a curve that merely resembles the one being rendered
+// is worse than no validator, because its numbers look authoritative. Sharing
+// one static inline makes them identical by construction.
+void pm_demo_apply(KilnCamera *cam)
 {
     if (!g_shot || g_shot->key_count == 0) return;
 
-    const PMCamKey *keys = g_shot->keys;
-    const int n = g_shot->key_count;
-    const float t = g_elapsed;
-
-    /* Find the bracketing pair. Same linear scan examples/cinematic-demo
-     * uses: a handful of keys per shot, walked once a frame. */
-    int i = 0;
-    while (i < n - 2 && t >= keys[i + 1].t) i++;
-
-    const int i1 = i;
-    const int i2 = (i + 1 < n) ? i + 1 : i;
-    const float span = keys[i2].t - keys[i1].t;
-    float f = span > 0.0f ? (t - keys[i1].t) / span : 0.0f;
-    if (f < 0.0f) f = 0.0f;
-    if (f > 1.0f) f = 1.0f;
-
-    /* ── Catmull-Rom, not a per-segment ease ────────────────────────────
-     * This used to smoothstep `f` and lerp between the two bracketing
-     * keys. Smoothstep starts and ends at zero velocity, so the camera
-     * decelerated to a near-stop at EVERY key and accelerated away from
-     * it again — on the flyover's twelve keys over thirty seconds that is
-     * a hitch every two and a half seconds, which reads as a clunky move
-     * rather than a shot.
-     *
-     * Catmull-Rom needs the keys either side of the segment as well, and
-     * gives a curve that passes through every key with a continuous
-     * velocity through it. The interpolant stays LINEAR in f: easing it
-     * would put the per-key deceleration straight back.
-     *
-     * A looping shot wraps for its neighbours, so the seam is as smooth as
-     * anywhere else. PetaByte-Madness' flyover ends on a copy of its first
-     * key, so the wrap skips that duplicate. A one-shot clamps at the ends
-     * instead, which makes the tangent zero there — a natural ease in and
-     * out at the START and END of the shot only, which is what a cut wants. */
-    int i0, i3;
-    if (g_loop && n >= 3) {
-        i0 = (i1 > 0) ? i1 - 1 : n - 2;          /* n-1 duplicates key 0 */
-        i3 = (i2 + 1 < n) ? i2 + 1 : 1;
-    } else {
-        i0 = (i1 > 0) ? i1 - 1 : i1;
-        i3 = (i2 + 1 < n) ? i2 + 1 : i2;
-    }
-
     fm_vec3_t eye, look;
-    for (int k = 0; k < 3; k++) {
-        eye.v[k] = spline1(keys[i0].eye.v[k], keys[i1].eye.v[k],
-                           keys[i2].eye.v[k], keys[i3].eye.v[k], f);
-        look.v[k] = spline1(keys[i0].look.v[k], keys[i1].look.v[k],
-                            keys[i2].look.v[k], keys[i3].look.v[k], f);
-    }
-    m64_camera_set_cutscene(cam, eye, look);
+    pm_camkey_sample(g_shot->keys, g_shot->key_count, g_loop, g_elapsed,
+                     &eye, &look);
+    kiln_camera_set_cutscene(cam, eye, look);
 }
 
 // The scene the director last applied a frustum to. A shot's draw callback
@@ -671,11 +637,11 @@ void pm_demo_apply(M64Camera *cam)
 // steering the camera — but the sky dome needs the eye position to centre
 // itself on. Caching the pointer here is narrower than widening the
 // callback signature for every shot that will never use it.
-static M64Scene *g_scene;
+static KilnScene *g_scene;
 
-const M64Scene *pm_demo_scene(void) { return g_scene; }
+const KilnScene *pm_demo_scene(void) { return g_scene; }
 
-void pm_demo_apply_frustum(M64Scene *scene)
+void pm_demo_apply_frustum(KilnScene *scene)
 {
     g_scene = scene;
     if (!g_shot) return;
@@ -683,7 +649,7 @@ void pm_demo_apply_frustum(M64Scene *scene)
     // ORDER MATTERS: the frustum is applied first because pm_env_night
     // derives its fog range from scene->far_z. Lighting a scene before it
     // knows how far it can see gives fog for a different shot.
-    // m64_scene_init defaults to near 10 / far 200, which are the ENGINE's
+    // kiln_scene_init defaults to near 10 / far 200, which are the ENGINE's
     // units-agnostic numbers and are three metres in this world (64 units
     // to the metre — see pm_lab.h). A shot that forgot to declare its own
     // pair therefore clipped away everything it was pointed at.
@@ -694,8 +660,17 @@ void pm_demo_apply_frustum(M64Scene *scene)
     scene->near_z = g_shot->near_z > 0.0f ? g_shot->near_z : PM_SHOT_NEAR_Z;
     scene->far_z  = g_shot->far_z  > 0.0f ? g_shot->far_z  : PM_SHOT_FAR_Z;
 
-    if (g_shot->exterior) pm_env_night(scene);
-    else                  pm_env_interior(scene);
+    if (g_shot->exterior) {
+        pm_env_night(scene);
+    } else {
+        // The shot's LOOK TARGET, not its eye, is what the lighting should be
+        // chosen for: the interesting fixture is the one illuminating the
+        // subject, and on a wide shot the eye can be most of the room away from
+        // it. cam_target is already the interpolated look point for this frame
+        // (pm_demo_apply wrote it), so this tracks the shot as it moves rather
+        // than picking a rig once at setup.
+        pm_env_interior_from_rig(scene, scene->cam_target);
+    }
 }
 
 void pm_demo_draw(void)

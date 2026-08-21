@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// The M64 engine's two-layer model, demonstrated:
+// The Kiln engine's two-layer model, demonstrated:
 //
 //   * a 3D pass  — a lit, depth-tested, spinning object via Tiny3D on the RSP
 //   * a 2D pass  — a HUD of panels, bars and text via rdpq, composited on top
 //
 // The point of the example is the *seam* between them. Everything between
-// m64_scene_begin() and m64_gui_begin() is perspective-projected and
-// depth-tested; everything after m64_gui_begin() is flat screen-space with
+// kiln_scene_begin() and kiln_gui_begin() is perspective-projected and
+// depth-tested; everything after kiln_gui_begin() is flat screen-space with
 // depth off. One state transition per frame, in one obvious place.
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
 
 #include <malloc.h>
 
@@ -61,14 +61,14 @@ static T3DVertPacked *make_cube(void)
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
 
-    M64Scene scene;
-    m64_scene_init(&scene);
+    KilnScene scene;
+    kiln_scene_init(&scene);
 
-    M64Transform cube;
-    m64_transform_init(&cube);
+    KilnTransform cube;
+    kiln_transform_init(&cube);
     cube.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
 
     // Pull the camera back until the whole cube fits: at the default -32 with
@@ -100,7 +100,7 @@ int main(void)
         // Stick nudges the camera so the depth relationship is visible.
         scene.cam_pos.v[0] = (float)in.stick_x * 0.25f;
         scene.cam_pos.v[1] = 14.0f + (float)in.stick_y * 0.25f;
-        m64_scene_update(&scene);
+        kiln_scene_update(&scene);
 
         cube.rot_angle = spin;
         cube.rot_axis = (fm_vec3_t){{ 0.3f, 1.0f, 0.15f }};
@@ -113,12 +113,12 @@ int main(void)
         }
 
         // ── 3D pass ─────────────────────────────────────────────────
-        m64_frame_begin();
-        m64_scene_begin(&scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&scene);
 
-        m64_transform_push(&cube);
+        kiln_transform_push(&cube);
         t3d_vert_load(verts, 0, CUBE_VERTS);
-        m64_transform_pop();
+        kiln_transform_pop();
 
         for (int i = 0; i < 12; i++) {
             t3d_tri_draw(tris[i][0], tris[i][1], tris[i][2]);
@@ -128,26 +128,26 @@ int main(void)
         // ── 2D pass ─────────────────────────────────────────────────
         // Everything below is screen-space with depth off. Note it is drawn
         // after the cube yet always appears in front of it — that is the
-        // depth-disable in m64_gui_begin() doing its job, not draw order luck.
-        m64_gui_begin();
+        // depth-disable in kiln_gui_begin() doing its job, not draw order luck.
+        kiln_gui_begin();
 
-        m64_gui_panel(8, 8, 150, 46,
+        kiln_gui_panel(8, 8, 150, 46,
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-        m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 ENGINE");
-        m64_gui_text(14, 34, RGBA32(232, 232, 240, 255), "3D: tiny3d/RSP");
-        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255), "2D: rdpq overlay");
+        kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN ENGINE");
+        kiln_gui_text(14, 34, RGBA32(232, 232, 240, 255), "3D: tiny3d/RSP");
+        kiln_gui_text(14, 46, RGBA32(232, 232, 240, 255), "2D: rdpq overlay");
 
-        m64_gui_panel(8, SCREEN_H - 40, SCREEN_W - 16, 32,
+        kiln_gui_panel(8, SCREEN_H - 40, SCREEN_W - 16, 32,
                       RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
-        m64_gui_text(14, SCREEN_H - 26, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, SCREEN_H - 26, RGBA32(232, 232, 240, 255),
                      "fps %5.1f   spin %5.2f", fps, spin);
 
         // A meter, to show a widget that is not just text.
-        m64_gui_bar(150, SCREEN_H - 22, 150, 8,
+        kiln_gui_bar(150, SCREEN_H - 22, 150, 8,
                     (spin - (float)(int)(spin / 6.28f) * 6.28f) / 6.28f,
                     RGBA32(0, 245, 212, 255), RGBA32(42, 42, 62, 255));
 
-        m64_gui_end();
-        m64_frame_end();
+        kiln_gui_end();
+        kiln_frame_end();
     }
 }

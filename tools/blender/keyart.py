@@ -20,7 +20,7 @@ Everything in this repo renders through Workbench with `color_type='VERTEX'`,
 because that is the closest preview to the N64's flat COLOR_0 shading. Text
 drawn any other way would need a second renderer and would not match. So the
 title and the name plates are converted to meshes and pushed through
-m64lib.make_mesh — the same function the goblins use — and come out shaded by
+kilnlib.make_mesh — the same function the goblins use — and come out shaded by
 the same rules.
 
 ── The style ──────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ import bpy
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # ── palette ────────────────────────────────────────────────────────────────
 BG_DEEP = m.srgb(24, 14, 46)
@@ -71,7 +71,7 @@ LABEL = ["DANK", "SPARKY", "MOSS", "GLIMMER"]
 
 
 def jitter(seed):
-    """The same hash m64_widget uses, so the poster's crookedness and the
+    """The same hash kiln_widget uses, so the poster's crookedness and the
     game's come from one rule."""
     h = (seed * 2654435761) & 0xFFFFFFFF
     h ^= h >> 15

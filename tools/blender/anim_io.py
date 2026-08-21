@@ -66,7 +66,60 @@ def _round(v):
     return [round(float(c), 2) for c in v]
 
 
-def capture(script, model):
+def capture_rig(rig_path):
+    """Read source keyframes straight out of a rig JSON.
+
+    centaur.py and horner.py do not hold their clips in code the way goblin.py
+    does — the clips arrive in assets/rig/<name>.json, produced by
+    PetaByte-Madness/tools/{mc,ph}_rig_export.py, and the Blender script's job is
+    only to build an armature and replay them. So for those characters the JSON
+    IS the source-keyframe form this module exists to expose, and running the
+    builder to recover it would be recovering it from itself.
+
+    It also cannot be run: their build_armature() does real bpy work on the
+    object kilnlib.make_armature returns, and the stub returns None. Stubbing far
+    enough to fake a posable armature would mean reimplementing Blender.
+
+    ── The layout differs, so it is transposed here ─────────────────────────
+    The JSON is PER BONE — `tracks[bone] = [{frame, rot}, ...]` — because that is
+    how an exporter walks a rig. `_bake` and tools/poser want PER FRAME —
+    `keys = [{frame, ease, bones: {bone: rot}}, ...]` — because that is how an
+    animator thinks about a pose. Same information, and the transpose is the
+    whole difference.
+
+    ── euler_order is carried, not assumed ─────────────────────────────────
+    horner.json declares "YZX". tools/poser/src/pose.js's convention is Blender
+    pose-bone XYZ, and tools/poser/verify.py exists precisely because a wrong
+    Euler order produces a viewport showing a plausible character doing plausible
+    things that is not the one the ROM will contain. So the order travels with
+    the data and a consumer that ignores it is choosing to.
+    """
+    rig = json.loads(Path(rig_path).read_text())
+    order = rig.get("euler_order", "XYZ")
+
+    out = []
+    for anim in rig.get("anims", []):
+        frames = sorted({k["frame"]
+                         for track in anim.get("tracks", {}).values()
+                         for k in track})
+        keys = []
+        for f in frames:
+            bones = {}
+            for bone, track in sorted(anim["tracks"].items()):
+                for k in track:
+                    if k["frame"] == f and "rot" in k:
+                        bones[bone] = _round(k["rot"])
+            # "linear" because these ARE the exporter's own keys: whatever easing
+            # the generator applied is already resolved into them. Claiming an
+            # easing mode here would invent one.
+            keys.append({"frame": int(f), "ease": "linear", "bones": bones})
+        out.append({"name": anim["name"], "length": int(anim["length"]),
+                    "loop": bool(anim.get("loop", True)), "keys": keys,
+                    "euler_order": order})
+    return out
+
+
+def capture(script, model, rig=None):
     """Run a model script's action builders with the bakers stubbed out.
 
     Returns [{name, length, loop, keys:[{frame, ease, bones}]}] in the order
@@ -74,7 +127,7 @@ def capture(script, model):
     """
     import importlib.util
 
-    import m64lib as m
+    import kilnlib as m
 
     captured = []
 
@@ -116,15 +169,19 @@ def capture(script, model):
 
     spec = importlib.util.spec_from_file_location("m_" + model, HERE / script)
     mod = importlib.util.module_from_spec(spec)
-    if hasattr(mod, "_bake"):
-        pass
+
+    # `--rig` for the rig-JSON characters (centaur.py, horner.py). Harmless to
+    # the others: kilnlib.arg() just never looks it up.
     sys.argv = ["blender", "--", "--model", model, "--out", "/dev/null"]
+    if rig:
+        sys.argv += ["--rig", str(rig)]
 
     # `_bake` lives in the model module, so it can only be replaced after the
     # module object exists but before its main() runs — which is exactly what
     # exec_module does in one step. Patch it via the module's globals by
     # pre-seeding, then let main() run.
     spec.loader.exec_module(mod)
+
     if hasattr(mod, "_bake"):
         captured.clear()
         mod._bake = fake_bake
@@ -134,8 +191,8 @@ def capture(script, model):
     return captured
 
 
-def dump(script, model, out_dir):
-    actions = capture(script, model)
+def dump(script, model, out_dir, rig=None):
+    actions = capture_rig(rig) if rig else capture(script, model)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     index = []
@@ -172,14 +229,20 @@ def main(argv):
     cmd, script, model = argv[0], argv[1], argv[2]
     if not script.endswith(".py"):
         script += ".py"
+    # --rig <path> anywhere after the positionals, for the rig-JSON characters.
+    rig = None
+    if "--rig" in argv:
+        rig = argv[argv.index("--rig") + 1]
+        argv = [a for i, a in enumerate(argv)
+                if i not in (argv.index("--rig"), argv.index("--rig") + 1)]
     if cmd == "list":
-        for a in capture(script, model):
+        for a in (capture_rig(rig) if rig else capture(script, model)):
             print(f"  {a['name']:<12} {a['length']:>3}f  "
                   f"{len(a['keys'])} keys  loop={a['loop']}")
         return 0
     if cmd == "dump":
         out_dir = argv[3] if len(argv) > 3 else "tools/poser/data"
-        dump(script, model, out_dir)
+        dump(script, model, out_dir, rig=rig)
         return 0
     print(f"anim_io: unknown command '{cmd}'")
     return 2

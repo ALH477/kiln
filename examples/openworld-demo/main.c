@@ -2,11 +2,11 @@
 //
 // Open-world streaming demo: all five Phase E primitives in one ROM.
 //
-//   m64_scratch   — per-frame bump allocator for transform matrices
-//   m64_cache     — refcounted cache for shared tile geometry
-//   m64_tile      — tile residency manager (grid streaming + LOD)
-//   m64_lod       — distance-based LOD selector
-//   m64_twopass   — far (Z-off) + near (Z-on) two-pass renderer
+//   kiln_scratch   — per-frame bump allocator for transform matrices
+//   kiln_cache     — refcounted cache for shared tile geometry
+//   kiln_tile      — tile residency manager (grid streaming + LOD)
+//   kiln_lod       — distance-based LOD selector
+//   kiln_twopass   — far (Z-off) + near (Z-on) two-pass renderer
 //
 // The world is a 16×16 grid of 64-unit tiles. Each tile is a flat coloured
 // quad whose colour depends on its LOD level (bright = near, dim = far).
@@ -17,13 +17,13 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmath.h>
 
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_scratch.h>
-#include <m64/m64_cache.h>
-#include <m64/m64_tile.h>
-#include <m64/m64_lod.h>
-#include <m64/m64_twopass.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_scratch.h>
+#include <kiln/kiln_cache.h>
+#include <kiln/kiln_tile.h>
+#include <kiln/kiln_lod.h>
+#include <kiln/kiln_twopass.h>
 
 #include <malloc.h>
 #include <string.h>
@@ -46,19 +46,19 @@ typedef struct {
 } TileData;
 
 /* Per-LOD colours. */
-static const color_t lod_colors[M64_TILE_MAX_LOD] = {
+static const color_t lod_colors[KILN_TILE_MAX_LOD] = {
     { 255, 100, 100, 255 },  /* LOD 0: bright red */
     { 180,  80,  80, 255 },  /* LOD 1: medium red */
     { 120,  60,  60, 255 },  /* LOD 2: dim red */
 };
 
 /* Global state (single-player N64, module-global is fine). */
-static M64Scratch scratch;
-static M64Cache   cache;
-static M64LODConfig lod_cfg;
-static M64TileManager tiles;
-static M64TileSlot  visual_slots[SLOTS_X * SLOTS_Y];
-static M64Scene     scene;
+static KilnScratch scratch;
+static KilnCache   cache;
+static KilnLODConfig lod_cfg;
+static KilnTileManager tiles;
+static KilnTileSlot  visual_slots[SLOTS_X * SLOTS_Y];
+static KilnScene     scene;
 static float cam_x = 512.0f, cam_z = 512.0f;
 static float cam_angle = 0.0f;
 
@@ -70,7 +70,7 @@ static void *tile_load(int16_t tx, int16_t ty, uint8_t lod, void *ctx)
     TileData *td = malloc(sizeof(TileData));
     if (!td) return NULL;
 
-    td->color = lod_colors[lod < M64_TILE_MAX_LOD ? lod : M64_TILE_MAX_LOD - 1];
+    td->color = lod_colors[lod < KILN_TILE_MAX_LOD ? lod : KILN_TILE_MAX_LOD - 1];
     td->verts = malloc_uncached(sizeof(T3DVertPacked));
     if (!td->verts) { free(td); return NULL; }
 
@@ -115,15 +115,15 @@ static void tile_sync(void *ctx)
 
 /* ---- Pass draw callback ---- */
 
-static void pass_draw(M64TileGrid *grid, const M64LODConfig *lod,
-                      int pass, M64Scratch *sc, const M64Scene *s,
+static void pass_draw(KilnTileGrid *grid, const KilnLODConfig *lod,
+                      int pass, KilnScratch *sc, const KilnScene *s,
                       void *ctx)
 {
     (void)lod; (void)ctx;
-    int far_threshold = M64_TWOPASS_FAR_LOD_THRESHOLD;
+    int far_threshold = KILN_TWOPASS_FAR_LOD_THRESHOLD;
 
-    for (M64TileSlot *slot = m64_tile_first(grid); slot;
-         slot = m64_tile_next(grid, slot)) {
+    for (KilnTileSlot *slot = kiln_tile_first(grid); slot;
+         slot = kiln_tile_next(grid, slot)) {
         TileData *td = (TileData *)slot->user_data;
         if (!td) continue;
 
@@ -135,7 +135,7 @@ static void pass_draw(M64TileGrid *grid, const M64LODConfig *lod,
         float wx = slot->world_x * TILE_SIZE + TILE_SIZE * 0.5f - s->cam_pos.v[0];
         float wz = slot->world_y * TILE_SIZE + TILE_SIZE * 0.5f - s->cam_pos.v[2];
 
-        T3DMat4FP *mtx = m64_scratch_mat4fp(sc);
+        T3DMat4FP *mtx = kiln_scratch_mat4fp(sc);
         if (!mtx) continue;
 
         T3DMat4 m;
@@ -156,24 +156,24 @@ static void pass_draw(M64TileGrid *grid, const M64LODConfig *lod,
 int main(void)
 {
     /* Init engine. */
-    m64_engine_init(RESOLUTION_320x240);
-    m64_scene_init(&scene);
+    kiln_engine_init(RESOLUTION_320x240);
+    kiln_scene_init(&scene);
     scene.cam_pos = (fm_vec3_t){{ 512, 100, 512 }};
     scene.cam_target = (fm_vec3_t){{ 512, 0, 512 }};
     scene.fov_deg = 70;
     scene.far_z = 600;
 
     /* Init scratch allocator. */
-    m64_scratch_init(&scratch);
+    kiln_scratch_init(&scratch);
 
     /* Init resource cache. */
-    m64_cache_init(&cache);
+    kiln_cache_init(&cache);
 
     /* Init LOD config. */
-    m64_lod_init_defaults(&lod_cfg, TILE_SIZE);
+    kiln_lod_init_defaults(&lod_cfg, TILE_SIZE);
 
     /* Init tile manager. */
-    M64TileGridConfig cfg = {
+    KilnTileGridConfig cfg = {
         .tile_count_x = WORLD_TILES_X,
         .tile_count_y = WORLD_TILES_Y,
         .tile_size = TILE_SIZE,
@@ -182,7 +182,7 @@ int main(void)
         .slots_x = SLOTS_X,
         .slots_y = SLOTS_Y,
     };
-    m64_tile_init(&tiles, &cfg, visual_slots,
+    kiln_tile_init(&tiles, &cfg, visual_slots,
                   NULL, NULL,  /* no collision grid for this demo */
                   tile_load, tile_unload, tile_sync, NULL);
 
@@ -211,36 +211,36 @@ int main(void)
         scene.cam_target = (fm_vec3_t){{ cam_x, 0, cam_z + 100 }};
 
         /* Per-frame: flush unload queue from last frame, then update. */
-        m64_tile_flush_unload(&tiles);
-        m64_tile_update(&tiles, scene.cam_pos, m64_lod_selector_cb);
-        m64_scratch_begin(&scratch);
-        m64_scene_update(&scene);
+        kiln_tile_flush_unload(&tiles);
+        kiln_tile_update(&tiles, scene.cam_pos, kiln_lod_selector_cb);
+        kiln_scratch_begin(&scratch);
+        kiln_scene_update(&scene);
 
         /* Render. */
-        m64_frame_begin();
-        m64_scene_begin(&scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&scene);
 
         /* Two-pass tile rendering. */
-        m64_twopass_render(&tiles.visual, &lod_cfg, &scratch, &scene,
+        kiln_twopass_render(&tiles.visual, &lod_cfg, &scratch, &scene,
                            pass_draw, NULL);
 
-        m64_gui_begin();
+        kiln_gui_begin();
 
         /* HUD. */
         char buf[192];
         uint16_t loaded = 0;
-        for (M64TileSlot *s = m64_tile_first(&tiles.visual); s;
-             s = m64_tile_next(&tiles.visual, s)) loaded++;
+        for (KilnTileSlot *s = kiln_tile_first(&tiles.visual); s;
+             s = kiln_tile_next(&tiles.visual, s)) loaded++;
 
         snprintf(buf, sizeof(buf), "Tiles: %d  Scratch: %u/%d  LOD0-2",
-                 loaded, scratch.offset, M64_SCRATCH_SIZE);
+                 loaded, scratch.offset, KILN_SCRATCH_SIZE);
         rdpq_text_print(NULL, 0, 10, 10, buf);
 
         snprintf(buf, sizeof(buf), "Cam: (%.0f, %.0f)", cam_x, cam_z);
         rdpq_text_print(NULL, 0, 10, 20, buf);
 
-        m64_gui_end();
-        m64_frame_end();
+        kiln_gui_end();
+        kiln_frame_end();
     }
 
     return 0;

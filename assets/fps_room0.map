@@ -78,7 +78,7 @@
 "classname" "info_npc"
 "origin" "-100 16 -80"
 "angle" "90"
-"dialogue" "Welcome to the M64 FPS."
+"dialogue" "Welcome to the Kiln FPS."
 }
 {
 "classname" "info_npc"

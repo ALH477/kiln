@@ -8,7 +8,7 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -18,7 +18,7 @@ all: bass-synth.z64
 
 $(BUILD_DIR)/bass-synth.elf: $(OBJS)
 
-bass-synth.z64: N64_ROM_TITLE = "M64 Bass Synth"
+bass-synth.z64: N64_ROM_TITLE = "Kiln Bass Synth"
 bass-synth.z64: $(BUILD_DIR)/bass-synth.dfs
 
 clean:

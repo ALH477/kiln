@@ -1,42 +1,42 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 // Phase 6: the OoT + id Tech 4 integration proof. A player actor (driven by
-// m64_player) walks a Quake-format .map room, sliding against the walls via
-// m64_clip. Holding Z triggers m64_target_acquire; the camera pushes
-// TARGETING mode (m64_camera_push) and orbits to keep the player and the
+// kiln_player) walks a Quake-format .map room, sliding against the walls via
+// kiln_clip. Holding Z triggers kiln_target_acquire; the camera pushes
+// TARGETING mode (kiln_camera_push) and orbits to keep the player and the
 // locked enemy in frame; releasing Z pops back to NORMAL. Footstep SFX
-// fires via m64_event (m64_player posts M64_EV_PLAYER_FOOTSTEP, the player
-// actor's M64ActorEventFn dispatches to m64_sound_play). A 1.5 s cutscene
+// fires via kiln_event (kiln_player posts KILN_EV_PLAYER_FOOTSTEP, the player
+// actor's KilnActorEventFn dispatches to kiln_sound_play). A 1.5 s cutscene
 // pans around the player on boot to demonstrate the camera mode stack.
 //
-//   m64_map      -> assets/oot_test.map -> brushes + face quads + spawns
-//   m64_dict     -> spawn args (origin, angle) read at spawn
-//   m64_clip     -> swept-AABB vs the parsed brushes
-//   m64_player   -> locomotion state machine + FOOTSTEP events
-//   m64_event    -> deferred FOOTSTEP dispatch
-//   m64_target   -> cone acquire + reticle projection
-//   m64_camera   -> mode stack (NORMAL → TARGETING → CUTSCENE) + collision boom
-//   m64_surface  -> friction table (index 0 = stone)
-//   m64_sound    -> positional sound shaders
+//   kiln_map      -> assets/oot_test.map -> brushes + face quads + spawns
+//   kiln_dict     -> spawn args (origin, angle) read at spawn
+//   kiln_clip     -> swept-AABB vs the parsed brushes
+//   kiln_player   -> locomotion state machine + FOOTSTEP events
+//   kiln_event    -> deferred FOOTSTEP dispatch
+//   kiln_target   -> cone acquire + reticle projection
+//   kiln_camera   -> mode stack (NORMAL → TARGETING → CUTSCENE) + collision boom
+//   kiln_surface  -> friction table (index 0 = stone)
+//   kiln_sound    -> positional sound shaders
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_clip.h>
-#include <m64/m64_dict.h>
-#include <m64/m64_map.h>
-#include <m64/m64_actor.h>
-#include <m64/m64_event.h>
-#include <m64/m64_player.h>
-#include <m64/m64_target.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_surface.h>
-#include <m64/m64_sound.h>
-#include <m64/m64_audio.h>
-#ifdef M64_DEBUG
-#include <m64/m64_console.h>
-#include <m64/m64_prof.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_clip.h>
+#include <kiln/kiln_dict.h>
+#include <kiln/kiln_map.h>
+#include <kiln/kiln_actor.h>
+#include <kiln/kiln_event.h>
+#include <kiln/kiln_player.h>
+#include <kiln/kiln_target.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_surface.h>
+#include <kiln/kiln_sound.h>
+#include <kiln/kiln_audio.h>
+#ifdef KILN_DEBUG
+#include <kiln/kiln_console.h>
+#include <kiln/kiln_prof.h>
 #endif
 
 #include <malloc.h>
@@ -92,7 +92,7 @@ static T3DVertPacked *g_cube_enemy;
 // ── Enemy ──────────────────────────────────────────────────────────────
 typedef struct { float angle, radius, speed; } EnemyState;
 
-static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
+static void enemy_init(KilnActor *self, const KilnDict *spawn_args)
 {
     EnemyState *s = (EnemyState *)self->state;
     s->angle = 0.0f;
@@ -103,7 +103,7 @@ static void enemy_init(M64Actor *self, const M64Dict *spawn_args)
     (void)spawn_args;
 }
 
-static void enemy_update(M64Actor *self, float dt)
+static void enemy_update(KilnActor *self, float dt)
 {
     EnemyState *s = (EnemyState *)self->state;
     s->angle += s->speed * dt;
@@ -118,13 +118,13 @@ static void enemy_update(M64Actor *self, float dt)
     self->xform.rot_angle = s->angle;
 }
 
-static void enemy_draw(M64Actor *self) { (void)self; draw_cube(g_cube_enemy); }
+static void enemy_draw(KilnActor *self) { (void)self; draw_cube(g_cube_enemy); }
 
 // ── Player ─────────────────────────────────────────────────────────────
-static void player_init(M64Actor *self, const M64Dict *spawn_args)
+static void player_init(KilnActor *self, const KilnDict *spawn_args)
 {
-    M64Player *p = m64_player_of(self);
-    p->state = M64_PLAYER_IDLE;
+    KilnPlayer *p = kiln_player_of(self);
+    p->state = KILN_PLAYER_IDLE;
     p->vel = (fm_vec3_t){{ 0, 0, 0 }};
     p->yaw = 0.0f;
     p->state_t = 0.0f;
@@ -134,44 +134,44 @@ static void player_init(M64Actor *self, const M64Dict *spawn_args)
     (void)spawn_args;
 }
 
-static void player_update(M64Actor *self, float dt)
+static void player_update(KilnActor *self, float dt)
 {
-    /* Player port 1 (m64_input_get is 1-based). */
-    m64_player_update(self, 1, dt);
+    /* Player port 1 (kiln_input_get is 1-based). */
+    kiln_player_update(self, 1, dt);
 }
 
-static void player_draw(M64Actor *self) { (void)self; draw_cube(g_cube_player); }
+static void player_draw(KilnActor *self) { (void)self; draw_cube(g_cube_player); }
 
-static void player_event(M64Actor *self, uint16_t event_id,
+static void player_event(KilnActor *self, uint16_t event_id,
                          const int32_t *args, uint8_t argc)
 {
     (void)self;
-    if (event_id == M64_EV_PLAYER_FOOTSTEP && argc >= 1) {
+    if (event_id == KILN_EV_PLAYER_FOOTSTEP && argc >= 1) {
         /* args[0] is the surface id underfoot. The demo only registers
          * surface 0 (stone), so the shader choice is trivial; a game with
          * multiple surfaces would map id→shader name here. */
         (void)args;
-        m64_sound_play("step_stone", self->xform.pos, 1.0f);
+        kiln_sound_play("step_stone", self->xform.pos, 1.0f);
     }
 }
 
-static const M64ActorProfile PROFILES[PROFILE_COUNT] = {
-    [PROFILE_PLAYER] = { .name = "player", .category = M64_ACTOR_CAT_PLAYER,
-                          .state_size = M64_PLAYER_STATE_SIZE,
+static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
+    [PROFILE_PLAYER] = { .name = "player", .category = KILN_ACTOR_CAT_PLAYER,
+                          .state_size = KILN_PLAYER_STATE_SIZE,
                           .init = player_init, .update = player_update,
                           .draw = player_draw, .event = player_event },
-    [PROFILE_ENEMY]  = { .name = "enemy", .category = M64_ACTOR_CAT_ENEMY,
+    [PROFILE_ENEMY]  = { .name = "enemy", .category = KILN_ACTOR_CAT_ENEMY,
                           .state_size = sizeof(EnemyState),
                           .init = enemy_init, .update = enemy_update,
                           .draw = enemy_draw },
 };
 
-static M64Actor g_pool[ACTOR_POOL_CAP];
-static M64Map g_map;
-static M64Camera g_cam;
-static M64Scene g_scene;
-static M64ActorHandle g_player_h = M64_ACTOR_HANDLE_NONE;
-static M64ActorHandle g_lock_h   = M64_ACTOR_HANDLE_NONE;
+static KilnActor g_pool[ACTOR_POOL_CAP];
+static KilnMap g_map;
+static KilnCamera g_cam;
+static KilnScene g_scene;
+static KilnActorHandle g_player_h = KILN_ACTOR_HANDLE_NONE;
+static KilnActorHandle g_lock_h   = KILN_ACTOR_HANDLE_NONE;
 static int g_z_held = 0;
 static float g_cutscene_t = 0.0f;
 
@@ -192,69 +192,69 @@ static fm_vec3_t cam_right(void)
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
-    m64_input_init();
-    m64_audio_init(M64_AUDIO_DEFAULT);
+    kiln_input_init();
+    kiln_audio_init(KILN_AUDIO_DEFAULT);
 
-    int sfx_step = m64_sfx_load("rom:/sfx/step.wav64");
-    m64_surface_register(0, &(M64SurfaceDef){ .friction = 0.9f, .footstep_sfx = sfx_step });
-    M64SoundShader shaders[] = {
+    int sfx_step = kiln_sfx_load("rom:/sfx/step.wav64");
+    kiln_surface_register(0, &(KilnSurfaceDef){ .friction = 0.9f, .footstep_sfx = sfx_step });
+    KilnSoundShader shaders[] = {
         { .name = "step_stone", .wav64_path = "rom:/sfx/step.wav64",
           .base_vol = 0.7f, .falloff_radius = 0.0f },
     };
-    m64_sound_init(shaders, 1);
+    kiln_sound_init(shaders, 1);
 
-    m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    m64_event_init();
+    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    kiln_event_init();
 
-#ifdef M64_DEBUG
-    m64_prof_init();
-    m64_console_init();
-    m64_console_log("oot-demo debug console ready");
-    m64_console_log("hold Start + C-Up Left Down Right");
+#ifdef KILN_DEBUG
+    kiln_prof_init();
+    kiln_console_init();
+    kiln_console_log("oot-demo debug console ready");
+    kiln_console_log("hold Start + C-Up Left Down Right");
 #endif
 
-    m64_map_register_classname("info_player_start", PROFILE_PLAYER);
-    m64_map_register_classname("info_enemy", PROFILE_ENEMY);
+    kiln_map_register_classname("info_player_start", PROFILE_PLAYER);
+    kiln_map_register_classname("info_enemy", PROFILE_ENEMY);
 
-    if (m64_map_load(&g_map, "rom:/maps/oot_test.map") < 0) {
-        debugf("oot-demo: m64_map_load failed\n");
+    if (kiln_map_load(&g_map, "rom:/maps/oot_test.map") < 0) {
+        debugf("oot-demo: kiln_map_load failed\n");
     }
-    m64_clip_set_world(g_map.brushes, g_map.brush_count);
+    kiln_clip_set_world(g_map.brushes, g_map.brush_count);
 
     /* Spawn from the map entities. info_player_start → player; info_enemy →
-     * two enemies. The map parser fills M64RoomSpawn.{pos,yaw,dict}; we
-     * just m64_actor_spawn with the parsed pos/yaw and pass the dict. */
+     * two enemies. The map parser fills KilnRoomSpawn.{pos,yaw,dict}; we
+     * just kiln_actor_spawn with the parsed pos/yaw and pass the dict. */
     fm_vec3_t ppos = (fm_vec3_t){{ 0, 16, 0 }};
     float pyaw = 0.0f;
     int spawned_player = 0, spawned_enemies = 0;
     for (int i = 0; i < g_map.spawn_count; i++) {
-        M64RoomSpawn *s = &g_map.spawns[i];
+        KilnRoomSpawn *s = &g_map.spawns[i];
         if (s->profile_id == PROFILE_PLAYER && !spawned_player) {
-            g_player_h = m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
+            g_player_h = kiln_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
             ppos = s->pos; pyaw = s->yaw;
             spawned_player = 1;
         } else if (s->profile_id == PROFILE_ENEMY && spawned_enemies < 2) {
-            m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
+            kiln_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
             spawned_enemies++;
         }
     }
-    if (!spawned_player) g_player_h = m64_actor_spawn(PROFILE_PLAYER, ppos, pyaw, NULL);
+    if (!spawned_player) g_player_h = kiln_actor_spawn(PROFILE_PLAYER, ppos, pyaw, NULL);
 
-    m64_scene_init(&g_scene);
+    kiln_scene_init(&g_scene);
     g_scene.far_z = 500.0f;
     g_scene.ambient[3] = 255;
 
-    m64_camera_init(&g_cam);
-    m64_camera_set_collision(&g_cam, 1);
-    m64_camera_snap(&g_cam, ppos, pyaw);
+    kiln_camera_init(&g_cam);
+    kiln_camera_set_collision(&g_cam, 1);
+    kiln_camera_snap(&g_cam, ppos, pyaw);
 
     /* Boot cutscene: push CUTSCENE, pan around the player for 1.5 s, then
      * pop. Driven by g_cutscene_t in the loop. */
-    m64_camera_push(&g_cam, M64_CAM_CUTSCENE);
-    m64_camera_set_cutscene(&g_cam,
+    kiln_camera_push(&g_cam, KILN_CAM_CUTSCENE);
+    kiln_camera_set_cutscene(&g_cam,
         (fm_vec3_t){{ ppos.v[0] + 60, ppos.v[1] + 40, ppos.v[2] - 60 }},
         ppos);
     g_cutscene_t = 1.5f;
@@ -265,65 +265,65 @@ int main(void)
 
     for (;;) {
         float dt = 1.0f / 60.0f;
-#ifdef M64_DEBUG
-        M64_PROF_BEGIN(M64_PROF_UPDATE);
+#ifdef KILN_DEBUG
+        KILN_PROF_BEGIN(KILN_PROF_UPDATE);
 #endif
 
-        m64_input_update();
-#ifdef M64_DEBUG
-        m64_console_update(1);
+        kiln_input_update();
+#ifdef KILN_DEBUG
+        kiln_console_update(1);
 #endif
-        const M64Input *in = m64_input_get(1);
+        const KilnInput *in = kiln_input_get(1);
 
         /* Set the camera-relative movement basis BEFORE the player update
          * so stick-up moves the player in the camera's forward direction. */
-        m64_player_set_camera_basis(cam_fwd(), cam_right());
+        kiln_player_set_camera_basis(cam_fwd(), cam_right());
 
         /* Events before actor updates, per the engine contract. */
-        m64_event_process(dt);
-        m64_actor_update_all(dt);
+        kiln_event_process(dt);
+        kiln_actor_update_all(dt);
 
         /* Player facing drives the NORMAL camera's boom heading. */
-        M64Actor *player = m64_actor_resolve(g_player_h);
-        float p_yaw = player ? m64_player_of(player)->yaw : 0.0f;
+        KilnActor *player = kiln_actor_resolve(g_player_h);
+        float p_yaw = player ? kiln_player_of(player)->yaw : 0.0f;
         fm_vec3_t ppos_now = player ? player->xform.pos : ppos;
 
         /* Z-targeting: hold Z to lock. Re-acquire on the rising edge so
          * tapping Z picks the best candidate each tap rather than sticking
          * to one until released. */
-        int z_now = (in->buttons & M64_BTN_Z) != 0;
+        int z_now = (in->buttons & KILN_BTN_Z) != 0;
         int z_edge = z_now && !g_z_held;
         g_z_held = z_now;
 
-        if (g_cam.mode == M64_CAM_NORMAL && z_edge) {
+        if (g_cam.mode == KILN_CAM_NORMAL && z_edge) {
             fm_vec3_t eye = g_scene.cam_pos;
             fm_vec3_t f = cam_fwd();
-            M64ActorHandle h = m64_target_acquire(eye, f, 0.7f /* ~40° cone */,
+            KilnActorHandle h = kiln_target_acquire(eye, f, 0.7f /* ~40° cone */,
                                                    200.0f);
-            if (h != M64_ACTOR_HANDLE_NONE) {
-                m64_camera_push(&g_cam, M64_CAM_TARGETING);
-                m64_camera_set_target_actor(&g_cam, h);
+            if (h != KILN_ACTOR_HANDLE_NONE) {
+                kiln_camera_push(&g_cam, KILN_CAM_TARGETING);
+                kiln_camera_set_target_actor(&g_cam, h);
                 g_lock_h = h;
             }
-        } else if (g_cam.mode == M64_CAM_TARGETING && !z_now) {
-            m64_camera_pop(&g_cam);
-            g_lock_h = M64_ACTOR_HANDLE_NONE;
+        } else if (g_cam.mode == KILN_CAM_TARGETING && !z_now) {
+            kiln_camera_pop(&g_cam);
+            g_lock_h = KILN_ACTOR_HANDLE_NONE;
         }
 
         /* Cutscene countdown. When it elapses, pop back to NORMAL. */
-        if (g_cam.mode == M64_CAM_CUTSCENE) {
+        if (g_cam.mode == KILN_CAM_CUTSCENE) {
             g_cutscene_t -= dt;
             if (g_cutscene_t <= 0.0f) {
-                m64_camera_pop(&g_cam);
+                kiln_camera_pop(&g_cam);
             }
         }
 
-        m64_camera_update(&g_cam, ppos_now, p_yaw, dt);
-        m64_camera_apply(&g_cam, &g_scene);
-        m64_scene_update(&g_scene);
+        kiln_camera_update(&g_cam, ppos_now, p_yaw, dt);
+        kiln_camera_apply(&g_cam, &g_scene);
+        kiln_scene_update(&g_scene);
 
         /* Listener for positional sound shaders. */
-        m64_sound_update_listener(g_scene.cam_pos, cam_fwd());
+        kiln_sound_update_listener(g_scene.cam_pos, cam_fwd());
 
         if (++frames % 30 == 0) {
             uint32_t now = get_ticks();
@@ -331,69 +331,69 @@ int main(void)
             last_ticks = now;
         }
 
-#ifdef M64_DEBUG
-        M64_PROF_END(M64_PROF_UPDATE);
-        m64_prof_frame_done();
+#ifdef KILN_DEBUG
+        KILN_PROF_END(KILN_PROF_UPDATE);
+        kiln_prof_frame_done();
 #endif
 
         /* ── 3D ───────────────────────────────────────────────────── */
-        m64_frame_begin();
-#ifdef M64_DEBUG
-        M64_PROF_BEGIN(M64_PROF_SCENE);
+        kiln_frame_begin();
+#ifdef KILN_DEBUG
+        KILN_PROF_BEGIN(KILN_PROF_SCENE);
 #endif
-        m64_scene_begin(&g_scene);
-        m64_map_draw(&g_map);
-        m64_actor_draw_all();
-#ifdef M64_DEBUG
-        M64_PROF_END(M64_PROF_SCENE);
+        kiln_scene_begin(&g_scene);
+        kiln_map_draw(&g_map);
+        kiln_actor_draw_all();
+#ifdef KILN_DEBUG
+        KILN_PROF_END(KILN_PROF_SCENE);
 #endif
 
         /* ── 2D ───────────────────────────────────────────────────── */
-        m64_gui_begin();
-#ifdef M64_DEBUG
-        M64_PROF_BEGIN(M64_PROF_GUI);
+        kiln_gui_begin();
+#ifdef KILN_DEBUG
+        KILN_PROF_BEGIN(KILN_PROF_GUI);
 #endif
-        m64_gui_panel(8, 8, 200, 90,
+        kiln_gui_panel(8, 8, 200, 90,
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-        m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 OOT+IDTECH4");
-        m64_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
+        kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN OOT+IDTECH4");
+        kiln_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
         const char *mode_s = "NORMAL";
-        if (g_cam.mode == M64_CAM_TARGETING) mode_s = "TARGET";
-        else if (g_cam.mode == M64_CAM_CUTSCENE) mode_s = "CUT";
-        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255), "cam  %s", mode_s);
+        if (g_cam.mode == KILN_CAM_TARGETING) mode_s = "TARGET";
+        else if (g_cam.mode == KILN_CAM_CUTSCENE) mode_s = "CUT";
+        kiln_gui_text(14, 46, RGBA32(232, 232, 240, 255), "cam  %s", mode_s);
         if (player) {
-            M64Player *pp = m64_player_of(player);
-            m64_gui_text(14, 58, RGBA32(232, 232, 240, 255),
+            KilnPlayer *pp = kiln_player_of(player);
+            kiln_gui_text(14, 58, RGBA32(232, 232, 240, 255),
                          "plyr %d  surf %d", pp->state, pp->last_surf);
-            m64_gui_text(14, 70, RGBA32(232, 232, 240, 255),
+            kiln_gui_text(14, 70, RGBA32(232, 232, 240, 255),
                          "pos %5.1f %5.1f", pp->vel.v[0], pp->vel.v[2]);
         }
-        m64_gui_text(14, 82, RGBA32(232, 232, 240, 255),
-                     "evt %u", m64_event_count());
+        kiln_gui_text(14, 82, RGBA32(232, 232, 240, 255),
+                     "evt %u", kiln_event_count());
 
-        m64_gui_panel(8, SCREEN_H - 28, SCREEN_W - 16, 20,
+        kiln_gui_panel(8, SCREEN_H - 28, SCREEN_W - 16, 20,
                       RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
-        m64_gui_text(14, SCREEN_H - 18, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, SCREEN_H - 18, RGBA32(232, 232, 240, 255),
                      "stick: move  Z: target  B: jump  A: attack  L: roll");
 
         /* Targeting reticle on the locked enemy. */
-        if (g_lock_h != M64_ACTOR_HANDLE_NONE) {
-            M64Actor *t = m64_actor_resolve(g_lock_h);
+        if (g_lock_h != KILN_ACTOR_HANDLE_NONE) {
+            KilnActor *t = kiln_actor_resolve(g_lock_h);
             if (t) {
-                m64_target_draw_reticle(&g_scene, t->xform.pos,
+                kiln_target_draw_reticle(&g_scene, t->xform.pos,
                                         SCREEN_W, SCREEN_H,
                                         RGBA32(245, 0, 80, 255));
             }
         }
 
-#ifdef M64_DEBUG
-        m64_console_draw();
-        M64_PROF_END(M64_PROF_GUI);
+#ifdef KILN_DEBUG
+        kiln_console_draw();
+        KILN_PROF_END(KILN_PROF_GUI);
 #endif
-        m64_gui_end();
-        m64_frame_end();
+        kiln_gui_end();
+        kiln_frame_end();
 
-        m64_sound_update();
-        m64_audio_update();
+        kiln_sound_update();
+        kiln_audio_update();
     }
 }

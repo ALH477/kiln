@@ -2,17 +2,17 @@
 //
 // gg_types.h — shared game-side types for Ganja Goblin.
 //
-// The engine's m64_turn tracks only whose turn it is and what phase;
+// The engine's kiln_turn tracks only whose turn it is and what phase;
 // per-player state (position on the board, buds, inventory, status
 // effects) lives here, on the game side. This matches the engine's
-// design rule: m64_turn is generic, the player struct is game-specific.
+// design rule: kiln_turn is generic, the player struct is game-specific.
 
 #ifndef GG_TYPES_H
 #define GG_TYPES_H
 
 #include <stdint.h>
-#include <m64/m64_inventory.h>
-#include <m64/m64_board.h>
+#include <kiln/kiln_inventory.h>
+#include <kiln/kiln_board.h>
 
 #define GG_PLAYERS       4
 #define GG_STARTING_BUDS  0
@@ -42,7 +42,7 @@ typedef enum {
 typedef struct {
     int16_t      node;          // index into the board
     int32_t      buds;          // currency / score
-    M64Inventory inv;           // items
+    KilnInventory inv;           // items
     GGStatus     status;
     uint8_t      status_turns;  // turns remaining for the active status
     // Per-turn passive bonuses accrued by the active character's passive

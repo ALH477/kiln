@@ -38,7 +38,7 @@
 #ifndef PM_MUSIC_H
 #define PM_MUSIC_H
 
-/** Load both forms. Call once, after dfs_init and m64_audio_init. */
+/** Load both forms. Call once, after dfs_init and kiln_audio_init. */
 void pm_music_init(void);
 
 /** Turn the theme on or off. Idempotent — call it every frame with the

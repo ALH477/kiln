@@ -2,7 +2,7 @@
 //
 // pm_credits.h — the title card, between the transformation and the beach.
 //
-// Fades in right after INTAKE's climb-in flash, plays the FMV (m64_video.h)
+// Fades in right after INTAKE's climb-in flash, plays the FMV (kiln_video.h)
 // if one is present, then holds on a static title+credits card before
 // handing off into the (unchanged) submarine scene. Like pm_narration.c,
 // this shot draws nothing in the 3D pass and everything in the 2D pass, so
@@ -13,7 +13,7 @@
 // intro.m1v has no audio track yet — its intended companion (audio.wav) was
 // reassigned to the surgery OST (see pm_lab.c). The FMV plays silent until
 // real matched audio exists; dropping one in later is an asset swap, not a
-// code change (m64_video.h has no audio path at all — see its own header).
+// code change (kiln_video.h has no audio path at all — see its own header).
 
 #ifndef PM_CREDITS_H
 #define PM_CREDITS_H

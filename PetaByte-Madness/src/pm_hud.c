@@ -5,7 +5,7 @@
 #include "pm_hud.h"
 
 #include <libdragon.h>
-#include <m64/m64_gui.h>
+#include <kiln/kiln_gui.h>
 
 // Panel alpha at a bar's safe value (full HP/air, veil at rest) vs. its
 // alert value. Nothing is ever hidden — every bar and label is always
@@ -46,17 +46,17 @@ void pm_hud_draw(const PMPlayer *pl, const PMVeil *veil, int screen_w,
     const float hp_t  = 1.0f - (float)pl->health / (float)pl->max_health;
     const float air_t = 1.0f - pl->air / pl->max_air;
     const float left_t = hp_t > air_t ? hp_t : air_t;
-    m64_gui_panel(6, screen_h - 40, 108, 34, panel_at(left_t), border_at(left_t));
-    m64_gui_text(12, screen_h - 28, ink, "HP");
-    m64_gui_bar(30, screen_h - 34, 76, 8,
+    kiln_gui_panel(6, screen_h - 40, 108, 34, panel_at(left_t), border_at(left_t));
+    kiln_gui_text(12, screen_h - 28, ink, "HP");
+    kiln_gui_bar(30, screen_h - 34, 76, 8,
                 (float)pl->health / (float)pl->max_health,
                 RGBA32(0xC8, 0x30, 0x2C, 0xFF), RGBA32(0x28, 0x14, 0x14, 0xFF));
 
     // Air is the veil's meter as much as the diver's: it drains faster
     // while the filter is up, which is the whole reason the player ever
     // turns it off.
-    m64_gui_text(12, screen_h - 12, ink, "AIR");
-    m64_gui_bar(30, screen_h - 18, 76, 8, pl->air / pl->max_air,
+    kiln_gui_text(12, screen_h - 12, ink, "AIR");
+    kiln_gui_bar(30, screen_h - 18, 76, 8, pl->air / pl->max_air,
                 pl->air < pl->max_air * 0.25f
                     ? warn : RGBA32(0x3C, 0x9E, 0xC0, 0xFF),
                 RGBA32(0x12, 0x1C, 0x24, 0xFF));
@@ -66,12 +66,12 @@ void pm_hud_draw(const PMPlayer *pl, const PMVeil *veil, int screen_w,
     // wheel with nine detents, and the readout should agree with what
     // their eyes are being shown.
     const float veil_t = (float)veil->step / (float)(PM_VEIL_STEPS - 1);
-    m64_gui_panel(screen_w - 96, screen_h - 40, 90, 34,
+    kiln_gui_panel(screen_w - 96, screen_h - 40, 90, 34,
                   panel_at(veil_t), border_at(veil_t));
-    m64_gui_text(screen_w - 90, screen_h - 28,
+    kiln_gui_text(screen_w - 90, screen_h - 28,
                  veil->forced ? warn : ink,
                  veil->forced ? "VEIL FORCED" : "VEIL");
-    m64_gui_bar(screen_w - 90, screen_h - 18, 78, 8, veil_t,
+    kiln_gui_bar(screen_w - 90, screen_h - 18, 78, 8, veil_t,
                 RGBA32(0x8E, 0x0C, 0x12, 0xFF), RGBA32(0x1A, 0x10, 0x12, 0xFF));
 
     // ── Reciprocity ────────────────────────────────────────────────────
@@ -79,13 +79,13 @@ void pm_hud_draw(const PMPlayer *pl, const PMVeil *veil, int screen_w,
     // who has not read the design doc: raising the filter is not free,
     // because while it is up they can see you too.
     if (pl->seen) {
-        m64_gui_text(screen_w / 2 - 26, 22, warn, "SEEN");
+        kiln_gui_text(screen_w / 2 - 26, 22, warn, "SEEN");
     }
 
     // Crosshair. Two ticks, not a cross — a solid dot competes with the
     // eye pinpricks, which are the only thing on screen worth looking at
     // with the veil down.
     const int cx = screen_w / 2, cy = screen_h / 2;
-    m64_gui_rect(cx - 4, cy, 3, 1, ink);
-    m64_gui_rect(cx + 2, cy, 3, 1, ink);
+    kiln_gui_rect(cx - 4, cy, 3, 1, ink);
+    kiln_gui_rect(cx + 2, cy, 3, 1, ink);
 }

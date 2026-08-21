@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 {
-  description = "M64 — a Nix build system for Nintendo 64 / ModRetro M64 software";
+  description = "Kiln — a Nix build system for Nintendo 64 / ModRetro M64 software";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -76,6 +76,14 @@
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
 
         # libdragon, installed into a store path used as $N64_INST.
+        # libdragon's own fast-math library, built for the host. The first
+        # brick of the PC target: the engine's fm_vec3_t and 17 fm_* calls are
+        # now the REAL ones natively, not a hand-copy. See nix/host-math.nix.
+        hostMath = import ./nix/host-math.nix {
+          inherit pkgs;
+          src = libdragon;
+        };
+
         libdragon-sdk = import ./nix/libdragon.nix {
           inherit pkgs toolchain;
           src = libdragon;
@@ -91,7 +99,7 @@
         # Data management: StreamDB v3 reader, on-console. Built against
         # libdragon alone (it needs only n64.mk and the DFS backend); keeping
         # it off tiny3d lets it land in n64InstBase, which the engine needs
-        # because m64_asset.c includes <streamdb_embedded.h>.
+        # because kiln_asset.c includes <streamdb_embedded.h>.
         streamdb-emb = import ./nix/streamdb.nix {
           inherit pkgs toolchain;
           libdragon = libdragon-sdk;
@@ -99,16 +107,16 @@
         };
 
         # Prefix stage 1: what the engine itself compiles against. Now
-        # includes streamdb-emb so m64_asset.c can find streamdb_embedded.h.
+        # includes streamdb-emb so kiln_asset.c can find streamdb_embedded.h.
         n64InstBase = import ./nix/n64-inst.nix {
           inherit pkgs;
           libdragon = libdragon-sdk;
           extraLibs = [ tiny3d-sdk streamdb-emb ];
         };
 
-        # The M64 engine — 3D on Tiny3D, 2D GUI on rdpq, asset layer on
+        # The Kiln engine — 3D on Tiny3D, 2D GUI on rdpq, asset layer on
         # streamdb-embedded.
-        m64-engine = import ./nix/engine.nix {
+        kiln-engine = import ./nix/engine.nix {
           inherit pkgs toolchain n64InstBase;
           src = ./engine;
         };
@@ -171,10 +179,10 @@
 
         # ── StreamDB-destined demo assets ──────────────────────────────
         # Three assets packed into a single .streamdb, exercising every
-        # m64_asset accessor: m64_asset_model (cube.t3dm), m64_asset_sprite
-        # (logo.sprite), and m64_asset_load on a raw level-layout blob.
+        # kiln_asset accessor: kiln_asset_model (cube.t3dm), kiln_asset_sprite
+        # (logo.sprite), and kiln_asset_load on a raw level-layout blob.
         #
-        # IMPORTANT: compress = 0 across the board. m64_asset_load returns
+        # IMPORTANT: compress = 0 across the board. kiln_asset_load returns
         # the StreamDB payload bytes verbatim — there is no asset_load in the
         # path to decompress them, so a mkasset-compressed .t3dm/.sprite
         # would arrive at t3d_model_load_buf / sprite_load_buf still
@@ -197,7 +205,7 @@
           format = "RGBA32";
           compress = 0;
         };
-        # A level-layout blob: 4-byte magic 'M64L' + u32 spawn-count + N vec3
+        # A level-layout blob: 4-byte magic 'KLNL' + u32 spawn-count + N vec3
         # spawn points. Generated deterministically (no binary checked in).
         introLevel = pkgs.runCommandLocal "intro-level.bin" {
           nativeBuildInputs = [ pkgs.python3 ];
@@ -206,7 +214,7 @@
           import struct, sys
           spawns = [(0,0,0),(10,0,10),(-10,0,10),(0,5,0)]
           with open(sys.argv[1], "wb") as f:
-              f.write(b"M64L")
+              f.write(b"KLNL")
               f.write(struct.pack("<I", len(spawns)))
               for x,y,z in spawns:
                   f.write(struct.pack("<fff", x, y, z))
@@ -219,18 +227,28 @@
           compress = 0;
           extension = "bin";
         };
-        # Loose Quake .map shipped to rom:/maps/ for m64_map at runtime.
+        # Loose Quake .map shipped to rom:/maps/ for kiln_map at runtime.
         quakeMap = assetLib.mkRawAsset {
-          name = "quake-test-map";
+          # The NAME IS THE FILENAME. It was "quake-test-map", shipping
+          # maps/quake-test-map.map, while examples/map-demo/main.c:89 opens
+          # rom:/maps/quake_test.map — so the map never loaded, exactly as
+          # CLAUDE.md's "an asset builder's `name` is the FILENAME" entry
+          # describes. It went unnoticed for as long as it did because the ROM
+          # had no filesystem at all (see the Makefile), which failed first.
+          name = "quake_test";
           src = ./assets/quake_test.map;
           dest = "maps";
           extension = "map";
           compress = 0;
         };
         # Two-room + enemies test map for examples/oot-demo. Same raw-asset
-        # path as quakeMap so m64_map reads it via rom:/maps/oot_test.map.
+        # path as quakeMap so kiln_map reads it via rom:/maps/oot_test.map —
+        # which this entry CLAIMED and did not do: the name was "oot-test-map",
+        # so it shipped maps/oot-test-map.map while
+        # examples/oot-demo/main.c:222 asked for oot_test.map. A comment
+        # asserting the path is not the same as the name producing it.
         ootMap = assetLib.mkRawAsset {
-          name = "oot-test-map";
+          name = "oot_test";
           src = ./assets/oot_test.map;
           dest = "maps";
           extension = "map";
@@ -255,13 +273,13 @@
         # Procedural textures. One derivation feeds two consumers: the PNGs
         # gltf_to_t3d decodes at conversion time to learn UV pixel dimensions,
         # and the .sprites the ROM ships. See nix/assets.nix.
-        textures = assetLib.mkTextures { name = "m64"; };
+        textures = assetLib.mkTextures { name = "kiln"; };
 
         # ── Test geometry ─────────────────────────────────────────────
         # Each model isolates one class of renderer bug; tools/blender/models.py
         # documents which. Untextured models go through the `shade` preset,
         # which reproduces libdragon's RDPQ_COMBINER_SHADE exactly — the same
-        # combiner m64_scene_begin() already sets, so they compose with
+        # combiner kiln_scene_begin() already sets, so they compose with
         # hand-built geometry in the same pass.
         mkTestModel = model: extra: blenderLib.mkBlenderModel ({
           name = model;
@@ -294,7 +312,7 @@
 
         # The rigged/animated reference — the only thing here exercising
         # Tiny3D's skinning + animation (t3dskeleton.h/t3danim.h) through the
-        # Blender-authoring path (m64_skel.h's runtime side is exercised
+        # Blender-authoring path (kiln_skel.h's runtime side is exercised
         # separately by examples/camera-skel-demo's hand-authored rig).
         # tools/blender/goblin.py documents why every part is rigidly bound
         # to exactly one bone.
@@ -327,7 +345,7 @@
         # The hero prop: not a test shape, but a piece of content authored the
         # way a game's content is — one silhouette from six interpenetrating
         # parts, shaded entirely by COLOR_0 through the same `shade` combiner
-        # m64_scene_begin() already sets, so it composes with hand-built
+        # kiln_scene_begin() already sets, so it composes with hand-built
         # geometry in one pass and needs no TMEM. tools/blender/interceptor.py
         # documents the orientation and the budget.
         interceptorModel = blenderLib.mkBlenderModel {
@@ -337,7 +355,7 @@
 
         # The goblins' rides. Same authoring path as interceptorModel — one
         # silhouette from interpenetrating solids, COLOR_0 only, no TMEM —
-        # but built with m64lib's sweep()/rotated(), which exist because a
+        # but built with kilnlib's sweep()/rotated(), which exist because a
         # vehicle is mostly swept tube (exhaust, roll bars, fenders, forks)
         # and hand-rolling that frame per part is where inside-out geometry
         # comes from. tools/blender/test_vehicles.py checks every part's
@@ -372,8 +390,8 @@
           animated = true;
         };
         # Hand-authored Quake .map for the cinematic-demo's hangar room.
-        # Same mkRawAsset path as quakeMap / ootMap so m64_map reads it via
-        # rom:/maps/hangar.map at runtime. compress=0 because m64_map_load
+        # Same mkRawAsset path as quakeMap / ootMap so kiln_map reads it via
+        # rom:/maps/hangar.map at runtime. compress=0 because kiln_map_load
         # is the consumer — there is no asset_load in the path, so a
         # compressed .map would arrive still-compressed and fail to parse.
         hangarMap = assetLib.mkRawAsset {
@@ -389,7 +407,7 @@
         # tools/blender-mcp/server.py's own inspect/import tools were checked
         # against before this Nix wiring was written.
         # FPS level: a larger Quake .map with multiple enemies, loaded at
-        # runtime via m64_map (same raw-asset path as ootMap / hangarMap).
+        # runtime via kiln_map (same raw-asset path as ootMap / hangarMap).
         fpsMap = assetLib.mkRawAsset {
           name = "fps-level-map";
           src = ./assets/fps_level.map;
@@ -399,21 +417,21 @@
         };
         # Per-room maps for the multi-room streaming FPS.
         fpsRoom0 = assetLib.mkRawAsset {
-          name = "fps-room0-map";
+          name = "fps_room0";
           src = ./assets/fps_room0.map;
           dest = "maps";
           extension = "map";
           compress = 0;
         };
         fpsRoom1 = assetLib.mkRawAsset {
-          name = "fps-room1-map";
+          name = "fps_room1";
           src = ./assets/fps_room1.map;
           dest = "maps";
           extension = "map";
           compress = 0;
         };
         fpsRoom2 = assetLib.mkRawAsset {
-          name = "fps-room2-map";
+          name = "fps_room2";
           src = ./assets/fps_room2.map;
           dest = "maps";
           extension = "map";
@@ -445,7 +463,7 @@
         n64Inst = import ./nix/n64-inst.nix {
           inherit pkgs;
           libdragon = libdragon-sdk;
-          extraLibs = [ tiny3d-sdk m64-engine streamdb-emb ];
+          extraLibs = [ tiny3d-sdk kiln-engine streamdb-emb ];
         };
 
         # The ROM builder. Projects bring a Makefile; this supplies the
@@ -457,7 +475,7 @@
         hello = mkN64Rom {
           name = "hello";
           src = ./examples/hello;
-          romTitle = "M64 Hello";
+          romTitle = "Kiln Hello";
         };
 
         # The Faust bridge and the gates that enforce the report's constraints.
@@ -495,7 +513,7 @@
         audio = mkN64Rom {
           name = "audio";
           src = ./examples/audio;
-          romTitle = "M64 Audio";
+          romTitle = "Kiln Audio";
           assets = [ ks-baked ];
           audioRate = 32000;
         };
@@ -506,7 +524,7 @@
         live-voice = mkN64Rom {
           name = "live-voice";
           src = ./examples/live-voice;
-          romTitle = "M64 Live Voice";
+          romTitle = "Kiln Live Voice";
           assets = [ ks-baked ];
           audioRate = 32000;
           makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ];
@@ -516,7 +534,7 @@
         engine-demo = mkN64Rom {
           name = "engine";
           src = ./examples/engine;
-          romTitle = "M64 Engine";
+          romTitle = "Kiln Engine";
         };
 
         # Open-world streaming demo: scratch allocator, refcounted cache,
@@ -524,7 +542,7 @@
         openworld-demo = mkN64Rom {
           name = "openworld-demo";
           src = ./examples/openworld-demo;
-          romTitle = "M64 Open World";
+          romTitle = "Kiln Open World";
         };
 
         # XM64 tracker music playback example. mkMusic converts the .xm
@@ -549,7 +567,7 @@
         music-demo = mkN64Rom {
           name = "music";
           src = ./examples/music;
-          romTitle = "M64 Music";
+          romTitle = "Kiln Music";
           assets = [ test-music ];
           audioRate = 32000;
         };
@@ -570,57 +588,57 @@
         assets-demo = mkN64Rom {
           name = "assets-demo";
           src = ./examples/assets-demo;
-          romTitle = "M64 Assets";
+          romTitle = "Kiln Assets";
           assets = [ demoModel demoSprite demoSound ];
           audioRate = 32000;
         };
 
-        # Phase B verification: the actor system (engine/src/m64/m64_actor.*)
+        # Phase B verification: the actor system (engine/src/kiln/kiln_actor.*)
         # with one profile per category that matters here — spawn, handle-based
         # despawn, an actor despawning itself mid-update, and the fixed
         # category draw order all exercised in one ROM.
         actors-demo = mkN64Rom {
           name = "actors-demo";
           src = ./examples/actors-demo;
-          romTitle = "M64 Actors";
+          romTitle = "Kiln Actors";
         };
 
         # Scene/room streaming — a 2×2 grid of rooms, camera starts in room A.
-        # The m64_room module loads the room under the camera and its
+        # The kiln_room module loads the room under the camera and its
         # neighbours; HUD reports current room + loaded count.
         rooms-demo = mkN64Rom {
           name = "rooms-demo";
           src = ./examples/rooms-demo;
-          romTitle = "M64 Rooms";
+          romTitle = "Kiln Rooms";
         };
 
-        # Phase B completion: m64_camera (OoT-style spring-arm follow) +
-        # m64_skel (skeletal animation, idle/swing blend) + m64_audio
+        # Phase B completion: kiln_camera (OoT-style spring-arm follow) +
+        # kiln_skel (skeletal animation, idle/swing blend) + kiln_audio
         # (footstep SFX on distance travelled) together in one ROM, driving
-        # the m64_actor player already exercised by actors-demo.
+        # the kiln_actor player already exercised by actors-demo.
         camera-skel-demo = mkN64Rom {
           name = "camera-skel-demo";
           src = ./examples/camera-skel-demo;
-          romTitle = "M64 Camera Skel";
+          romTitle = "Kiln Camera Skel";
           assets = [ skelModel demoSound ];
           audioRate = 32000;
         };
 
         # Phase C verification: same three asset kinds as assets-demo, but
         # loaded from a single StreamDB container mounted at boot via
-        # m64_asset_open. Exercises m64_asset_model (the patched
-        # t3d_model_load_buf path), m64_asset_sprite (sprite_load_buf), and
-        # m64_asset_load on a raw level blob, plus m64_asset_count and
-        # m64_asset_find_suffix.
+        # kiln_asset_open. Exercises kiln_asset_model (the patched
+        # t3d_model_load_buf path), kiln_asset_sprite (sprite_load_buf), and
+        # kiln_asset_load on a raw level blob, plus kiln_asset_count and
+        # kiln_asset_find_suffix.
         streamdb-demo = mkN64Rom {
           name = "streamdb-demo";
           src = ./examples/streamdb-demo;
-          romTitle = "M64 StreamDB";
+          romTitle = "Kiln StreamDB";
           assets = [ demoStreamdb ];
         };
 
-        # Phase C step 1: m64_input (deadzoned joypad wrapper with button
-        # edges) + m64_clip (swept-AABB-vs-brushes collision with iterative
+        # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
+        # edges) + kiln_clip (swept-AABB-vs-brushes collision with iterative
         # SlideMove). One player box pushed around a 5-brush room; the box
         # slides along walls, HUD reports the last trace's fraction / normal /
         # surface. No assets, no actors — the proof stays focused on the
@@ -628,49 +646,49 @@
         clip-demo = mkN64Rom {
           name = "clip-demo";
           src = ./examples/clip-demo;
-          romTitle = "M64 Clip";
+          romTitle = "Kiln Clip";
           assets = [ demoSound stepSound ];
         };
 
-        # Phase E: m64_room brush auto-install + m64_clip broadphase toggle
-        # + m64_physics HL2-style rigid bodies. One room (floor + 4 walls,
-        # brushes auto-installed via m64_room); 6 dynamic crate bodies fall,
+        # Phase E: kiln_room brush auto-install + kiln_clip broadphase toggle
+        # + kiln_physics HL2-style rigid bodies. One room (floor + 4 walls,
+        # brushes auto-installed via kiln_room); 6 dynamic crate bodies fall,
         # stack, rest, sleep; A punts the nearest crate in a forward cone
         # (gravity-gun feel); D-pad toggles PHYS ON/OFF and BP ON/OFF; HUD
         # shows the last trace's brush count so the broadphase win is visible.
         physics-demo = mkN64Rom {
           name = "physics-demo";
           src = ./examples/physics-demo;
-          romTitle = "M64 Physics";
+          romTitle = "Kiln Physics";
         };
 
-        # Phase C step 2: m64_dict + m64_map. Loads assets/quake_test.map,
+        # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
-        # info_player_start entity by reading "origin" from the M64Dict.
+        # info_player_start entity by reading "origin" from the KilnDict.
         map-demo = mkN64Rom {
           name = "map-demo";
           src = ./examples/map-demo;
-          romTitle = "M64 Map";
+          romTitle = "Kiln Map";
           assets = [ quakeMap ];
         };
 
-        # Phase 4: m64_event. A switch actor posts DOOR_OPEN with a 500 ms
+        # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
         # the queued-event count so the 500 ms gap is visible.
         event-demo = mkN64Rom {
           name = "event-demo";
           src = ./examples/event-demo;
-          romTitle = "M64 Event";
+          romTitle = "Kiln Event";
         };
 
         # Phase 6: the OoT + id Tech 4 integration proof. A player actor
-        # (m64_player locomotion) walks an oot_test.map room, slides via
-        # m64_clip, Z-targets enemies (m64_target + camera TARGETING mode),
-        # and emits footstep SFX through m64_event + m64_sound shaders.
+        # (kiln_player locomotion) walks an oot_test.map room, slides via
+        # kiln_clip, Z-targets enemies (kiln_target + camera TARGETING mode),
+        # and emits footstep SFX through kiln_event + kiln_sound shaders.
         oot-demo = mkN64Rom {
           name = "oot-demo";
           src = ./examples/oot-demo;
-          romTitle = "M64 OoT";
+          romTitle = "Kiln OoT";
           assets = [ ootMap stepSound ];
         };
 
@@ -679,21 +697,21 @@
         oot-demo-debug = mkN64Rom {
           name = "oot-demo-debug";
           src = ./examples/oot-demo;
-          romTitle = "M64 OoT Debug";
+          romTitle = "Kiln OoT Debug";
           assets = [ ootMap stepSound ];
           debugConsole = true;
         };
 
         # The on-screen retro debug console. Built with `debugConsole = true`
-        # so M64_DEBUG=1 reaches the example's main.c (gating the
-        # m64_console_* calls). The console module itself is always in
-        # libm64.a; the flag only controls whether the example wires it up.
+        # so KILN_DEBUG=1 reaches the example's main.c (gating the
+        # kiln_console_* calls). The console module itself is always in
+        # libkiln.a; the flag only controls whether the example wires it up.
         # Toggle in-rom by holding Start and pressing C-Up → C-Left →
         # C-Down → C-Right (counter-clockwise around the C cluster).
         debug-demo = mkN64Rom {
           name = "debug-demo";
           src = ./examples/debug-demo;
-          romTitle = "M64 Debug";
+          romTitle = "Kiln Debug";
           debugConsole = true;
         };
 
@@ -703,18 +721,18 @@
         interceptor-demo = mkN64Rom {
           name = "interceptor-demo";
           src = ./examples/interceptor-demo;
-          romTitle = "M64 Interceptor";
+          romTitle = "Kiln Interceptor";
           assets = [ interceptorModel demoSound test-music ];
           audioRate = 32000;
         };
 
-        # texanim-demo: exercises m64_texanim (UV scroll, flipbook, palette,
-        # offscreen) and m64_vanim (procedural deform, morph blending, RSP
+        # texanim-demo: exercises kiln_texanim (UV scroll, flipbook, palette,
+        # offscreen) and kiln_vanim (procedural deform, morph blending, RSP
         # vertex FX). All geometry is hand-built — no asset pipeline needed.
         texanim-demo = mkN64Rom {
           name = "texanim-demo";
           src = ./examples/texanim-demo;
-          romTitle = "M64 TexAnim";
+          romTitle = "Kiln TexAnim";
         };
 
         # Cinematic-demo: a 60-second single-shot scene of the Interceptor in
@@ -730,7 +748,7 @@
         cinematic-demo = mkN64Rom {
           name = "cinematic-demo";
           src = ./examples/cinematic-demo;
-          romTitle = "M64 Cinematic";
+          romTitle = "Kiln Cinematic";
           assets = [
             interceptorModel goblinModel droidModel alienModel
             hangarMap demoSound stepSound cine-music
@@ -739,13 +757,13 @@
         };
 
         # A minimal playable first-person shooter. First-person camera
-        # (m64_fpscam), hitscan weapon (m64_weapon), enemy actors that chase
+        # (kiln_fpscam), hitscan weapon (kiln_weapon), enemy actors that chase
         # the player, HUD with crosshair + health + ammo. The FPS level is a
-        # Quake .map loaded at runtime via m64_map.
+        # Quake .map loaded at runtime via kiln_map.
         fps = mkN64Rom {
           name = "fps";
           src = ./examples/fps;
-          romTitle = "M64 FPS";
+          romTitle = "Kiln FPS";
           assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
           audioRate = 32000;
         };
@@ -770,7 +788,7 @@
         bass-synth = mkN64Rom {
           name = "bass-synth";
           src = ./examples/bass-synth;
-          romTitle = "M64 Bass Synth";
+          romTitle = "Kiln Bass Synth";
           assets = bassWavFlat;
           audioRate = 32000;
         };
@@ -796,14 +814,101 @@
           saveType = "eeprom4k"; # match-progress + per-goblin unlock flags
         };
 
-        # Phase 1 verification: m64_rng + m64_dice + m64_board + m64_turn
+        # ── Forge ────────────────────────────────────────────────────────
+        # A standalone tool ROM: a voxel level/cinematic editor that runs on the
+        # console, so a level is judged where it will be played rather than two
+        # tool hops away. See the plan in
+        # /home/asher/.claude/plans/minecraft-like-game-that-fluttering-minsky.md
+        #
+        # `forge-selftest` comes FIRST and is deliberately its own ROM. Forge's
+        # whole iteration loop rests on one assumption — that a ROM can write
+        # files to the SD card of an ED64 Plus, which is a clone board libcart
+        # names but nobody here has proved. This probe answers that in one boot,
+        # exercising kiln_store's real write path rather than a copy of it.
+        #
+        # saveType is DELIBERATELY not eeprom/sram here: the probe reports
+        # whether the SD path works, and a declared save type would have the
+        # EverDrive OS offering to flush a save that the probe is not using.
+        # The SRAM fallback gets its own variant below when it is needed.
+        forge-selftest = mkN64Rom {
+          name = "forge-selftest";
+          src = ./Forge/selftest;
+          romTitle = "Kiln Forge Probe";
+        };
+
+        # The editor itself. No `assets` and no saveType: the level lives on the
+        # SD card, not in the ROM and not in a save chip, which is exactly the
+        # property that makes editing cost no rebuild. A DFS-seeded variant for
+        # emulator inspection lands with the mode work that needs it.
+        forge = mkN64Rom {
+          name = "forge";
+          src = ./Forge;
+          romTitle = "Kiln Forge";
+        };
+
+        # Forge with a level baked into the ROM. Its only purpose is to make the
+        # LOAD path verifiable without a cart: `./dev shot forge-dfs` boots it,
+        # kiln_store falls through SD and the save chip to read-only `rom:/`, and
+        # the level either appears or the HUD says which step refused.
+        forge-dfs = mkN64Rom {
+          name = "forge-dfs";
+          src = ./Forge;
+          romTitle = "Kiln Forge DFS";
+          assets = [ forgeSeedLevel ];
+        };
+
+        # `nix build .#forge-<mode>` boots straight into one mode over the baked
+        # level. `./dev shot` has no input path at all by design and `./dev
+        # drive`'s uinput chain is fragile, so a mode reached only by a chord is
+        # a mode that can only be verified by hand — which for WALK (the one
+        # whose entire purpose is standing in the level) and CAM (whose whole
+        # output is a curve you have to SEE) is most of the value. Same idiom and
+        # the same reasoning as the pm-jump ROMs.
+        # No `assets`, deliberately: with nothing to load these fall through to
+        # forge_io_seed's demo content, which is a room WITH a spawn and a
+        # three-key shot. The baked level is geometry only — frg.py imports a
+        # `.map`, and a `.map` has no camera path — so a CAM capture over it
+        # correctly reported `ERR nokeys` and showed an empty timeline.
+        #
+        # The alternative was teaching frg.py to invent a camera path on import,
+        # which would put content nobody authored into every level anyone
+        # imported. So the demo content has exactly ONE author (forge_io_seed),
+        # and `.#forge-dfs` still covers the load path it is there to cover.
+        forgeModes = [ "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
+        forgeModeRoms = pkgs.lib.listToAttrs (map
+          (m: pkgs.lib.nameValuePair "forge-${pkgs.lib.toLower m}" (mkN64Rom {
+            name = "forge-${pkgs.lib.toLower m}";
+            src = ./Forge;
+            romTitle = "Kiln Forge ${m}";
+            makeFlags = [ "FORGE_MODE=${m}" ];
+          }))
+          forgeModes);
+
+        # The same probe with a save chip declared, which is the ONLY way to
+        # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
+        # through the cart, so with no save type in the ROM header there is
+        # nothing there to detect and the fallback correctly refuses itself.
+        #
+        # Two ROMs rather than one flag because this is a gate on a fallback and
+        # a gate should be verified to fire in BOTH directions — the plain build
+        # must report "no writable backend" under an emulator, this one must
+        # round-trip 8 KB through SRAM. Testing only the arm that passes is how
+        # you ship a fallback that was never once exercised.
+        forge-selftest-sram = mkN64Rom {
+          name = "forge-selftest-sram";
+          src = ./Forge/selftest;
+          romTitle = "Kiln Forge Probe SRAM";
+          saveType = "sram256k";
+        };
+
+        # Phase 1 verification: kiln_rng + kiln_dice + kiln_board + kiln_turn
         # end-to-end. 4 tokens, 5 rounds, a 10-node branching path, an
         # auto-advancing state machine. No assets — the proof is the
         # topology and the turn transitions, drawn as a 2D HUD schematic.
         board-demo = mkN64Rom {
           name = "board-demo";
           src = ./examples/board-demo;
-          romTitle = "M64 Board";
+          romTitle = "Kiln Board";
         };
 
         # ── PetaByte Madness ─────────────────────────────────────────────
@@ -871,14 +976,14 @@
           mono = true;
         };
 
-        # ── The M64 boot splash ──────────────────────────────────────────
+        # ── The Kiln boot splash ──────────────────────────────────────────
         # A parody of the Nintendo 64's boot, and a publisher mark rather
         # than any one game's title screen — which is why the runtime half
-        # is in the engine (engine/src/m64/m64_splash.h) and only the two
+        # is in the engine (engine/src/kiln/kiln_splash.h) and only the two
         # assets live here. Ganja Goblin can adopt it with four calls.
-        m64Logo = blenderLib.mkBlenderModel {
-          name = "m64_logo";
-          script = "m64_logo.py";
+        kilnLogo = blenderLib.mkBlenderModel {
+          name = "kiln_logo";
+          script = "kiln_logo.py";
           # baseScale is MODEL UNITS PER BLENDER UNIT, not a "keep my units"
           # switch — flake.nix's own demoModel note says so ("a 1x1x1 Blender
           # unit cube; the default baseScale of 64 turns that into a 64-unit
@@ -886,17 +991,17 @@
           # and collapsed into an unreadable grey slab on screen. Tiny3D
           # stores vertices as integers; sub-unit detail simply does not
           # survive. 64 keeps it consistent with every other model here, and
-          # m64_splash's camera is placed in the same units.
+          # kiln_splash's camera is placed in the same units.
           baseScale = 64;
         };
 
-        # The jingle. Its chord resolves 1.25 s in, which m64_splash.c
+        # The jingle. Its chord resolves 1.25 s in, which kiln_splash.c
         # times the logo's assembly and the screen flash to meet — picture
         # can be nudged a frame at runtime, audio cannot, so the sound is
         # the master here.
-        m64Jingle = faust.mkBakedInstrument {
-          name = "m64jingle";
-          src = ./dsp/m64_jingle.dsp;
+        kilnJingle = faust.mkBakedInstrument {
+          name = "kilnjingle";
+          src = ./dsp/kiln_jingle.dsp;
           sampleRate = 32000;
           duration = 4.0;
           params = { gain = 0.5; };
@@ -909,17 +1014,55 @@
           # ambience bed never showed it, and that difference is the whole
           # clue. A looping sample simply never reaches that state.
           #
-          # m64_splash stops the channel at 3.8 s and the sample is 4.0 s,
+          # kiln_splash stops the channel at 3.8 s and the sample is 4.0 s,
           # so it is stopped before it would ever wrap — the loop flag costs
           # nothing audible and removes the end-of-sample path entirely.
           loop = true;
         };
 
         pmCentaurRig = ./PetaByte-Madness/assets/rig/machine_centaur.json;
+        # ── The veil's first textured model: WIRED BUT NOT ENABLED ───────
+        # machine_centaur.json already carries UVs and ten named material
+        # groups, and three of the drop's textures are already indexed PNGs
+        # named for them, which is why docs/ASSET_PIPELINE.md calls these "the
+        # natural first real customer for pm_veil_bind_palette".
+        #
+        # Everything around them is built and verified: tools/veil_palette.py
+        # bakes the cold/veiled pairs, assetLib.mkVeilTexture ships the CI4
+        # sprite beside its .pal, pm_veil_load_palette loads all three (the debug
+        # overlay reports `veil-pal 3/3`), and pm_veil_draw_model binds them per
+        # material through Tiny3D's filterCb/tileCb.
+        #
+        # What does NOT work yet is the last link: giving these four groups
+        # `tex0_decal` specs made the model render with NO TEXTURE SAMPLED. The
+        # evidence is direct — a diagnostic build with a pure-GREEN cold palette
+        # produced zero green pixels, so the TLUT never reaches the RDP — and it
+        # was a visible REGRESSION, replacing the groups' vertex colours (3.84%
+        # of frame pixels changed, max channel delta 248). Ruled out along the
+        # way: the bake (veiled mean RGB is 11.1/0.9/0.6, correctly red), the
+        # palette load, the combiner's TEX0 slot (moved from D to A for exactly
+        # this reason — see f3d_inject's tex0_decal comment), and the UV range
+        # (0..1 is one tile, which is what the working `checker` model uses).
+        #
+        # So the specs are left OUT rather than shipped broken. Turning the veil
+        # on for the centaur is these four lines, once Tiny3D's handling of a
+        # CI4 sprite in a material is settled:
+        #
+        #   "face=tex0_decal,tex=textures/mc_face.png,size=64,prim=1:1:1:1"
+        #   "gore=tex0_decal,tex=textures/mc_gore.png,size=32,prim=1:1:1:1"
+        #   "hull=tex0_decal,tex=textures/mc_plate.png,size=32,prim=1:1:1:1"
+        #   "ribs=tex0_decal,tex=textures/mc_plate.png,size=32,prim=1:1:1:1"
+        #
+        # prim=1:1:1:1 is load-bearing, not decoration: RGB_MUL has no ONE
+        # operand, so tex0_decal spells "multiply by one" as PRIM.
         pmCentaurModel = blenderLib.mkBlenderModel {
           name = "centaur";
           script = "centaur.py";
           scriptArgs = [ "--rig" "${pmCentaurRig}" ];
+          materials = [
+            "*=shade"
+          ];
+          textures = pmVeilTextureSet;
           animated = true;
           # No gameplay code calls t3d_model_bvh_query_frustum (same
           # reasoning as pmStorm's bvh=false below) — and a BVH computed
@@ -1001,8 +1144,85 @@
           format = "CI4";
         };
 
+        # ── The veil's first real CI4 materials ──────────────────────────
+        # docs/VEIL_DESIGN.md §1's palette swap is the game's headline
+        # mechanic, and its TLUT half had never run: pm_veil_bind_palette,
+        # _material_pass, _prim_alpha and _ramp_build all existed with zero call
+        # sites because §8's "convert every material to CI4… this is the real
+        # work" had no builder behind it. tools/veil_palette.py and
+        # assetLib.mkVeilTexture are that builder.
+        #
+        # The centaur's three textures are the first customers because they are
+        # already genuine CI4 source — indexed PNGs with 15, 7 and 5 colours,
+        # which docs/ASSET_PIPELINE.md already calls "the natural first real
+        # customer for pm_veil_bind_palette". Nothing had to be requantised.
+        #
+        # `veilClass = "demon"` on all three. The class name is about the VALUE
+        # RATION, not about being an enemy: it means "owns true black and true
+        # white", and the centaur is the subject of every shot he is in. The
+        # environment gets "world" (a mid band) so that contrast stays his.
+        # `phantom` — cold alpha 0 on every entry, i.e. not drawn at all with
+        # the veil down — belongs to the four demons' bodies, and waits on them
+        # growing UVs (see below).
+        pmVeilTextures = map (t: assetLib.mkVeilTexture {
+          name = t;
+          src = ./PetaByte-Madness/assets/textures + "/${t}.png";
+          veilClass = "demon";
+        }) [ "mc_face" "mc_plate" "mc_gore" ];
+
+        # mkBlenderModel's `textures` takes ONE derivation and copies
+        # `$out/png/*.png` out of it, so the three are joined. symlinkJoin
+        # rather than a fourth builder: they are already built, and merging
+        # store paths is what it is for.
+        pmVeilTextureSet = pkgs.symlinkJoin {
+          name = "pm-veil-textures";
+          paths = pmVeilTextures;
+        };
+
+        # `name` is the FILENAME, so it must match what main.c opens:
+        # rom:/maps/pm_lab.map. It used to be "pm-lab-map", which shipped
+        # maps/pm-lab-map.map — so kiln_map_load failed on every boot,
+        # g_lab.brush_count stayed 0, and PM_SCREEN_PLAY had NO COLLISION WORLD
+        # AT ALL. The player fell forever (measured: eye Y -24,193 six seconds
+        # in) and PLAY rendered as a black screen with a working HUD over it.
+        #
+        # Nothing caught it because every layer degraded politely: kiln_map_load
+        # returns non-zero rather than asserting, main.c's install is guarded on
+        # that, and an empty clip world makes every trace report fraction 1
+        # instead of failing. Three correct "survive a missing asset" decisions
+        # composing into a silent one.
+        #
+        # Underscores, not hyphens, and not a decorative name: mkRawAsset has no
+        # way to know what path the ROM will ask for, so the name IS the
+        # contract. See pm_sfx.h for the same class of trap on the sfx path.
+        # A Forge level baked into a ROM, so the LOAD path can be verified under
+        # an emulator — which has no SD card, so `.#forge`'s normal storage
+        # backend is unreachable there and its read path would otherwise only
+        # ever be exercised on hardware. Generated from a committed .map by the
+        # same host tool `./dev forge-push` uses, so this is not a special export:
+        # it is the file the card would hold.
+        forgeSeedFrg = pkgs.runCommand "forge-seed-frg"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            mkdir -p $out
+            python3 ${./tools/forge/frg.py} frommap ${./assets/oot_test.map} \
+                    $out/LEVEL.frg
+          '';
+
+        # compress = 0 because kiln_store reads this with a plain fopen, not
+        # asset_fopen: an mkasset-compressed payload would come back as its
+        # container bytes and fail the CRC, which is a confusing way to discover
+        # a compression setting.
+        forgeSeedLevel = assetLib.mkRawAsset {
+          name = "LEVEL";
+          src = "${forgeSeedFrg}/LEVEL.frg";
+          dest = "forge";
+          extension = "frg";
+          compress = 0;
+        };
+
         pmLabMap = assetLib.mkRawAsset {
-          name = "pm-lab-map";
+          name = "pm_lab";
           src = ./PetaByte-Madness/assets/pm_lab.map;
           dest = "maps";
           extension = "map";
@@ -1138,24 +1358,54 @@
           name = "intro";
           src = ./PetaByte-Madness/assets/mp4/intro.m1v;
         };
-        mkPetabyteMadness = debug: mkN64Rom {
+        # `debug` compiles pm_debug's overlay in; `jump` (null, or a PMScreen
+        # name without the PM_SCREEN_ prefix) makes the ROM boot straight into
+        # that screen.
+        #
+        # The jump exists because the interactive route to a screen needs a
+        # working controller and there are two common situations without one:
+        # `./dev shot`, which takes a single screenshot and has no input path
+        # at all, and `./dev drive` on a machine where the uinput -> SDL -> ares
+        # binding chain does not take (tools/n64-drive.sh's header is largely
+        # about how fragile that chain is). A jump ROM plus `./dev shot` needs
+        # neither, which makes it the reliable path for capturing a cutscene.
+        mkPetabyteMadness = { debug, jump ? null, dd ? null, veilForce ? false,
+                              cine ? false, shotAt ? null, ladder ? null,
+                              cineLint ? false }:
+          mkN64Rom {
           # Deliberately the same `name` in both variants: `name` is what
           # rom.nix's passthru.romFile is built from, and the Makefile emits
           # petabyte-madness.z64 either way. The two are separate store
           # paths because their makeFlags differ.
           name = "petabyte-madness";
+          # Translated to -DPM_JUMP_SCREEN=PM_SCREEN_<jump> by
+          # PetaByte-Madness/Makefile, which also errors out if it is asked for
+          # without KILN_DEBUG rather than silently ignoring it.
+          makeFlags = pkgs.lib.optional (jump != null) "PM_JUMP=${jump}"
+                   ++ pkgs.lib.optional (dd != null) "PM_DD=${toString dd}"
+                   ++ pkgs.lib.optional veilForce "PM_VEIL_FORCE=1"
+                   # The cinematic debugger (PetaByte-Madness/src/pm_cine.h).
+                   # `shotAt` and `ladder` each imply `cine` in the Makefile, so
+                   # they do not have to be passed together here.
+                   ++ pkgs.lib.optional cine "PM_CINE=1"
+                   ++ pkgs.lib.optional (shotAt != null)
+                        "PM_SHOT_AT=${toString shotAt}"
+                   ++ pkgs.lib.optional (ladder != null)
+                        "PM_SHOT_LADDER=${toString ladder}"
+                   ++ pkgs.lib.optional cineLint "PM_CINE_LINT=1";
           src = ./PetaByte-Madness;
           romTitle = "PetaByte Madness";
-          saveType = "eeprom4k"; # three profiles; see m64_save.h's budget
+          saveType = "eeprom4k"; # three profiles; see kiln_save.h's budget
           audioRate = 32000;     # cross-checked against pmDrone's bake rate
           debugConsole = debug;
           # `textures` ships the .sprite the sea's foam material names; the
           # model only carries the rom:/ path to it.
           assets = [ pmLabMap pmCentaurModel pmHornerModel pmLabArmsModel
-                     pmDrone m64Logo m64Jingle
+                     pmDrone kilnLogo kilnJingle
                      pmTheme pmThemeStream
                      pmNarrationMusic pmSurgeryOst pmIntroVideo
                      pmSkydome pmSea pmStorm pmSkull textures ]
+            ++ pmVeilTextures
             # The lab room ships as dank_lab.obj (via pmProp), not
             # pmWorld's procedural box — pm_lab.c's collision brushes,
             # player start pose, and note/MRI positions were all authored
@@ -1167,14 +1417,93 @@
             ++ map pmProp [ "palms" "loach" "guard_cousin" ]
             ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];
         };
-        petabyte-madness = mkPetabyteMadness false;
+        petabyte-madness = mkPetabyteMadness { debug = false; };
         # The same ROM with pm_debug's state readout compiled in: screen,
         # the camera the scene was actually built from, near/far, and which
         # models resolved versus returned NULL. Every one of the four
         # defects behind the black-screen hunt would have been one glance
         # at this — see PetaByte-Madness/src/pm_debug.h. Kept out of the
         # shipping ROM so it pays nothing there.
-        petabyte-madness-debug = mkPetabyteMadness true;
+        petabyte-madness-debug = mkPetabyteMadness { debug = true; };
+
+        # One ROM per jumpable screen: `nix build .#pm-jump-intake` then
+        # `./dev shot pm-jump-intake out.png 4` captures INTAKE four seconds in
+        # with no controller involved. Names match PM_SCREEN_LIST
+        # (PetaByte-Madness/src/pm_screens.h) lowercased, and the list here is
+        # JUMPS[] in pm_screens.c — keep the two in step.
+        # Each entry also picks the spatial overlay that screen is most worth
+        # inspecting with (pm_debug.c's DD_SETS: 1 cam, 2 clip, 3 actors). A jump
+        # ROM exists to be looked at, so having the relevant layer already on is
+        # the useful default — and it is the only way an automated capture can
+        # see it at all, since the cycle chord needs a controller.
+        pmJumpScreens = [
+          { s = "TITLE";     dd = 0; }   # a menu; lines would only obscure it
+          { s = "FILE";      dd = 0; }
+          { s = "NARRATION"; dd = 0; }   # 2D only, nothing spatial to draw
+          { s = "LAB_CINE";  dd = 1; }   # keyframed camera -> the `cam` set
+          { s = "LAB";       dd = 2; }   # hand-authored brushes -> `clip`
+          { s = "INTAKE";    dd = 1; }
+          { s = "CREDITS";   dd = 0; }
+          { s = "SUB";       dd = 1; }
+          { s = "BEACH";     dd = 1; }
+          { s = "PLAY";      dd = 3; }   # who is actually spawned -> `actors`
+        ];
+        pmJumpRoms = pkgs.lib.listToAttrs (map (e: {
+          name = "pm-jump-${pkgs.lib.toLower
+                            (pkgs.lib.replaceStrings [ "_" ] [ "-" ] e.s)}";
+          value = mkPetabyteMadness { debug = true; jump = e.s; inherit (e) dd; };
+        }) pmJumpScreens);
+
+        # The same jumps with the veil pinned on, for the A/B that shows the
+        # palette swap. Only the screens with the centaur in them are worth it —
+        # he is the only CI4-textured model, so he is the only place the TLUT
+        # half of the effect can currently be seen at all.
+        pmVeilRoms = pkgs.lib.listToAttrs (map (sc: {
+          name = "pm-veil-${pkgs.lib.toLower sc}";
+          value = mkPetabyteMadness {
+            debug = true; jump = sc; dd = 0; veilForce = true;
+          };
+        }) [ "BEACH" "ATTRACT" "PLAY" ]);
+
+        # ── The cinematic debugger's ROMs ──────────────────────────────────
+        # Only the screens that ARE a keyframed shot. TITLE and FILE are menus
+        # over one, PLAY is not a cutscene at all, and a transport with nothing
+        # to transport is a timeline of a shot that is not playing.
+        pmCineScreens = [ "NARRATION" "LAB_CINE" "INTAKE" "CREDITS" "SUB"
+                          "BEACH" ];
+        pmCineName = sc:
+          pkgs.lib.toLower (pkgs.lib.replaceStrings [ "_" ] [ "-" ] sc);
+
+        # `nix build .#pm-cine-intake` — boots into the shot with the transport
+        # armed, the timeline drawn and the `cam` overlay on. This is the one to
+        # reach for with a controller: L+R arms, START pauses, D-left/right
+        # seeks, D-up/down walks the keys, Z detaches the free-fly and starts
+        # printing a PMCamKey pose you can read straight off a screenshot.
+        pmCineRoms = pkgs.lib.listToAttrs (map (sc: {
+          name = "pm-cine-${pmCineName sc}";
+          value = mkPetabyteMadness {
+            debug = true; jump = sc; dd = 1; cine = true;
+          };
+        }) pmCineScreens);
+
+        # `nix build .#pm-ladder-intake` — the same shot walked in eight
+        # evenly-spaced rungs, each held for a fixed number of FRAMES, with the
+        # shot time stamped on every frame. One boot yields the whole contact
+        # sheet, and because the frames are self-labelling, extraction timing
+        # drifting does not make the sheet ambiguous. `./dev cine` drives these.
+        pmLadderRoms = pkgs.lib.listToAttrs (map (sc: {
+          name = "pm-ladder-${pmCineName sc}";
+          value = mkPetabyteMadness {
+            debug = true; jump = sc; dd = 0; cine = true; ladder = 8;
+          };
+        }) pmCineScreens);
+
+        # `nix build .#pm-cine-lint` — runs the camera validator over every shot
+        # in PM_SHOT_LIST and draws the report, instead of running the game.
+        # One `./dev shot pm-cine-lint out.png 8` reads the whole game's camera
+        # health. The settle is long because the run plays each shot's setup(),
+        # which preloads that shot's models.
+        pm-cine-lint = mkPetabyteMadness { debug = true; cineLint = true; };
 
         # A NixOS-in-Docker image for collaborators: real Nix (so `nix
         # build`/`nix develop`/`./dev` work inside it against a cloned
@@ -1190,12 +1519,22 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo ganja-goblin board-demo petabyte-madness petabyte-madness-debug;
-          engine = m64-engine;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo ganja-goblin board-demo petabyte-madness petabyte-madness-debug forge forge-dfs forge-selftest forge-selftest-sram;
+          engine = kiln-engine;
+          host-math = hostMath;
           streamdb = streamdb-emb;
           inherit textures;
           inherit dev-image;
         }
+        # `nix build .#pm-jump-<screen>` — a debug ROM that boots straight into
+        # one screen, for capture without a controller. `.#pm-veil-<screen>` is
+        # the same with the veil pinned on. See mkPetabyteMadness.
+        // forgeModeRoms
+        // pmJumpRoms // pmVeilRoms
+        # `.#pm-cine-<screen>` is the interactive transport, `.#pm-ladder-<screen>`
+        # the deterministic contact sheet, `.#pm-cine-lint` the static camera
+        # report. See PetaByte-Madness/src/pm_cine.h.
+        // pmCineRoms // pmLadderRoms // { inherit pm-cine-lint; }
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
@@ -1213,7 +1552,7 @@
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
           model-centaur = pmCentaurModel;
-          model-m64-logo = m64Logo;
+          model-kiln-logo = kilnLogo;
           model-island = pmIslandModel;
           model-palms = pmProp "palms";
           model-loach = pmProp "loach";
@@ -1356,6 +1695,19 @@
             rom = board-demo;
             name = "board-demo";
           };
+          # rom.nix globs for *.z64 rather than taking a filename, which is
+          # what makes this work for Forge: the Makefile emits `forge.z64` no
+          # matter which flake attribute built it.
+          rom-forge = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = forge;
+            name = "forge";
+          };
+          rom-forge-selftest = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = forge-selftest;
+            name = "forge-selftest";
+          };
           rom-petabyte-madness = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = petabyte-madness;
@@ -1371,7 +1723,7 @@
             # exactly clear today's size.
             maxSize = 64 * 1024 * 1024;
           };
-          m64-asset = import ./nix/checks/m64-asset.nix {
+          kiln-asset = import ./nix/checks/kiln-asset.nix {
             inherit pkgs;
             streamdbSrc = streamdb;
             embeddedSrc = ./streamdb-embedded;
@@ -1389,8 +1741,93 @@
           mapmaker-roundtrip = import ./nix/checks/mapmaker-roundtrip.nix {
             inherit pkgs;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth ganja-goblin board-demo petabyte-madness petabyte-madness-debug;
-        };
+          # The host build of libdragon's fast math must compute what the
+          # VR4300 computes, down to the tie-breaking rule.
+          kiln-hostmath = import ./nix/checks/kiln-hostmath.nix {
+            inherit pkgs hostMath;
+          };
+          # The rename is an invariant, not a state: reintroducing the old
+          # name for this engine fails the build. See the check's own header.
+          kiln-names = import ./nix/checks/kiln-names.nix {
+            inherit pkgs;
+            repo = ./.;
+          };
+          # Forge's own content round trip: the .FRG container, the host mirror
+          # of kiln_voxel_boxes, and the .map emitter against the STRICT reader.
+          # Held to mapmaker-roundtrip's standard by the same method, because the
+          # two .map emitters have to agree about the same brush.
+          forge-roundtrip = import ./nix/checks/forge-roundtrip.nix {
+            inherit pkgs;
+          };
+          # The bpy-free geometry builder tests. Gated here because they are
+          # the fastest feedback loop in the modelling pipeline and were, until
+          # this entry existed, run by nobody — see the check's own header for
+          # what that cost.
+          blender-tests = import ./nix/checks/blender-tests.nix {
+            inherit pkgs;
+          };
+          # The engine's pure-logic modules, compiled natively against
+          # nix/checks/stub/ and asserted on. Found two real bugs on its first
+          # run — see the check's own header.
+          # engine/modules.mk's host tier must be exactly the set that
+          # compiles natively — checked in both directions from one run.
+          # The host font is libdragon's own, extracted; the header must be
+          # current and the font must still be monospaced.
+          kiln-font = import ./nix/checks/kiln-font.nix {
+            inherit pkgs;
+            libdragonSrc = libdragon;
+            platHost = ./plat/host;
+            fontTool = ./tools/font_extract.py;
+          };
+          # The 2D pass, rendered by the real kiln_gui.c through the host
+          # software rasteriser and diffed against a committed capture. The
+          # frame gate CLAUDE.md says needs a Wayland session — it does not,
+          # once the renderer is software.
+          kiln-gui = import ./nix/checks/kiln-gui.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
+          kiln-parity = import ./nix/checks/kiln-parity.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
+          kiln-logic = import ./nix/checks/kiln-logic.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
+          # The generated dimension headers must be current, and the generators
+          # must still agree with the geometry the ROM actually ships.
+          pm-gen-headers = import ./nix/checks/pm-gen-headers.nix {
+            inherit pkgs;
+          };
+          # The cinematic camera validator, compiled natively and asserted on
+          # in both directions, plus the guard that PM_SHOT_LIST names every
+          # shot that exists.
+          pm-cine = import ./nix/checks/pm-cine.nix {
+            inherit pkgs hostMath;
+            platHost = ./plat/host;
+            pmSrc = ./PetaByte-Madness;
+            # pm_camkey.h is a shim over the engine's kiln_camkey.h since Forge
+            # became a fourth consumer of the curve.
+            engineSrc = ./engine;
+          };
+          # The rig JSONs are generated too, and had no regeneration gate at
+          # all — plus the clip lengths pm_intake.c restates as seconds, which
+          # a diff cannot check because a consistently-regenerated file can
+          # still be wrong for the game.
+          pm-rigs = import ./nix/checks/pm-rigs.nix {
+            inherit pkgs;
+          };
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth ganja-goblin board-demo petabyte-madness petabyte-madness-debug forge forge-dfs forge-selftest forge-selftest-sram;
+        }
+        # The mode-jump ROMs are gated too. They are the only way each of PAINT,
+        # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a
+        # chord is a mode nothing compiles unless something asks for it, and a
+        # per-mode -D flag is exactly the sort of thing that rots unnoticed.
+        // forgeModeRoms;
 
         apps = {
           # Iterate here. Per report §7, Ares is the reference emulator for
@@ -1399,14 +1836,14 @@
           # behaviour are exactly what emulators get subtly wrong.
           ares = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-ares" ''
+            program = toString (pkgs.writeShellScript "kiln-ares" ''
               exec ${pkgs.ares}/bin/ares "$@"
             '');
           };
           # Cycle-accurate cross-check. Too slow for iteration; useful for A/B.
           cen64 = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-cen64" ''
+            program = toString (pkgs.writeShellScript "kiln-cen64" ''
               exec ${pkgs.cen64}/bin/cen64 "$@"
             '');
           };
@@ -1414,31 +1851,31 @@
           # PC<->N64 channel. Needs nixosModules.n64-flashcart for USB perms.
           sc64 = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-sc64" ''
+            program = toString (pkgs.writeShellScript "kiln-sc64" ''
               exec ${sc64deployer}/bin/sc64deployer "$@"
             '');
           };
           unfloader = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-unfloader" ''
+            program = toString (pkgs.writeShellScript "kiln-unfloader" ''
               exec ${unfloader}/bin/unfloader "$@"
             '');
           };
           dev = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-dev" ''
-              exec ${pkgs.bash}/bin/bash "''${M64_REPO:-$PWD}/dev" "$@"
+            program = toString (pkgs.writeShellScript "kiln-dev" ''
+              exec ${pkgs.bash}/bin/bash "''${KILN_REPO:-$PWD}/dev" "$@"
             '');
           };
           # three.js .map maker (tools/mapmaker/). A dev-only web app run
           # outside the hermetic build — same authoring/outside-build vs.
           # consume/inside-build split as tools/blender-mcp/. Exports canonical
-          # .map text the existing mkQuakeMapModel + m64_map.c pipeline already
+          # .map text the existing mkQuakeMapModel + kiln_map.c pipeline already
           # consumes; validate via ./dev map-validate.
           mapmaker = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-mapmaker" ''
-              cd "''${M64_REPO:-$PWD}/tools/mapmaker"
+            program = toString (pkgs.writeShellScript "kiln-mapmaker" ''
+              cd "''${KILN_REPO:-$PWD}/tools/mapmaker"
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8000
             '');
           };
@@ -1449,8 +1886,8 @@
           # rather than a special export — see tools/poser/stage.sh.
           poser = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-poser" ''
-              cd "''${M64_REPO:-$PWD}"
+            program = toString (pkgs.writeShellScript "kiln-poser" ''
+              cd "''${KILN_REPO:-$PWD}"
               if [ ! -f tools/poser/data/dank.gltf ]; then
                 echo "staging models for the poser (first run)…"
                 ./tools/poser/stage.sh dank
@@ -1462,15 +1899,34 @@
           };
           poser-verify = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-poser-verify" ''
+            program = toString (pkgs.writeShellScript "kiln-poser-verify" ''
               exec ${pkgs.python3Minimal}/bin/python3 \
-                "''${M64_REPO:-$PWD}/tools/poser/verify.py" "$@"
+                "''${KILN_REPO:-$PWD}/tools/poser/verify.py" "$@"
             '');
           };
           map-validate = {
             type = "app";
-            program = toString (pkgs.writeShellScript "m64-map-validate" ''
-              exec ${pkgs.python3Minimal}/bin/python3 "''${M64_REPO:-$PWD}/tools/mapmaker/validate.py" "$@"
+            program = toString (pkgs.writeShellScript "kiln-map-validate" ''
+              exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/validate.py" "$@"
+            '');
+          };
+          # tools/blender-mcp/'s MCP server. The `mcp` package comes from
+          # THIS flake's own pinned nixpkgs (flake.lock), not the
+          # `nix shell --impure --expr 'import <nixpkgs> {}'` the README used
+          # to document — that resolved against whatever channel NIX_PATH
+          # happened to point at, unpinned and unaudited, the one thing this
+          # repo's whole toolchain strategy otherwise refuses to accept (see
+          # CLAUDE.md's "Hard-won facts"). server.py itself runs from the
+          # live checkout (not copied into the store): it locates its sibling
+          # tools/blender/{quake_map,godot_scene}.py via
+          # `Path(__file__).resolve().parents[2]`, which only resolves
+          # correctly against a real working tree — same KILN_REPO convention
+          # as `dev`/`mapmaker`/`poser` above.
+          blender-mcp = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-blender-mcp" ''
+              exec ${pkgs.python3.withPackages (ps: [ ps.mcp ])}/bin/python3 \
+                "''${KILN_REPO:-$PWD}/tools/blender-mcp/server.py" "$@"
             '');
           };
         };
@@ -1500,7 +1956,7 @@
 
           shellHook = ''
             echo "═══════════════════════════════════════════"
-            echo " M64 — N64 / ModRetro M64 development shell"
+            echo " Kiln — N64 / ModRetro M64 development shell"
             echo " gcc        ${toolchain.passthru.version} (mips64-elf-)"
             echo " N64_INST   $N64_INST"
             echo " make · nix build .#hello · nix run .#ares -- <rom.z64>"

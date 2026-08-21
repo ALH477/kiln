@@ -13,7 +13,7 @@
 //   Up/Down: volume
 
 #include <libdragon.h>
-#include <m64/m64_audio.h>
+#include <kiln/kiln_audio.h>
 
 #define SAMPLE_RATE 32000
 
@@ -25,21 +25,21 @@ int main(void)
     dfs_init(DFS_DEFAULT_LOCATION);
 
     // 0 SFX channels, 10 music channels (the XM uses 4).
-    m64_audio_init((M64AudioConfig){
+    kiln_audio_init((KilnAudioConfig){
         .sample_rate = SAMPLE_RATE,
         .latency = 0.16f,
         .sfx_channels = 0,
         .music_channels = 10,
     });
 
-    int music = m64_music_load("rom:/music/test.xm64");
+    int music = kiln_music_load("rom:/music/test.xm64");
     if (music < 0) {
         debugf("FAIL: could not load test.xm64\n");
         while (1) {}
     }
 
-    debugf("M64: loaded test.xm64 (%d channels)\n",
-           m64_music_num_channels(music));
+    debugf("Kiln: loaded test.xm64 (%d channels)\n",
+           kiln_music_num_channels(music));
 
     float vol = 0.7f;
     int playing = 0;
@@ -50,42 +50,42 @@ int main(void)
         joypad_buttons_t held = joypad_get_buttons_held(JOYPAD_PORT_1);
 
         if (pressed.a) {
-            if (m64_music_playing(music)) {
-                m64_music_stop(music);
+            if (kiln_music_playing(music)) {
+                kiln_music_stop(music);
                 playing = 0;
             } else {
-                m64_music_play(music);
-                m64_music_set_volume(music, vol);
+                kiln_music_play(music);
+                kiln_music_set_volume(music, vol);
                 playing = 1;
             }
         }
 
         if (pressed.b) {
-            m64_music_stop(music);
+            kiln_music_stop(music);
             playing = 0;
         }
 
         if (held.d_up) {
             vol += 0.05f;
             if (vol > 1.0f) vol = 1.0f;
-            m64_music_set_volume(music, vol);
+            kiln_music_set_volume(music, vol);
         }
         if (held.d_down) {
             vol -= 0.05f;
             if (vol < 0.0f) vol = 0.0f;
-            m64_music_set_volume(music, vol);
+            kiln_music_set_volume(music, vol);
         }
 
-        m64_audio_update();
+        kiln_audio_update();
 
         console_clear();
-        printf("\n  M64 - XM64 music\n\n");
-        printf("  test.xm64 (%d ch)\n", m64_music_num_channels(music));
+        printf("\n  Kiln - XM64 music\n\n");
+        printf("  test.xm64 (%d ch)\n", kiln_music_num_channels(music));
         printf("  %d Hz\n\n", SAMPLE_RATE);
         printf("  A: %s\n", playing ? "stop" : "play");
         printf("  B: stop\n");
         printf("  Up/Down: vol %.0f%%\n\n", vol * 100);
-        printf("  playing: %s\n", m64_music_playing(music) ? "yes" : "no");
+        printf("  playing: %s\n", kiln_music_playing(music) ? "yes" : "no");
         console_render();
     }
 }

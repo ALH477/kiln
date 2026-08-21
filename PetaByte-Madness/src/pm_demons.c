@@ -9,10 +9,10 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
 
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_clip.h>
-#include <m64/m64_event.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_clip.h>
+#include <kiln/kiln_event.h>
 
 #include <string.h>
 
@@ -29,7 +29,7 @@
 // ── Shared per-instance state ──────────────────────────────────────────
 // One struct for all four species: they differ in behaviour, not in what
 // they need to remember, and a single 24-byte block keeps every profile
-// comfortably inside M64_ACTOR_STATE_MAX (64) with room for the state a
+// comfortably inside KILN_ACTOR_STATE_MAX (64) with room for the state a
 // real combat pass will add.
 typedef struct {
     fm_vec3_t home;     // spawn point — the statue's plinth, the patrol anchor
@@ -61,7 +61,7 @@ static inline fm_vec3_t sub3(fm_vec3_t a, fm_vec3_t b)
     return (fm_vec3_t){{ a.v[0] - b.v[0], a.v[1] - b.v[1], a.v[2] - b.v[2] }};
 }
 
-static fm_vec3_t demon_eye(const M64Actor *a)
+static fm_vec3_t demon_eye(const KilnActor *a)
 {
     fm_vec3_t e = a->xform.pos;
     e.v[1] += EYE_HEIGHT;
@@ -71,7 +71,7 @@ static fm_vec3_t demon_eye(const M64Actor *a)
 /** Line of sight, and the reciprocity rule in one function: a demon can
  *  only see the player while the veil is up (§6 — observation goes both
  *  ways), it must be in range, and nothing solid may be between them. */
-static int can_see_player(const M64Actor *a)
+static int can_see_player(const KilnActor *a)
 {
     if (!g_veil || g_veil->step == 0) return 0;
 
@@ -79,13 +79,13 @@ static int can_see_player(const M64Actor *a)
     fm_vec3_t d = sub3(g_player_eye, eye);
     if (fm_vec3_len(&d) > SIGHT_RANGE) return 0;
 
-    M64Trace tr = m64_clip_ray(eye, g_player_eye);
+    KilnTrace tr = kiln_clip_ray(eye, g_player_eye);
     return tr.fraction >= 1.0f;
 }
 
 /** Walk toward the player, sliding along whatever the corridor puts in the
  *  way. Horizontal only — nothing in this slice flies or falls. */
-static void chase(M64Actor *a, float speed, float dt)
+static void chase(KilnActor *a, float speed, float dt)
 {
     fm_vec3_t d = sub3(g_player_eye, a->xform.pos);
     d.v[1] = 0.0f;
@@ -96,7 +96,7 @@ static void chase(M64Actor *a, float speed, float dt)
     const fm_vec3_t mins = {{ -10.0f, 0.0f, -10.0f }};
     const fm_vec3_t maxs = {{  10.0f, 40.0f,  10.0f }};
 
-    a->xform.pos = m64_clip_slide(a->xform.pos, (fm_vec3_t){{ vel.v[0] * dt,
+    a->xform.pos = kiln_clip_slide(a->xform.pos, (fm_vec3_t){{ vel.v[0] * dt,
                                                               vel.v[1] * dt,
                                                               vel.v[2] * dt }},
                                   mins, maxs, 3);
@@ -107,11 +107,11 @@ static void chase(M64Actor *a, float speed, float dt)
 /** Fire PM_DEMON_NOTICE exactly once per reveal — on the frame a demon
  *  first gets sight of the player, and never again until it loses it. A
  *  per-frame "I can see you" sting would be unlistenable. */
-static void notice_edge(M64Actor *a, PMDemonState *s)
+static void notice_edge(KilnActor *a, PMDemonState *s)
 {
     if (s->sees && !s->noticed) {
         s->noticed = 1;
-        m64_event_post(m64_actor_handle_of(a), PM_EV_DEMON_NOTICE, 0,
+        kiln_event_post(kiln_actor_handle_of(a), PM_EV_DEMON_NOTICE, 0,
                        NULL, 0, 128);
     } else if (!s->sees) {
         s->noticed = 0;
@@ -119,7 +119,7 @@ static void notice_edge(M64Actor *a, PMDemonState *s)
 }
 
 // ── Common init ────────────────────────────────────────────────────────
-static void demon_init(M64Actor *self, const M64Dict *spawn_args)
+static void demon_init(KilnActor *self, const KilnDict *spawn_args)
 {
     (void)spawn_args;
     PMDemonState *s = (PMDemonState *)self->state;
@@ -134,7 +134,7 @@ static void demon_init(M64Actor *self, const M64Dict *spawn_args)
 // The first time you turn the veil on in a room you thought was empty,
 // there are three of them and one is close. It knows exactly where you are
 // the moment you resolve it, and not one frame before.
-static void imp_update(M64Actor *self, float dt)
+static void imp_update(KilnActor *self, float dt)
 {
     PMDemonState *s = (PMDemonState *)self->state;
     s->sees = (uint8_t)can_see_player(self);
@@ -150,7 +150,7 @@ static void imp_update(M64Actor *self, float dt)
 //
 // Note it does not need line of sight to close: it hunts you in the dark,
 // where you cannot see it. Sight only matters for the notice sting.
-static void hellhound_update(M64Actor *self, float dt)
+static void hellhound_update(KilnActor *self, float dt)
 {
     PMDemonState *s = (PMDemonState *)self->state;
     s->sees = (uint8_t)can_see_player(self);
@@ -172,7 +172,7 @@ static void hellhound_update(M64Actor *self, float dt)
 //
 // It only ambushes what has looked at it — so it holds its perch until the
 // notice edge has fired, and only then unfurls.
-static void gargoyle_update(M64Actor *self, float dt)
+static void gargoyle_update(KilnActor *self, float dt)
 {
     PMDemonState *s = (PMDemonState *)self->state;
     s->sees = (uint8_t)can_see_player(self);
@@ -189,7 +189,7 @@ static void gargoyle_update(M64Actor *self, float dt)
 // overlord holds the veil up, so the hellhound is frozen — until you kill
 // the overlord, the crown collapses, the veil drops, and everything you
 // froze starts moving at once.
-static void overlord_update(M64Actor *self, float dt)
+static void overlord_update(KilnActor *self, float dt)
 {
     PMDemonState *s = (PMDemonState *)self->state;
     s->sees = (uint8_t)can_see_player(self);
@@ -200,8 +200,8 @@ static void overlord_update(M64Actor *self, float dt)
 float pm_demons_veil_force_at(fm_vec3_t pos)
 {
     float strongest = 0.0f;
-    for (M64Actor *a = m64_actor_first(M64_ACTOR_CAT_BOSS); a;
-         a = m64_actor_next(a)) {
+    for (KilnActor *a = kiln_actor_first(KILN_ACTOR_CAT_BOSS); a;
+         a = kiln_actor_next(a)) {
         if (a->profile_id != PM_PROFILE_OVERLORD) continue;
         fm_vec3_t d = sub3(pos, a->xform.pos);
         const float r = fm_vec3_len(&d);
@@ -220,46 +220,46 @@ float pm_demons_veil_force_at(fm_vec3_t pos)
 // The phantom rule, and the entire frame-time argument, is this one
 // branch: with the veil down the body is not submitted, so a corridor can
 // hold a dozen demons for free.
-static void demon_draw(M64Actor *self)
+static void demon_draw(KilnActor *self)
 {
     if (!pm_veil_demon_submit(g_veil)) return;
 
     T3DModel *m = g_models[self->profile_id];
     if (!m) return;
 
-    m64_transform_push(&self->xform);
+    kiln_transform_push(&self->xform);
     t3d_model_draw(m);
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Profiles ───────────────────────────────────────────────────────────
 // Categories are chosen so the halo query and any future targeting sweep
 // can walk one list: the three common demons are ENEMY, the overlord is
 // BOSS.
-static const M64ActorProfile g_profiles[PM_PROFILE_DEMON_COUNT] = {
+static const KilnActorProfile g_profiles[PM_PROFILE_DEMON_COUNT] = {
     [PM_PROFILE_IMP] = {
-        .name = "imp", .category = M64_ACTOR_CAT_ENEMY,
+        .name = "imp", .category = KILN_ACTOR_CAT_ENEMY,
         .state_size = sizeof(PMDemonState),
         .init = demon_init, .update = imp_update, .draw = demon_draw,
     },
     [PM_PROFILE_HELLHOUND] = {
-        .name = "hellhound", .category = M64_ACTOR_CAT_ENEMY,
+        .name = "hellhound", .category = KILN_ACTOR_CAT_ENEMY,
         .state_size = sizeof(PMDemonState),
         .init = demon_init, .update = hellhound_update, .draw = demon_draw,
     },
     [PM_PROFILE_GARGOYLE] = {
-        .name = "gargoyle", .category = M64_ACTOR_CAT_ENEMY,
+        .name = "gargoyle", .category = KILN_ACTOR_CAT_ENEMY,
         .state_size = sizeof(PMDemonState),
         .init = demon_init, .update = gargoyle_update, .draw = demon_draw,
     },
     [PM_PROFILE_OVERLORD] = {
-        .name = "overlord", .category = M64_ACTOR_CAT_BOSS,
+        .name = "overlord", .category = KILN_ACTOR_CAT_BOSS,
         .state_size = sizeof(PMDemonState),
         .init = demon_init, .update = overlord_update, .draw = demon_draw,
     },
 };
 
-const M64ActorProfile *pm_demons_profiles(void) { return g_profiles; }
+const KilnActorProfile *pm_demons_profiles(void) { return g_profiles; }
 
 void pm_demons_load(void)
 {
@@ -280,19 +280,19 @@ void pm_demons_load(void)
 // occlusion ray each, instead of a VEIL_PAL_EYES material. Drawn for every
 // demon regardless of veil state — that is the point of the eye exception.
 // Veil down, they are the only thing on screen.
-static void draw_eyes_for(const M64Scene *scene, uint8_t category)
+static void draw_eyes_for(const KilnScene *scene, uint8_t category)
 {
-    for (M64Actor *a = m64_actor_first(category); a; a = m64_actor_next(a)) {
+    for (KilnActor *a = kiln_actor_first(category); a; a = kiln_actor_next(a)) {
         const fm_vec3_t eye = demon_eye(a);
 
         // One ray per demon, from the player's eye. Without this the
         // pinpricks shine through the bulkheads, which reads as a bug
         // rather than as dread.
-        M64Trace tr = m64_clip_ray(g_player_eye, eye);
+        KilnTrace tr = kiln_clip_ray(g_player_eye, eye);
         if (tr.fraction < 1.0f) continue;
 
         int sx, sy;
-        if (!m64_scene_project(scene, eye, PM_SCREEN_W, PM_SCREEN_H, &sx, &sy))
+        if (!kiln_scene_project(scene, eye, PM_SCREEN_W, PM_SCREEN_H, &sx, &sy))
             continue;  // behind the camera
         if (sx < 0 || sy < 0 || sx >= PM_SCREEN_W || sy >= PM_SCREEN_H) continue;
 
@@ -301,13 +301,13 @@ static void draw_eyes_for(const M64Scene *scene, uint8_t category)
         // competing when it is down.
         const uint8_t v = (uint8_t)(140 + (g_veil ? g_veil->step : 0) * 14);
         const color_t c = RGBA32(v, 0x18, 0x1E, 0xFF);
-        m64_gui_rect(sx - 3, sy, 2, 2, c);
-        m64_gui_rect(sx + 1, sy, 2, 2, c);
+        kiln_gui_rect(sx - 3, sy, 2, 2, c);
+        kiln_gui_rect(sx + 1, sy, 2, 2, c);
     }
 }
 
-void pm_demons_draw_eyes(const M64Scene *scene)
+void pm_demons_draw_eyes(const KilnScene *scene)
 {
-    draw_eyes_for(scene, M64_ACTOR_CAT_ENEMY);
-    draw_eyes_for(scene, M64_ACTOR_CAT_BOSS);
+    draw_eyes_for(scene, KILN_ACTOR_CAT_ENEMY);
+    draw_eyes_for(scene, KILN_ACTOR_CAT_BOSS);
 }

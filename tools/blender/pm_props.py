@@ -34,7 +34,7 @@ import sys
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 import objkit  # noqa: E402
 
 # Paths below are relative to the assets directory, which arrives as

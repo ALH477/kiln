@@ -5,10 +5,11 @@
 #include "pm_sfx.h"
 
 #include <libdragon.h>
-#include <m64/m64_audio.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_audio.h>
+#include <kiln/kiln_engine.h>
 
 #include "pm_screens.h"  // PM_CH_DRONE — the one channel never used here
+#include "pm_cine.h"     // the cue trace; compiles away without KILN_DEBUG
 
 typedef struct {
     const char *path;
@@ -50,8 +51,8 @@ void pm_sfx_init(void)
         // ROM at boot rather than run silent — and none of these nine exist
         // yet. The check lives here, in the module that knows these assets
         // are optional, rather than in the engine.
-        g_handle[i] = (DEFS[i].path && m64_dfs_exists(DEFS[i].path))
-                        ? m64_sfx_load(DEFS[i].path) : -1;
+        g_handle[i] = (DEFS[i].path && kiln_dfs_exists(DEFS[i].path))
+                        ? kiln_sfx_load(DEFS[i].path) : -1;
         if (g_handle[i] >= 0) g_loaded++;
     }
     // Loud in the log, silent in the game. A build with no sounds is a
@@ -63,18 +64,36 @@ void pm_sfx_init(void)
 
 int pm_sfx_loaded_count(void) { return g_loaded; }
 
+// Set while pm_cine is pumping a shot forward to a seek target. Without it a
+// two-second seek fires every cue the shot crosses into the mixer at once —
+// twenty sounds in one frame, which is both useless and alarming.
+//
+// It lives here rather than as a master gain in kiln_audio because these two
+// functions are the single funnel every cutscene sound goes through, and a
+// master mute would also silence the music the seek is not restarting.
+static int g_mute;
+
+void pm_sfx_mute(int on) { g_mute = on ? 1 : 0; }
+
 void pm_sfx_play(PMSfxId id)
 {
     if (id < 0 || id >= PM_SFX_COUNT || g_handle[id] < 0) return;
+    // The cue is recorded even when muted: the trace after a seek should be
+    // the shot's full history up to that point, which is the thing that makes
+    // "the sound fires before the motor" answerable.
+    PM_CUE(DEFS[id].path);
+    if (g_mute) return;
     // -1 channel: let the mixer allocate and steal by priority. The
     // ambience bed on PM_CH_DRONE is outside the pool this draws from
     // because it was started explicitly on its own channel.
-    m64_sfx_play(g_handle[id], -1, DEFS[id].priority);
+    kiln_sfx_play(g_handle[id], -1, DEFS[id].priority);
 }
 
 void pm_sfx_play_at(PMSfxId id, float vol, float pan)
 {
     if (id < 0 || id >= PM_SFX_COUNT || g_handle[id] < 0) return;
-    const int ch = m64_sfx_play(g_handle[id], -1, DEFS[id].priority);
-    if (ch >= 0) m64_sfx_set_vol_pan(ch, vol, pan);
+    PM_CUE(DEFS[id].path);
+    if (g_mute) return;
+    const int ch = kiln_sfx_play(g_handle[id], -1, DEFS[id].priority);
+    if (ch >= 0) kiln_sfx_set_vol_pan(ch, vol, pan);
 }

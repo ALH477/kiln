@@ -10,11 +10,11 @@
 #define GG_SPACES_H
 
 #include "gg_types.h"
-#include <m64/m64_board.h>
+#include <kiln/kiln_board.h>
 
 // Apply the on-enter effect of `type` to `player`. Returns the bud delta
 // (negative for DRY spaces etc.). The caller is responsible for clamping
 // the player's bud total to >= 0 after applying.
-int gg_space_enter(M64SpaceType type, GGPlayer *player);
+int gg_space_enter(KilnSpaceType type, GGPlayer *player);
 
 #endif // GG_SPACES_H

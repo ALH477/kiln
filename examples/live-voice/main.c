@@ -16,7 +16,7 @@
 // in real time at single precision.
 
 #include <libdragon.h>
-#include <m64/m64_audio.h>
+#include <kiln/kiln_audio.h>
 
 // The Faust voice API, declared by dsp/arch/libdragon_mixer.c with -cn ksvoice.
 // These are the mangled symbols from faust -cn ksvoice.
@@ -50,7 +50,7 @@ int main(void)
     dfs_init(DFS_DEFAULT_LOCATION);
 
     // Initialise the engine audio layer.
-    m64_audio_init((M64AudioConfig){
+    kiln_audio_init((KilnAudioConfig){
         .sample_rate = SAMPLE_RATE,
         .latency = 0.16f,
         .sfx_channels = 1,
@@ -58,7 +58,7 @@ int main(void)
     });
 
     // Load the baked instrument (same .wav64 as examples/audio).
-    int baked = m64_sfx_load("rom:/ksvoice.wav64");
+    int baked = kiln_sfx_load("rom:/ksvoice.wav64");
     if (baked < 0) {
         debugf("FAIL: could not load ksvoice.wav64\n");
         while (1) {}
@@ -96,7 +96,7 @@ int main(void)
 
         if (pressed.b) {
             // Play the baked instrument for comparison.
-            m64_sfx_play(baked, CH_BAKED, 1);
+            kiln_sfx_play(baked, CH_BAKED, 1);
             debugf("baked: ksvoice.wav64\n");
         }
 
@@ -125,10 +125,10 @@ int main(void)
 
         // HUD
         console_clear();
-        printf("\n  M64 - live vs baked\n\n");
+        printf("\n  Kiln - live vs baked\n\n");
         printf("  A: live KS voice (freq=%.0f)\n", freq_zone ? *freq_zone : 0);
         printf("  B: baked ksvoice.wav64\n\n");
-        printf("  baked playing: %s\n", m64_sfx_playing(CH_BAKED) ? "yes" : "no");
+        printf("  baked playing: %s\n", kiln_sfx_playing(CH_BAKED) ? "yes" : "no");
         printf("  gate: %.0f\n", gate_zone ? *gate_zone : 0);
         console_render();
 

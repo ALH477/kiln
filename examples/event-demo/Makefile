@@ -2,7 +2,7 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -12,7 +12,7 @@ all: event-demo.z64
 
 $(BUILD_DIR)/event-demo.elf: $(OBJS)
 
-event-demo.z64: N64_ROM_TITLE = "M64 Event"
+event-demo.z64: N64_ROM_TITLE = "Kiln Event"
 
 clean:
 	rm -rf $(BUILD_DIR) event-demo.z64

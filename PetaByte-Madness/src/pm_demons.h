@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// pm_demons.h — the four demons, as m64_actor profiles.
+// pm_demons.h — the four demons, as kiln_actor profiles.
 //
 // docs/VEIL_DESIGN.md §5 is the design; this is the runtime. Each species
 // exists to teach one consequence of the veil being reciprocal — while it
@@ -30,7 +30,7 @@
 //     decides whether t3d_model_draw is called at all, which is the whole
 //     phantom rule and the whole frame-time argument.
 //   * The eyes are drawn in the 2D pass as projected screen-space dots,
-//     occlusion-tested with one m64_clip_ray per demon, rather than as
+//     occlusion-tested with one kiln_clip_ray per demon, rather than as
 //     four triangles of an eye material. Cheaper than the real thing and
 //     visually equivalent at 320x240 — but it is a stand-in, and it goes
 //     away when the eye material lands.
@@ -39,15 +39,15 @@
 #define PM_DEMONS_H
 
 #include <t3d/t3dmath.h>
-#include <m64/m64_actor.h>
+#include <kiln/kiln_actor.h>
 
 #include "pm_veil.h"
 #include "pm_types.h"
 
 /** The profile table, indexed by PM_PROFILE_*. Hand this to
- *  m64_actor_system_init. Storage is module-static and outlives the actor
+ *  kiln_actor_system_init. Storage is module-static and outlives the actor
  *  system, as that function requires. */
-const M64ActorProfile *pm_demons_profiles(void);
+const KilnActorProfile *pm_demons_profiles(void);
 
 /** Load the four demon models out of DFS. Call after dfs_init and
  *  asset_init_compression(2), before spawning anything. Missing models are
@@ -72,8 +72,8 @@ float pm_demons_veil_force_at(fm_vec3_t pos);
 int pm_demons_player_seen(void);
 
 /** Draw the eye pinpricks. Call inside the 2D pass (between
- *  m64_gui_begin and m64_gui_end), after the world has been drawn.
+ *  kiln_gui_begin and kiln_gui_end), after the world has been drawn.
  *  See the deviation note above. */
-void pm_demons_draw_eyes(const M64Scene *scene);
+void pm_demons_draw_eyes(const KilnScene *scene);
 
 #endif // PM_DEMONS_H

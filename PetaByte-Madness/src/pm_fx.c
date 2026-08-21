@@ -4,7 +4,9 @@
 
 #include "pm_fx.h"
 
-#include <m64/m64_gui.h>
+#include <kiln/kiln_gui.h>
+
+#include "pm_cine.h"  // the cue trace; compiles away without KILN_DEBUG
 
 // ── Shake noise ────────────────────────────────────────────────────────
 // 32 entries of a rough sine, in 8.8 fixed point over [-1, 1]. Three
@@ -76,6 +78,7 @@ void pm_fx_update(float dt)
 // ── Letterbox ──────────────────────────────────────────────────────────
 void pm_fx_letterbox(float target)
 {
+    PM_CUE(target > 0.0f ? "fx.bars.in" : "fx.bars.out");
     g_letterbox_want = target < 0.0f ? 0.0f : (target > 1.0f ? 1.0f : target);
 }
 
@@ -91,11 +94,16 @@ void pm_fx_shake(float amount, float seconds)
     // Stronger wins, rather than summing. Two hits landing together should
     // read as one bigger hit, not as double the displacement.
     if (amount <= g_shake_amount && g_shake_left > 0.0f) return;
+    // Recorded only when it actually takes: pm_intake.c re-arms a small shake
+    // EVERY FRAME while the slab motor runs (so the vibration outlives the
+    // decay), and a trace that logged all 750 of those would bury the four
+    // beats worth reading.
+    PM_CUE("fx.shake");
     g_shake_amount = amount;
     g_shake_left = g_shake_total = seconds;
 }
 
-void pm_fx_apply_camera(M64Scene *scene)
+void pm_fx_apply_camera(KilnScene *scene)
 {
     if (g_shake_left <= 0.0f || g_shake_total <= 0.0f) return;
 
@@ -119,6 +127,7 @@ void pm_fx_apply_camera(M64Scene *scene)
 // ── Flash ──────────────────────────────────────────────────────────────
 void pm_fx_flash(color_t c, float seconds)
 {
+    PM_CUE("fx.flash");
     g_flash_color = c;
     g_flash_left = g_flash_total = seconds;
 }
@@ -126,13 +135,15 @@ void pm_fx_flash(color_t c, float seconds)
 // ── Hit-stop ───────────────────────────────────────────────────────────
 void pm_fx_hitstop(float seconds)
 {
-    if (seconds > g_hitstop_left) g_hitstop_left = seconds;
+    if (seconds <= g_hitstop_left) return;
+    PM_CUE("fx.hitstop");
+    g_hitstop_left = seconds;
 }
 
 float pm_fx_time_scale(void) { return g_hitstop_left > 0.0f ? 0.0f : 1.0f; }
 
 // ── Binary scroll ──────────────────────────────────────────────────────
-void pm_fx_binary(float seconds) { g_binary_left = seconds; }
+void pm_fx_binary(float seconds) { PM_CUE("fx.binary"); g_binary_left = seconds; }
 int  pm_fx_binary_active(void)   { return g_binary_left > 0.0f; }
 
 // "MADNESS" in ASCII, one byte per row, so a paused frame decodes. The
@@ -163,7 +174,7 @@ static void draw_binary(int w, int h)
             line[c] = (noise >> 16 & 1) ? '1' : '0';
         }
         line[40] = '\0';
-        m64_gui_text(4, r * 12 + 8, ink, "%s", line);
+        kiln_gui_text(4, r * 12 + 8, ink, "%s", line);
     }
 }
 
@@ -175,14 +186,14 @@ void pm_fx_draw(int w, int h)
     if (g_letterbox > 0.001f) {
         const int bar = (int)(h * LETTERBOX_FRAC * g_letterbox);
         const color_t black = RGBA32(0, 0, 0, 255);
-        m64_gui_rect(0, 0, w, bar, black);
-        m64_gui_rect(0, h - bar, w, bar, black);
+        kiln_gui_rect(0, 0, w, bar, black);
+        kiln_gui_rect(0, h - bar, w, bar, black);
     }
 
     if (g_flash_left > 0.0f && g_flash_total > 0.0f) {
         const float k = g_flash_left / g_flash_total;
         const uint8_t a = (uint8_t)(g_flash_color.a * k);
-        m64_gui_rect(0, 0, w, h,
+        kiln_gui_rect(0, 0, w, h,
                      RGBA32(g_flash_color.r, g_flash_color.g,
                             g_flash_color.b, a));
     }

@@ -14,7 +14,7 @@
 #
 # Usage, in your NixOS configuration:
 #
-#   imports = [ m64.nixosModules.n64-flashcart ];
+#   imports = [ kiln.nixosModules.n64-flashcart ];
 #   programs.n64-flashcart.enable = true;
 #
 # then re-login (for the group) or `sudo udevadm control --reload`.

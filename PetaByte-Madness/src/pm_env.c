@@ -10,11 +10,15 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
 
-#include <m64/m64_texanim.h>
-#include <m64/m64_crater.h>
+#include <kiln/kiln_texanim.h>
+#include <kiln/kiln_crater.h>
 
 #include "pm_models.h"
 #include "pm_fx.h"
+// The lab's authored light rig, as measured and emitted by
+// dank_lab_gen.py --emit-header. Included directly rather than via pm_lab.h:
+// this file needs the rig, not the playable lab's actor profiles and camera.
+#include "pm_lab_gen.h"
 #include "pm_sfx.h"
 #include "pm_world_gen.h"
 
@@ -111,7 +115,7 @@
 #define FOAM_T_SPEED  1.1f
 
 // ── Sine lookup ────────────────────────────────────────────────────────
-// No libm on the hot path — the same stance m64_camera.h takes for its
+// No libm on the hot path — the same stance kiln_camera.h takes for its
 // damping and pm_fx.h for its shake. 256 entries is a fifth of a degree of
 // phase error at this amplitude, which is far below one model unit.
 #define SIN_STEPS 256
@@ -139,10 +143,10 @@ static inline float fast_sin(float turns)
 }
 
 // ── State ──────────────────────────────────────────────────────────────
-static M64Transform g_sky_x, g_sea_x, g_bolt_x;
+static KilnTransform g_sky_x, g_sea_x, g_bolt_x;
 static int          g_xform_ready;
 
-static M64TexAnim   g_foam;
+static KilnTexAnim   g_foam;
 static float        g_swell_t;
 
 // ── Lightning ──────────────────────────────────────────────────────────
@@ -194,7 +198,7 @@ static int       g_thunder_near;
 // so there is no reason to sink a crater any deeper than before.
 #define CRATER_RADIUS     1750.0f  // ~27 m
 #define CRATER_DEPTH_MAX   140.0f  // ~2.2 m
-static M64CraterField g_terrain_craters;
+static KilnCraterField g_terrain_craters;
 
 float pm_env_bolt(void) { return g_bolt; }
 
@@ -215,10 +219,10 @@ static void strike_somewhere(void)
     g_bolt_variant = (int)(rnd01() * (float)BOLT_VARIANTS) % BOLT_VARIANTS;
 
     // A strike over land craters the terrain where it lands (see
-    // m64_crater.h) — a no-op if the island's terrain object never
-    // resolved (m64_crater_init failed or hasn't run yet).
+    // kiln_crater.h) — a no-op if the island's terrain object never
+    // resolved (kiln_crater_init failed or hasn't run yet).
     if (over_land) {
-        m64_crater_impact(&g_terrain_craters, g_bolt_pos.v[0], g_bolt_pos.v[2],
+        kiln_crater_impact(&g_terrain_craters, g_bolt_pos.v[0], g_bolt_pos.v[2],
                           CRATER_RADIUS, CRATER_DEPTH_MAX);
     }
 
@@ -243,9 +247,9 @@ static int        g_swell_ok;
 static void xforms_init(void)
 {
     if (g_xform_ready) return;
-    m64_transform_init(&g_sky_x);
-    m64_transform_init(&g_sea_x);
-    m64_transform_init(&g_bolt_x);
+    kiln_transform_init(&g_sky_x);
+    kiln_transform_init(&g_sea_x);
+    kiln_transform_init(&g_bolt_x);
     g_xform_ready = 1;
 }
 
@@ -258,8 +262,8 @@ void pm_env_init(void)
     pm_models_preload(PM_MODEL_STORM);
     T3DModel *sea = pm_models_get(PM_MODEL_SEA);
 
-    g_foam = (M64TexAnim){
-        .mode = M64_TEXANIM_SCROLL,
+    g_foam = (KilnTexAnim){
+        .mode = KILN_TEXANIM_SCROLL,
         .material_name = NULL,  // the sea has exactly one material
         .scroll = { .s_speed = FOAM_S_SPEED, .t_speed = FOAM_T_SPEED },
     };
@@ -267,11 +271,11 @@ void pm_env_init(void)
     // Craters, on the island's own "terrain" object — independent of the
     // sea below, so a missing/failed sea model never skips this. Destroy
     // before re-init: pm_env_init runs again for the beach/arrival shot
-    // later in the same session, and m64_crater_init unconditionally
+    // later in the same session, and kiln_crater_init unconditionally
     // overwrites its own state without freeing a prior allocation.
-    m64_crater_destroy(&g_terrain_craters);
+    kiln_crater_destroy(&g_terrain_craters);
     T3DModel *island = pm_models_get(PM_MODEL_ISLAND);
-    if (island) m64_crater_init(&g_terrain_craters, island, "terrain");
+    if (island) kiln_crater_init(&g_terrain_craters, island, "terrain");
 
     // Snapshot the rest pose once. Done here rather than lazily in update
     // so that a missing model is a boot-time fact the debug overlay can
@@ -307,7 +311,7 @@ void pm_env_init(void)
 
 int pm_env_swell_active(void) { return g_swell_ok; }
 
-void pm_env_night(M64Scene *scene)
+void pm_env_night(KilnScene *scene)
 {
     // Moonlight. Cool and NOT bright: the moon is a quarter of a stop of
     // sunlight and the whole scene should sit low, with the sky as the
@@ -393,7 +397,7 @@ void pm_env_night(M64Scene *scene)
     // Read from the scene, so the caller's frustum decides the range. The
     // director applies the shot's near/far BEFORE calling this, precisely so
     // this line has something true to read.
-    m64_scene_set_fog(scene, horizon,
+    kiln_scene_set_fog(scene, horizon,
                       scene->far_z * FOG_NEAR_FRAC,
                       scene->far_z * FOG_FAR_FRAC);
 
@@ -404,28 +408,169 @@ void pm_env_night(M64Scene *scene)
     scene->clear_color = horizon;
 }
 
-void pm_env_interior(M64Scene *scene)
+// ── The lab's lighting, and why the generator's own rig is NOT the answer ──
+//
+// dank_lab_gen.py carries a twelve-fixture rig and an AMBIENT of "dank teal,
+// never fully black" — and pm_lab_gen.h now publishes both. The obvious move is
+// to install them. It is the wrong move, and the reason is worth writing down
+// because the numbers look so authoritative:
+//
+//   THE LAB'S VERTEX COLOURS ARE ALREADY LIT. dank_lab_gen.py's bake() walks
+//   that rig and multiplies it into every vertex colour before writing the OBJ.
+//   Its AMBIENT (which lands as 15/21/23 of 255) is the floor of a BAKE, not an
+//   exposure for a renderer — and the generator's own palette comment says as
+//   much for the textured surfaces: LIT_WHITE is "albedo for TEXTURED surfaces:
+//   MODULATE means the shade channel should be pure lighting".
+//
+// So the runtime is not lighting this room; it is lighting it a SECOND time.
+// Anything much below full white multiplies an already-darkened colour and
+// double-darkens it, which is exactly what "the lab reads as near-unreadable"
+// was: one directional light plus kiln_engine.c's bootstrap ambient of 45 (a
+// generic avoid-pure-black floor, never chosen for this room) on top of colours
+// that already had the light in them.
+//
+// The right rig is therefore close to unity — enough directional variation to
+// keep the geometry readable as shape rather than as flat paint, and enough
+// ambient that a face turned away from the key does not crush. What the
+// generator's rig is genuinely good for is the DIRECTION: the key should come
+// from where the brightest fixture actually is, so the runtime's highlights
+// agree with the baked ones instead of fighting them.
+//
+// That is what pm_env_interior_from_rig does. pm_env_interior keeps the
+// hand-tuned values as the no-rig case, for a room with no generated header.
+static void interior_common(KilnScene *scene)
 {
-    // The engine's own defaults, restated rather than re-calling
-    // m64_scene_init — that would also reset the camera, the FOV and the
-    // viewport, which belong to whoever is driving the shot.
+    // Restated rather than re-calling kiln_scene_init — that would also reset
+    // the camera, the FOV and the viewport, which belong to whoever is driving
+    // the shot.
+    kiln_scene_disable_fog(scene);
+    scene->clear_color = RGBA32(10, 10, 24, 0xFF);
+}
+
+void pm_env_interior(KilnScene *scene)
+{
     scene->light_color[0] = scene->light_color[1] = scene->light_color[2] = 0xFF;
     scene->light_color[3] = 0xFF;
     scene->light_dir = (fm_vec3_t){ { 1.0f, 1.0f, 1.0f } };
     fm_vec3_norm(&scene->light_dir, &scene->light_dir);
-    scene->light_count = 1;
 
-    scene->ambient[0] = scene->ambient[1] = scene->ambient[2] = 45;
+    // The fill, from roughly opposite and above — a bounce light off the
+    // ceiling/console glow rather than a second sun. Dim and slightly cool
+    // so the key's warmth still reads as the dominant source. One light alone
+    // leaves every shadowed face at flat ambient, which on curved geometry
+    // reads as a hole in the mesh rather than as darkness.
+    scene->lights[0].color[0] = 110;
+    scene->lights[0].color[1] = 118;
+    scene->lights[0].color[2] = 135;
+    scene->lights[0].color[3] = 0xFF;
+    scene->lights[0].dir = (fm_vec3_t){ { -1.0f, 0.6f, -1.0f } };
+    fm_vec3_norm(&scene->lights[0].dir, &scene->lights[0].dir);
+    scene->light_count = 2;
+
+    // Raised from the engine's bootstrap 45 for the reason above: that value
+    // exists only so a face pointing away from the light does not go pure
+    // black, not as a considered exposure for a room whose colours are
+    // already carrying their own light.
+    scene->ambient[0] = scene->ambient[1] = scene->ambient[2] = 85;
     scene->ambient[3] = 0xFF;
 
-    m64_scene_disable_fog(scene);
-    scene->clear_color = RGBA32(10, 10, 24, 0xFF);
+    interior_common(scene);
+}
+
+// The generator's rig, as emitted into pm_lab_gen.h: { x,y,z, r,g,b, radius,
+// intensity }, already in world units and sorted brightest first.
+typedef struct {
+    float   x, y, z;
+    int     r, g, b;
+    float   radius, intensity;
+} PMLabLight;
+
+static const PMLabLight LAB_RIG[] = { PM_LAB_LIGHT_TABLE };
+
+void pm_env_interior_from_rig(KilnScene *scene, fm_vec3_t focus)
+{
+    // Start from the hand-tuned rig, then let the authored fixtures steer the
+    // DIRECTIONS. If the table were ever empty this degrades to exactly
+    // pm_env_interior, which is the right failure.
+    pm_env_interior(scene);
+
+    const int n = (int)(sizeof LAB_RIG / sizeof LAB_RIG[0]);
+    if (n == 0) return;
+
+    // Pick the two fixtures with the most influence AT THE SHOT, not the two
+    // brightest in the room: a 1.05-intensity lamp at the far end of the hall
+    // contributes nothing to a close shot on the scanner, and using it would
+    // point the key through a wall. Influence is intensity attenuated by
+    // distance over the fixture's own radius — the same shape the bake used,
+    // without needing to reproduce the bake.
+    int best = -1, second = -1;
+    float best_w = -1.0f, second_w = -1.0f;
+    for (int i = 0; i < n; i++) {
+        const float dx = LAB_RIG[i].x - focus.v[0];
+        const float dy = LAB_RIG[i].y - focus.v[1];
+        const float dz = LAB_RIG[i].z - focus.v[2];
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        const float r2 = LAB_RIG[i].radius * LAB_RIG[i].radius;
+        // 1 at the fixture, 0 at its radius, never negative.
+        float fall = 1.0f - (d2 / (r2 > 1.0f ? r2 : 1.0f));
+        if (fall < 0.0f) fall = 0.0f;
+        const float wgt = LAB_RIG[i].intensity * fall;
+        if (wgt > best_w)        { second = best; second_w = best_w;
+                                   best = i; best_w = wgt; }
+        else if (wgt > second_w) { second = i; second_w = wgt; }
+    }
+
+    // Nothing reaches this spot — the shot is somewhere the room was never lit
+    // (the middle of the hall, say). Keep the hand-tuned rig rather than
+    // pointing a light from an arbitrary fixture.
+    if (best < 0 || best_w <= 0.0f) return;
+
+    // A directional light's `dir` is the direction light TRAVELS, so it points
+    // FROM the fixture TOWARD the subject. Getting this backwards lights the
+    // far side of everything, which reads as the geometry being inside-out —
+    // and it is invisible in a still of a symmetrical room, so it is worth
+    // stating rather than checking by eye.
+    fm_vec3_t kd = {{ focus.v[0] - LAB_RIG[best].x,
+                      focus.v[1] - LAB_RIG[best].y,
+                      focus.v[2] - LAB_RIG[best].z }};
+    fm_vec3_norm(&kd, &kd);
+    scene->light_dir = kd;
+
+    // Colour is pulled most of the way to white, NOT taken from the fixture.
+    // The fixture's tint is already in the vertex colours; applying it again
+    // would double-tint, and the veil's palette contract needs value
+    // separation rather than hue anyway (docs/VEIL_DESIGN.md §4). A quarter of
+    // the fixture's hue is enough for the key to read as belonging to the lamp
+    // it came from.
+    scene->light_color[0] = (uint8_t)(191 + LAB_RIG[best].r / 4);
+    scene->light_color[1] = (uint8_t)(191 + LAB_RIG[best].g / 4);
+    scene->light_color[2] = (uint8_t)(191 + LAB_RIG[best].b / 4);
+    scene->light_color[3] = 0xFF;
+
+    if (second >= 0 && second_w > 0.0f) {
+        fm_vec3_t fd = {{ focus.v[0] - LAB_RIG[second].x,
+                          focus.v[1] - LAB_RIG[second].y,
+                          focus.v[2] - LAB_RIG[second].z }};
+        fm_vec3_norm(&fd, &fd);
+        scene->lights[0].dir = fd;
+        // The fill stays dim and keeps more of its own colour — it is the one
+        // that tells you a second practical exists in the room.
+        scene->lights[0].color[0] = (uint8_t)(64 + LAB_RIG[second].r / 3);
+        scene->lights[0].color[1] = (uint8_t)(64 + LAB_RIG[second].g / 3);
+        scene->lights[0].color[2] = (uint8_t)(64 + LAB_RIG[second].b / 3);
+        scene->lights[0].color[3] = 0xFF;
+        scene->light_count = 2;
+    } else {
+        scene->light_count = 1;
+    }
+
+    interior_common(scene);
 }
 
 void pm_env_update(float dt)
 {
     g_swell_t += dt;
-    m64_texanim_update(&g_foam, 1, dt);
+    kiln_texanim_update(&g_foam, 1, dt);
 
     /* ── The storm ──────────────────────────────────────────────────── */
     if (g_thunder_t >= 0.0f) {
@@ -466,7 +611,7 @@ void pm_env_update(float dt)
     // Independent of the sea's swell below (craters live on the island, not
     // the water) — runs before the swell's early-return so a missing sea
     // model never skips it.
-    m64_crater_update(&g_terrain_craters, dt);
+    kiln_crater_update(&g_terrain_craters, dt);
 
     if (!g_swell_ok) return;
 
@@ -521,7 +666,7 @@ void pm_env_update(float dt)
                                  * (uint32_t)sizeof(T3DVertPacked) / 2u);
 }
 
-void pm_env_draw_sky(const M64Scene *scene)
+void pm_env_draw_sky(const KilnScene *scene)
 {
     T3DModel *sky = pm_models_get(PM_MODEL_SKYDOME);
     // A NULL scene means the director has not applied a frustum yet, which
@@ -558,16 +703,16 @@ void pm_env_draw_sky(const M64Scene *scene)
     // so nothing has to be put back but this flag.
     t3d_fog_set_enabled(false);
 
-    m64_transform_push(&g_sky_x);
+    kiln_transform_push(&g_sky_x);
     t3d_model_draw(sky);
-    m64_transform_pop();
+    kiln_transform_pop();
 
-    // Hand the pass back exactly as m64_scene_begin set it up.
+    // Hand the pass back exactly as kiln_scene_begin set it up.
     t3d_fog_set_enabled(scene->fog_enabled ? true : false);
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
 }
 
-void pm_env_draw_bolt(const M64Scene *scene)
+void pm_env_draw_bolt(const KilnScene *scene)
 {
     if (g_bolt <= 0.0f || !scene) return;
     T3DModel *storm = pm_models_get(PM_MODEL_STORM);
@@ -595,9 +740,9 @@ void pm_env_draw_bolt(const M64Scene *scene)
      * shading it would be wrong, but it must still be occluded by the
      * temple when it comes down behind it. */
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH | T3D_FLAG_NO_LIGHT);
-    m64_transform_push(&g_bolt_x);
+    kiln_transform_push(&g_bolt_x);
     t3d_model_draw_object(obj, NULL);
-    m64_transform_pop();
+    kiln_transform_pop();
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
 }
 
@@ -611,10 +756,10 @@ void pm_env_draw_sea(void)
     g_sea_x.scale = (fm_vec3_t){ { SEA_SCALE, SEA_SCALE, SEA_SCALE } };
     g_sea_x.rot_angle = 0.0f;
 
-    m64_transform_push(&g_sea_x);
-    // m64_texanim_draw saves and restores the combiner itself, so the
+    kiln_transform_push(&g_sea_x);
+    // kiln_texanim_draw saves and restores the combiner itself, so the
     // textured water does not leave the RDP in TEX_SHADE for whatever the
-    // scene draws next (m64_texanim.h says so explicitly).
-    m64_texanim_draw(sea, &g_foam, 1);
-    m64_transform_pop();
+    // scene draws next (kiln_texanim.h says so explicitly).
+    kiln_texanim_draw(sea, &g_foam, 1);
+    kiln_transform_pop();
 }

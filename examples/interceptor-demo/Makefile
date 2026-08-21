@@ -10,14 +10,14 @@
 #   sfx/blip.wav64            -> SFX (re-used as engine whoosh)
 #   music/test.xm64           -> music
 #
-# Same include order as examples/engine: n64.mk, t3d.mk, m64.mk. libm64 calls
+# Same include order as examples/engine: n64.mk, t3d.mk, kiln.mk. libkiln calls
 # into Tiny3D, which calls into libdragon, so the link line must be Tiny3D
-# left of libm64.
+# left of libkiln.
 
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -27,7 +27,7 @@ all: interceptor-demo.z64
 
 $(BUILD_DIR)/interceptor-demo.elf: $(OBJS)
 
-interceptor-demo.z64: N64_ROM_TITLE = "M64 Interceptor"
+interceptor-demo.z64: N64_ROM_TITLE = "Kiln Interceptor"
 interceptor-demo.z64: $(BUILD_DIR)/interceptor-demo.dfs
 
 clean:

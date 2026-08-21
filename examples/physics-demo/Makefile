@@ -2,7 +2,7 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -12,7 +12,7 @@ all: physics-demo.z64
 
 $(BUILD_DIR)/physics-demo.elf: $(OBJS)
 
-physics-demo.z64: N64_ROM_TITLE = "M64 Physics"
+physics-demo.z64: N64_ROM_TITLE = "Kiln Physics"
 
 clean:
 	rm -rf $(BUILD_DIR) physics-demo.z64

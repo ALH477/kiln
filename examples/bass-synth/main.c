@@ -56,10 +56,10 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmath.h>
 
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_audio.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_audio.h>
 
 #define SCREEN_W    320
 #define SCREEN_H    240
@@ -194,9 +194,9 @@ static const color_t PLAYER_COLOR[NPLAYERS] = {
 
 // ── Note mapping ──────────────────────────────────────────────────────────
 static const uint32_t NOTE_BUTTONS[13] = {
-    M64_BTN_DU, M64_BTN_DL, M64_BTN_DD, M64_BTN_DR,
-    M64_BTN_CL, M64_BTN_CD, M64_BTN_CR, M64_BTN_CU,
-    M64_BTN_L,  M64_BTN_B,  M64_BTN_A,  M64_BTN_Z,  M64_BTN_R,
+    KILN_BTN_DU, KILN_BTN_DL, KILN_BTN_DD, KILN_BTN_DR,
+    KILN_BTN_CL, KILN_BTN_CD, KILN_BTN_CR, KILN_BTN_CU,
+    KILN_BTN_L,  KILN_BTN_B,  KILN_BTN_A,  KILN_BTN_Z,  KILN_BTN_R,
 };
 
 // ── Global state ──────────────────────────────────────────────────────────
@@ -276,8 +276,8 @@ static IntroOff g_intro_pending[INTRO_MAX_PENDING];
 static int g_intro_pending_n = 0;
 
 // ── 3D scene ──────────────────────────────────────────────────────────────
-static M64Scene g_scene;
-static M64Transform g_cube_xform[BASS_CHANS];
+static KilnScene g_scene;
+static KilnTransform g_cube_xform[BASS_CHANS];
 static T3DVertPacked *g_cube_verts;
 static const uint8_t CUBE_TRIS[12][3] = {
     {0,1,2},{2,3,0}, {4,6,5},{6,4,7},
@@ -389,8 +389,8 @@ static void note_on(int player, int8_t midi)
 
     if (n->active) {
         // Steal/replace: stop the previous note's channels.
-        m64_sfx_stop(n->body_ch);
-        m64_sfx_stop(n->sub_ch);
+        kiln_sfx_stop(n->body_ch);
+        kiln_sfx_stop(n->sub_ch);
     } else {
         // Fresh allocation: same body_ch/sub_ch every time for this slot
         // (slot index → channel pair: slot*2 = body, slot*2+1 = sub).
@@ -551,8 +551,8 @@ static void update_voices(float dt_ms)
             n->env_level -= step;
             if (n->env_level <= 0.0f) {
                 n->env_level = 0.0f;
-                m64_sfx_stop(n->body_ch);
-                m64_sfx_stop(n->sub_ch);
+                kiln_sfx_stop(n->body_ch);
+                kiln_sfx_stop(n->sub_ch);
                 n->env = ENV_OFF;
                 n->active = 0;
                 continue;
@@ -598,8 +598,8 @@ static void update_voices(float dt_ms)
         float vibrato = 1.0f + lfo * vibrato_amt;
         float body_freq = target * bend_mult * vibrato;
         float sub_freq  = (target * 0.5f) * bend_mult * vibrato;
-        m64_sfx_set_freq(n->body_ch, body_freq);
-        m64_sfx_set_freq(n->sub_ch,  sub_freq);
+        kiln_sfx_set_freq(n->body_ch, body_freq);
+        kiln_sfx_set_freq(n->sub_ch,  sub_freq);
 
         // ── Mix + pan + soft-clip master ────────────────────────────
         // Body layer volume: env * body_gain * master. The "bright" share
@@ -623,8 +623,8 @@ static void update_voices(float dt_ms)
         float pan = PLAYER_PAN[n->player - 1] +
                     (pl->stick_y > 0 ? pl->stick_y * 0.2f : 0.0f);
         if (pan > 1.0f) pan = 1.0f;
-        m64_sfx_set_vol_pan(n->body_ch, body_vol, pan);
-        m64_sfx_set_vol_pan(n->sub_ch,  sub_vol,  pan);
+        kiln_sfx_set_vol_pan(n->body_ch, body_vol, pan);
+        kiln_sfx_set_vol_pan(n->sub_ch,  sub_vol,  pan);
     }
 }
 
@@ -632,7 +632,7 @@ static void update_voices(float dt_ms)
 static void handle_play_input(void)
 {
     for (int p = 1; p <= NPLAYERS; p++) {
-        const M64Input *in = m64_input_get(p);
+        const KilnInput *in = kiln_input_get(p);
         if (!in) continue;
         BassPlayer *pl = &g_players[p - 1];
         pl->stick_x = in->stick_x;
@@ -644,7 +644,7 @@ static void handle_play_input(void)
         pl->cstick_y = in->cstick_y;
 
         // Z = sustain modifier.
-        uint8_t z_now = (in->buttons & M64_BTN_Z) ? 1 : 0;
+        uint8_t z_now = (in->buttons & KILN_BTN_Z) ? 1 : 0;
         if (z_now == 0 && pl->z_held == 1) release_sustained(p);
         pl->z_held = z_now;
 
@@ -757,18 +757,18 @@ static void apply_menu_delta(int delta, int row)
 
 static void handle_menu_input(void)
 {
-    const M64Input *in = m64_input_get(1);
+    const KilnInput *in = kiln_input_get(1);
     if (!in) return;
-    if (in->edges & M64_BTN_DU) g_menu_row--;
-    if (in->edges & M64_BTN_DD) g_menu_row++;
+    if (in->edges & KILN_BTN_DU) g_menu_row--;
+    if (in->edges & KILN_BTN_DD) g_menu_row++;
     if (g_menu_row < 0) g_menu_row = MENU_ROWS - 1;
     if (g_menu_row >= MENU_ROWS) g_menu_row = 0;
 
-    if (in->edges & (M64_BTN_DL | M64_BTN_DR)) {
-        int dir = (in->edges & M64_BTN_DR) ? +1 : -1;
+    if (in->edges & (KILN_BTN_DL | KILN_BTN_DR)) {
+        int dir = (in->edges & KILN_BTN_DR) ? +1 : -1;
         apply_menu_delta(dir, g_menu_row);
     }
-    if (in->edges & M64_BTN_START) g_menu_open = 0;
+    if (in->edges & KILN_BTN_START) g_menu_open = 0;
 }
 
 // ── 2D UI ─────────────────────────────────────────────────────────────────
@@ -798,20 +798,20 @@ static void bass_vbar(int x, int y, int w, int h, float frac,
                       color_t fg, color_t bg)
 {
     if (frac < 0) frac = 0; if (frac > 1) frac = 1;
-    m64_gui_rect(x, y, w, h, bg);
+    kiln_gui_rect(x, y, w, h, bg);
     int fh = (int)(frac * (h - 2));
-    m64_gui_rect(x + 1, y + h - 1 - fh, w - 2, fh, fg);
+    kiln_gui_rect(x + 1, y + h - 1 - fh, w - 2, fh, fg);
 }
 
 static void bass_stick_viz(int x, int y, int w, int h,
                            float sx, float sy, color_t border, color_t dot)
 {
-    m64_gui_panel(x, y, w, h, RGBA32(10, 10, 24, 200), border);
+    kiln_gui_panel(x, y, w, h, RGBA32(10, 10, 24, 200), border);
     int cx = x + w / 2;
     int cy = y + h / 2;
     int px = cx + (int)(sx * (w / 2 - 4));
     int py = cy - (int)(sy * (h / 2 - 4));
-    m64_gui_rect(px - 2, py - 2, 4, 4, dot);
+    kiln_gui_rect(px - 2, py - 2, 4, 4, dot);
 }
 
 static void draw_menu(void)
@@ -821,9 +821,9 @@ static void draw_menu(void)
     int w = 288;
     int total_h = MENU_ROWS * row_h + 24;
 
-    m64_gui_panel(x - 6, y - 10, w + 12, total_h,
+    kiln_gui_panel(x - 6, y - 10, w + 12, total_h,
                   RGBA32(10, 10, 24, 230), RGBA32(0, 245, 212, 255));
-    m64_gui_text(x, y - 6, RGBA32(0, 245, 212, 255),
+    kiln_gui_text(x, y - 6, RGBA32(0, 245, 212, 255),
                  "BASS SYNTH  Start:close   Up/Dn:row   L/R:val");
 
     for (int row = 0; row < MENU_ROWS; row++) {
@@ -835,7 +835,7 @@ static void draw_menu(void)
         color_t row_brd = selected
             ? RGBA32(0, 245, 212, 255)
             : RGBA32(60, 60, 90, 255);
-        m64_gui_panel(x, ry, w, row_h - 2, row_col, row_brd);
+        kiln_gui_panel(x, ry, w, row_h - 2, row_col, row_brd);
 
         char label[40];
         char value[24];
@@ -884,8 +884,8 @@ static void draw_menu(void)
                 break;
             }
         }
-        m64_gui_text(x + 4, ry + 2, tag_col, "%s", label);
-        m64_gui_text(x + 180, ry + 2, RGBA32(255, 255, 255, 255), "%s", value);
+        kiln_gui_text(x + 4, ry + 2, tag_col, "%s", label);
+        kiln_gui_text(x + 180, ry + 2, RGBA32(255, 255, 255, 255), "%s", value);
     }
 }
 
@@ -899,9 +899,9 @@ static void draw_activity_overlay(void)
     for (int i = 0; i < BASS_NOTES; i++) if (g_notes[i].active) active++;
 
     // Top strip.
-    m64_gui_panel(margin, margin, SCREEN_W - 2 * margin, 22,
+    kiln_gui_panel(margin, margin, SCREEN_W - 2 * margin, 22,
                   RGBA32(10, 10, 24, 220), RGBA32(139, 92, 246, 255));
-    m64_gui_text(margin + 6, margin + 5, RGBA32(232, 232, 240, 255),
+    kiln_gui_text(margin + 6, margin + 5, RGBA32(232, 232, 240, 255),
                  "BASS SYNTH  notes %d/%d  master %.2f  LFO %.1fHz  %s",
                  active, BASS_NOTES, g_master_gain, g_lfo_rate_hz,
                  g_menu_open ? "[MENU]" : "Start: menu");
@@ -914,14 +914,14 @@ static void draw_activity_overlay(void)
         BassPlayer *pl = &g_players[p];
         color_t pc = PLAYER_COLOR[p];
 
-        m64_gui_panel(x, y, col_w, 74,
+        kiln_gui_panel(x, y, col_w, 74,
                       RGBA32(10, 10, 24, 200), pc);
-        m64_gui_text(x + 4, y + 3, pc, "P%d %s",
+        kiln_gui_text(x + 4, y + 3, pc, "P%d %s",
                      p + 1, ENGINE_NAME[pl->engine]);
-        m64_gui_text(x + 4, y + 15, RGBA32(180, 180, 200, 255),
+        kiln_gui_text(x + 4, y + 15, RGBA32(180, 180, 200, 255),
                      "oct%+d",
                      (int)pl->octave);
-        m64_gui_text(x + 4, y + 25, RGBA32(140, 140, 160, 255),
+        kiln_gui_text(x + 4, y + 25, RGBA32(140, 140, 160, 255),
                      "%s %s",
                      pl->legato ? "leg" : "rtr",
                      SCALE_NAME[pl->scale]);
@@ -929,7 +929,7 @@ static void draw_activity_overlay(void)
         bass_stick_viz(x + 4, y + 36, 28, 28, pl->stick_x, pl->stick_y,
                        pc, RGBA32(0, 245, 212, 255));
 
-        m64_gui_text(x + 40, y + 38, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(x + 40, y + 38, RGBA32(232, 232, 240, 255),
                      "%s",
                      pl->last_note > 0 ? note_name(pl->last_note) : "--");
 
@@ -948,13 +948,13 @@ static void draw_activity_overlay(void)
             env = env_name(g_notes[active_note].env);
             env_frac = g_notes[active_note].env_level;
         }
-        m64_gui_text(x + 40, y + 50, RGBA32(140, 140, 160, 255),
+        kiln_gui_text(x + 40, y + 50, RGBA32(140, 140, 160, 255),
                      "%s", env);
         bass_vbar(x + 56, y + 50, 14, 8, env_frac,
                   pc, RGBA32(40, 40, 60, 255));
 
         // C-stick indicator (mod/bend).
-        m64_gui_text(x + 40, y + 62, RGBA32(120, 120, 150, 255),
+        kiln_gui_text(x + 40, y + 62, RGBA32(120, 120, 150, 255),
                      "b%+d.%d m%.0f%%",
                      (int)pl->cstick_x,
                      (int)(pl->cstick_x * 10.0f) - (int)pl->cstick_x * 10,
@@ -973,7 +973,7 @@ static void draw_activity_overlay(void)
 static void draw_spectrum_cubes(float t)
 {
     (void)t;
-    m64_scene_begin(&g_scene);
+    kiln_scene_begin(&g_scene);
     for (int i = 0; i < BASS_NOTES; i++) {
         BassNote *n = &g_notes[i];
         // Each note gets 2 channels: body + sub, drawn as a stack.
@@ -987,9 +987,9 @@ static void draw_spectrum_cubes(float t)
         g_cube_xform[i * 2 + 0].scale =
             (fm_vec3_t){{ 0.6f, 0.4f + body_amp * 8.0f, 0.6f }};
         g_cube_xform[i * 2 + 0].rot_angle = 0.0f;
-        m64_transform_push(&g_cube_xform[i * 2 + 0]);
+        kiln_transform_push(&g_cube_xform[i * 2 + 0]);
         t3d_vert_load(g_cube_verts, 0, 8);
-        m64_transform_pop();
+        kiln_transform_pop();
         for (int t2 = 0; t2 < 12; t2++)
             t3d_tri_draw(CUBE_TRIS[t2][0], CUBE_TRIS[t2][1], CUBE_TRIS[t2][2]);
         t3d_tri_sync();
@@ -1000,9 +1000,9 @@ static void draw_spectrum_cubes(float t)
         g_cube_xform[i * 2 + 1].scale =
             (fm_vec3_t){{ 0.6f, 0.4f + sub_amp * 5.0f, 0.6f }};
         g_cube_xform[i * 2 + 1].rot_angle = 0.0f;
-        m64_transform_push(&g_cube_xform[i * 2 + 1]);
+        kiln_transform_push(&g_cube_xform[i * 2 + 1]);
         t3d_vert_load(g_cube_verts, 0, 8);
-        m64_transform_pop();
+        kiln_transform_pop();
         for (int t2 = 0; t2 < 12; t2++)
             t3d_tri_draw(CUBE_TRIS[t2][0], CUBE_TRIS[t2][1], CUBE_TRIS[t2][2]);
         t3d_tri_sync();
@@ -1019,36 +1019,36 @@ static void draw_intro_overlay(uint32_t elapsed_ms)
 
     // Title panel.
     int pw = 240, ph = 60;
-    m64_gui_panel(cx - pw/2, title_y, pw, ph,
+    kiln_gui_panel(cx - pw/2, title_y, pw, ph,
                   RGBA32(10, 10, 24, 230), RGBA32(0, 245, 212, 255));
-    m64_gui_text(cx - pw/2 + 8, title_y + 6,
+    kiln_gui_text(cx - pw/2 + 8, title_y + 6,
                  RGBA32(0, 245, 212, 255),
-                 "M64 BASS SYNTH");
-    m64_gui_text(cx - pw/2 + 8, title_y + 22,
+                 "KILN BASS SYNTH");
+    kiln_gui_text(cx - pw/2 + 8, title_y + 22,
                  RGBA32(232, 232, 240, 255),
                  "4 controllers, 4 engines");
-    m64_gui_text(cx - pw/2 + 8, title_y + 38,
+    kiln_gui_text(cx - pw/2 + 8, title_y + 38,
                  RGBA32(180, 180, 200, 255),
                  "1 button = 1 note. Move sticks.");
 
     // Per-engine legend.
     int leg_y = title_y + ph + 14;
-    m64_gui_text(cx - 100, leg_y, PLAYER_COLOR[0], "P1 HEAVY");
-    m64_gui_text(cx - 100, leg_y + 14, PLAYER_COLOR[1], "P2 SUB");
-    m64_gui_text(cx + 8,  leg_y, PLAYER_COLOR[2], "P3 GROWL");
-    m64_gui_text(cx + 8,  leg_y + 14, PLAYER_COLOR[3], "P4 INDUST");
+    kiln_gui_text(cx - 100, leg_y, PLAYER_COLOR[0], "P1 HEAVY");
+    kiln_gui_text(cx - 100, leg_y + 14, PLAYER_COLOR[1], "P2 SUB");
+    kiln_gui_text(cx + 8,  leg_y, PLAYER_COLOR[2], "P3 GROWL");
+    kiln_gui_text(cx + 8,  leg_y + 14, PLAYER_COLOR[3], "P4 INDUST");
 
     // Progress bar (0..INTRO_TOTAL_MS). Above the activity overlay, just
     // below the engine legend.
     int bar_x = 32, bar_y = title_y + ph + 14 + 32, bar_w = SCREEN_W - 64, bar_h = 6;
     float frac = (float)elapsed_ms / (float)INTRO_TOTAL_MS;
     if (frac > 1.0f) frac = 1.0f;
-    m64_gui_panel(bar_x, bar_y, bar_w, bar_h,
+    kiln_gui_panel(bar_x, bar_y, bar_w, bar_h,
                   RGBA32(40, 40, 60, 255), RGBA32(120, 120, 140, 255));
     int fw = (int)(frac * (bar_w - 2));
-    m64_gui_rect(bar_x + 1, bar_y + 1, fw, bar_h - 2,
+    kiln_gui_rect(bar_x + 1, bar_y + 1, fw, bar_h - 2,
                  RGBA32(0, 245, 212, 255));
-    m64_gui_text(bar_x, bar_y + bar_h + 4, RGBA32(232, 232, 240, 255),
+    kiln_gui_text(bar_x, bar_y + bar_h + 4, RGBA32(232, 232, 240, 255),
                  "INTRO: %d.%ds / %d.%ds   any button to skip",
                  (int)(elapsed_ms / 1000),
                  (int)((elapsed_ms % 1000) / 100),
@@ -1093,11 +1093,11 @@ static void load_wavetables(void)
         BassEngineDef *eng = &g_engine[e];
         char path[64];
         snprintf(path, sizeof(path), "rom:/sfx/bass_%s_body_bright.wav64", engines[e]);
-        eng->wt_body_bright = m64_sfx_load(path);
+        eng->wt_body_bright = kiln_sfx_load(path);
         snprintf(path, sizeof(path), "rom:/sfx/bass_%s_body_dark.wav64", engines[e]);
-        eng->wt_body_dark = m64_sfx_load(path);
+        eng->wt_body_dark = kiln_sfx_load(path);
         snprintf(path, sizeof(path), "rom:/sfx/bass_%s_sub.wav64", engines[e]);
-        eng->wt_sub = m64_sfx_load(path);
+        eng->wt_sub = kiln_sfx_load(path);
         if (eng->wt_body_bright < 0 || eng->wt_body_dark < 0 || eng->wt_sub < 0) {
             debugf("bass-synth: wavetable load failure for %s\n", engines[e]);
         }
@@ -1185,12 +1185,12 @@ static int load_patch(void)
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
-    m64_input_init();
+    kiln_input_init();
 
-    m64_audio_init((M64AudioConfig){
+    kiln_audio_init((KilnAudioConfig){
         .sample_rate = SAMPLE_RATE,
         .latency = 0.16f,
         .sfx_channels = BASS_CHANS,
@@ -1202,14 +1202,14 @@ int main(void)
     init_players();
     load_patch();  // ignore failure — defaults stand
 
-    m64_scene_init(&g_scene);
+    kiln_scene_init(&g_scene);
     g_scene.cam_pos = (fm_vec3_t){{ 0, 10, -45 }};
     g_scene.cam_target = (fm_vec3_t){{ 0, 1, 0 }};
     g_scene.far_z = 300.0f;
-    m64_scene_update(&g_scene);
+    kiln_scene_update(&g_scene);
 
     for (int i = 0; i < BASS_CHANS; i++) {
-        m64_transform_init(&g_cube_xform[i]);
+        kiln_transform_init(&g_cube_xform[i]);
         g_cube_xform[i].scale = (fm_vec3_t){{ 1.6f, 0.3f, 1.6f }};
     }
     g_cube_verts = make_cube_verts();
@@ -1219,10 +1219,10 @@ int main(void)
     g_intro_start_ms = last_ticks;
 
     for (;;) {
-        m64_input_update();
+        kiln_input_update();
 
         // Intro: takes priority over menu + play input. Any button edge
-        // skips. Manual m64_input_get lookups below the intro block also
+        // skips. Manual kiln_input_get lookups below the intro block also
         // see the same edges, so the intro doesn't steal them permanently.
         uint32_t now = get_ticks();
         uint32_t intro_elapsed = TICKS_DISTANCE(g_intro_start_ms, now)
@@ -1232,7 +1232,7 @@ int main(void)
             // Skip on any button edge on any controller.
             int skip = 0;
             for (int p = 1; p <= NPLAYERS; p++) {
-                const M64Input *in = m64_input_get(p);
+                const KilnInput *in = kiln_input_get(p);
                 if (in && in->edges) skip = 1;
             }
             if (skip || intro_is_done(intro_elapsed)) {
@@ -1257,8 +1257,8 @@ int main(void)
             handle_menu_input();
         } else {
             handle_play_input();
-            const M64Input *in = m64_input_get(1);
-            if (in && (in->edges & M64_BTN_START)) {
+            const KilnInput *in = kiln_input_get(1);
+            if (in && (in->edges & KILN_BTN_START)) {
                 g_menu_open = 1;
                 save_patch();
             }
@@ -1272,15 +1272,15 @@ int main(void)
 
         update_voices(dt_ms);
 
-        m64_frame_begin();
+        kiln_frame_begin();
         draw_spectrum_cubes(t);
-        m64_gui_begin();
+        kiln_gui_begin();
         if (g_intro_active) draw_intro_overlay(intro_elapsed);
         if (g_menu_open) draw_menu();
         draw_activity_overlay();
-        m64_gui_end();
-        m64_frame_end();
+        kiln_gui_end();
+        kiln_frame_end();
 
-        m64_audio_update();
+        kiln_audio_update();
     }
 }

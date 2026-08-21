@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: MPL-2.0
  *
- * Stub libdragon.h for the m64-asset host check. Defines just enough of the
- * libdragon surface m64_asset.c touches so the engine source compiles
- * unmodified on the host. The stub functions record their calls so the
- * check can verify m64_asset_model / m64_asset_sprite routed the right
- * bytes — they do NOT parse anything (libt3d.a is MIPS-only).
+ * Stub libdragon.h for the host checks (kiln-asset.nix, kiln-logic.nix).
+ *
+ * Defines just enough of the libdragon surface the engine modules under host
+ * test touch so their sources compile UNMODIFIED on the host — no #ifdefs in
+ * engine code for the benefit of a test. The stub functions record their calls
+ * so a check can verify routing (e.g. kiln_asset_model handing on the right
+ * bytes) without parsing anything, since libt3d.a is MIPS-only.
  */
 #ifndef STUB_LIBDRAGON_H
 #define STUB_LIBDRAGON_H
@@ -13,8 +15,31 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-/* sprite_t shape doesn't matter — m64_asset only reads/writes `flags`. */
+/* ── debugf / assertf ──────────────────────────────────────────────────
+ * debugf goes to stderr rather than nowhere: several modules under test use
+ * it to report a policy decision the check wants to see (kiln_event's
+ * pool-full eviction, kiln_cache's refcount complaints), and a check that
+ * discarded them would be unable to distinguish "handled and reported" from
+ * "silently did nothing".
+ *
+ * assertf ABORTS, matching libdragon's semantics rather than softening them.
+ * kiln_clip.c uses it for the caller-contract violations it refuses to guess
+ * about; a stub that merely logged would let a check pass on input the
+ * console would have died on. */
+#define debugf(...) fprintf(stderr, __VA_ARGS__)
+
+#define assertf(cond, ...) do {                                             \
+        if (!(cond)) {                                                      \
+            fprintf(stderr, "ASSERTION FAILED: %s\n  ", #cond);             \
+            fprintf(stderr, __VA_ARGS__);                                   \
+            fprintf(stderr, "\n  at %s:%d\n", __FILE__, __LINE__);          \
+            abort();                                                        \
+        }                                                                   \
+    } while (0)
+
+/* sprite_t shape doesn't matter — kiln_asset only reads/writes `flags`. */
 typedef struct {
     uint8_t flags;
 } sprite_t;
@@ -30,7 +55,7 @@ extern int   g_last_sprite_sz;
 extern void *g_last_model_buf;
 extern int   g_last_model_sz;
 
-/* Returns `buf` so m64_asset_sprite's "sp == buf" branch is taken and the
+/* Returns `buf` so kiln_asset_sprite's "sp == buf" branch is taken and the
  * OWNEDBUFFER flag path is exercised. A real decoder might return a fresh
  * sprite_t; that path is covered by the ROM demo on Ares, not here. */
 static inline sprite_t *sprite_load_buf(void *buf, int sz) {

@@ -40,12 +40,12 @@ int main(void)
     wav64_open(&inst, "rom:/ksvoice.wav64");
     wav64_set_loop(&inst, true);
 
-    debugf("M64: playing ksvoice.wav64 at %d Hz\n", SAMPLE_RATE);
+    debugf("Kiln: playing ksvoice.wav64 at %d Hz\n", SAMPLE_RATE);
     wav64_play(&inst, CH_INSTRUMENT);
 
     while (1) {
         console_clear();
-        printf("\n  M64 - baked audio\n\n");
+        printf("\n  Kiln - baked audio\n\n");
         printf("  ksvoice.wav64 (VADPCM)\n");
         printf("  %d Hz, mixer ch %d\n\n", SAMPLE_RATE, CH_INSTRUMENT);
         printf("  playing: %s\n", mixer_ch_playing(CH_INSTRUMENT) ? "yes" : "no");

@@ -6,7 +6,7 @@
 
 These models exist to satisfy the RUNTIME, so the checks are about the
 properties the runtime depends on rather than about how they look: walkable
-ground actually flat (or `m64_clip`'s AABBs cannot match it), gates on their
+ground actually flat (or `kiln_clip`'s AABBs cannot match it), gates on their
 bearings (or a room transition fires in the wrong place), triangle counts
 inside budget (or the console cannot draw the hub at 60 fps).
 

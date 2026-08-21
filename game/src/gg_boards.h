@@ -15,12 +15,12 @@
 #ifndef GG_BOARDS_H
 #define GG_BOARDS_H
 
-#include <m64/m64_board.h>
+#include <kiln/kiln_board.h>
 
 typedef struct {
     const char         *name;
     const char         *blurb;      // one line shown under the list
-    const M64BoardNode *nodes;
+    const KilnBoardNode *nodes;
     uint16_t            node_count;
     int16_t             start_node;
     uint16_t            rounds;     // match length for this board
@@ -30,6 +30,6 @@ typedef struct {
 extern const GGBoardDef gg_board_defs[GG_BOARD_COUNT];
 
 // Initialise `b` from the table entry at `index` (clamped into range).
-void gg_boards_load(M64Board *b, int index);
+void gg_boards_load(KilnBoard *b, int index);
 
 #endif // GG_BOARDS_H

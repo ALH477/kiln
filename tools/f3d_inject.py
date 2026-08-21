@@ -100,7 +100,7 @@ def combiner(rgb, alpha):
 
 # ── Presets ────────────────────────────────────────────────────────────────
 # `shade` reproduces libdragon's RDPQ_COMBINER_SHADE exactly — the combiner
-# m64_scene_begin() already sets and that examples/engine already renders with.
+# kiln_scene_begin() already sets and that examples/engine already renders with.
 # Matching it means an untextured model looks identical whether it went through
 # --ignore-materials (which leaves the scene's combiner alone) or through here.
 PRESETS = {
@@ -128,6 +128,48 @@ PRESETS = {
         combiner1=combiner(("ZERO", "ZERO", "ZERO", "PRIM"),
                            ("ZERO", "ZERO", "ZERO", "PRIM")),
         textured=False,
+    ),
+    # ── The veil's combiner ────────────────────────────────────────────
+    # The texture STRAIGHT THROUGH — no shade multiply. This is fast64's
+    # G_CC_DECALRGBA, and for the scarlet veil it is a requirement rather
+    # than a style: PetaByte-Madness/docs/VEIL_DESIGN.md section 9 measured it.
+    #
+    #   "Demons must draw near-DECAL, not modulated. Run enemies through the
+    #    same modulate combiner as the room and they come out DARKER than the
+    #    walls — the exact inverse of the design. Vertex colour x lighting x
+    #    TLUT is three multiplications and the bright end of the palette never
+    #    survives it."
+    #
+    # The whole point of the veil's palette contract is that demons own true
+    # black and true white while the environment is rationed to a mid band
+    # (section 4). Multiplying the demon's texel by a shade term below 1 gives
+    # that contrast away, and no palette entry can win it back. It is a
+    # combiner mode, not an extra pass, so it costs nothing.
+    #
+    # Alpha comes from the texture, because a CI4 veil palette carries its
+    # transparency in the RGBA5551 alpha bit — that bit is what makes a
+    # `phantom` material's cold state invisible.
+    #
+    # ── Why TEX0 * PRIM and not the literal (0,0,0,TEX0) ────────────────
+    # fast64's G_CC_DECALRGBA is (0, 0, 0, TEXEL0) — TEX0 in the combiner's D
+    # (add) slot. Written that way, this preset produced a model that converted
+    # cleanly, shipped, and rendered with NO TEXTURE AT ALL: Tiny3D's material
+    # parser gates whether it even reads the `tex0` block on whether the colour
+    # combiner uses a texture (`isCCUsingTexture`, the same gate f3d_inject's
+    # own validation below leans on), and TEX0 in the D slot alone does not
+    # satisfy it. Nothing warns. The texture is never loaded, no TLUT is ever
+    # uploaded, and the material falls back to its vertex colours — which on a
+    # dark model is entirely plausible-looking.
+    #
+    # (TEX0 - ZERO) * PRIM + ZERO with PRIM white is the SAME arithmetic with
+    # TEX0 in the A slot, where the gate sees it. RGB_MUL has no ONE operand, so
+    # PRIM is how you spell "multiply by one" here — which is why this preset
+    # requires `prim=1:1:1:1` and validates for it.
+    "tex0_decal": dict(
+        combiner1=combiner(("TEX0", "ZERO", "PRIM", "ZERO"),
+                           ("TEX0", "ZERO", "PRIM", "ZERO")),
+        textured=True,
+        needs_prim=True,
     ),
 }
 
@@ -183,6 +225,14 @@ def build_f3d_mat(preset, tex=None, size=32, mode="opaque", filt="bilerp",
     if useRef and not spec["textured"]:
         raise SystemExit(f"f3d_inject: useRef=1 requires a textured preset "
                           f"(one with TEX0 in its combiner)")
+    # A preset that spells "multiply by one" as PRIM is broken without one: an
+    # undefined PRIM multiplies the texel by whatever colour the last draw
+    # happened to leave in the register, so the material renders a different
+    # wrong colour depending on what preceded it.
+    if spec.get("needs_prim") and prim is None:
+        raise SystemExit(f"f3d_inject: preset '{preset}' multiplies TEX0 by "
+                          f"PRIM (RGB_MUL has no ONE operand), so it needs an "
+                          f"explicit prim= — normally prim=1:1:1:1")
 
     mat = {
         "combiner1": spec["combiner1"],

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 #
 # Builds libstreamdb_emb.a for the N64, installed into the shared $N64_INST
-# prefix like libdragon/Tiny3D/libm64 so a ROM links it with -lstreamdb_emb.
+# prefix like libdragon/Tiny3D/libkiln so a ROM links it with -lstreamdb_emb.
 BUILD_DIR = build
 SOURCE_DIR = src
 INSTALLDIR = $(N64_INST)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
-// mapio.js — parse + emit Quake .map text in the canonical form m64_map.c
+// mapio.js — parse + emit Quake .map text in the canonical form kiln_map.c
 // consumes. Pure, no three.js — the headless round-trip check imports this.
 //
-// Engine contract (engine/src/m64/m64_map.c):
+// Engine contract (engine/src/kiln/kiln_map.c):
 //   - Entity = { epair* | brush* }
 //   - Epair  = "key" "value"  (key ≤63, value ≤255 chars)
 //   - Brush = { face* } ; Face = ( x y z ) ( x y z ) ( x y z ) tex ox oy rot sx sy

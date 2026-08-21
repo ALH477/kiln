@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 sys.path.insert(0, str(ROOT))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 PARTS = []
 

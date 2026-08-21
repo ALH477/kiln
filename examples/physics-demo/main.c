@@ -1,35 +1,35 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// Phase E integration proof: the m64_physics module + m64_room brush
-// auto-install + m64_clip broadphase toggle, in one frame.
+// Phase E integration proof: the kiln_physics module + kiln_room brush
+// auto-install + kiln_clip broadphase toggle, in one frame.
 //
-//   m64_room     -> one room, on_load populates room->brushes (floor + 4 walls)
-//                   m64_room copies them into the clip world automatically —
-//                   no m64_clip_set_world call in this ROM
-//   m64_clip     -> swept-AABB vs the auto-installed brushes; broadphase grid
-//                   toggleable at runtime via m64_clip_set_broadphase
-//   m64_physics  -> 6 dynamic crate bodies fall, stack, rest, sleep; A punts
+//   kiln_room     -> one room, on_load populates room->brushes (floor + 4 walls)
+//                   kiln_room copies them into the clip world automatically —
+//                   no kiln_clip_set_world call in this ROM
+//   kiln_clip     -> swept-AABB vs the auto-installed brushes; broadphase grid
+//                   toggleable at runtime via kiln_clip_set_broadphase
+//   kiln_physics  -> 6 dynamic crate bodies fall, stack, rest, sleep; A punts
 //                   the nearest crate in a forward cone (the gravity-gun feel);
-//                   m64_physics_set_enabled toggles the whole engine on/off
+//                   kiln_physics_set_enabled toggles the whole engine on/off
 //
 // HUD: fps, body count, sleeping count, PHYS ON/OFF, BP ON/OFF, last trace
 // brush count (so the broadphase win is visible — flat walk = total brushes,
 // grid = brushes in overlapped cells only).
 //
 // Controls:
-//   stick       move player (m64_clip_slide against the auto-installed walls)
+//   stick       move player (kiln_clip_slide against the auto-installed walls)
 //   A           punt nearest crate in the player's forward cone
-//   D-pad left  toggle PHYS ON/OFF (m64_physics_set_enabled)
-//   D-pad right toggle BP ON/OFF   (m64_clip_set_broadphase)
+//   D-pad left  toggle PHYS ON/OFF (kiln_physics_set_enabled)
+//   D-pad right toggle BP ON/OFF   (kiln_clip_set_broadphase)
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_clip.h>
-#include <m64/m64_actor.h>
-#include <m64/m64_room.h>
-#include <m64/m64_physics.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_clip.h>
+#include <kiln/kiln_actor.h>
+#include <kiln/kiln_room.h>
+#include <kiln/kiln_physics.h>
 
 #include <malloc.h>
 
@@ -47,7 +47,7 @@ static const uint8_t CUBE_TRIS[12][3] = {
 
 /* Build a unit-cube vertex buffer (half-extent = 1 in model space) that we
  * scale per-crate via a pushed SRT matrix. 8 verts packed into 4 T3DVertPacked
- * structs, the same layout m64_actor uses. */
+ * structs, the same layout kiln_actor uses. */
 static T3DVertPacked *make_unit_cube(uint32_t rgba)
 {
     T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
@@ -110,28 +110,28 @@ static T3DVertPacked *g_unit_crate;
 static T3DMat4FP     *g_matfp; /* reused per crate per frame */
 
 // ── Player ──────────────────────────────────────────────────────────────
-// A non-physics actor: stick → m64_clip_slide against the auto-installed
-// walls. m64_physics is for crates; the player is its own locomotion so the
-// state machine and feel stay tight. See m64_physics.h's "for non-player
+// A non-physics actor: stick → kiln_clip_slide against the auto-installed
+// walls. kiln_physics is for crates; the player is its own locomotion so the
+// state machine and feel stay tight. See kiln_physics.h's "for non-player
 // actors" note.
 typedef struct { float yaw; } PlayerState;
 
-static void player_init(M64Actor *self, const M64Dict *args)
+static void player_init(KilnActor *self, const KilnDict *args)
 {
     (void)args;
     ((PlayerState *)self->state)->yaw = 0.0f;
 }
 
-static void player_update(M64Actor *self, float dt)
+static void player_update(KilnActor *self, float dt)
 {
     PlayerState *s = (PlayerState *)self->state;
-    const M64Input *in = m64_input_get(1);
+    const KilnInput *in = kiln_input_get(1);
 
     float dx =  (float)in->stick_x * 0.30f * dt * 60.0f;
     float dz = -(float)in->stick_y * 0.30f * dt * 60.0f;
     fm_vec3_t half = {{ 8, 8, 8 }};
     fm_vec3_t disp = {{ dx, 0, dz }};
-    self->xform.pos = m64_clip_slide(self->xform.pos, disp, half, half, 4);
+    self->xform.pos = kiln_clip_slide(self->xform.pos, disp, half, half, 4);
 
     if (dx*dx + dz*dz > 1.0f) {
         s->yaw = atan2f(dx, -dz);
@@ -139,22 +139,22 @@ static void player_update(M64Actor *self, float dt)
     }
 }
 
-static void player_draw(M64Actor *self) { (void)self; draw_cube_mesh(g_cube_player); }
+static void player_draw(KilnActor *self) { (void)self; draw_cube_mesh(g_cube_player); }
 
-static const M64ActorProfile PROFILES[1] = {
-    { .name = "player", .category = M64_ACTOR_CAT_PLAYER,
+static const KilnActorProfile PROFILES[1] = {
+    { .name = "player", .category = KILN_ACTOR_CAT_PLAYER,
       .state_size = sizeof(PlayerState),
       .init = player_init, .update = player_update, .draw = player_draw },
 };
 enum { PROFILE_PLAYER = 0, PROFILE_COUNT = 1 };
 
-static M64Actor g_pool[ACTOR_POOL_CAP];
+static KilnActor g_pool[ACTOR_POOL_CAP];
 
 // ── Room: floor + 4 walls ────────────────────────────────────────────────
 //
 // One room, 200×200, walls 40 tall and 4 thick. Brushes live in .bss;
-// m64_room copies them into its module-static clip world right after
-// on_load returns. No m64_clip_set_world call anywhere in this ROM.
+// kiln_room copies them into its module-static clip world right after
+// on_load returns. No kiln_clip_set_world call anywhere in this ROM.
 //
 // The visible mesh is also pre-built: floor + 4 wall boxes as world-space
 // vertex buffers, drawn directly (no matrix push). The brush array and the
@@ -165,28 +165,28 @@ static M64Actor g_pool[ACTOR_POOL_CAP];
 #define WALL_T    4.0f
 #define FLOOR_H   1.0f
 
-static M64Brush g_room_brushes[5];
+static KilnBrush g_room_brushes[5];
 static T3DVertPacked *g_room_mesh[5];
 
-static void room_load(M64Room *room, void *user)
+static void room_load(KilnRoom *room, void *user)
 {
     (void)user;
     fm_vec3_t mn = room->aabb_min, mx = room->aabb_max;
 
-    g_room_brushes[0] = (M64Brush){
+    g_room_brushes[0] = (KilnBrush){
         .mins = {{ mn.v[0], mn.v[1], mn.v[2] }},
         .maxs = {{ mx.v[0], mn.v[1] + FLOOR_H, mx.v[2] }},
         .surface = 0, .flags = 0 };
-    g_room_brushes[1] = (M64Brush){
+    g_room_brushes[1] = (KilnBrush){
         .mins = {{ mn.v[0],           mn.v[1], mn.v[2] }},
         .maxs = {{ mn.v[0] + WALL_T,  mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
-    g_room_brushes[2] = (M64Brush){
+    g_room_brushes[2] = (KilnBrush){
         .mins = {{ mx.v[0] - WALL_T,  mn.v[1], mn.v[2] }},
         .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
-    g_room_brushes[3] = (M64Brush){
+    g_room_brushes[3] = (KilnBrush){
         .mins = {{ mn.v[0],           mn.v[1], mn.v[2] }},
         .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mn.v[2] + WALL_T }}, .surface = 0, .flags = 0 };
-    g_room_brushes[4] = (M64Brush){
+    g_room_brushes[4] = (KilnBrush){
         .mins = {{ mn.v[0],           mn.v[1], mx.v[2] - WALL_T }},
         .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
 
@@ -206,7 +206,7 @@ static void room_load(M64Room *room, void *user)
                                     mx.v[0], mn.v[1] + WALL_H, mx.v[2], 0x505060FF);
 }
 
-static void room_unload(M64Room *room, void *user)
+static void room_unload(KilnRoom *room, void *user)
 {
     (void)user;
     for (int i = 0; i < 5; i++) {
@@ -219,12 +219,12 @@ static void room_unload(M64Room *room, void *user)
     room->brush_count = 0;
 }
 
-static void room_spawn(M64Room *room, const M64RoomSpawn *spawn, void *user)
+static void room_spawn(KilnRoom *room, const KilnRoomSpawn *spawn, void *user)
 {
     (void)room; (void)spawn; (void)user;
 }
 
-static void room_draw(M64Room *room, void *user)
+static void room_draw(KilnRoom *room, void *user)
 {
     (void)user; (void)room;
     for (int i = 0; i < 5; i++) {
@@ -232,8 +232,8 @@ static void room_draw(M64Room *room, void *user)
     }
 }
 
-static M64RoomSystem g_sys;
-static M64Room g_room = {
+static KilnRoomSystem g_sys;
+static KilnRoom g_room = {
     .id = 0,
     .aabb_min = {{ -ROOM_HALF, 0, -ROOM_HALF }},
     .aabb_max = {{  ROOM_HALF, 0,  ROOM_HALF }},
@@ -242,27 +242,27 @@ static M64Room g_room = {
 };
 
 // ── Physics world + crates ──────────────────────────────────────────────
-static M64PhysicsBody g_bodies[BODY_CAP];
-static M64PhysicsWorld g_phys;
+static KilnPhysicsBody g_bodies[BODY_CAP];
+static KilnPhysicsWorld g_phys;
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
-    m64_input_init();
+    kiln_input_init();
 
     g_cube_player = make_world_box(-8, -8, -8, 8, 8, 8, 0xFFD94CFF);
     g_unit_crate  = make_unit_cube(0x4C6AFFFF);
     g_matfp       = malloc_uncached(sizeof(T3DMat4FP));
 
-    m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
 
-    m64_room_system_init(&g_sys, &g_room, 1, 1,
+    kiln_room_system_init(&g_sys, &g_room, 1, 1,
                          room_load, room_unload, room_spawn, room_draw, NULL,
                          /*owns_clip_world=*/1);
 
-    m64_physics_init(&g_phys, g_bodies, BODY_CAP);
+    kiln_physics_init(&g_phys, g_bodies, BODY_CAP);
 
     /* Spawn 6 crates above the floor in two rows so they stack visibly. */
     for (int i = 0; i < 6; i++) {
@@ -270,15 +270,15 @@ int main(void)
                           60.0f + (i / 3) * 30.0f,
                           (i / 3) * 30.0f - 15.0f }};
         fm_vec3_t half = {{ 12, 12, 12 }};
-        (void)m64_physics_spawn(&g_phys, M64_PHYS_DYNAMIC, pos, half, /*mass=*/5.0f);
+        (void)kiln_physics_spawn(&g_phys, KILN_PHYS_DYNAMIC, pos, half, /*mass=*/5.0f);
     }
 
     /* Player at the centre of the room, on the floor. */
-    M64ActorHandle player_h = m64_actor_spawn(PROFILE_PLAYER,
+    KilnActorHandle player_h = kiln_actor_spawn(PROFILE_PLAYER,
         (fm_vec3_t){{ 0, 8, 0 }}, 0.0f, NULL);
 
-    M64Scene scene;
-    m64_scene_init(&scene);
+    KilnScene scene;
+    kiln_scene_init(&scene);
     scene.far_z = 600.0f;
     scene.fov_deg = 70.0f;
 
@@ -290,36 +290,36 @@ int main(void)
     uint32_t last_ticks = get_ticks();
 
     for (;;) {
-        m64_input_update();
-        const M64Input *in = m64_input_get(1);
+        kiln_input_update();
+        const KilnInput *in = kiln_input_get(1);
         float dt = 1.0f / 60.0f;
 
-        /* Toggles via edges (m64_input computes edges by diffing against
+        /* Toggles via edges (kiln_input computes edges by diffing against
          * last frame). */
-        if (in->edges & M64_BTN_DL) {
+        if (in->edges & KILN_BTN_DL) {
             phys_on = !phys_on;
-            m64_physics_set_enabled(&g_phys, phys_on);
+            kiln_physics_set_enabled(&g_phys, phys_on);
         }
-        if (in->edges & M64_BTN_DR) {
+        if (in->edges & KILN_BTN_DR) {
             bp_on = !bp_on;
-            m64_clip_set_broadphase(bp_on);
+            kiln_clip_set_broadphase(bp_on);
         }
-        if (in->edges & M64_BTN_DU) { phys_on = 1; m64_physics_set_enabled(&g_phys, 1); }
-        if (in->edges & M64_BTN_DD) { phys_on = 0; m64_physics_set_enabled(&g_phys, 0); }
+        if (in->edges & KILN_BTN_DU) { phys_on = 1; kiln_physics_set_enabled(&g_phys, 1); }
+        if (in->edges & KILN_BTN_DD) { phys_on = 0; kiln_physics_set_enabled(&g_phys, 0); }
 
-        m64_actor_update_all(dt);
+        kiln_actor_update_all(dt);
 
         /* Player punts the nearest crate in a forward cone on A-edge. */
-        M64Actor *player = m64_actor_resolve(player_h);
-        if (player && (in->edges & M64_BTN_A)) {
+        KilnActor *player = kiln_actor_resolve(player_h);
+        if (player && (in->edges & KILN_BTN_A)) {
             fm_vec3_t ppos = player->xform.pos;
             float pyaw = ((PlayerState *)player->state)->yaw;
             fm_vec3_t pf = {{ fm_cosf(pyaw), 0, -fm_sinf(pyaw) }};
-            M64PhysicsBody *best = NULL;
+            KilnPhysicsBody *best = NULL;
             float best_d = 80.0f; /* punt radius */
             for (uint16_t i = 0; i < g_phys.count; i++) {
-                M64PhysicsBody *b = &g_phys.bodies[i];
-                if (b->type != M64_PHYS_DYNAMIC) continue;
+                KilnPhysicsBody *b = &g_phys.bodies[i];
+                if (b->type != KILN_PHYS_DYNAMIC) continue;
                 fm_vec3_t d = {{ b->pos.v[0] - ppos.v[0],
                                 b->pos.v[1] - ppos.v[1],
                                 b->pos.v[2] - ppos.v[2] }};
@@ -332,35 +332,35 @@ int main(void)
             }
             if (best) {
                 fm_vec3_t imp = {{ pf.v[0] * 800.0f, 400.0f, pf.v[2] * 800.0f }};
-                m64_physics_apply_impulse(best, imp);
+                kiln_physics_apply_impulse(best, imp);
             }
         }
 
         /* Step physics. When phys_on is 0 this is a no-op and crates
          * freeze in place. */
-        m64_physics_step(&g_phys, dt);
+        kiln_physics_step(&g_phys, dt);
 
         /* Room streaming: camera = player pos. The room's brushes are
          * re-installed into the clip world on load/unload — this ROM never
-         * calls m64_clip_set_world. */
+         * calls kiln_clip_set_world. */
         fm_vec3_t cam_target = player ? player->xform.pos
                                       : (fm_vec3_t){{ 0, 0, 0 }};
-        m64_room_system_update(&g_sys, cam_target);
+        kiln_room_system_update(&g_sys, cam_target);
 
         /* Third-person camera: behind + above the player. */
         scene.cam_target = cam_target;
         scene.cam_pos = (fm_vec3_t){{
             cam_target.v[0], cam_target.v[1] + 80.0f, cam_target.v[2] - 120.0f
         }};
-        m64_scene_update(&scene);
+        kiln_scene_update(&scene);
 
         /* Sample the trace counter after a representative trace this frame
          * — a ground probe from the player. The HUD shows this so the BP
          * toggle's effect is visible. */
         if (player) {
             fm_vec3_t half = {{ 8, 8, 8 }};
-            m64_clip_ground(player->xform.pos, half, half);
-            last_trace = m64_clip_last_trace_brushes();
+            kiln_clip_ground(player->xform.pos, half, half);
+            last_trace = kiln_clip_last_trace_brushes();
         }
 
         if (++frames % 30 == 0) {
@@ -370,16 +370,16 @@ int main(void)
         }
 
         /* ── 3D ───────────────────────────────────────────────────── */
-        m64_frame_begin();
-        m64_scene_begin(&scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&scene);
 
         /* Draw the room (floor + walls) — world-space verts, no matrix push. */
-        m64_room_draw_all(&g_sys);
+        kiln_room_draw_all(&g_sys);
 
         /* Draw each crate body at its current pos via a pushed SRT matrix.
          * The unit cube is scaled by the body's half-extents. */
         for (uint16_t i = 0; i < g_phys.count; i++) {
-            M64PhysicsBody *b = &g_phys.bodies[i];
+            KilnPhysicsBody *b = &g_phys.bodies[i];
             float hx = b->maxs.v[0], hy = b->maxs.v[1], hz = b->maxs.v[2];
             T3DMat4 m;
             float scale[3]    = { hx, hy, hz };
@@ -392,34 +392,34 @@ int main(void)
             t3d_matrix_pop(1);
         }
 
-        m64_actor_draw_all();
+        kiln_actor_draw_all();
 
         /* ── 2D ───────────────────────────────────────────────────── */
-        m64_gui_begin();
-        m64_gui_panel(8, 8, 220, 100,
+        kiln_gui_begin();
+        kiln_gui_panel(8, 8, 220, 100,
                       RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-        m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 PHYSICS (HL2)");
-        m64_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
-        m64_gui_text(14, 46, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN PHYSICS (HL2)");
+        kiln_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
+        kiln_gui_text(14, 46, RGBA32(232, 232, 240, 255),
                      "phys %s   bp %s",
                      phys_on ? "ON " : "OFF",
                      bp_on    ? "ON " : "OFF");
         uint16_t sleeping = 0;
         for (uint16_t i = 0; i < g_phys.count; i++)
             if (g_phys.bodies[i].sleeping) sleeping++;
-        m64_gui_text(14, 58, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 58, RGBA32(232, 232, 240, 255),
                      "bodies %u  sleep %u", g_phys.count, sleeping);
-        m64_gui_text(14, 70, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 70, RGBA32(232, 232, 240, 255),
                      "traces/step %u", last_trace);
-        m64_gui_text(14, 82, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, 82, RGBA32(232, 232, 240, 255),
                      "loaded rooms %u",
-                     m64_room_loaded_count(&g_sys));
+                     kiln_room_loaded_count(&g_sys));
 
-        m64_gui_panel(8, SCREEN_H - 28, SCREEN_W - 16, 20,
+        kiln_gui_panel(8, SCREEN_H - 28, SCREEN_W - 16, 20,
                       RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
-        m64_gui_text(14, SCREEN_H - 18, RGBA32(232, 232, 240, 255),
+        kiln_gui_text(14, SCREEN_H - 18, RGBA32(232, 232, 240, 255),
                      "stick: move  A: punt  DPad-L/R: phys/bp  U/D: phys on/off");
-        m64_gui_end();
-        m64_frame_end();
+        kiln_gui_end();
+        kiln_frame_end();
     }
 }

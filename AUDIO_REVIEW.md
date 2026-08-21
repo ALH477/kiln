@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 
-# M64 Audio Subsystem Review — Living Document
+# Kiln Audio Subsystem Review — Living Document
 
 **Status**: Active development. This document tracks the review findings and
 the implementation plan as it progresses. Update after each phase.
@@ -62,7 +62,7 @@ Correct N64-specific decisions:
 
 ### Gap 1: Zero Engine Audio Layer
 
-`libm64` has no audio code. The `engine/Makefile` compiles 5 source files —
+`libkiln` has no audio code. The `engine/Makefile` compiles 5 source files —
 none audio-related. Every ROM calls raw libdragon APIs directly.
 
 ### Gap 2: Live Voice Path Has No Mixer Integration
@@ -82,7 +82,7 @@ the weighted count exceeds the declared budget.
 
 ### Gap 5: Room-Based Audio Routing Is a Comment, Not Code
 
-`m64_room.h:137`: "Use this for sound / music routing" — but no implementation.
+`kiln_room.h:137`: "Use this for sound / music routing" — but no implementation.
 
 ### Gap 6: No XM64/YM64 Playback Example
 
@@ -90,7 +90,7 @@ the weighted count exceeds the declared budget.
 
 ### Gap 7: No wav64 from StreamDB
 
-`m64_asset.h:44-48`: Blocked on upstream `wav64_open_buf`. Audio assets
+`kiln_asset.h:44-48`: Blocked on upstream `wav64_open_buf`. Audio assets
 must use DFS (`rom:/` paths), not StreamDB.
 
 ---
@@ -109,7 +109,7 @@ when exceeded, scoped to the `frame<name>` function only.
   function in objdump output (excludes init/constructor code).
 - Added `fail=1` when frame-scoped weighted cycles > declared budget.
 - `engine/Makefile`: Added `-DSTREAMDB_EMB_BACKEND_DFS=1` to fix pre-existing
-  build failure (m64_asset.c couldn't see DFS backend declarations).
+  build failure (kiln_asset.c couldn't see DFS backend declarations).
 
 **Results**:
 - KS voice frame-scoped: 95 FP instructions, **259 weighted cycles**
@@ -142,25 +142,25 @@ declared audio rate.
 
 **Status**: Complete
 
-**Goal**: Add `m64_audio.h` / `m64_audio.c` to `libm64` providing init,
+**Goal**: Add `kiln_audio.h` / `kiln_audio.c` to `libkiln` providing init,
 per-frame pump, SFX with priority voice stealing, and music (XM64/YM64).
 
 **Files created**:
-- `engine/src/m64/m64_audio.h` (119 lines) — API: init/update/close,
+- `engine/src/kiln/kiln_audio.h` (119 lines) — API: init/update/close,
   sfx_load/play/play_ex/playing/stop/set_vol_pan/set_freq,
   music_load/play/stop/set_volume/set_loop/playing/num_channels
-- `engine/src/m64/m64_audio.c` (245 lines) — implementation
+- `engine/src/kiln/kiln_audio.c` (245 lines) — implementation
 
 **Files modified**:
-- `engine/Makefile` — added `m64_audio.c` / `m64_audio.h` to src/inc/OBJ
-- `nix/engine.nix` — added `m64_audio.h` to install check
+- `engine/Makefile` — added `kiln_audio.c` / `kiln_audio.h` to src/inc/OBJ
+- `nix/engine.nix` — added `kiln_audio.h` to install check
 
 **Design**:
 - Channel partition: `[0..sfx_channels)` for SFX, `[sfx_channels..total)` for music
 - Default config: 32000 Hz, 16 SFX + 10 music = 26 channels (max 32)
 - SFX auto-allocation: walks SFX range for free channel, or steals lowest-priority
 - Music: XM64/YM64 detected by extension, channels assigned from music range
-- `m64_audio_update()` drains `audio_can_write` / `mixer_poll` per frame
+- `kiln_audio_update()` drains `audio_can_write` / `mixer_poll` per frame
 - No malloc in audio path; SFX table is fixed-size, loaded at boot
 
 **Verified**: `nix build .#engine`, `.#audio`, `.#assets-demo`, `.#engine-demo` all pass.
@@ -196,12 +196,12 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 **Status**: Complete
 
 **Goal**: An example ROM that plays tracker music via `mkMusic` + the
-`m64_music_*` API.
+`kiln_music_*` API.
 
 **Files created**:
 - `tools/gen_xm.py` — generates a minimal 4-channel, 8-row looping XM
 - `examples/music/test.xm` — generated test XM (1003 bytes)
-- `examples/music/Makefile` — includes n64.mk + m64.mk
+- `examples/music/Makefile` — includes n64.mk + kiln.mk
 - `examples/music/main.c` — plays XM64, A=play/stop, B=stop, Up/Down=volume
 
 **Flake wiring**: `test-music` (mkMusic) + `music-demo` (mkN64Rom)
@@ -212,24 +212,24 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 
 **Status**: Complete
 
-**Goal**: Wire `m64_room_current()` to music crossfading.
+**Goal**: Wire `kiln_room_current()` to music crossfading.
 
 **Changes**:
-- `engine/src/m64/m64_audio.h`: Added `m64_audio_set_room_music(room_id, handle)`
-  and `m64_audio_update_rooms(void *room_sys)` (void* to avoid typedef
-  forward-declaration issue with M64RoomSystem's anonymous struct)
-- `engine/src/m64/m64_audio.c`: Room music table (64 entries), linear gain
+- `engine/src/kiln/kiln_audio.h`: Added `kiln_audio_set_room_music(room_id, handle)`
+  and `kiln_audio_update_rooms(void *room_sys)` (void* to avoid typedef
+  forward-declaration issue with KilnRoomSystem's anonymous struct)
+- `engine/src/kiln/kiln_audio.c`: Room music table (64 entries), linear gain
   ramp crossfade (~0.5s at 32000 Hz). Same-track = no restart. Fade out old
   → switch → fade in new.
 
 **API usage**:
 ```c
-m64_audio_set_room_music(0, music_a);  // room 0 plays track A
-m64_audio_set_room_music(1, music_b);  // room 1 plays track B
+kiln_audio_set_room_music(0, music_a);  // room 0 plays track A
+kiln_audio_set_room_music(1, music_b);  // room 1 plays track B
 // Per frame:
-m64_room_system_update(&sys, cam_pos);
-m64_audio_update_rooms(&sys);  // crossfades on room change
-m64_audio_update();            // pumps the mixer
+kiln_room_system_update(&sys, cam_pos);
+kiln_audio_update_rooms(&sys);  // crossfades on room change
+kiln_audio_update();            // pumps the mixer
 ```
 
 ### Phase 7: Update CLAUDE.md ✏️
@@ -237,7 +237,7 @@ m64_audio_update();            // pumps the mixer
 **Status**: Not started
 
 **Changes**:
-- Add `m64_audio.h` to engine file list
+- Add `kiln_audio.h` to engine file list
 - Update "Not yet built" section
 - Document cycle gate as hard failure
 - Document sample rate enforcement
@@ -264,7 +264,7 @@ m64_audio_update();            // pumps the mixer
 |------|-------|--------|
 | 2026-08-02 | Phase 3 | Cycle budget gate now hard-fails, scoped to frame() function. KS voice: 259 cycles (was 333 whole-object). Fixed pre-existing streamdb backend build issue. |
 | 2026-08-02 | Phase 4 | Sample rate enforcement: mkN64Rom audioRate param + mkBakedInstrument rate export. Fixed assets-demo 44100→32000. |
-| 2026-08-02 | Phase 1 | Engine audio layer: m64_audio.h/m64_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
+| 2026-08-02 | Phase 1 | Engine audio layer: kiln_audio.h/kiln_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
 | 2026-08-02 | Phase 2 | Live voice mixer: accumulate mode in libdragon_mixer.c + _set_gain. examples/live-voice ROM builds and links ks-voice. |
 | 2026-08-02 | Phase 6 | XM64 music example: generated test XM, examples/music ROM, mkMusic pipeline verified end-to-end. |
-| 2026-08-02 | Phase 5 | Room-based audio routing: m64_audio_set_room_music + m64_audio_update_rooms with ~0.5s linear crossfade. |
+| 2026-08-02 | Phase 5 | Room-based audio routing: kiln_audio_set_room_music + kiln_audio_update_rooms with ~0.5s linear crossfade. |

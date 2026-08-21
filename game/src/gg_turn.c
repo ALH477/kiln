@@ -9,14 +9,14 @@
 
 void gg_turn_init(GGTurnState *s, uint16_t max_rounds)
 {
-    m64_dice_init_uniform(&s->die, 6);
-    m64_rng_seed(&s->rng, 0xC0FFEE);
+    kiln_dice_init_uniform(&s->die, 6);
+    kiln_rng_seed(&s->rng, 0xC0FFEE);
     gg_turn_restart(s, max_rounds);
 }
 
 void gg_turn_restart(GGTurnState *s, uint16_t max_rounds)
 {
-    m64_turn_init(&s->turn, GG_PLAYERS, max_rounds);
+    kiln_turn_init(&s->turn, GG_PLAYERS, max_rounds);
     s->last_roll = 0;
     s->last_player = 0;
     s->roll_anim_t = 0.0f;
@@ -25,7 +25,7 @@ void gg_turn_restart(GGTurnState *s, uint16_t max_rounds)
     s->awaiting_branch = 0;
     s->log_head = 0;
     for (int i = 0; i < 6; i++) s->log[i][0] = '\0';
-    for (int i = 0; i < GG_PLAYERS; i++) m64_char_init(&s->chars[i]);
+    for (int i = 0; i < GG_PLAYERS; i++) kiln_char_init(&s->chars[i]);
 }
 
 void gg_turn_log(GGTurnState *s, const char *fmt, ...)
@@ -37,35 +37,35 @@ void gg_turn_log(GGTurnState *s, const char *fmt, ...)
     s->log_head = (s->log_head + 1) % 6;
 }
 
-void gg_turn_step(GGTurnState *s, const M64Board *board, GGPlayer *players)
+void gg_turn_step(GGTurnState *s, const KilnBoard *board, GGPlayer *players)
 {
     int cur = s->turn.player;
     GGPlayer *p = &players[cur];
-    M64CharState *ch = &s->chars[cur];
+    KilnCharState *ch = &s->chars[cur];
 
     // Couch Lock: skip the whole turn.
-    if (s->turn.phase == M64_PHASE_ROLL &&
+    if (s->turn.phase == KILN_PHASE_ROLL &&
         p->status == GG_STATUS_COUCH_LOCK && p->status_turns > 0) {
         gg_turn_log(s, "P%d COUCH LOCKED -> skip", cur + 1);
         p->status_turns--;
         if (p->status_turns == 0) p->status = GG_STATUS_NONE;
-        m64_turn_skip_to_end(&s->turn);
+        kiln_turn_skip_to_end(&s->turn);
         // Still tick the cooldown + turns_played at END.
-        m64_char_tick_cooldown(ch);
+        kiln_char_tick_cooldown(ch);
         p->turns_played++;
-        m64_turn_advance_phase(&s->turn);
+        kiln_turn_advance_phase(&s->turn);
         return;
     }
 
     switch (s->turn.phase) {
-        case M64_PHASE_ROLL: {
+        case KILN_PHASE_ROLL: {
             // Clear per-turn passive bonuses before ticking the passive.
             p->pending_move_bonus = 0;
             p->pending_bud_bonus = 0;
 
-            m64_char_tick_passive(ch, p, 0.0f);
+            kiln_char_tick_passive(ch, p, 0.0f);
 
-            s->last_roll = m64_dice_roll(&s->die, &s->rng);
+            s->last_roll = kiln_dice_roll(&s->die, &s->rng);
             s->last_player = cur;
 
             // Apply Glimmer's "behind" +1 to the roll (passive set the
@@ -87,16 +87,16 @@ void gg_turn_step(GGTurnState *s, const M64Board *board, GGPlayer *players)
             s->branch_choice = -1;
             s->awaiting_branch = 0;
             s->roll_anim_t = 0.0f;
-            m64_turn_advance_phase(&s->turn);
+            kiln_turn_advance_phase(&s->turn);
             break;
         }
-        case M64_PHASE_MOVE: {
+        case KILN_PHASE_MOVE: {
             if (s->steps_left <= 0) {
                 s->awaiting_branch = 0;
-                m64_turn_advance_phase(&s->turn);
+                kiln_turn_advance_phase(&s->turn);
                 break;
             }
-            const M64BoardNode *nd = &board->nodes[p->node];
+            const KilnBoardNode *nd = &board->nodes[p->node];
             if (nd->next_count > 1 && s->branch_choice < 0) {
                 // At a fork with no choice made: hold here. The caller
                 // (gg_screens) shows the prompt and writes branch_choice
@@ -108,24 +108,24 @@ void gg_turn_step(GGTurnState *s, const M64Board *board, GGPlayer *players)
             }
             uint8_t br = (uint8_t)(s->branch_choice > 0 ? s->branch_choice : 0);
             if (br >= nd->next_count) br = 0;
-            p->node = m64_board_step(board, p->node, br);
+            p->node = kiln_board_step(board, p->node, br);
             s->steps_left--;
             s->branch_choice = -1;
             s->awaiting_branch = 0;
-            if (s->steps_left <= 0) m64_turn_advance_phase(&s->turn);
+            if (s->steps_left <= 0) kiln_turn_advance_phase(&s->turn);
             break;
         }
-        case M64_PHASE_LAND: {
-            M64SpaceType st = board->nodes[p->node].type;
+        case KILN_PHASE_LAND: {
+            KilnSpaceType st = board->nodes[p->node].type;
             int award = gg_space_enter(st, p);
             // Dank's passive: +1 bud per Grow space (pending_bud_bonus=1).
-            if (st == M64_SPACE_GROW && p->pending_bud_bonus > 0) {
+            if (st == KILN_SPACE_GROW && p->pending_bud_bonus > 0) {
                 award += p->pending_bud_bonus;
                 p->pending_bud_bonus = 0;
             }
             gg_buds_add(p, award);
             // Charge accrues per bud collected, per the spec.
-            if (award > 0) m64_char_add_charge(ch, (uint16_t)award);
+            if (award > 0) kiln_char_add_charge(ch, (uint16_t)award);
 
             // Auto-fire the special when it's ready. Phase 4 will gate
             // this on a button press; for now, fire-and-log so the
@@ -143,7 +143,7 @@ void gg_turn_step(GGTurnState *s, const M64Board *board, GGPlayer *players)
                     }
                 }
                 if (target >= 0) {
-                    int fired = m64_char_try_special(ch, p, &players[target]);
+                    int fired = kiln_char_try_special(ch, p, &players[target]);
                     if (fired) {
                         gg_turn_log(s, "P%d SPECIAL: %s",
                                     cur + 1, ch->profile->name);
@@ -152,31 +152,31 @@ void gg_turn_step(GGTurnState *s, const M64Board *board, GGPlayer *players)
             }
 
             gg_turn_log(s, "P%d %s %+d -> %d", cur + 1,
-                        st == M64_SPACE_GROW     ? "GROW"  :
-                        st == M64_SPACE_DRY      ? "DRY "  :
-                        st == M64_SPACE_SPIRIT   ? "SPRT"  :
-                        st == M64_SPACE_MINIGAME ? "GAME"  :
-                        st == M64_SPACE_START    ? "STRT"  : "????",
+                        st == KILN_SPACE_GROW     ? "GROW"  :
+                        st == KILN_SPACE_DRY      ? "DRY "  :
+                        st == KILN_SPACE_SPIRIT   ? "SPRT"  :
+                        st == KILN_SPACE_MINIGAME ? "GAME"  :
+                        st == KILN_SPACE_START    ? "STRT"  : "????",
                         award, p->buds);
-            m64_turn_advance_phase(&s->turn);
+            kiln_turn_advance_phase(&s->turn);
             break;
         }
-        case M64_PHASE_EVENT:
+        case KILN_PHASE_EVENT:
             // Phase 5: Harvest Event / Party Mode hooks land here.
-            m64_turn_advance_phase(&s->turn);
+            kiln_turn_advance_phase(&s->turn);
             break;
-        case M64_PHASE_END:
-            m64_char_tick_cooldown(ch);
+        case KILN_PHASE_END:
+            kiln_char_tick_cooldown(ch);
             p->turns_played++;
             // Tick status expiry.
             if (p->status != GG_STATUS_NONE) {
                 if (p->status_turns > 0) p->status_turns--;
                 if (p->status_turns == 0) p->status = GG_STATUS_NONE;
             }
-            m64_turn_advance_phase(&s->turn);
+            kiln_turn_advance_phase(&s->turn);
             break;
         default:
-            m64_turn_advance_phase(&s->turn);
+            kiln_turn_advance_phase(&s->turn);
             break;
     }
 }

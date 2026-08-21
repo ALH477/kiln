@@ -29,7 +29,7 @@ colors[, uvs]) and import no bpy. tools/blender/test_env.py checks their
 counts and colour ramps with a bare python3, which is how the same discipline
 caught two real bugs in quake_map.py before Blender was ever run.
 
-Coordinates here are Blender's: +Z is up. m64lib's exporter converts to the
+Coordinates here are Blender's: +Z is up. kilnlib's exporter converts to the
 engine's Y-up on the way out, the same as every other script in this folder.
 """
 
@@ -191,7 +191,7 @@ def build_skydome(radius=1.0, segments=24, rings=6, star_count=10):
 
     # ── Stars ───────────────────────────────────────────────────────────
     # Deterministic placement: no random module anywhere in this pipeline
-    # (m64lib.py's header states the rule), so a rebuild is byte-identical.
+    # (kilnlib.py's header states the rule), so a rebuild is byte-identical.
     # A cheap low-discrepancy sequence gives a scatter that does not band.
     GOLDEN = 2.399963229728653
     for i in range(star_count):
@@ -341,7 +341,7 @@ def build_bolt(variant, segments=BOLT_SEGMENTS):
     direction without needing a gradient texture.
     """
     verts, faces, colors = [], [], []
-    # Deterministic jag: no `random` anywhere in this pipeline (m64lib.py).
+    # Deterministic jag: no `random` anywhere in this pipeline (kilnlib.py).
     # Two incommensurate sines per variant give a path that never repeats
     # over the length of the bolt and differs between variants.
     for i in range(segments + 1):
@@ -371,7 +371,7 @@ def build_bolt(variant, segments=BOLT_SEGMENTS):
 # ── Blender entry point ────────────────────────────────────────────────
 
 def main():
-    import m64lib as m
+    import kilnlib as m
 
     name = m.arg("--model")
     m.reset_scene()

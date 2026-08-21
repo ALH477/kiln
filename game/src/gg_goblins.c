@@ -3,7 +3,7 @@
 #include "gg_goblins.h"
 #include "gg_specials.h"
 
-const M64CharProfile gg_goblins[GG_GOBLIN_COUNT] = {
+const KilnCharProfile gg_goblins[GG_GOBLIN_COUNT] = {
     [GG_GOBLIN_DANK] = {
         .id               = GG_GOBLIN_DANK,
         .name             = "Dank",

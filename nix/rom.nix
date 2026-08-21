@@ -40,8 +40,8 @@
   # the rate from their source WAV, which is the ROM author's responsibility).
 , audioRate ? null
   # Build the ROM with the on-screen retro debug console wired in (sets
-  # M64_DEBUG=1, which the example's main.c gates `m64_console_*` calls on).
-  # See engine/src/m64/m64_console.h and examples/debug-demo. Off by default
+  # KILN_DEBUG=1, which the example's main.c gates `kiln_console_*` calls on).
+  # See engine/src/kiln/kiln_console.h and examples/debug-demo. Off by default
   # so non-debug ROMs stay byte-identical.
 , debugConsole ? false
 , ...
@@ -53,7 +53,7 @@ let
   # n64.mk interpolates these unquoted (`n64tool -t $(N64_ROM_TITLE)`), so a
   # title containing spaces has to carry its own literal double quotes — which
   # is exactly what libdragon's own examples do (`N64_ROM_TITLE = "Audio
-  # Player"`). Without them n64tool sees "M64" and "Hello" as separate args and
+  # Player"`). Without them n64tool sees "Kiln" and "Hello" as separate args and
   # fails with "Need output flag before first file".
   romVars =
     lib.optional (romTitle != null) ''N64_ROM_TITLE="${romTitle}"''
@@ -74,12 +74,12 @@ let
   ];
 
   # Caller-supplied makeFlags, with the debug-console flag appended when the
-  # ROM opts in. The flag is passed as the make variable M64_DEBUG=1; the
-  # included m64-inst.mk translates it to -DM64_DEBUG=1 *after* n64.mk has
+  # ROM opts in. The flag is passed as the make variable KILN_DEBUG=1; the
+  # included kiln-inst.mk translates it to -DKILN_DEBUG=1 *after* n64.mk has
   # established N64_CFLAGS, avoiding the command-line precedence trap where
   # passing N64_CFLAGS+=... would override n64.mk's defaults and drop the
   # include paths.
-  makeFlagsWithDebug = makeFlags ++ lib.optional debugConsole "M64_DEBUG=1";
+  makeFlagsWithDebug = makeFlags ++ lib.optional debugConsole "KILN_DEBUG=1";
 
 in
 pkgs.stdenv.mkDerivation (passthruArgs // {
@@ -147,6 +147,48 @@ ${lib.optionalString (audioRate != null) ''
     done
 ''}
     make -j"$NIX_BUILD_CORES" ${lib.escapeShellArgs romVars} ''${makeFlags[@]}
+
+${lib.optionalString (assets != [ ]) ''
+    # ── An `assets` list that never reaches the ROM ────────────────────────
+    # n64.mk only builds and attaches a DragonFS if the project's Makefile
+    # declares one (`$(BUILD_DIR)/<name>.dfs: ...` plus a `<name>.z64:`
+    # dependency on it). Without those two lines the `filesystem/` directory
+    # this function just populated is IGNORED and the ROM comes out
+    # byte-for-byte identical to the assetless build — after which every
+    # `rom:/` path fails at runtime.
+    #
+    # That has now cost two ROMs in this repo. PetaByte Madness shipped without
+    # a filesystem for a while (its Makefile records the whole story at line
+    # 129) because it was copied from a game that had no assets, and Forge
+    # repeated it exactly: `.#forge-dfs` booted with the level absent and no
+    # layer complained, because a missing DFS and an empty one are the same
+    # thing to every reader below.
+    #
+    # So it is a build failure now instead of a runtime mystery. The check is
+    # the direct one — did make produce a .dfs — rather than inspecting the
+    # ROM, because that is the artifact whose absence IS the bug.
+    if [ -n "$(find . -name '*.dfs' -print -quit)" ]; then
+      echo "mkN64Rom: DragonFS attached ($(find . -name '*.dfs' | tr '
+' ' '))"
+    else
+      echo "mkN64Rom: ${name} declares ${toString (builtins.length assets)} asset(s)"            "but the build produced no .dfs, so NONE of them are in the ROM." >&2
+      echo "  Add these two lines to the project's Makefile (see" >&2
+      echo "  PetaByte-Madness/Makefile's 'THE FILESYSTEM' comment):" >&2
+      echo "" >&2
+      # The ROM's own basename, taken from what make actually emitted rather
+      # than from the flake attribute — those differ whenever one project builds
+      # several variants (Forge/Makefile emits forge.z64 for both `.#forge` and
+      # `.#forge-dfs`), and printing a make target that does not exist sends the
+      # reader off to debug the advice instead of the bug.
+      shopt -s nullglob
+      built=(*.z64)
+      base="${name}"
+      if [ ''${#built[@]} -gt 0 ]; then base="$(basename "''${built[0]}" .z64)"; fi
+      echo "    \$(BUILD_DIR)/$base.dfs: \$(wildcard filesystem/*) \$(wildcard filesystem/*/*)" >&2
+      echo "    $base.z64: \$(BUILD_DIR)/$base.dfs" >&2
+      exit 1
+    fi
+''}
     runHook postBuild
   '';
 

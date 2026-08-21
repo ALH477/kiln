@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 # PetaByte Madness
 
-A first-person horror game on the M64 engine. Patrick Horner, a biologist in
+A first-person horror game on the Kiln engine. Patrick Horner, a biologist in
 an underwater lab, climbs onto the station's MRI and comes off it able to
 raise **the scarlet veil** — a filter that shows him what is actually down
 there with him.
@@ -39,9 +39,9 @@ Slice 0 is the mechanic end to end, which is the part worth proving before
 any art goes in:
 
 - `src/pm_veil.*` — the veil runtime. Phase machine, quantised 9-step
-  crossfade, fog + far-plane rebate through `M64Scene`, TLUT bind, the
+  crossfade, fog + far-plane rebate through `KilnScene`, TLUT bind, the
   phantom body gate, the vignette ring.
-- `src/pm_demons.*` — the four demons as `m64_actor` profiles, each
+- `src/pm_demons.*` — the four demons as `kiln_actor` profiles, each
   implementing its species rule (see below).
 - `src/pm_hud.*` — the HUD, whose only job is to make the veil's *cost*
   legible: air, "SEEN", and whether your toggle is still yours.
@@ -95,18 +95,18 @@ record, not a build input.
 | `docs/` | `demon-files.zip`, `submarine.zip`, `n64_drone_enemy_pack.zip` | `VEIL_DESIGN.md` is the spec. `LOACH_spec.md` is a model brief good enough to build from. |
 | `tools/*.py` | all drops | The generators that produced every mesh above — `bestiary.py`/`parts.py`/`anim.py` (demons), `build_loach.py`, `build_mob.py`, `machine_centaur_gen.py`, `patrick_horner_gen.py`, `dank_lab_gen.py`. Edit these, not the outputs. |
 | `reference/*.h` | `HornerAndLabFiles.zip`, `cyborg-horner-files.zip`, `submarine.zip` | See `reference/README.md` — libultra F3DEX2 display lists, which this engine does not consume. Data, not build inputs. |
-| `vendor/m64_nn/` | `m64_nn.tar.gz` | A quantized NN policy subsystem for NPC AI, written against this engine's conventions but **not wired into `engine/`**. See `vendor/m64_nn/README.md`. |
+| `vendor/kiln_nn/` | `kiln_nn.tar.gz` | A quantized NN policy subsystem for NPC AI, written against this engine's conventions but **not wired into `engine/`**. See `vendor/kiln_nn/README.md`. |
 
 There is also an idTech 4 / DarkRadiant project skeleton for PetaByte
 Madness at `~/petabyte` (and `~/game/CREATE_IDTECH4_PROJECT/PetaByteMadness`),
-which is where real level geometry would be authored — `m64_map` reads the
+which is where real level geometry would be authored — `kiln_map` reads the
 Quake `.map` format DarkRadiant writes, which is why `assets/pm_lab.map` is
 in that format rather than something bespoke.
 
 ## Layout
 
 ```
-Makefile              mirrors game/Makefile — n64.mk, t3d.mk, m64.mk, in that order
+Makefile              mirrors game/Makefile — n64.mk, t3d.mk, kiln.mk, in that order
 src/                  the game
 assets/               what ships in the ROM (models, rig, map, textures)
 docs/                 VEIL_DESIGN.md is the spec; ASSET_PIPELINE.md is how art gets in
@@ -125,7 +125,7 @@ with a bare `python3`).
 ## Boot
 
 ```
-M64 SPLASH   the DeMoD mark — engine-level (engine/src/m64/m64_splash.h),
+Kiln SPLASH   the DeMoD mark — engine-level (engine/src/kiln/kiln_splash.h),
              a 3D wordmark assembling to a Faust jingle. Any button skips.
 TITLE        skull over the drone flyover
 ATTRACT      after ~12 s idle
@@ -134,7 +134,7 @@ FILE         3 profiles; an empty one starts the intro
 
 The splash is a publisher mark, not this game's, so it lives in the engine
 and Ganja Goblin can adopt it with four calls. Its two assets
-(`tools/blender/m64_logo.py`, `dsp/m64_jingle.dsp`) are built at the flake
+(`tools/blender/kiln_logo.py`, `dsp/kiln_jingle.dsp`) are built at the flake
 level and passed in as handles; both are optional and the timing is
 identical without them.
 
@@ -142,13 +142,13 @@ identical without them.
 resolves 1.25 s in; the logo finishes assembling and the screen flashes on
 that same frame. Audio cannot be nudged a frame at runtime and geometry
 can, so the sound is the master. Move one, move all three — they are one
-constant in `m64_splash.c`.
+constant in `kiln_splash.c`.
 
 ## Two DFS conventions, and one of them bit
 
 `assetLib.mkSound` writes under `sfx/`. `faust.mkBakedInstrument` writes to
 the **DFS root**. Mixing them up produces silence, not an error — a failed
-`m64_sfx_load` just means the game runs quiet. The ambience bed was loading
+`kiln_sfx_load` just means the game runs quiet. The ambience bed was loading
 from `rom:/sfx/pmdrone.wav64` for a while and finding nothing.
 
 | builder | lands at | used for |

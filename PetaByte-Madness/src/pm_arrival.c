@@ -9,22 +9,24 @@
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
 
-#include <m64/m64_engine.h>
-#include <m64/m64_skel.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_skel.h>
 
+#include "pm_cine.h"  // the cue trace; compiles away without KILN_DEBUG
 #include "pm_fx.h"
 #include "pm_sfx.h"
 #include "pm_models.h"
 #include "pm_demo.h"
 #include "pm_env.h"
+#include "pm_veil.h"
 
 // ── Shared drawing ─────────────────────────────────────────────────────
 // ── Why a RING of transforms, not one ──────────────────────────────────
-// M64Transform owns an UNCACHED matrix that the RSP reads ASYNCHRONOUSLY:
-// m64_transform_push records a command referencing that buffer, and the RSP
+// KilnTransform owns an UNCACHED matrix that the RSP reads ASYNCHRONOUSLY:
+// kiln_transform_push records a command referencing that buffer, and the RSP
 // consumes it later, when the frame's command list actually runs.
 //
-// This used to be a single shared M64Transform, on the reasoning that the
+// This used to be a single shared KilnTransform, on the reasoning that the
 // uncached allocation is expensive and one is cheaper than many. That is
 // true and it is also unusable: every draw in the frame overwrote the same
 // matrix before the RSP had read any of them, so every object in the frame
@@ -42,17 +44,17 @@
 // never rewritten inside the frame that is still using it, and by the time
 // the index wraps that frame has long since presented.
 #define XFORM_RING 16
-static M64Transform g_xform[XFORM_RING];
+static KilnTransform g_xform[XFORM_RING];
 static int          g_xform_ready;
 static int          g_xform_next;
 
-static M64Transform *xform(void)
+static KilnTransform *xform(void)
 {
     if (!g_xform_ready) {
-        for (int i = 0; i < XFORM_RING; i++) m64_transform_init(&g_xform[i]);
+        for (int i = 0; i < XFORM_RING; i++) kiln_transform_init(&g_xform[i]);
         g_xform_ready = 1;
     }
-    M64Transform *t = &g_xform[g_xform_next];
+    KilnTransform *t = &g_xform[g_xform_next];
     g_xform_next = (g_xform_next + 1) & (XFORM_RING - 1);
     return t;
 }
@@ -61,14 +63,14 @@ static void draw_at(PMModelId id, fm_vec3_t pos, float scale, float yaw)
 {
     T3DModel *m = pm_models_get(id);
     if (!m) return;
-    M64Transform *t = xform();
+    KilnTransform *t = xform();
     t->pos = pos;
     t->scale = (fm_vec3_t){{ scale, scale, scale }};
     t->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
     t->rot_angle = yaw;
-    m64_transform_push(t);
+    kiln_transform_push(t);
     t3d_model_draw(m);
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Shot: the submarine ────────────────────────────────────────────────
@@ -172,7 +174,7 @@ static const PMCamKey BEACH_KEYS[] = {
     { B_END,     {{    1.0f, 152.0f,    8.0f }}, {{    0.0f, 152.0f,  -40.0f }} },
 };
 
-static M64Skel g_hero_skel;
+static KilnSkel g_hero_skel;
 static int     g_hero_ready;
 static const char *g_hero_clip;   // what is playing, so we only switch once
 static int     g_guard_a_down;
@@ -190,7 +192,7 @@ static void beach_setup(void)
 
     T3DModel *centaur = pm_models_get(PM_MODEL_CENTAUR);
     if (centaur && !g_hero_ready) {
-        m64_skel_create(&g_hero_skel, centaur);
+        kiln_skel_create(&g_hero_skel, centaur);
         g_hero_ready = 1;
     }
     g_hero_clip = NULL;
@@ -202,7 +204,7 @@ static void beach_setup(void)
 
 static void beach_teardown(void) { pm_fx_letterbox(0.0f); }
 
-/** Switch clips only on a change — m64_skel_play tears down and rebuilds
+/** Switch clips only on a change — kiln_skel_play tears down and rebuilds
  *  the T3DAnim, so calling it every frame would restart the animation on
  *  every frame and nothing would ever visibly play.
  *
@@ -211,8 +213,9 @@ static void beach_teardown(void) { pm_fx_letterbox(0.0f); }
 static int play_once(const char *clip, bool loop)
 {
     if (!g_hero_ready || g_hero_clip == clip) return 0;
+    PM_CUE(clip);
     g_hero_clip = clip;
-    m64_skel_play(&g_hero_skel, clip, loop);
+    kiln_skel_play(&g_hero_skel, clip, loop);
     return 1;
 }
 
@@ -232,7 +235,7 @@ static void beach_update(float t, float dt)
         play_once("idle", true);
     }
 
-    if (g_hero_ready) m64_skel_update(&g_hero_skel, dt);
+    if (g_hero_ready) kiln_skel_update(&g_hero_skel, dt);
 
     // ── The punctuation ────────────────────────────────────────────────
     // Each of these fires once, on the frame the beat is crossed. The
@@ -303,16 +306,16 @@ static void beach_draw(float t)
 
     // He is inside the hull until he climbs out.
     if (t >= B_CLIMB && g_hero_ready) {
-        M64Transform *x = xform();
+        KilnTransform *x = xform();
         x->pos = HERO;
         x->scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
         x->rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
         // Turns from guard A to guard B between the two kills, so the
         // slash lands on someone he is actually facing.
         x->rot_angle = (t < B_SLASH) ? 2.5f : 3.9f;
-        m64_transform_push(x);
-        m64_skel_draw(&g_hero_skel);
-        m64_transform_pop();
+        kiln_transform_push(x);
+        pm_veil_draw_centaur(pm_models_get(PM_MODEL_CENTAUR), &g_hero_skel.skel);
+        kiln_transform_pop();
     }
 }
 
@@ -331,7 +334,7 @@ const PMDemoShot pm_arrival_beach = {
 void pm_arrival_close(void)
 {
     if (g_hero_ready) {
-        m64_skel_destroy(&g_hero_skel);
+        kiln_skel_destroy(&g_hero_skel);
         g_hero_ready = 0;
         g_hero_clip = NULL;
     }

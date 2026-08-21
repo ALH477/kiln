@@ -32,7 +32,7 @@
 // parent.
 //
 // ── Pass B is live ──────────────────────────────────────────────────────
-// Horner is a skinned M64Skel now (tools/blender/horner.py, built from
+// Horner is a skinned KilnSkel now (tools/blender/horner.py, built from
 // ph_rig.py + ph_anim_clips.py via ph_rig_export.py — see that file for the
 // coordinate/Euler derivation). The ROOT position and pitch below are still
 // animated exactly as Pass A left them — a skinned mesh needs its overall
@@ -43,7 +43,7 @@
 // Ahead of this file's original beats (which now start at ORIG_HANDOFF_FRAME
 // rather than frame 0), a new leading sequence plays out the same way
 // pm_arrival.c drives the centaur: named clips switched on state changes,
-// gated by m64_skel_is_done() for one-shots, with the ROOT path a plain
+// gated by kiln_skel_is_done() for one-shots, with the ROOT path a plain
 // per-state position lerp rather than a transcribed spline — there is no
 // mocap to transcribe for "walks to a console and sits down", unlike the
 // scanner sequence below.

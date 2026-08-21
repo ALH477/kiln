@@ -1,0 +1,12 @@
+# kiln host text manifest: one line per rdpq_text_print
+# x y  rgba  width missing  "text"
+   6    9  00f5d4ff    48 0  "KILN GUI"
+ 242    9  606070ff    42 0  "host 2D"
+  14   34  ffffffff    48 0  "air  62%"
+  14   60  ffffffff    60 0  "clip 3/512"
+  14   74  e01a20ff    42 0  "veil UP"
+   8  104  ffffffff    96 0  "0O@ 8B .-_ 2@5.4"
+   8  118  606070ff   156 0  "abcdefghijklmnopqrstuvwxyz"
+   8  132  606070ff   156 0  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+   8  146  606070ff   156 0  "0123456789 !"#$%&'()*+,-./"
+ 174   34  ffffffff    42 0  "alpha40"

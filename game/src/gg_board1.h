@@ -8,13 +8,13 @@
 #ifndef GG_BOARD1_H
 #define GG_BOARD1_H
 
-#include <m64/m64_board.h>
+#include <kiln/kiln_board.h>
 
 #define GG_BOARD1_NODES 12
 
-extern const M64BoardNode gg_board1_nodes[GG_BOARD1_NODES];
+extern const KilnBoardNode gg_board1_nodes[GG_BOARD1_NODES];
 
-// Initialise a M64Board pointing at the static node table.
-void gg_board1_init(M64Board *b);
+// Initialise a KilnBoard pointing at the static node table.
+void gg_board1_init(KilnBoard *b);
 
 #endif // GG_BOARD1_H

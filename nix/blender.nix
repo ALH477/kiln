@@ -266,7 +266,7 @@ rec {
     });
 
   # ── Morph targets ───────────────────────────────────────────────────────
-  # gltf_to_t3d does not parse glTF morph targets, so the engine's m64_morph
+  # gltf_to_t3d does not parse glTF morph targets, so the engine's kiln_morph
   # module blends between sibling .t3dm models at runtime. This builder is a
   # thin wrapper over mkBlenderModel that documents the convention: the Blender
   # script must create N mesh objects with identical topology (same vertex and

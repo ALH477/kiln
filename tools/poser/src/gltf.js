@@ -14,7 +14,7 @@
 // outside it rather than silently half-working. If the pipeline ever starts
 // emitting something new, this fails loudly at load with the reason.
 //
-// tools/blender/m64lib.py's own comment makes the same call about Fast64:
+// tools/blender/kilnlib.py's own comment makes the same call about Fast64:
 // vendoring a large dependency to talk to a format you already control is a
 // cost with no matching benefit.
 

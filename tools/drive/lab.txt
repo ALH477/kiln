@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# tools/drive/lab.txt — the playable lab, plus the collision overlay.
+#
+#   ./dev drive petabyte-madness-debug tools/drive/lab.txt pm-lab
+#
+# LAB is the one section of the intro the player drives: first person, walk the
+# station, read three notes, activate the MRI when you decide to. It is also
+# where the collision is entirely hand-authored — dank_lab.obj carries geometry
+# and no collision mesh, so pm_lab.c types six brushes plus blockers against
+# the model's bounding box, and its own comment admits "every position here is
+# derived from the model's bounding box, not from looking at the room… they do
+# not yet put things ON the bench they are meant to be on."
+#
+# That is a defect you cannot see and cannot photograph. So this script's real
+# payload is the last third: turn on pm_debug's `clip` layer and photograph the
+# brushes against the room they are supposed to line up with.
+#
+# LAB is the fifth entry in the debug jump menu:
+#   TITLE FILE NARRATION LAB_CINE *LAB* INTAKE CREDITS SUB BEACH PLAY
+
+log Jump menu
+wait 0.5
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+shot 00-menu-on-lab.png
+press a
+wait 1.0
+
+log LAB — first person, from the pose LAB_CINE hands over
+shot 01-first-person.png
+
+log The collision overlay: C-Up + C-Down twice reaches `clip`
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.5
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.5
+log Brushes in red, the room's own extents in blue, anchors as axis gizmos
+shot 02-brushes-from-start.png
+
+# The player starts at (60, ., 120) facing -X; pm_lab.h's walk speed is
+# 190 u/s. A second of stick covers ~190 of the ~390 units to the MRI, which
+# lands short of it on purpose — the point is to see the brushes from inside
+# the room, not to trigger the prompt.
+log Walk half way down the room and look at the brushes from there
+stick 0 1 1.0
+wait 0.4
+shot 03-brushes-mid-room.png
+
+log Turn to face the desk side
+stick 1 0 0.55
+wait 0.4
+shot 04-brushes-desk-side.png
+
+log On to the MRI and its prompt
+stick 0 1 1.0
+wait 0.6
+shot 05-mri-prompt.png
+
+log The population set — the three notes and the MRI are all PROP actors
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.5
+shot 06-overlay-actors.png

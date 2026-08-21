@@ -5,8 +5,8 @@
 #include "pm_music.h"
 
 #include <libdragon.h>
-#include <m64/m64_audio.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_audio.h>
+#include <kiln/kiln_engine.h>
 
 #include "pm_screens.h"  // PM_CH_MUSIC
 
@@ -39,15 +39,15 @@ static float g_quiet;   // how long every voice has been silent
 void pm_music_init(void)
 {
     // Same probe-first rule as pm_sfx: both of these are optional.
-    g_xm     = m64_dfs_exists(XM_PATH)     ? m64_music_load(XM_PATH)   : -1;
-    g_stream = m64_dfs_exists(STREAM_PATH) ? m64_sfx_load(STREAM_PATH) : -1;
+    g_xm     = kiln_dfs_exists(XM_PATH)     ? kiln_music_load(XM_PATH)   : -1;
+    g_stream = kiln_dfs_exists(STREAM_PATH) ? kiln_sfx_load(STREAM_PATH) : -1;
     g_state  = ST_SILENT;
     g_active = 0;
 
     if (g_xm >= 0) {
         // One pass, not a loop: the whole point is that it ENDS and hands
-        // over to the recording. m64_music_play loops by default.
-        m64_music_set_loop(g_xm, 0);
+        // over to the recording. kiln_music_play loops by default.
+        kiln_music_set_loop(g_xm, 0);
     }
     debugf("pm_music: score %s, recording %s\n",
            g_xm >= 0 ? "ok" : "MISSING",
@@ -59,8 +59,8 @@ static void start_score(void)
     g_elapsed = 0.0f;
     g_quiet   = 0.0f;
     if (g_xm >= 0) {
-        m64_music_set_loop(g_xm, 0);
-        m64_music_play(g_xm);
+        kiln_music_set_loop(g_xm, 0);
+        kiln_music_play(g_xm);
         g_state = ST_SCORE;
         return;
     }
@@ -75,9 +75,9 @@ static void start_stream(void)
     g_quiet   = 0.0f;
     if (g_stream >= 0) {
         // Priority 255 on a fixed channel, exactly like the ambience bed:
-        // m64_sfx_play_ex only steals a channel whose priority is strictly
+        // kiln_sfx_play_ex only steals a channel whose priority is strictly
         // lower, so nothing in pm_sfx can take this one mid-song.
-        m64_sfx_play(g_stream, PM_CH_MUSIC, 255);
+        kiln_sfx_play(g_stream, PM_CH_MUSIC, 255);
         g_state = ST_STREAM;
         return;
     }
@@ -86,8 +86,8 @@ static void start_stream(void)
 
 void pm_music_stop(void)
 {
-    if (g_xm >= 0) m64_music_stop(g_xm);
-    if (g_stream >= 0) m64_sfx_stop(PM_CH_MUSIC);
+    if (g_xm >= 0) kiln_music_stop(g_xm);
+    if (g_stream >= 0) kiln_sfx_stop(PM_CH_MUSIC);
     g_state = ST_SILENT;
     g_elapsed = 0.0f;
     g_quiet   = 0.0f;
@@ -111,8 +111,8 @@ void pm_music_update(float dt, float vol)
 
     switch (g_state) {
     case ST_SCORE:
-        m64_music_set_volume(g_xm, vol);
-        // The CLOCK is the whole test. m64_music_playing reports whether
+        kiln_music_set_volume(g_xm, vol);
+        // The CLOCK is the whole test. kiln_music_playing reports whether
         // the track's FIRST mixer channel has a note sounding, so on a
         // quartet whose lead rests for bars at a time it reads "stopped"
         // most of the piece — it fired the handover 11 seconds into a
@@ -121,17 +121,17 @@ void pm_music_update(float dt, float vol)
         // does not need to be inferred from the mixer at all.
         (void)g_quiet;
         if (g_elapsed >= XM_SECONDS) {
-            m64_music_stop(g_xm);
+            kiln_music_stop(g_xm);
             start_stream();
         }
         break;
 
     case ST_STREAM:
-        m64_sfx_set_vol_pan(PM_CH_MUSIC, vol, 0.5f);
+        kiln_sfx_set_vol_pan(PM_CH_MUSIC, vol, 0.5f);
         // The wav64 is built without a baked loop point, so the loop is
         // here: when the channel goes quiet, play it again. Same one-frame
         // startup race as above, hence the elapsed guard.
-        if (g_elapsed > 1.0f && !m64_sfx_playing(PM_CH_MUSIC)) {
+        if (g_elapsed > 1.0f && !kiln_sfx_playing(PM_CH_MUSIC)) {
             start_stream();
         }
         break;

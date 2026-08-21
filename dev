@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MPL-2.0
-# ./dev — the M64 developer CLI. One command for the whole loop:
+# ./dev — the Kiln developer CLI. One command for the whole loop:
 #   ./dev build [rom]        build a ROM (default: hello)
 #   ./dev run   <rom>        boot it in Ares
 #   ./dev deploy <rom>       upload to a SummerCart64
@@ -14,7 +14,7 @@ cd "$REPO"
 
 usage() {
   cat <<'H'
-./dev — the M64 developer CLI
+./dev — the Kiln developer CLI
   build [rom]              nix build .#<rom>            (default: hello)
   shot  <rom> [out] [s]    boot in Ares on Hyprland, screenshot + pixel stats
   rec   <rom> [out] [dur] [--native]
@@ -24,6 +24,13 @@ usage() {
   drive <rom> <script> [outdir]
                            boot in Ares with a uinput virtual pad and run an
                            input script (wait/press/hold/stick/shot)
+  cine  <screen> [n] [outdir]
+                           contact sheet of a PetaByte Madness cutscene: builds
+                           pm-ladder-<screen>, records one boot, and extracts n
+                           frames. Every frame is stamped with its exact SHOT
+                           time, so the sheet is self-labelling
+  cine-lint                build + capture the camera-validator report over
+                           every registered shot (pm_cine.h's PM_SHOT_LIST)
   run   <rom>              boot the ROM in Ares (report §7: iterate here,
                            but never trust an emulator for audio work)
   inspect <rom>            Ares with GDB server + print attach command
@@ -33,11 +40,25 @@ usage() {
   bake  [target]           show baked VADPCM assets + reference render
   check                    nix flake check (the pre-push gate)
   doctor                   toolchain, libdragon, cart presence, versions
+
+  Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
+  is the transport in BOTH directions, because an ED64 Plus has no USB:
+  forge-card [mount]       print where the card is mounted (or fail loudly)
+  forge-push <file.map> [mount]
+                           convert a .map to Forge's working format on the card,
+                           so an existing level can be edited on the console
+  forge-pull [mount] [name]
+                           bring a session back: copies the .FRG, the ROM's own
+                           .MAP, the generated light header and the PMCamKey
+                           table into assets/, tails FORGE.LOG, and runs the
+                           strict validator over the map
 Examples:
   ./dev build hello        ./dev run hello        ./dev deploy hello
   ./dev inspect hello      ./dev debug
   ./dev mapmaker                        three.js .map maker on http://localhost:8000
   ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
+  ./dev forge-push assets/pm_lab.map     edit an existing level on the console
+  ./dev forge-pull                       and bring it back
 H
 }
 
@@ -61,6 +82,37 @@ rom_path() {
   [ -n "$z64" ] || die "no .z64 in $out"
   echo "$z64"
 }
+
+# ── Where is the flashcart's SD card? ─────────────────────────────────────
+# An ED64 Plus has no USB, so the card IS the transport in both directions and
+# every forge-* command needs its mount point. Take it as an argument, else
+# $FORGE_CARD, else look for a removable mount that already has a FORGE/ dir or
+# a forge.z64 on it. Refuse rather than guess: writing a level into the wrong
+# directory is silent and the ROM will not find it next boot.
+forge_find_card() {
+  if [ -n "${1:-}" ]; then
+    [ -d "$1" ] || { echo "dev: $1 is not a directory" >&2; return 1; }
+    echo "$1"; return 0
+  fi
+  if [ -n "${FORGE_CARD:-}" ]; then
+    [ -d "$FORGE_CARD" ] || { echo "dev: FORGE_CARD=$FORGE_CARD is not a directory" >&2; return 1; }
+    echo "$FORGE_CARD"; return 0
+  fi
+  for base in /run/media/"$USER" /media/"$USER" /mnt; do
+    [ -d "$base" ] || continue
+    for m in "$base"/*; do
+      [ -d "$m" ] || continue
+      if [ -d "$m/FORGE" ] || [ -f "$m/forge.z64" ] || [ -f "$m/FORGE.Z64" ]; then
+        echo "$m"; return 0
+      fi
+    done
+  done
+  echo "dev: could not find the flashcart's SD card." >&2
+  echo "     Pass it: ./dev forge-pull /run/media/$USER/ED64" >&2
+  echo "     Or export FORGE_CARD=/path/to/card" >&2
+  return 1
+}
+
 
 cmd="$1"; shift
 case "$cmd" in
@@ -184,6 +236,88 @@ PY
     NATIVE="$native" bash "$REPO/tools/n64-rec.sh" "$z64" "$out" "$dur" || exit 1
     ;;
 
+  cine)
+    # A contact sheet of one cutscene, from ONE boot.
+    #
+    # The alternative — building a ROM per timestamp with PM_SHOT_AT and
+    # capturing each — is more exact and much slower (a PM rebuild per frame).
+    # pm-ladder-<screen> instead walks the shot in n evenly-spaced rungs,
+    # holding each for a fixed number of FRAMES (not seconds: the content of
+    # the recording must not depend on how fast the emulator ran), and stamps
+    # every frame with its shot time. So extraction timing drifting a little
+    # costs nothing — read the time off the frame.
+    #
+    # For a single exact frame, build with PM_SHOT_AT instead:
+    #   nix build --expr '(builtins.getFlake (toString ./.)).packages.x86_64-linux.petabyte-madness-debug' ...
+    # or more simply add a one-line entry to flake.nix's pmCineScreens.
+    screen="${1:-intake}"; n="${2:-8}"; outdir="${3:-pm-cine-$screen}"
+    rom="pm-ladder-$(echo "$screen" | tr 'A-Z_' 'a-z-')"
+    z64="$(rom_path "$rom")" || exit 1
+
+    # 8 rungs x 120 frames at 60 fps is 16 s of shot, plus boot and the seek
+    # hitches. Overrun is harmless: past the last rung the ROM parks on it.
+    dur=$(python3 -c "print(int($n) * 2 + 12)")
+    mkdir -p "$outdir"
+    export ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}"
+
+    # The recorder is the FAST path, not the only one. gpu-screen-recorder
+    # needs a kms server it cannot always get (it wants CAP_SYS_ADMIN, and the
+    # pkexec route dies outright if $SHELL is not listed in /etc/shells), and
+    # when it fails it fails at capture-start, having already booted the ROM.
+    # Falling back matters because this command is the whole point of the
+    # ladder ROM: a contact sheet nobody can produce is a feature nobody has.
+    #
+    # The fallback re-boots per frame, which is n boots instead of one and is
+    # genuinely slower. It is otherwise no less correct, and for exactly the
+    # reason the rungs are frame-counted: every frame states its own shot time,
+    # so a settle that lands a little early or late is still a labelled frame
+    # of a known moment rather than a mystery.
+    if NATIVE=0 bash "$REPO/tools/n64-rec.sh" "$z64" "$outdir/run.mp4" "$dur" \
+         && command -v ffmpeg >/dev/null; then
+      : # recorded; extract below
+    else
+      if [ -f "$outdir/run.mp4" ] && ! command -v ffmpeg >/dev/null; then
+        echo "dev: ffmpeg not on PATH — the clip is at $outdir/run.mp4" >&2
+        exit 1
+      fi
+      echo "dev: recorder unavailable — falling back to $n separate boots" >&2
+      for i in $(seq 0 $(( n - 1 ))); do
+        s=$(python3 -c "print(6 + $i * 2 + 1)")
+        bash "$REPO/tools/n64-shot.sh" "$z64" \
+             "$outdir/$(printf '%02d' "$i").png" "$s" >/dev/null || exit 1
+      done
+      echo "dev: $outdir/*.png — read the shot time off each frame's timeline"
+      if command -v montage >/dev/null; then
+        montage "$outdir"/[0-9]*.png -tile 3x -geometry +4+4 "$outdir/sheet.png" \
+          && echo "dev: $outdir/sheet.png"
+      fi
+      exit 0
+    fi
+    # Sample at the MIDDLE of each rung's hold, offset past the boot. The
+    # numbers do not have to be right — the overlay stamps each frame — they
+    # only have to land inside a hold rather than on a seek hitch.
+    for i in $(seq 0 $(( n - 1 ))); do
+      t=$(python3 -c "print(6 + $i * 2 + 1)")
+      ffmpeg -loglevel error -y -ss "$t" -i "$outdir/run.mp4" -frames:v 1 \
+             "$outdir/$(printf '%02d' "$i").png" || true
+    done
+    echo "dev: $outdir/*.png — read the shot time off each frame's timeline"
+    if command -v montage >/dev/null; then
+      montage "$outdir"/[0-9]*.png -tile 3x -geometry +4+4 "$outdir/sheet.png" \
+        && echo "dev: $outdir/sheet.png"
+    fi
+    ;;
+
+  cine-lint)
+    # The camera validator over every shot in PM_SHOT_LIST, as one picture.
+    # The settle is long because pm_cine_lint_run plays each shot's setup(),
+    # which preloads that shot's models before its keys can be read at all —
+    # the flyover's fourteen are BUILT by flyover_build_keys and are zeroes
+    # until then.
+    out="${1:-pm-cine-lint.png}"
+    "$0" shot pm-cine-lint "$out" "${2:-12}"
+    ;;
+
   deploy)
     z64="$(rom_path "${1:-hello}")" || exit 1
     echo "dev: uploading $z64 to SummerCart64"
@@ -258,6 +392,104 @@ PY
     # vs. the engine's limits. Run after exporting from the map maker.
     shift
     nix run .#map-validate -- "$@"
+    ;;
+
+  forge-card)
+    # Where is the flashcart's SD card mounted? Everything below needs it, and
+    # guessing is how you write a level into $HOME.
+    forge_find_card "${1:-}"
+    ;;
+
+  forge-push)
+    # Put a .map onto the card as a Forge working file, so an existing level can
+    # be EDITED on the console. This is what makes Forge a tool for the game that
+    # exists rather than only for new content.
+    #
+    #   ./dev forge-push assets/pm_lab.map [/run/media/you/ED64]
+    src="${1:?usage: dev forge-push <file.map> [card-mount]}"
+    card="$(forge_find_card "${2:-}")" || exit 1
+    mkdir -p "$card/FORGE"
+    # frommap WARNS on anything off the 32-unit block grid rather than silently
+    # rounding it, because a wall that moves half a metre during an import is the
+    # kind of change noticed three sessions later. Warnings go to stderr and do
+    # not stop the push; read them.
+    python3 "$REPO/tools/forge/frg.py" frommap "$src" "$card/FORGE/LEVEL.FRG"
+    echo "pushed $src -> $card/FORGE/LEVEL.FRG"
+    echo "put forge.z64 on the card too if it is not already there:"
+    echo "  nix build .#forge && cp -L result/forge.z64 \"$card/\""
+    ;;
+
+  forge-pull)
+    # Bring a session off the card and into the tree. The ROM has already written
+    # the .MAP as plain text in the dialect this repo pins, so this is a copy plus
+    # the strict validator — not a decoder. That is the whole reason forge_io.c
+    # emits ASCII.
+    #
+    #   ./dev forge-pull [card-mount] [dest-name]
+    card="$(forge_find_card "${1:-}")" || exit 1
+    name="${2:-forge_level}"
+    dir="$card/FORGE"
+    [ -d "$dir" ] || { echo "dev: no FORGE/ on $card — has the ROM saved yet?" >&2; exit 1; }
+
+    echo "── on the card ──"
+    ls -la "$dir"
+    echo
+
+    if [ -f "$dir/LEVEL.FRG" ]; then
+      cp "$dir/LEVEL.FRG" "$REPO/assets/$name.frg"
+      python3 "$REPO/tools/forge/frg.py" info "$REPO/assets/$name.frg"
+    else
+      echo "dev: no LEVEL.FRG — nothing was saved" >&2
+      exit 1
+    fi
+
+    # Prefer the ROM's own .MAP. Fall back to re-deriving it from the .FRG, which
+    # is what happens on the save-chip backend where text cannot be written —
+    # and SAY which one it was, because the two agreeing is a property worth
+    # noticing and their disagreeing is worth investigating.
+    if [ -f "$dir/LEVEL.MAP" ]; then
+      cp "$dir/LEVEL.MAP" "$REPO/assets/$name.map"
+      echo "map: taken from the ROM's own emit"
+      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" /tmp/forge_check.map
+      if diff -q /tmp/forge_check.map "$REPO/assets/$name.map" >/dev/null 2>&1; then
+        echo "map: ROM emit and host mirror agree byte for byte"
+      else
+        echo "map: NOTE the ROM's emit differs from the host mirror" >&2
+        diff -u /tmp/forge_check.map "$REPO/assets/$name.map" | head -20 >&2 || true
+      fi
+    else
+      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" "$REPO/assets/$name.map"
+      echo "map: re-derived on the host (the ROM could not write text)"
+    fi
+
+    # The derived text artifacts. Each is optional: a level with no camera path
+    # has no .KEY, and a save on the SRAM fallback has none of them at all
+    # (kiln_store_write_text is SD-only). Absent is normal, so it is reported
+    # rather than treated as an error.
+    if [ -f "$dir/LEVEL.H" ]; then
+      cp "$dir/LEVEL.H" "$REPO/assets/${name}_light.h"
+      echo "light: assets/${name}_light.h"
+    else
+      echo "light: none on the card"
+    fi
+    if [ -f "$dir/LEVEL.KEY" ]; then
+      cp "$dir/LEVEL.KEY" "$REPO/assets/${name}_keys.h"
+      echo "cam:   assets/${name}_keys.h ($(grep -c '^    {' "$dir/LEVEL.KEY") keys)"
+      echo "       paste the table into the shot's own .c — it is already"
+      echo "       validated by kiln_camlint, the same rules ./dev cine-lint runs"
+    else
+      echo "cam:   none on the card (no keys, or the validator refused them —"
+      echo "       check FORGE.LOG below)"
+    fi
+
+    [ -f "$dir/FORGE.LOG" ] && { echo; echo "── FORGE.LOG (tail) ──"; tail -20 "$dir/FORGE.LOG"; }
+
+    echo
+    echo "── validate ──"
+    nix run .#map-validate -- "$REPO/assets/$name.map"
+    echo
+    echo "wrote assets/$name.frg and assets/$name.map"
+    echo "git diff assets/$name.map to review the change."
     ;;
 
   doctor)

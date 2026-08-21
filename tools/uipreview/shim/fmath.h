@@ -6,8 +6,8 @@
  * are the real thing. Anything that DEPENDED on fm_*'s approximation error
  * would be a bug on hardware too.
  */
-#ifndef M64_UIPREVIEW_FMATH_H
-#define M64_UIPREVIEW_FMATH_H
+#ifndef KILN_UIPREVIEW_FMATH_H
+#define KILN_UIPREVIEW_FMATH_H
 #include <math.h>
 static inline float fm_sinf(float x) { return sinf(x); }
 static inline float fm_cosf(float x) { return cosf(x); }

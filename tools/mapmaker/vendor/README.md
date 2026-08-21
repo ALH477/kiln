@@ -1,6 +1,6 @@
 # Vendored three.js
 
-These files are the runtime of the M64 map maker — a deliberately-outside-`nix
+These files are the runtime of the Kiln map maker — a deliberately-outside-`nix
 build` interactive tool (see `tools/blender-mcp/`'s module docstring for the
 reasoning that pattern applies here too). They are NOT a build input to any
 ROM; nothing in `nix/` reads from this directory.
@@ -51,7 +51,7 @@ version.
 `src/mapio.js`'s `aabbFaces()` emits the six faces of every brush in a
 specific corner order, verified against `assets/quake_test.map:4-9` (the
 file `mkQuakeMapModel` round-trips through Blender, so `quake_map.py`'s
-`brush_to_faces` CSG accepts it). The engine (`m64_map.c:109-114`) computes
+`brush_to_faces` CSG accepts it). The engine (`kiln_map.c:109-114`) computes
 the AABB as componentwise min/max of plane points and is
 winding-independent, so any order would *parse* fine on console. But
 `tools/mapmaker/validate.py` reuses `tools/blender/quake_map.py`'s

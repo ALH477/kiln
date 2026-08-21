@@ -17,7 +17,7 @@ for him — rigid per-vertex binding, FK posing — but it is an N64 rigid-
 segment puppet (one Vtx array and display list per joint), not a skin. This
 script is the same move `centaur.py` made for the machine centaur: rebuild
 that rig as a real Blender armature with vertex groups, so gltf_to_t3d emits
-a skin and named animation clips this engine's `m64_skel` can play.
+a skin and named animation clips this engine's `kiln_skel` can play.
 
 ── Everything comes from the JSON ─────────────────────────────────────────
 Mesh, rig AND clips are read from one file produced by
@@ -33,7 +33,7 @@ a bare python3, with no Blender in the loop.
 ph_rig.py's own file comment says why the rig is rigid, not smooth-skinned:
 the RSP has no skinning path, so every N64 character was rigid segments
 under their own matrix, and the mesh's elbow/knee bulges exist to fill the
-wedge a rigid bend opens. That is exactly m64lib's make_skinned_mesh
+wedge a rigid bend opens. That is exactly kilnlib's make_skinned_mesh
 constraint (one bone per vertex, at most three per triangle) — not a
 workaround here either, just this character's native shape carried
 forward from ph_rig.py to a skin.
@@ -54,7 +54,7 @@ import sys
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # Leaf bone length in Blender units. Cosmetic, same as centaur.py's
 # BONE_LEN — rigid skinning uses the explicit vertex groups, never the

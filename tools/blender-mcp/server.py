@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MPL-2.0
-"""tools/blender-mcp/server.py — MCP server for authoring M64 level geometry
+"""tools/blender-mcp/server.py — MCP server for authoring Kiln level geometry
 from Quake .map files and Godot .tscn scenes.
+
+Not related to, and shares no code with, the third-party `ahujasid/blender-
+mcp` GitHub project (a Blender addon + in-Blender socket server). This file
+is written from scratch against the official `mcp`/FastMCP SDK and drives
+Blender headlessly via subprocess — there is no addon and nothing runs
+inside Blender. Do not add that project as a dependency here; it is not
+one, and the name collision is coincidental.
 
 This is the conversational front-end to tools/blender/quake_map.py and
 tools/blender/godot_scene.py — the actual importers, which this server does
@@ -31,15 +38,19 @@ via $N64_INST/bin (set by `nix develop`) if present; without them, import
 tools stop at the glTF stage and say so, rather than fail.
 
 ── Running it ───────────────────────────────────────────────────────────────
-    nix shell nixpkgs#python3Packages.mcp -c python3 tools/blender-mcp/server.py
+    nix run .#blender-mcp
+
+That resolves the `mcp` package through THIS flake's own pinned nixpkgs
+(flake.lock) — not `nix shell --impure --expr 'import <nixpkgs> {}'`, which
+would resolve against whatever channel the caller's NIX_PATH happens to
+point at, unpinned. See flake.nix's `apps.blender-mcp` for the wrapper.
 
 Claude Code MCP config (~/.claude/mcp.json or project .mcp.json):
     {
       "mcpServers": {
-        "m64-blender": {
+        "kiln-blender": {
           "command": "nix",
-          "args": ["shell", "nixpkgs#python3Packages.mcp", "-c",
-                   "python3", "/absolute/path/to/tools/blender-mcp/server.py"]
+          "args": ["run", "/absolute/path/to/Kiln#blender-mcp"]
         }
       }
     }
@@ -63,7 +74,7 @@ sys.path.insert(0, str(BLENDER_SCRIPTS))
 import quake_map  # noqa: E402 — pure-Python half only; this process has no bpy
 import godot_scene  # noqa: E402
 
-mcp = FastMCP("m64-blender")
+mcp = FastMCP("kiln-blender")
 
 
 def _blender_bin():
@@ -91,11 +102,11 @@ def _run_blender(script, script_args, out_gltf, timeout=120):
     return proc
 
 
-def _run_f3d_inject(in_gltf, out_gltf, materials):
+def _run_f3d_inject(in_gltf, out_gltf, materials, timeout=120):
     args = [sys.executable, str(F3D_INJECT), str(in_gltf), str(out_gltf)]
     for spec in materials:
         args += ["--material", spec]
-    proc = subprocess.run(args, capture_output=True, text=True)
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     return proc
 
 
@@ -113,7 +124,8 @@ def _maybe_build_t3dm(staged_gltf_dir, name, work_dir, base_scale, bvh):
     cmd = [gltf_to_t3d, str(staged_gltf_dir / f"{name}.gltf"), str(t3dm),
            f"--base-scale={base_scale}", f"--asset-path={staged_gltf_dir}/",
            "--verbose"] + (["--bvh"] if bvh else [])
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=staged_gltf_dir)
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=staged_gltf_dir,
+                           timeout=120)
     log = proc.stdout.splitlines() + proc.stderr.splitlines()
     if proc.returncode != 0 or not t3dm.exists():
         return None, log + [f"gltf_to_t3d exited {proc.returncode}"]
@@ -245,7 +257,7 @@ def import_godot_scene(path: str, project_root: str, name: str, out_dir: str,
 
     Returns the same shape as import_quake_map, plus `skipped` (nodes whose
     resource couldn't be imported) and `other_nodes` (non-mesh nodes, for a
-    game to turn into M64Actor spawns / lights / rooms by hand)."""
+    game to turn into KilnActor spawns / lights / rooms by hand)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     scene_path = Path(path)

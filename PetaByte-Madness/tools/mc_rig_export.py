@@ -63,7 +63,7 @@ import machine_centaur_gen as mc  # noqa: E402  (path set up above)
 DEFAULT_FPS = 20
 
 # Centimetres -> Blender units. 1 BU = 1 m puts the centaur at ~2.5 BU, which
-# is the range m64lib's other characters occupy; mkModel's baseScale takes it
+# is the range kilnlib's other characters occupy; mkModel's baseScale takes it
 # from there to world units.
 UNIT_SCALE = 0.01
 

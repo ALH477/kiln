@@ -46,11 +46,11 @@
 #ifndef PM_SCREENS_H
 #define PM_SCREENS_H
 
-#include <m64/m64_widget.h>
-#include <m64/m64_input.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_fpscam.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_widget.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_fpscam.h>
+#include <kiln/kiln_engine.h>
 
 #include "pm_types.h"
 #include "pm_veil.h"
@@ -64,7 +64,7 @@
 
 // Mixer channel for the theme's streamed form (pm_music.h). Fixed for the
 // same reason as the drone, and played at priority 255 so the auto
-// allocator in m64_sfx_play_ex — which only steals a channel of strictly
+// allocator in kiln_sfx_play_ex — which only steals a channel of strictly
 // lower priority — can never hand it to a footstep. The tracker form does
 // not need a reservation: XM64 plays in the mixer's separate music range.
 #define PM_CH_MUSIC 1
@@ -78,24 +78,70 @@
 // before the surgery cue ever starts.
 #define PM_CH_STORY 2
 
+// ── The screen list ────────────────────────────────────────────────────
+// One list, three consumers: the PMScreen enum below, pm_debug.c's overlay
+// labels, and pm_screens.c's ENTER_FN jump table (which the debug boot menu
+// walks).
+//
+// It is an X-macro rather than an enum plus a hand-kept name array because
+// the hand-kept version drifted, twice, and both times silently.
+// PM_SCREEN_NARRATION and PM_SCREEN_CREDITS landed in the enum with no
+// matching entry in pm_debug.c's array, so every label from "LAB_CINE" on
+// reported the PREVIOUS screen's name — the bounds check there guarded only
+// against running off the end of a too-short array, not against the array
+// being internally misaligned with the enum it labels. The identical bug in
+// the same file's MODEL_NAMES was a NULL format string on the first frame
+// the overlay ran, i.e. a boot crash on every build. Deriving both from one
+// list is what makes that class of defect unrepresentable rather than
+// merely fixed.
+//
+//   X(id, short_name)
+// short_name is what the debug overlay prints; keep it to six characters or
+// so, because the overlay fits the screen name, the timer, the fade and the
+// frame rate onto one 320 px line.
+//
+// Screen-by-screen:
+//   BOOT       fade up from black, no input
+//   TITLE      skull + menu over the drone flyover
+//   ATTRACT    the reel cycles; any button returns to TITLE
+//   FILE       three profiles
+//   NARRATION  the backstory crawl, on an empty slot only
+//   LAB_CINE   Horner in the lab, then into his head
+//   LAB        first person: read, explore, find the MRI
+//   INTAKE     the machine takes him
+//   CREDITS    title card + FMV, before the beach
+//   SUB        the LOACH, rising toward the island
+//   BEACH      the crash, the guards, the reveal
+//   PLAY       the corridor
+#define PM_SCREEN_LIST(X)          \
+    X(PM_SCREEN_BOOT,      "BOOT")      \
+    X(PM_SCREEN_TITLE,     "TITLE")     \
+    X(PM_SCREEN_ATTRACT,   "ATTRACT")   \
+    X(PM_SCREEN_FILE,      "FILE")      \
+    X(PM_SCREEN_NARRATION, "NARRATION") \
+    X(PM_SCREEN_LAB_CINE,  "LAB_CINE")  \
+    X(PM_SCREEN_LAB,       "LAB")       \
+    X(PM_SCREEN_INTAKE,    "INTAKE")    \
+    X(PM_SCREEN_CREDITS,   "CREDITS")   \
+    X(PM_SCREEN_SUB,       "SUB")       \
+    X(PM_SCREEN_BEACH,     "BEACH")     \
+    X(PM_SCREEN_PLAY,      "PLAY")
+
 typedef enum {
-    PM_SCREEN_BOOT = 0,   // fade up from black, no input
-    PM_SCREEN_TITLE,      // skull + menu over the drone flyover
-    PM_SCREEN_ATTRACT,    // the reel cycles; any button returns to TITLE
-    PM_SCREEN_FILE,       // three profiles
-    PM_SCREEN_NARRATION,  // the backstory crawl, on an empty slot only
-    PM_SCREEN_LAB_CINE,   // Horner in the lab, then into his head
-    PM_SCREEN_LAB,        // first person: read, explore, find the MRI
-    PM_SCREEN_INTAKE,     // the machine takes him
-    PM_SCREEN_CREDITS,    // title card + FMV, before the beach
-    PM_SCREEN_SUB,        // the LOACH, rising toward the island
-    PM_SCREEN_BEACH,      // the crash, the guards, the reveal
-    PM_SCREEN_PLAY,
+#define PM_SCREEN_ENUM(id, name) id,
+    PM_SCREEN_LIST(PM_SCREEN_ENUM)
+#undef PM_SCREEN_ENUM
+    PM_SCREEN_COUNT,
 } PMScreen;
 
+/** The overlay label for a screen id, or "?" out of range. Defined in
+ *  pm_screens.c (not pm_debug.c) so it exists in the shipping ROM too —
+ *  the debug boot menu is the other caller, and both want the same names. */
+const char *pm_screen_name(PMScreen s);
+
 /** What one profile holds. Kept small on purpose: EEPROM 4k has 504 usable
- *  bytes and m64_save's `backup` flag doubles every slot, so three slots of
- *  this plus a 4-byte header is the budget (see m64_save.h). */
+ *  bytes and kiln_save's `backup` flag doubles every slot, so three slots of
+ *  this plus a 4-byte header is the budget (see kiln_save.h). */
 // Story bits in PMSaveData.flags.
 //
 // SEEN_REVEAL gates the attract reel. The centaur is the intro's payoff —
@@ -140,8 +186,8 @@ typedef struct PMApp {
     PMScreen       pending_screen;
     uint8_t        pending;
 
-    M64WidgetStyle style;
-    M64Menu        menu;
+    KilnWidgetStyle style;
+    KilnMenu        menu;
 
     // File select.
     uint8_t    slot_used[PM_SAVE_SLOTS];
@@ -161,9 +207,9 @@ typedef struct PMApp {
     // Borrowed from main(), which owns it — the playable lab and PLAY are
     // the same camera, and handing it over rather than keeping a second
     // one is what stops the two from disagreeing about where Horner is.
-    M64FpsCam *fpscam;
+    KilnFpsCam *fpscam;
 
-    int   drone;      // m64_sfx handle for the ambience bed, -1 if missing
+    int   drone;      // kiln_sfx handle for the ambience bed, -1 if missing
     float drone_vol;
 
     // 1 if ANY profile has finished the intro. Read across every slot at
@@ -172,13 +218,13 @@ typedef struct PMApp {
     uint8_t seen_reveal;
 } PMApp;
 
-void pm_app_init(PMApp *app, M64FpsCam *fpscam);
+void pm_app_init(PMApp *app, KilnFpsCam *fpscam);
 
 /** Advance the active screen one frame. Owns the camera, because what
  *  changes between screens IS the camera mode — same division of labour
  *  gg_screens_update documents. Returns the screen after the update. */
-PMScreen pm_screens_update(PMApp *app, const M64Input *in, M64Camera *cam,
-                           M64Scene *scene, PMVeil *veil, float dt);
+PMScreen pm_screens_update(PMApp *app, const KilnInput *in, KilnCamera *cam,
+                           KilnScene *scene, PMVeil *veil, float dt);
 
 /** Draw the active screen's 3D layer. Call inside the 3D pass. */
 void pm_screens_draw3d(PMApp *app);

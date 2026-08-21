@@ -11,7 +11,7 @@ shape droid.py uses for its own two-bone arms, scaled up and simplified to
 just the arms (no chassis/head/legs — the mount itself is the "body" here).
 
 Authored at its own local origin, business end (the claw) generally toward
--Y, so pm_lab.c/pm_demo.c can place the whole pair with one M64Transform
+-Y, so pm_lab.c/pm_demo.c can place the whole pair with one KilnTransform
 next to the MRI bay, the same way draw_at places the centaur — see
 PetaByte-Madness/tools/dank_lab_gen.py for where "next to" actually is.
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # ── palette ──────────────────────────────────────────────────────────────────
 CHASSIS = m.srgb(70, 76, 84)          # gunmetal, matches droid.py's family

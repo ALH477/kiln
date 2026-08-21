@@ -8,7 +8,7 @@
 
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 # The Faust voice object file, passed in via FAUST_VOICE make flag.
 # flake.nix sets: makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ]
@@ -21,7 +21,7 @@ all: live-voice.z64
 $(BUILD_DIR)/live-voice.dfs: $(wildcard filesystem/*)
 $(BUILD_DIR)/live-voice.elf: $(OBJS)
 
-live-voice.z64: N64_ROM_TITLE = "M64 Live Voice"
+live-voice.z64: N64_ROM_TITLE = "Kiln Live Voice"
 live-voice.z64: $(BUILD_DIR)/live-voice.dfs
 
 clean:

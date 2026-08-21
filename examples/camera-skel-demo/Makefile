@@ -6,7 +6,7 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -17,7 +17,7 @@ all: camera-skel-demo.z64
 $(BUILD_DIR)/camera-skel-demo.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
 $(BUILD_DIR)/camera-skel-demo.elf: $(OBJS)
 
-camera-skel-demo.z64: N64_ROM_TITLE = "M64 Camera Skel"
+camera-skel-demo.z64: N64_ROM_TITLE = "Kiln Camera Skel"
 camera-skel-demo.z64: $(BUILD_DIR)/camera-skel-demo.dfs
 
 clean:

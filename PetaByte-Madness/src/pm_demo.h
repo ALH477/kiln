@@ -6,7 +6,7 @@
 // attract reel that cycles when the title is left alone, the submarine
 // pan after the transformation, and the beach where the reveal happens.
 // Each is the same thing — a keyframed eye/look pair driving
-// M64_CAM_CUTSCENE while real geometry draws underneath — so each is a
+// KILN_CAM_CUTSCENE while real geometry draws underneath — so each is a
 // PMDemoShot rather than four hand-rolled camera loops.
 //
 // Modelled on examples/cinematic-demo's 8-keyframe / 60-second script; the
@@ -18,7 +18,7 @@
 // ── These are live scenes, not video ───────────────────────────────────
 // A shot's `draw` runs inside the 3D pass and puts real models on screen;
 // where a shot wants actors, its `setup` spawns them and the normal
-// m64_actor_update_all / m64_actor_draw_all runs underneath. That is the
+// kiln_actor_update_all / kiln_actor_draw_all runs underneath. That is the
 // whole point of the attract reel: the background of the menu is the
 // actual game, not a pre-rendered movie the console plays back.
 //
@@ -33,16 +33,14 @@
 #define PM_DEMO_H
 
 #include <t3d/t3dmath.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_engine.h>
 
-/** One camera keyframe. `t` is seconds from the start of the shot; the
- *  director lerps eye and look between the bracketing pair. */
-typedef struct {
-    float     t;
-    fm_vec3_t eye;
-    fm_vec3_t look;
-} PMCamKey;
+// PMCamKey and the Catmull-Rom through a table of them. Split into their own
+// header so the runtime, the debug overlay and the static validator all fly the
+// SAME curve rather than three that agree by inspection — pm_camkey.h says why
+// that is load-bearing.
+#include "pm_camkey.h"
 
 typedef struct {
     const char     *name;
@@ -74,7 +72,7 @@ typedef struct {
     /** 1 if this shot is outdoors on the island at night. The director
      *  installs pm_env's moonlit rig (lights, fog, clear colour) on the
      *  scene when it applies the frustum — which is before
-     *  m64_scene_begin uploads the lights, and therefore the only place a
+     *  kiln_scene_begin uploads the lights, and therefore the only place a
      *  shot CAN choose its lighting. A shot's draw callback runs after the
      *  upload and is far too late.
      *
@@ -93,7 +91,7 @@ typedef struct {
  *  game — the lab is 631 units across — and a shot that needs the horizon
  *  says so explicitly rather than relying on the default.
  *
- *  m64_scene_init's own default is 10/200, which is 3 m of draw distance
+ *  kiln_scene_init's own default is 10/200, which is 3 m of draw distance
  *  here. Do not let a shot inherit it. */
 #define PM_SHOT_NEAR_Z   10.0f
 #define PM_SHOT_FAR_Z  4000.0f
@@ -125,22 +123,47 @@ int pm_demo_done(void);
 /** Seconds since the shot started (wrapped, when looping). */
 float pm_demo_elapsed(void);
 
+/** 1 if the current shot was started with `loop`. Exposed because it changes
+ *  the CURVE, not just when the shot ends: pm_camkey_sample wraps a looping
+ *  shot's neighbour keys so the seam is as smooth as anywhere else, and clamps
+ *  a one-shot's instead. Anything re-deriving the flown path — pm_debug's
+ *  overlay, pm_cine's seek, the validator — has to be told which. */
+int pm_demo_looping(void);
+
 /** Apply the current shot's near/far to the scene, if it declared any.
- *  Call before m64_scene_update. */
-void pm_demo_apply_frustum(M64Scene *scene);
+ *  Call before kiln_scene_update. */
+void pm_demo_apply_frustum(KilnScene *scene);
 
 /** The scene the director is currently drawing into, or NULL before the
  *  first pm_demo_apply_frustum. For shot draw callbacks that need the eye
  *  position — the sky dome centres on it — without the callback signature
  *  growing a parameter every other shot would ignore. */
-const M64Scene *pm_demo_scene(void);
+const KilnScene *pm_demo_scene(void);
 
 /** Write the interpolated eye/look into `cam` as a CUTSCENE pose. The
- *  caller still owns m64_camera_update / _apply, same division
+ *  caller still owns kiln_camera_update / _apply, same division
  *  examples/cinematic-demo uses. */
-void pm_demo_apply(M64Camera *cam);
+void pm_demo_apply(KilnCamera *cam);
 
 /** Draw the current shot. Call inside the 3D pass. */
 void pm_demo_draw(void);
+
+/** The shot currently playing, or NULL. Read-only.
+ *
+ *  Exposed for pm_debug's spatial overlay, which draws the shot's `keys` as a
+ *  camera path (kiln_dd_path) with a sightline from each eye key to its look
+ *  target. That is worth being able to do for ANY shot rather than for one
+ *  hardcoded in the overlay: every keyframed camera in this game is a PMCamKey
+ *  array, so one accessor covers LAB_CINE, the whole attract reel, the intake,
+ *  the sub and the beach.
+ *
+ *  It also makes a specific, recurring defect visible. pm_demo_apply
+ *  interpolates with a Catmull-Rom spline whose tangent at a key comes from
+ *  that key's TWO neighbours, so a large gap next to a small one drags the
+ *  curve past the small one — the overshoot the intake's own keys carry three
+ *  hand-inserted midpoints to suppress. Drawn, that is a curve visibly bulging
+ *  through a wall; as a table of eye coordinates it is invisible, which is why
+ *  it was found by flying the camera and watching. */
+const PMDemoShot *pm_demo_current(void);
 
 #endif // PM_DEMO_H

@@ -4,7 +4,7 @@
 //
 // Same division of labour the Ganja Goblin project uses: engine modules
 // stay generic, and anything that only means something inside THIS game
-// lives here. m64_actor knows about categories and pools; it does not know
+// lives here. kiln_actor knows about categories and pools; it does not know
 // what a hellhound is.
 
 #ifndef PM_TYPES_H
@@ -15,7 +15,7 @@
 #define PM_SCREEN_W 320
 #define PM_SCREEN_H 240
 
-// Actor profile ids — indices into the one table m64_actor_system_init
+// Actor profile ids — indices into the one table kiln_actor_system_init
 // gets (built by pm_actors.c from each module's own block). The demons
 // come first because they were here first and because pm_demons.c indexes
 // its model table by profile id directly.
@@ -38,7 +38,7 @@ enum {
     PM_PROFILE_COUNT,
 };
 
-// Event ids for m64_event. Kept above 0x20 by the same convention the FPS
+// Event ids for kiln_event. Kept above 0x20 by the same convention the FPS
 // example uses, so engine-internal ids never collide with game ones.
 enum {
     PM_EV_FOOTSTEP    = 0x20,
@@ -46,7 +46,7 @@ enum {
     PM_EV_DEMON_ATTACK = 0x22,
 };
 
-// Surface ids for m64_surface. The lab is steel plate and standing water;
+// Surface ids for kiln_surface. The lab is steel plate and standing water;
 // the flooded sections are the ones you can hear yourself in.
 enum {
     PM_SURF_DEFAULT = 0,
@@ -56,7 +56,7 @@ enum {
 };
 
 // The player. Horner is first-person, so his transform lives in the
-// M64FpsCam and only the gameplay state is here.
+// KilnFpsCam and only the gameplay state is here.
 typedef struct {
     int32_t health;
     int32_t max_health;

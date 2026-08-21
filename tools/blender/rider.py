@@ -35,7 +35,7 @@ goblins, which is what made the trade easy.
 ── The tolerance ──────────────────────────────────────────────────────────
 These offsets are what the vehicles are BUILT to, not a runtime constraint,
 and nothing enforces them at load time — the check is
-tools/blender/test_rider.py, which assembles the goblin in his Ride pose
+tools/blender/blender_test_rider.py, which assembles the goblin in his Ride pose
 against each vehicle on the host and measures how far each hand and foot
 ends up from the control it is supposed to be holding. MAX_SLOP is the
 distance that test allows: about a third of a hand's width, which is close
@@ -68,7 +68,7 @@ TREAD = (0.0, 0.10, -0.13)
 KART_HIP = (0.0, -0.76, 0.62)
 BIKE_HIP = (0.0, -0.58, 1.34)
 
-# How far a hand or foot may land from its control before test_rider.py
+# How far a hand or foot may land from its control before blender_test_rider.py
 # fails. A goblin hand is ~0.24 across, so this is roughly a third of one.
 MAX_SLOP = 0.09
 

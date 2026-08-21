@@ -176,11 +176,11 @@ def check_model(model, data_dir, verbose=False):
               f"{data_dir}`")
         return None
 
-    import m64lib          # noqa: F401  (ease lives here, used via goblin)
+    import kilnlib          # noqa: F401  (ease lives here, used via goblin)
     import importlib.util
     spec = importlib.util.spec_from_file_location("gob", BLENDER / "goblin.py")
     gob = importlib.util.module_from_spec(spec)
-    m = sys.modules["m64lib"]
+    m = sys.modules["kilnlib"]
     m.make_armature = lambda *a, **k: None
     m.make_skinned_mesh = lambda *a, **k: None
     m.make_mesh = lambda *a, **k: None

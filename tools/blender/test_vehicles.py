@@ -27,7 +27,7 @@ against. It uses the property that actually defines orientation instead:
 The bounding box is printed so the size claims in vehicles.py's docstring
 are checked against the geometry rather than remembered.
 
-m64lib imports bpy at module scope but only touches it inside functions, and
+kilnlib imports bpy at module scope but only touches it inside functions, and
 vehicles.py's only bpy contact is make_mesh — so a stub module plus a
 collecting make_mesh is enough to run the whole builder on the host.
 """
@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parent
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 sys.path.insert(0, str(ROOT))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 PARTS = []
 

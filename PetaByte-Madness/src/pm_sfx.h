@@ -17,7 +17,7 @@
 // the DFS ROOT instead — two builders, two conventions, and mixing them
 // up produces silence rather than an error.
 //
-// Until the file exists, m64_sfx_load returns -1, pm_sfx_play does
+// Until the file exists, kiln_sfx_load returns -1, pm_sfx_play does
 // nothing, and the game runs exactly as it does now. So the triggers can
 // be placed and timed against the animation NOW and the sounds dropped in
 // later without touching a line of game code — which is the right order,
@@ -64,7 +64,7 @@ typedef enum {
 } PMSfxId;
 
 /** Load whatever is present. Missing files are not errors — each one
- *  simply stays silent. Call once, after dfs_init and m64_audio_init. */
+ *  simply stays silent. Call once, after dfs_init and kiln_audio_init. */
 void pm_sfx_init(void);
 
 /** Fire a sound. No-op if that sound has no file yet. */
@@ -72,11 +72,18 @@ void pm_sfx_play(PMSfxId id);
 
 /** As pm_sfx_play, with an explicit volume (0..1) and pan (0 = left,
  *  0.5 = centre, 1 = right). For anything positional enough to want it but
- *  not positional enough to deserve m64_sound's full shader path. */
+ *  not positional enough to deserve kiln_sound's full shader path. */
 void pm_sfx_play_at(PMSfxId id, float vol, float pan);
 
 /** How many of the sounds actually loaded — for a boot-time debugf, so a
  *  silent build is visible in the log rather than a mystery. */
 int pm_sfx_loaded_count(void);
+
+/** Swallow every play while `on`. For pm_cine's seek, which re-runs a shot
+ *  from its start at a fixed step to reach an exact time and would otherwise
+ *  dump every cue it crosses into the mixer in a single frame. The cue is
+ *  still recorded to the trace — only the sound is dropped, because the trace
+ *  after a seek should be the shot's full history up to that point. */
+void pm_sfx_mute(int on);
 
 #endif // PM_SFX_H

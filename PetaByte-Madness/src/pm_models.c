@@ -5,29 +5,26 @@
 #include "pm_models.h"
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_engine.h>
 
 static T3DModel *g_models[PM_MODEL_COUNT];
 static uint8_t g_tried[PM_MODEL_COUNT];
 
-// Indexed by PMModelId. Built by tools/blender/pm_props.py and
+// Both tables are generated from PM_MODEL_LIST (pm_models.h), so a new
+// model cannot be added to the enum without also getting a path and an
+// overlay label. Built by tools/blender/pm_props.py and
 // tools/blender/centaur.py; see PetaByte-Madness/docs/ASSET_PIPELINE.md.
+#define PM_MODEL_PATH(id, path, name) [id] = path,
 static const char *const PATHS[PM_MODEL_COUNT] = {
-    [PM_MODEL_ISLAND]  = "rom:/models/island.t3dm",
-    [PM_MODEL_PALMS]   = "rom:/models/palms.t3dm",
-    [PM_MODEL_CENTAUR] = "rom:/models/centaur.t3dm",
-    [PM_MODEL_LOACH]   = "rom:/models/loach.t3dm",
-    // dank_lab.obj, not pm_world.py's procedural box — see pm_lab.h.
-    [PM_MODEL_LAB]     = "rom:/models/dank_lab.t3dm",
-    [PM_MODEL_HORNER]  = "rom:/models/horner.t3dm",
-    [PM_MODEL_LAB_ARMS] = "rom:/models/lab_arms.t3dm",
-    [PM_MODEL_GUARD]   = "rom:/models/guard_cousin.t3dm",
-    // The boot splash. Root of DFS for the jingle, models/ for this.
-    [PM_MODEL_M64_LOGO] = "rom:/models/m64_logo.t3dm",
-    [PM_MODEL_SKYDOME] = "rom:/models/skydome.t3dm",
-    [PM_MODEL_SEA]     = "rom:/models/sea.t3dm",
-    [PM_MODEL_STORM]   = "rom:/models/storm.t3dm",
+    PM_MODEL_LIST(PM_MODEL_PATH)
 };
+#undef PM_MODEL_PATH
+
+#define PM_MODEL_NAME(id, path, name) [id] = name,
+static const char *const NAMES[PM_MODEL_COUNT] = {
+    PM_MODEL_LIST(PM_MODEL_NAME)
+};
+#undef PM_MODEL_NAME
 
 T3DModel *pm_models_get(PMModelId id)
 {
@@ -43,7 +40,7 @@ T3DModel *pm_models_get(PMModelId id)
     // through libdragon's must_open and kills the ROM. Probing first is
     // what actually makes the "NULL is survivable" contract in the header
     // true; without it the first absent model is a boot crash.
-    if (!m64_dfs_exists(PATHS[id])) {
+    if (!kiln_dfs_exists(PATHS[id])) {
         debugf("pm_models: missing %s\n", PATHS[id]);
         return NULL;
     }
@@ -66,6 +63,17 @@ const char *pm_models_path(PMModelId id)
 {
     if (id < 0 || id >= PM_MODEL_COUNT) return NULL;
     return PATHS[id];
+}
+
+const char *pm_models_name(PMModelId id)
+{
+    // "?" rather than NULL: the only caller is a debug overlay that hands
+    // this straight to kiln_gui_text as a format string, and returning NULL
+    // there is precisely the boot crash PM_MODEL_LIST exists to prevent.
+    // A guard that reintroduces the failure it was written to stop is worse
+    // than no guard at all.
+    if (id < 0 || id >= PM_MODEL_COUNT) return "?";
+    return NAMES[id];
 }
 
 void pm_models_close(void)

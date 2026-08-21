@@ -60,6 +60,44 @@ def cv_point(p):
     return (p[0], -p[2], p[1])
 
 
+# ── where the model's origin is ─────────────────────────────────────────────
+# The ROOT BONE, not the feet, and this is load-bearing.
+#
+# ph_rig.py measures everything from the ground: JOINTS[0] puts "root" at
+# (0, 96, 0) cm, so the mesh's own space has the feet at y=0. Exported as-is,
+# the glTF's origin is the point on the floor between his feet — and every
+# consumer of this model in PetaByte Madness is written against the opposite
+# convention, because they inherited it from the RIGID model this rig replaced:
+#
+#   * pm_intake.c places him at POS_STAND_Y, whose own comment reads "standing
+#     hip height", and its value is 61.44 world units = 96 cm exactly.
+#   * pm_intake.c's ROOT[] table is transcribed from patrick_horner_gen's s16
+#     header at 8 units/cm, and its y column is 768 -> 800, i.e. 96 cm -> 100
+#     cm. That is the root bone's height, barely moving, exactly as its comment
+#     says.
+#   * That table's `pitch` lays him flat on the slab, and kiln_transform_push
+#     rotates about the MODEL ORIGIN (rotate, then scale, then translate — no
+#     pivot offset). Rotating a standing body 90 degrees about its hip lays it
+#     down. Rotating it about the point between its feet fells it like a tree.
+#
+# Exported feet-first, the arithmetic is unambiguous and was: feet 61.44 world
+# units above a floor at 0, head at 174 through a ceiling at 160 — a man
+# floating a metre in the air for the whole intake sequence, which is why the
+# shot framed at him kept photographing empty room.
+#
+# So the origin moves to the root bone here, once, and every consumer above is
+# correct by construction rather than by each one applying its own offset. The
+# shift is uniform, so it changes no PARENT-RELATIVE offset and no rotation:
+# verify() below compares against ph_rig.py's own rig.local, which is untouched
+# by it, and remains a genuine independent check.
+ROOT_PIVOT = JOINTS[0][2]           # ("root", None, (0.0, 96.0, 0.0), "torso")
+
+
+def rebase(p):
+    """Generator-space point, moved so the root bone is the origin."""
+    return tuple(p[i] - ROOT_PIVOT[i] for i in range(3))
+
+
 def cv_euler(rx, ry, rz):
     """Generator Euler (Rx·Ry·Rz, degrees) -> Blender 'YZX' Euler, degrees."""
     return (rx, -rz, ry)
@@ -70,12 +108,12 @@ def build_bones(rig):
     return [{
         "name": name,
         "parent": JOINTS[i][1],
-        "pivot": [c * UNIT_SCALE for c in cv_point(rig.pivot[i])],
+        "pivot": [c * UNIT_SCALE for c in cv_point(rebase(rig.pivot[i]))],
     } for i, name in enumerate(NAMES)]
 
 
 def build_mesh(rig):
-    verts = [[c * UNIT_SCALE for c in cv_point(v)] for v in rig.rest]
+    verts = [[c * UNIT_SCALE for c in cv_point(rebase(v))] for v in rig.rest]
     colors = [_srgb(*c) for c in rig.col]
     uvs = [list(uv) for uv in rig.uv]
     vert_bone = [NAMES[int(j)] for j in rig.bind_of]
@@ -94,10 +132,10 @@ def build_mesh(rig):
 
 
 def _srgb(r, g, b, a=255):
-    """0-255 sRGB -> linear floats, matching tools/blender/m64lib.py's srgb().
+    """0-255 sRGB -> linear floats, matching tools/blender/kilnlib.py's srgb().
     Duplicated rather than imported: this script runs under a bare python3
     (mc_rig_export.py's discipline — no bpy, testable without Blender), and
-    m64lib.py imports bpy at module scope."""
+    kilnlib.py imports bpy at module scope."""
     gamma = 2.2
     return [(r / 255.0) ** gamma, (g / 255.0) ** gamma,
             (b / 255.0) ** gamma, a / 255.0]
@@ -147,6 +185,12 @@ def build():
         "source": "ph_rig.py + ph_anim_clips.py",
         "euler_order": BLENDER_EULER_ORDER,
         "unit_scale": UNIT_SCALE,
+        # How far above the soles the model origin sits, in Blender metres.
+        # PUBLISHED rather than left implicit because the game has to know it
+        # to stand him on a floor: pm_lab.h's PM_HORNER_HIP_Y is this number
+        # times the world scale, and nix/checks/pm-rigs.nix asserts the two
+        # agree so the rebase above and the C constant cannot drift apart.
+        "origin_height": ROOT_PIVOT[1] * UNIT_SCALE,
         "bones": build_bones(rig),
         "anims": build_anims(),
         "mesh": build_mesh(rig),

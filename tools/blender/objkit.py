@@ -13,7 +13,7 @@ files this has to read:
     imports those, and into which attribute, is exactly the kind of thing that
     silently changes under a nixpkgs bump and comes out as a grey model.
   * **Materials.** gltf_to_t3d keys its material table by name and silently
-    DROPS primitives whose material is missing (m64lib.make_material's note).
+    DROPS primitives whose material is missing (kilnlib.make_material's note).
     The importer's naming is its own business; this way the names are ours.
 
 Everything here is plain Python with no `bpy` import, so it is testable with a

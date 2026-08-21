@@ -42,17 +42,26 @@
     {    3968.0f,   153.6f,   -6872.8f,  300.0f }, \
 }
 
-// ── The lab (unused) ─────────────────────────────────────────────────
+// ── The island's own procedural lab (unused) ─────────────────────────
 // The interior box of THIS generator's procedural build_lab(), which
 // is not what ships as PM_MODEL_LAB — that's dank_lab.obj, whose real
 // extents live in PetaByte-Madness/src/pm_lab.h (PM_LAB_REAL_*) and are
 // what pm_lab.c's collision and pm_demo's/pm_intake's cameras actually
 // use. These describe a room nothing currently draws.
-#define PM_LAB_X0  -329.6f
-#define PM_LAB_X1  329.6f
-#define PM_LAB_Y0  -35.2f
-#define PM_LAB_Y1  185.6f
-#define PM_LAB_Z0  -1097.6f
-#define PM_LAB_Z1  201.6f
+//
+// PM_WORLD_LAB_*, NOT PM_LAB_*. These used to be spelled PM_LAB_X0..Z1,
+// which is exactly what dank_lab_gen.py emits into pm_lab_gen.h — with
+// DIFFERENT numbers (-329.6 here against -451.8 there). Five files
+// include both headers, so which room PM_LAB_REAL_X0 described came down
+// to include order, silently, with only a -Wmacro-redefined warning
+// nobody reads in a build that ships -Wno-error. Two generators must not
+// publish the same name; the one whose room nothing draws is the one
+// that gives it up.
+#define PM_WORLD_LAB_X0  -329.6f
+#define PM_WORLD_LAB_X1  329.6f
+#define PM_WORLD_LAB_Y0  -35.2f
+#define PM_WORLD_LAB_Y1  185.6f
+#define PM_WORLD_LAB_Z0  -1097.6f
+#define PM_WORLD_LAB_Z1  201.6f
 
 #endif // PM_WORLD_GEN_H

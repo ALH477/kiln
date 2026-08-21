@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// texanim-demo: exercises m64_texanim and m64_vanim in one frame.
+// texanim-demo: exercises kiln_texanim and kiln_vanim in one frame.
 //
-//   1. Scrolling UV water plane  — M64_TEXANIM_SCROLL (tile callback)
-//   2. Waving flag              — M64Deform (procedural vertex deformation)
-//   3. Morphing blob            — M64Morph (CPU vertex lerp between 3 targets)
-//   4. Cel-shaded cube          — M64_VFX_CELSHADE_COLOR (RSP vertex FX)
-//   5. Env-mapped sphere        — M64_VFX_SPHERICAL_UV (RSP vertex FX)
+//   1. Scrolling UV water plane  — KILN_TEXANIM_SCROLL (tile callback)
+//   2. Waving flag              — KilnDeform (procedural vertex deformation)
+//   3. Morphing blob            — KilnMorph (CPU vertex lerp between 3 targets)
+//   4. Cel-shaded cube          — KILN_VFX_CELSHADE_COLOR (RSP vertex FX)
+//   5. Env-mapped sphere        — KILN_VFX_SPHERICAL_UV (RSP vertex FX)
 //
 // All geometry is hand-built (no .t3dm asset pipeline needed), matching the
 // convention of examples/engine. The demo cycles through modes with the
 // D-pad; A toggles the active effect.
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_texanim.h>
-#include <m64/m64_vanim.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_texanim.h>
+#include <kiln/kiln_vanim.h>
 
 #include <malloc.h>
 #include <string.h>
@@ -85,7 +85,7 @@ static void water_draw(float dt)
     g_water_scroll_s += 8.0f * dt;
     g_water_scroll_t += 6.0f * dt;
 
-    m64_transform_push(&(M64Transform){
+    kiln_transform_push(&(KilnTransform){
         .pos = { { -60, -20, 0 } },
         .scale = { { 1, 1, 1 } },
         .rot_axis = { { 0, 1, 0 } },
@@ -103,12 +103,12 @@ static void water_draw(float dt)
         }
     }
     t3d_tri_sync();
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Flag (procedural deformation demo) ────────────────────────────────
 // A grid mesh whose Y positions are displaced by a sine wave each frame.
-// Uses m64_deform to demonstrate the CPU vertex buffer modification pattern.
+// Uses kiln_deform to demonstrate the CPU vertex buffer modification pattern.
 
 #define FLAG_GRID_X 10
 #define FLAG_GRID_Y 6
@@ -153,7 +153,7 @@ static void flag_update(float dt)
 
 static void flag_draw(void)
 {
-    m64_transform_push(&(M64Transform){
+    kiln_transform_push(&(KilnTransform){
         .pos = { { 20, 10, -20 } },
         .scale = { { 1, 1, 1 } },
         .rot_axis = { { 0, 1, 0 } },
@@ -171,12 +171,12 @@ static void flag_draw(void)
         }
     }
     t3d_tri_sync();
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Morphing blob (morph target demo) ─────────────────────────────────
 // Three shapes: cube, "tall cube", "wide cube". Blended by sine waves.
-// Demonstrates the CPU vertex lerp pattern from m64_morph.
+// Demonstrates the CPU vertex lerp pattern from kiln_morph.
 
 #define BLOB_VERTS 8
 static T3DVertPacked *g_blob_base;
@@ -254,7 +254,7 @@ static void blob_draw(void)
         {0,2,1},{1,2,3},{4,5,6},{5,7,6},{0,4,2},{4,6,2},
         {1,3,5},{3,7,5},{0,1,4},{1,5,4},{2,6,3},{3,6,7},
     };
-    m64_transform_push(&(M64Transform){
+    kiln_transform_push(&(KilnTransform){
         .pos = { { 60, 10, 0 } },
         .scale = { { 1, 1, 1 } },
         .rot_axis = { { 0, 1, 0 } },
@@ -264,7 +264,7 @@ static void blob_draw(void)
     for (int i = 0; i < 12; i++)
         t3d_tri_draw(tris[i][0], tris[i][1], tris[i][2]);
     t3d_tri_sync();
-    m64_transform_pop();
+    kiln_transform_pop();
 }
 
 // ── Cel-shaded cube (RSP vertex FX demo) ──────────────────────────────
@@ -296,24 +296,24 @@ static void cel_cube_draw(float dt)
         {0,2,1},{1,2,3},{4,5,6},{5,7,6},{0,4,2},{4,6,2},
         {1,3,5},{3,7,5},{0,1,4},{1,5,4},{2,6,3},{3,6,7},
     };
-    m64_transform_push(&(M64Transform){
+    kiln_transform_push(&(KilnTransform){
         .pos = { { 0, 30, -30 } },
         .scale = { { 1, 1, 1 } },
         .rot_axis = { { 0, 1, 0 } },
         .rot_angle = g_cel_rot,
     });
-    if (g_cel_on) m64_vfx_set(M64_VFX_CELSHADE_COLOR, 0, 0);
+    if (g_cel_on) kiln_vfx_set(KILN_VFX_CELSHADE_COLOR, 0, 0);
     t3d_vert_load(g_cel_cube, 0, BLOB_VERTS);
     for (int i = 0; i < 12; i++)
         t3d_tri_draw(tris[i][0], tris[i][1], tris[i][2]);
     t3d_tri_sync();
-    if (g_cel_on) m64_vfx_clear();
-    m64_transform_pop();
+    if (g_cel_on) kiln_vfx_clear();
+    kiln_transform_pop();
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
 
-static M64Scene g_scene;
+static KilnScene g_scene;
 static float g_spin;
 
 int main(void)
@@ -322,10 +322,10 @@ int main(void)
     display_init(RESOLUTION_320x240, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
     dfs_init(DFS_DEFAULT_LOCATION);
 
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
-    m64_input_init();
-    m64_scene_init(&g_scene);
+    kiln_input_init();
+    kiln_scene_init(&g_scene);
 
     g_scene.cam_pos   = (fm_vec3_t){{ 0, 20, -90 }};
     g_scene.cam_target = (fm_vec3_t){{ 0, 0, 0 }};
@@ -348,12 +348,12 @@ int main(void)
     const int mode_count = sizeof(mode_names) / sizeof(mode_names[0]);
 
     while (1) {
-        m64_input_update();
-        const M64Input *in = m64_input_get(1);
+        kiln_input_update();
+        const KilnInput *in = kiln_input_get(1);
 
-        if (in->edges & M64_BTN_DL)  { mode--; if (mode < 0) mode = mode_count - 1; }
-        if (in->edges & M64_BTN_DR) { mode++; if (mode >= mode_count) mode = 0; }
-        if (in->edges & M64_BTN_A) g_cel_on = !g_cel_on;
+        if (in->edges & KILN_BTN_DL)  { mode--; if (mode < 0) mode = mode_count - 1; }
+        if (in->edges & KILN_BTN_DR) { mode++; if (mode >= mode_count) mode = 0; }
+        if (in->edges & KILN_BTN_A) g_cel_on = !g_cel_on;
 
         g_spin += DT;
 
@@ -362,9 +362,9 @@ int main(void)
         blob_update(DT);
 
         // 3D pass
-        m64_scene_update(&g_scene);
-        m64_frame_begin();
-        m64_scene_begin(&g_scene);
+        kiln_scene_update(&g_scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&g_scene);
 
         if (mode == 0 || mode == 1) water_draw(DT);
         if (mode == 0 || mode == 2) flag_draw();
@@ -372,13 +372,13 @@ int main(void)
         if (mode == 0 || mode == 4) cel_cube_draw(DT);
 
         // 2D pass
-        m64_gui_begin();
+        kiln_gui_begin();
         char buf[64];
         snprintf(buf, sizeof(buf), "Mode: %s", mode_names[mode]);
-        m64_gui_text(8, 8, (color_t){ 255, 255, 255, 255 }, "%s", buf);
-        m64_gui_text(8, 22, (color_t){ 200, 200, 200, 255 }, "%s", "L/R: mode  A: toggle cel");
-        m64_gui_end();
+        kiln_gui_text(8, 8, (color_t){ 255, 255, 255, 255 }, "%s", buf);
+        kiln_gui_text(8, 22, (color_t){ 200, 200, 200, 255 }, "%s", "L/R: mode  A: toggle cel");
+        kiln_gui_end();
 
-        m64_frame_end();
+        kiln_frame_end();
     }
 }

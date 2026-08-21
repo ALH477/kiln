@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 WHITE = m.srgb(255, 255, 255)
 

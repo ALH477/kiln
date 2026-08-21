@@ -31,9 +31,9 @@
 
 #include <libdragon.h>
 #include <t3d/t3dmodel.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_audio.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_audio.h>
 
 #include <malloc.h>
 
@@ -86,8 +86,8 @@ static bool  blip_cine_armed = false; /* one blip at time_in_mode == 1s in CINEM
 static T3DModel    *g_ship;
 static int          g_blip   = -1;
 static int          g_music  = -1;
-static M64Scene     g_scene;
-static M64Transform g_ship_xform;
+static KilnScene     g_scene;
+static KilnTransform g_ship_xform;
 
 /* ── Streak ribbon (2 triangles, 4 verts = 2 packed structs) ─────────── */
 
@@ -197,18 +197,18 @@ static const uint8_t CUBE_TRIS[12][3] = {
 static void draw_stars(void)
 {
     for (int i = 0; i < STAR_COUNT; i++) {
-        M64Transform t;
-        m64_transform_init(&t);
+        KilnTransform t;
+        kiln_transform_init(&t);
         t.pos = g_stars[i];
         t.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
-        m64_transform_push(&t);
+        kiln_transform_push(&t);
         t3d_vert_load(g_cube_star, 0, 8);
         for (int j = 0; j < 12; j++) {
             t3d_tri_draw(CUBE_TRIS[j][0], CUBE_TRIS[j][1], CUBE_TRIS[j][2]);
         }
         t3d_tri_sync();
-        m64_transform_pop();
-        m64_transform_free(&t);
+        kiln_transform_pop();
+        kiln_transform_free(&t);
     }
 }
 
@@ -339,25 +339,25 @@ static void compute_mode_state(ModeState *s)
 static void draw_title_screen(void)
 {
     /* Full-screen dark backdrop. */
-    m64_gui_rect(0, 0, SCREEN_W, SCREEN_H, RGBA32(8, 10, 24, 255));
+    kiln_gui_rect(0, 0, SCREEN_W, SCREEN_H, RGBA32(8, 10, 24, 255));
     /* Inner border panel. */
-    m64_gui_panel(4, 4, SCREEN_W - 8, SCREEN_H - 8,
+    kiln_gui_panel(4, 4, SCREEN_W - 8, SCREEN_H - 8,
                   RGBA32(0, 0, 0, 0), RGBA32(0, 245, 212, 255));
 
     const color_t white = RGBA32(232, 232, 240, 255);
     const color_t cyan  = RGBA32(0, 245, 212, 255);
     const color_t dim   = RGBA32(160, 170, 200, 255);
 
-    m64_gui_text(24, 70,  cyan,  "M64");
-    m64_gui_text(24, 90,  cyan,  "INTERCEPTOR DEMO");
-    m64_gui_text(24, 120, white, "ALH477");
-    m64_gui_text(24, 140, white, "not sponsored or endorsed by ModRetro");
-    m64_gui_text(24, 160, white, "MPL-2.0 licensed engine");
-    m64_gui_text(24, 180, white, "a mix of the Ocarina of Time");
-    m64_gui_text(24, 192, white, "and IdTech4 engine for M64");
-    m64_gui_text(24, 210, dim,   "engine processes your assets + code");
-    m64_gui_text(24, 222, dim,   "like IdTech does");
-    m64_gui_text(24, SCREEN_H - 18, cyan, "press any button");
+    kiln_gui_text(24, 70,  cyan,  "Kiln");
+    kiln_gui_text(24, 90,  cyan,  "INTERCEPTOR DEMO");
+    kiln_gui_text(24, 120, white, "ALH477");
+    kiln_gui_text(24, 140, white, "not sponsored or endorsed by ModRetro");
+    kiln_gui_text(24, 160, white, "MPL-2.0 licensed engine");
+    kiln_gui_text(24, 180, white, "a mix of the Ocarina of Time");
+    kiln_gui_text(24, 192, white, "and IdTech4 engine for Kiln");
+    kiln_gui_text(24, 210, dim,   "engine processes your assets + code");
+    kiln_gui_text(24, 222, dim,   "like IdTech does");
+    kiln_gui_text(24, SCREEN_H - 18, cyan, "press any button");
 }
 
 /* ── HUD: in-flight ──────────────────────────────────────────────────── */
@@ -370,21 +370,21 @@ static void draw_hud(int fps_int_x10)
     const color_t violet = RGBA32(232, 84, 138, 255);
 
     /* Top-left: lineage block. */
-    m64_gui_panel(8, 8, 192, 64, RGBA32(10, 10, 24, 200), cyan);
-    m64_gui_text(14, 18, cyan,  "M64 ENGINE");
-    m64_gui_text(14, 30, white, "OoT camera + idTech4 lighting");
-    m64_gui_text(14, 42, white, "Tiny3D on RSP");
-    m64_gui_text(14, 58, dim,   "fps %2d.%d", fps_int_x10 / 10, fps_int_x10 % 10);
+    kiln_gui_panel(8, 8, 192, 64, RGBA32(10, 10, 24, 200), cyan);
+    kiln_gui_text(14, 18, cyan,  "KILN ENGINE");
+    kiln_gui_text(14, 30, white, "OoT camera + idTech4 lighting");
+    kiln_gui_text(14, 42, white, "Tiny3D on RSP");
+    kiln_gui_text(14, 58, dim,   "fps %2d.%d", fps_int_x10 / 10, fps_int_x10 % 10);
 
     /* Top-right: mode label. */
-    m64_gui_panel(SCREEN_W - 104, 8, 96, 40, RGBA32(10, 10, 24, 200), cyan);
-    m64_gui_text(SCREEN_W - 98, 18, cyan,  "MODE %s", MODE_NAME[mode]);
-    m64_gui_text(SCREEN_W - 98, 32, white, "t %4.1f/%4.1f", time_in_mode, MODE_PERIOD[mode]);
+    kiln_gui_panel(SCREEN_W - 104, 8, 96, 40, RGBA32(10, 10, 24, 200), cyan);
+    kiln_gui_text(SCREEN_W - 98, 18, cyan,  "MODE %s", MODE_NAME[mode]);
+    kiln_gui_text(SCREEN_W - 98, 32, white, "t %4.1f/%4.1f", time_in_mode, MODE_PERIOD[mode]);
 
     /* Bottom: credit strip. */
-    m64_gui_panel(8, SCREEN_H - 32, SCREEN_W - 16, 24, RGBA32(10, 10, 24, 200), violet);
-    m64_gui_text(14, SCREEN_H - 22, white, "ALH477  *  MPL-2.0  *  not sponsored by ModRetro");
-    m64_gui_text(14, SCREEN_H - 10, dim,   "engine processes your assets + code like IdTech does");
+    kiln_gui_panel(8, SCREEN_H - 32, SCREEN_W - 16, 24, RGBA32(10, 10, 24, 200), violet);
+    kiln_gui_text(14, SCREEN_H - 22, white, "ALH477  *  MPL-2.0  *  not sponsored by ModRetro");
+    kiln_gui_text(14, SCREEN_H - 10, dim,   "engine processes your assets + code like IdTech does");
 }
 
 /* ── main ────────────────────────────────────────────────────────────── */
@@ -392,23 +392,23 @@ static void draw_hud(int fps_int_x10)
 int main(void)
 {
     /* ── 1. Engine + display + DFS. */
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
     asset_init_compression(2); /* matches mkasset -c 2 (see nix/assets.nix) */
 
     /* ── 2. Audio (deferred play until title exit). */
-    m64_audio_init(M64_AUDIO_DEFAULT);
-    g_blip  = m64_sfx_load("rom:/sfx/blip.wav64");
-    g_music = m64_music_load("rom:/music/test.xm64");
+    kiln_audio_init(KILN_AUDIO_DEFAULT);
+    g_blip  = kiln_sfx_load("rom:/sfx/blip.wav64");
+    g_music = kiln_music_load("rom:/music/test.xm64");
 
     /* ── 3. Model + scene. */
     g_ship = t3d_model_load("rom:/models/interceptor.t3dm");
-    m64_transform_init(&g_ship_xform);
+    kiln_transform_init(&g_ship_xform);
     make_streak_ribbon();
     g_cube_star = make_star_cube();
 
-    m64_scene_init(&g_scene);
+    kiln_scene_init(&g_scene);
     g_scene.far_z = 800.0f; /* default 400, bumped to fit the 600-unit star shell */
 
     /* ── 4. Frame state. */
@@ -429,19 +429,19 @@ int main(void)
             if (title_t >= 3.0f || any_input) {
                 in_title = false;
                 if (g_music >= 0) {
-                    m64_music_play(g_music);
-                    m64_music_set_volume(g_music, 0.7f);
+                    kiln_music_play(g_music);
+                    kiln_music_set_volume(g_music, 0.7f);
                 }
                 /* Arm the first-mode blip. */
                 blip_armed = true;
             }
 
-            m64_frame_begin();
-            m64_gui_begin();
+            kiln_frame_begin();
+            kiln_gui_begin();
             draw_title_screen();
-            m64_gui_end();
-            m64_frame_end();
-            m64_audio_update();
+            kiln_gui_end();
+            kiln_frame_end();
+            kiln_audio_update();
             continue;
         }
 
@@ -461,13 +461,13 @@ int main(void)
 
         /* ── One blip on mode entry, one extra on CINEMATIC at 1s. */
         if (blip_armed && blip_beat_t <= 0.0f) {
-            m64_sfx_play(g_blip, -1, 1);
+            kiln_sfx_play(g_blip, -1, 1);
             blip_beat_t = 0.20f;
             blip_armed = false;
         }
         if (blip_cine_armed && mode == MODE_CINEMATIC &&
             time_in_mode >= 1.0f && time_in_mode < 1.0f + DT) {
-            m64_sfx_play(g_blip, -1, 1);
+            kiln_sfx_play(g_blip, -1, 1);
             blip_cine_armed = false;
         }
 
@@ -484,8 +484,8 @@ int main(void)
         }
 
         /* ── 3D pass. */
-        m64_frame_begin();
-        m64_scene_begin(&g_scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&g_scene);
 
         /* Update + push the ship transform. Streaks ride along — their
          * engine-mouth offsets are baked into the verts, so they share
@@ -494,7 +494,7 @@ int main(void)
         g_ship_xform.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
         g_ship_xform.rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
         g_ship_xform.rot_angle = ms.ship_yaw;
-        m64_transform_push(&g_ship_xform);
+        kiln_transform_push(&g_ship_xform);
         t3d_model_draw(g_ship);
         /* Two engine streaks inside the same push so they inherit
          * the ship's rotation/position. No nested xform needed —
@@ -505,18 +505,18 @@ int main(void)
         for (int i = 0; i < 2; i++) {
             draw_streak(i, ms.streak_length, streak_rgba);
         }
-        m64_transform_pop();
+        kiln_transform_pop();
 
         /* Stars (drawn after the ship so they sit behind it visually,
          * though Z-buffering handles that in practice). */
         draw_stars();
 
         /* ── 2D HUD. */
-        m64_gui_begin();
+        kiln_gui_begin();
         draw_hud(fps_int_x10);
-        m64_gui_end();
+        kiln_gui_end();
 
-        m64_frame_end();
-        m64_audio_update();
+        kiln_frame_end();
+        kiln_audio_update();
     }
 }

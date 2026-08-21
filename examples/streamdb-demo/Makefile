@@ -8,13 +8,13 @@
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
-# streamdb.mk BEFORE m64.mk: both prepend to N64_LDFLAGS, so the later
-# include wins the leftmost slot. m64_asset.o (in libm64) calls into
+# streamdb.mk BEFORE kiln.mk: both prepend to N64_LDFLAGS, so the later
+# include wins the leftmost slot. kiln_asset.o (in libkiln) calls into
 # libstreamdb_emb, and streamdb_io_dfs.o calls back into libdragon — so the
-# correct link order is -lm64 -lstreamdb_emb -lt3d -ldragon, which means
-# m64.mk must run AFTER streamdb.mk.
+# correct link order is -lkiln -lstreamdb_emb -lt3d -ldragon, which means
+# kiln.mk must run AFTER streamdb.mk.
 include $(N64_INST)/include/streamdb.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
@@ -25,7 +25,7 @@ all: streamdb-demo.z64
 $(BUILD_DIR)/streamdb-demo.dfs: $(wildcard filesystem/*)
 $(BUILD_DIR)/streamdb-demo.elf: $(OBJS)
 
-streamdb-demo.z64: N64_ROM_TITLE = "M64 StreamDB"
+streamdb-demo.z64: N64_ROM_TITLE = "Kiln StreamDB"
 streamdb-demo.z64: $(BUILD_DIR)/streamdb-demo.dfs
 
 clean:

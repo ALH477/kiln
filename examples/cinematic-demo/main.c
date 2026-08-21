@@ -12,45 +12,45 @@
 //
 // Engine subsystems exercised (one per comment line, mapping to the demo
 // spine in CLAUDE.md):
-//   m64_engine       -> m64_frame_begin / m64_scene_begin / m64_frame_end
-//   m64_input        -> polled but unused (cinematic, no input)
-//   m64_audio        -> music on/off, SFX
-//   m64_surface      -> stone vs metal footstep SFX
-//   m64_sound        -> positional sound shaders
-//   m64_dict         -> entity spawn args (radius/phase/path/speed)
-//   m64_map          -> assets/hangar.map -> brushes + spawns (baked to
+//   kiln_engine       -> kiln_frame_begin / kiln_scene_begin / kiln_frame_end
+//   kiln_input        -> polled but unused (cinematic, no input)
+//   kiln_audio        -> music on/off, SFX
+//   kiln_surface      -> stone vs metal footstep SFX
+//   kiln_sound        -> positional sound shaders
+//   kiln_dict         -> entity spawn args (radius/phase/path/speed)
+//   kiln_map          -> assets/hangar.map -> brushes + spawns (baked to
 //                        rom:/maps/hangar-map.map by mkRawAsset's name/extension)
-//   m64_clip         -> m64_clip_set_world (collision for player + physics)
-//   m64_physics      -> crates that fall and stack
-//   m64_event        -> 500 ms-delayed DOOR_OPEN to the door actor
-//   m64_actor        -> profiles + category draw order
-//   m64_target       -> auto-lock on the lead alien at t=30s
-//   m64_room         -> single room, AABB-overlap streaming (exercised trivially)
-//   m64_camera       -> CUTSCENE mode with 7 keyframed eye/look pairs
-//   m64_skel         -> goblin's Idle / Walk skeletal animations
-//   m64_player       -> goblin's locomotion (it's the "player", off-axis)
+//   kiln_clip         -> kiln_clip_set_world (collision for player + physics)
+//   kiln_physics      -> crates that fall and stack
+//   kiln_event        -> 500 ms-delayed DOOR_OPEN to the door actor
+//   kiln_actor        -> profiles + category draw order
+//   kiln_target       -> auto-lock on the lead alien at t=30s
+//   kiln_room         -> single room, AABB-overlap streaming (exercised trivially)
+//   kiln_camera       -> CUTSCENE mode with 7 keyframed eye/look pairs
+//   kiln_skel         -> goblin's Idle / Walk skeletal animations
+//   kiln_player       -> goblin's locomotion (it's the "player", off-axis)
 
 #include <libdragon.h>
 #include <exception.h>
 #include <t3d/t3dmodel.h>
 
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_actor.h>
-#include <m64/m64_event.h>
-#include <m64/m64_audio.h>
-#include <m64/m64_surface.h>
-#include <m64/m64_sound.h>
-#include <m64/m64_dict.h>
-#include <m64/m64_map.h>
-#include <m64/m64_clip.h>
-#include <m64/m64_physics.h>
-#include <m64/m64_player.h>
-#include <m64/m64_target.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_skel.h>
-#include <m64/m64_room.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_actor.h>
+#include <kiln/kiln_event.h>
+#include <kiln/kiln_audio.h>
+#include <kiln/kiln_surface.h>
+#include <kiln/kiln_sound.h>
+#include <kiln/kiln_dict.h>
+#include <kiln/kiln_map.h>
+#include <kiln/kiln_clip.h>
+#include <kiln/kiln_physics.h>
+#include <kiln/kiln_player.h>
+#include <kiln/kiln_target.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_skel.h>
+#include <kiln/kiln_room.h>
 
 #include <malloc.h>
 #include <string.h>
@@ -78,14 +78,14 @@ enum {
 
 // ── Pools ───────────────────────────────────────────────────────────────
 #define ACTOR_POOL_CAP 16
-static M64Actor g_pool[ACTOR_POOL_CAP];
+static KilnActor g_pool[ACTOR_POOL_CAP];
 
 // ── Asset handles ───────────────────────────────────────────────────────
 static T3DModel *g_ship_model;
 static T3DModel *g_goblin_model;
 static T3DModel *g_droid_model;
 static T3DModel *g_alien_model;
-static M64Skel   g_goblin_skel;        // single global skeleton for the goblin
+static KilnSkel   g_goblin_skel;        // single global skeleton for the goblin
 
 // Audio
 static int g_music;
@@ -95,7 +95,7 @@ static int g_sfx_step;
 static int g_sfx_thump;                // crate-tumble SFX (reused blip)
 
 // Map + clip
-static M64Map g_map;
+static KilnMap g_map;
 
 // ── Last known scene state (for the exception log) ─────────────────────
 // Updated each successful frame so that if the cinematic crashes the
@@ -109,19 +109,19 @@ static volatile float    g_cine_look[3];
 
 // Physics
 #define CRATE_MAX 6
-static M64PhysicsWorld g_pworld;
-static M64PhysicsBody g_bodies[CRATE_MAX];
+static KilnPhysicsWorld g_pworld;
+static KilnPhysicsBody g_bodies[CRATE_MAX];
 
 // Scene
-static M64Scene  g_scene;
-static M64Camera g_cam;
+static KilnScene  g_scene;
+static KilnCamera g_cam;
 
 // Actor handles (set during spawn, read per frame)
-static M64ActorHandle g_player_h    = M64_ACTOR_HANDLE_NONE;
-static M64ActorHandle g_droid_h[2]  = { M64_ACTOR_HANDLE_NONE, M64_ACTOR_HANDLE_NONE };
-static M64ActorHandle g_alien_h[2]  = { M64_ACTOR_HANDLE_NONE, M64_ACTOR_HANDLE_NONE };
-static M64ActorHandle g_door_h      = M64_ACTOR_HANDLE_NONE;
-static M64ActorHandle g_target_lock = M64_ACTOR_HANDLE_NONE;
+static KilnActorHandle g_player_h    = KILN_ACTOR_HANDLE_NONE;
+static KilnActorHandle g_droid_h[2]  = { KILN_ACTOR_HANDLE_NONE, KILN_ACTOR_HANDLE_NONE };
+static KilnActorHandle g_alien_h[2]  = { KILN_ACTOR_HANDLE_NONE, KILN_ACTOR_HANDLE_NONE };
+static KilnActorHandle g_door_h      = KILN_ACTOR_HANDLE_NONE;
+static KilnActorHandle g_target_lock = KILN_ACTOR_HANDLE_NONE;
 
 // ── Per-frame timing ────────────────────────────────────────────────────
 static float scene_t = 0.0f;       // 0..LOOP_T, resets at LOOP_T
@@ -175,15 +175,15 @@ typedef struct { float path_t; float speed; int path_id; } AlienState;
 typedef struct { float cur_yaw; float target_yaw; int open; } DoorState;
 
 // ── Droid ───────────────────────────────────────────────────────────────
-static void droid_init(M64Actor *self, const M64Dict *spawn_args)
+static void droid_init(KilnActor *self, const KilnDict *spawn_args)
 {
     DroidState *s = (DroidState *)self->state;
     s->orbit_angle = 0.0f;
-    s->orbit_radius = (float)m64_dict_get_int(spawn_args, "radius", 30);
-    s->orbit_phase  = (float)m64_dict_get_int(spawn_args, "phase", 0) * (M_PI / 180.0f);
+    s->orbit_radius = (float)kiln_dict_get_int(spawn_args, "radius", 30);
+    s->orbit_phase  = (float)kiln_dict_get_int(spawn_args, "phase", 0) * (M_PI / 180.0f);
 }
 
-static void droid_update(M64Actor *self, float dt)
+static void droid_update(KilnActor *self, float dt)
 {
     DroidState *s = (DroidState *)self->state;
     s->orbit_angle += 0.6f * dt;        // ~34°/sec
@@ -201,23 +201,23 @@ static void droid_update(M64Actor *self, float dt)
     self->xform.rot_angle = -a + M_PI * 0.5f;
 }
 
-static void droid_draw(M64Actor *self)
+static void droid_draw(KilnActor *self)
 {
     (void)self;
     t3d_model_draw(g_droid_model);
 }
 
 // ── Alien ───────────────────────────────────────────────────────────────
-static void alien_init(M64Actor *self, const M64Dict *spawn_args)
+static void alien_init(KilnActor *self, const KilnDict *spawn_args)
 {
     AlienState *s = (AlienState *)self->state;
     s->path_t = 0.0f;
-    s->speed  = (float)m64_dict_get_int(spawn_args, "speed", 10);
-    const char *path = m64_dict_get_str(spawn_args, "path", "approach");
+    s->speed  = (float)kiln_dict_get_int(spawn_args, "speed", 10);
+    const char *path = kiln_dict_get_str(spawn_args, "path", "approach");
     s->path_id = (strcmp(path, "approach_late") == 0) ? 1 : 0;
 }
 
-static void alien_update(M64Actor *self, float dt)
+static void alien_update(KilnActor *self, float dt)
 {
     AlienState *s = (AlienState *)self->state;
     s->path_t += dt;
@@ -238,21 +238,21 @@ static void alien_update(M64Actor *self, float dt)
     self->xform.rot_angle = 0.0f;                            // facing +Z
 }
 
-static void alien_draw(M64Actor *self)
+static void alien_draw(KilnActor *self)
 {
     (void)self;
     t3d_model_draw(g_alien_model);
 }
 
 // ── Player-Goblin ───────────────────────────────────────────────────────
-// The "player" of this scene is the goblin captain. m64_player owns the
-// locomotion state machine, which posts M64_EV_PLAYER_FOOTSTEP events that
-// the actor's M64ActorEventFn dispatches to a positional sound shader.
-static void goblin_init(M64Actor *self, const M64Dict *spawn_args)
+// The "player" of this scene is the goblin captain. kiln_player owns the
+// locomotion state machine, which posts KILN_EV_PLAYER_FOOTSTEP events that
+// the actor's KilnActorEventFn dispatches to a positional sound shader.
+static void goblin_init(KilnActor *self, const KilnDict *spawn_args)
 {
     (void)spawn_args;
-    M64Player *p = m64_player_of(self);
-    p->state    = M64_PLAYER_IDLE;
+    KilnPlayer *p = kiln_player_of(self);
+    p->state    = KILN_PLAYER_IDLE;
     p->vel      = (fm_vec3_t){{ 0, 0, 0 }};
     p->yaw      = 0.0f;
     p->state_t  = 0.0f;
@@ -261,7 +261,7 @@ static void goblin_init(M64Actor *self, const M64Dict *spawn_args)
     p->last_surf = 0;
 }
 
-static void goblin_update(M64Actor *self, float dt)
+static void goblin_update(KilnActor *self, float dt)
 {
     // The cinematic does not read input; drive the goblin's locomotion from
     // a scripted path so the camera knows where he will be at every t.
@@ -273,17 +273,17 @@ static void goblin_update(M64Actor *self, float dt)
     self->xform.pos.v[1] = 0.0f;
     self->xform.rot_angle = -a + M_PI * 0.5f;       // facing direction of travel
 
-    // Synthesise a fake "M64Player" state so m64_skel_set_blend produces a
+    // Synthesise a fake "KilnPlayer" state so kiln_skel_set_blend produces a
     // walk-cycle when speed > 0 and idle when stopped.
-    M64Player *p = m64_player_of(self);
+    KilnPlayer *p = kiln_player_of(self);
     float speed = 10.5f;
     p->vel = (fm_vec3_t){{ -fm_sinf(a) * speed, 0, fm_cosf(a) * speed }};
     p->yaw = self->xform.rot_angle;
-    p->state = M64_PLAYER_WALK;
+    p->state = KILN_PLAYER_WALK;
     p->on_ground = 1;
     p->state_t += dt;
 
-    // Fire a footstep SFX every 24 units travelled via m64_surface — the
+    // Fire a footstep SFX every 24 units travelled via kiln_surface — the
     // goblin's pad is on stone (surface 0) until t≈15s when he crosses onto
     // the metal pad (surface 1), at which point the footstep SFX swaps.
     static float dist = 0.0f;
@@ -298,39 +298,39 @@ static void goblin_update(M64Actor *self, float dt)
                      && self->xform.pos.v[2] > -30.0f
                      && self->xform.pos.v[2] <  30.0f) ? 1 : 0;
         last_surf = surf;
-        // Play the surface's footstep shader directly. The m64_player_update
-        // route is bypassed because we don't run m64_player_update here
+        // Play the surface's footstep shader directly. The kiln_player_update
+        // route is bypassed because we don't run kiln_player_update here
         // (the goblin's locomotion is scripted, not input-driven).
-        m64_sound_play(surf == 1 ? "step_metal" : "step_stone",
+        kiln_sound_play(surf == 1 ? "step_metal" : "step_stone",
                        self->xform.pos, 1.0f);
         (void)last_surf;
     }
 }
 
-static void goblin_draw(M64Actor *self)
+static void goblin_draw(KilnActor *self)
 {
     // Skeletal actor — push the actor's transform and draw the goblin via
     // its global skeleton. Skel draw is +push/pop the same way a hand-built
     // cube would be.
-    m64_transform_push(&self->xform);
-    m64_skel_draw(&g_goblin_skel);
-    m64_transform_pop();
+    kiln_transform_push(&self->xform);
+    kiln_skel_draw(&g_goblin_skel);
+    kiln_transform_pop();
 }
 
-static void goblin_event(M64Actor *self, uint16_t event_id,
+static void goblin_event(KilnActor *self, uint16_t event_id,
                          const int32_t *args, uint8_t argc)
 {
     (void)self; (void)args; (void)argc;
-    // The footstep SFX path is in goblin_update — m64_player posts events
+    // The footstep SFX path is in goblin_update — kiln_player posts events
     // from inside its locomotion, which we're bypassing here. Keep this
     // callback present so the profile is a valid event-receiving profile.
-    if (event_id == M64_EV_PLAYER_FOOTSTEP) {
+    if (event_id == KILN_EV_PLAYER_FOOTSTEP) {
         // (no-op: covered by the explicit shader play in goblin_update)
     }
 }
 
 // ── Door ────────────────────────────────────────────────────────────────
-static void door_init(M64Actor *self, const M64Dict *spawn_args)
+static void door_init(KilnActor *self, const KilnDict *spawn_args)
 {
     (void)spawn_args;
     DoorState *s = (DoorState *)self->state;
@@ -339,7 +339,7 @@ static void door_init(M64Actor *self, const M64Dict *spawn_args)
     s->open = 0;
 }
 
-static void door_event(M64Actor *self, uint16_t event_id,
+static void door_event(KilnActor *self, uint16_t event_id,
                        const int32_t *args, uint8_t argc)
 {
     (void)args; (void)argc;
@@ -353,7 +353,7 @@ static void door_event(M64Actor *self, uint16_t event_id,
     }
 }
 
-static void door_update(M64Actor *self, float dt)
+static void door_update(KilnActor *self, float dt)
 {
     DoorState *s = (DoorState *)self->state;
     float t = 4.0f * dt;
@@ -363,27 +363,27 @@ static void door_update(M64Actor *self, float dt)
     self->xform.rot_angle = s->cur_yaw;
 }
 
-static void door_draw(M64Actor *self) { (void)self; draw_cube(g_cube_door); }
+static void door_draw(KilnActor *self) { (void)self; draw_cube(g_cube_door); }
 
 // ── Profile table ───────────────────────────────────────────────────────
-static const M64ActorProfile PROFILES[PROFILE_COUNT] = {
+static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
     [PROFILE_PLAYER_GOBLIN] = {
-        .name = "player-goblin", .category = M64_ACTOR_CAT_PLAYER,
-        .state_size = M64_PLAYER_STATE_SIZE,
+        .name = "player-goblin", .category = KILN_ACTOR_CAT_PLAYER,
+        .state_size = KILN_PLAYER_STATE_SIZE,
         .init = goblin_init, .update = goblin_update,
         .draw = goblin_draw, .event = goblin_event },
     [PROFILE_DROID] = {
-        .name = "droid", .category = M64_ACTOR_CAT_NPC,
+        .name = "droid", .category = KILN_ACTOR_CAT_NPC,
         .state_size = sizeof(DroidState),
         .init = droid_init, .update = droid_update,
         .draw = droid_draw },
     [PROFILE_ALIEN] = {
-        .name = "alien", .category = M64_ACTOR_CAT_ENEMY,
+        .name = "alien", .category = KILN_ACTOR_CAT_ENEMY,
         .state_size = sizeof(AlienState),
         .init = alien_init, .update = alien_update,
         .draw = alien_draw },
     [PROFILE_DOOR] = {
-        .name = "door", .category = M64_ACTOR_CAT_DOOR,
+        .name = "door", .category = KILN_ACTOR_CAT_DOOR,
         .state_size = sizeof(DoorState),
         .init = door_init, .update = door_update,
         .event = door_event, .draw = door_draw },
@@ -489,7 +489,7 @@ static void cam_sample(float t, fm_vec3_t *eye, fm_vec3_t *look)
 // ── Physics: 6 crates, two stacks, near the goblin's walk path ─────────
 // Stack A: at (60, 0, 60) — the goblin's start. Three crates. Goblin's walk
 // path is r=50 around the origin, so at t≈10s the goblin is nearest this
-// stack and bumps it via m64_physics_apply_impulse.
+// stack and bumps it via kiln_physics_apply_impulse.
 //
 // Stack B: at (-65, 0, 25) — near the lead alien's path. Two crates. Alien
 // passes it at t≈45s.
@@ -498,31 +498,31 @@ static void cam_sample(float t, fm_vec3_t *eye, fm_vec3_t *look)
 // the back wall corner of the pad.
 static void setup_physics(void)
 {
-    m64_physics_init(&g_pworld, g_bodies, CRATE_MAX);
+    kiln_physics_init(&g_pworld, g_bodies, CRATE_MAX);
 
     // Stack A — three crates stacked along Y
-    m64_physics_spawn(&g_pworld, M64_PHYS_DYNAMIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_DYNAMIC,
                       (fm_vec3_t){{ 60.0f,  4.0f, 60.0f }},
                       (fm_vec3_t){{ 6.0f, 4.0f, 6.0f }}, 1.0f);
-    m64_physics_spawn(&g_pworld, M64_PHYS_DYNAMIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_DYNAMIC,
                       (fm_vec3_t){{ 60.0f, 12.0f, 60.0f }},
                       (fm_vec3_t){{ 6.0f, 4.0f, 6.0f }}, 1.0f);
-    m64_physics_spawn(&g_pworld, M64_PHYS_DYNAMIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_DYNAMIC,
                       (fm_vec3_t){{ 60.0f, 20.0f, 60.0f }},
                       (fm_vec3_t){{ 6.0f, 4.0f, 6.0f }}, 1.0f);
 
     // Stack B — two crates near the alien's path
-    m64_physics_spawn(&g_pworld, M64_PHYS_DYNAMIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_DYNAMIC,
                       (fm_vec3_t){{-65.0f,  4.0f, 25.0f }},
                       (fm_vec3_t){{ 6.0f, 4.0f, 6.0f }}, 1.0f);
-    m64_physics_spawn(&g_pworld, M64_PHYS_DYNAMIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_DYNAMIC,
                       (fm_vec3_t){{-65.0f, 12.0f, 25.0f }},
                       (fm_vec3_t){{ 6.0f, 4.0f, 6.0f }}, 1.0f);
 
     // Static anchor (never moves — also keeps the demo's collision-active
-    // claim true: m64_physics_step with one or more static bodies still
+    // claim true: kiln_physics_step with one or more static bodies still
     // runs body-vs-body, which is the path the goblin's nudge takes).
-    m64_physics_spawn(&g_pworld, M64_PHYS_STATIC,
+    kiln_physics_spawn(&g_pworld, KILN_PHYS_STATIC,
                       (fm_vec3_t){{  0.0f,  4.0f, 50.0f }},
                       (fm_vec3_t){{ 4.0f, 4.0f, 4.0f }}, 0.0f);
 }
@@ -531,15 +531,15 @@ static void setup_physics(void)
 static void draw_hud(void)
 {
     // Top-left lineage badge
-    m64_gui_panel(8, 8, 152, 42,
+    kiln_gui_panel(8, 8, 152, 42,
                   RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-    m64_gui_text(14, 22, RGBA32(0, 245, 212, 255), "M64 ENGINE");
-    m64_gui_text(14, 36, RGBA32(232, 232, 240, 255), "OoT cam + idTech4");
+    kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN ENGINE");
+    kiln_gui_text(14, 36, RGBA32(232, 232, 240, 255), "OoT cam + idTech4");
 
     // Bottom-right credit
-    m64_gui_panel(SCREEN_W - 132, SCREEN_H - 28, 124, 20,
+    kiln_gui_panel(SCREEN_W - 132, SCREEN_H - 28, 124, 20,
                   RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
-    m64_gui_text(SCREEN_W - 124, SCREEN_H - 18,
+    kiln_gui_text(SCREEN_W - 124, SCREEN_H - 18,
                  RGBA32(232, 232, 240, 255), "ALH477  *  MPL-2.0");
 }
 
@@ -567,7 +567,7 @@ int main(void)
     debug_init_isviewer();
     register_exception_handler(cine_except);
 
-    m64_engine_init(RESOLUTION_320x240);
+    kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
     asset_init_compression(2);
@@ -580,51 +580,51 @@ int main(void)
     debugf("\n[cine] boot: build %s %s\n", __DATE__, __TIME__);
     debugf("[cine] scene_t=0.0 LOOP_T=%.1f DT=%.4f\n", LOOP_T, DT);
 
-    m64_input_init();
-    m64_audio_init(M64_AUDIO_DEFAULT);
+    kiln_input_init();
+    kiln_audio_init(KILN_AUDIO_DEFAULT);
     debugf("[cine] audio init ok\n");
 
     // ── Audio assets ──────────────────────────────────────────────
-    g_sfx_blip = m64_sfx_load("rom:/sfx/blip.wav64");
+    g_sfx_blip = kiln_sfx_load("rom:/sfx/blip.wav64");
     debugf("[cine] sfx blip=%d\n", g_sfx_blip);
-    g_sfx_step = m64_sfx_load("rom:/sfx/step.wav64");
+    g_sfx_step = kiln_sfx_load("rom:/sfx/step.wav64");
     debugf("[cine] sfx step=%d\n", g_sfx_step);
     g_sfx_thump = g_sfx_blip;                  // reuse for crate-thump
     (void)g_sfx_thump;
 
-    m64_surface_register(0, &(M64SurfaceDef){
+    kiln_surface_register(0, &(KilnSurfaceDef){
         .friction = 0.9f, .footstep_sfx = g_sfx_step });
-    m64_surface_register(1, &(M64SurfaceDef){
+    kiln_surface_register(1, &(KilnSurfaceDef){
         .friction = 0.4f, .footstep_sfx = g_sfx_blip });
 
-    M64SoundShader shaders[] = {
+    KilnSoundShader shaders[] = {
         { .name = "step_stone", .wav64_path = "rom:/sfx/step.wav64",
           .base_vol = 0.6f, .falloff_radius = 0.0f },
         { .name = "step_metal", .wav64_path = "rom:/sfx/blip.wav64",
           .base_vol = 0.5f, .falloff_radius = 0.0f },
     };
-    m64_sound_init(shaders, 2);
+    kiln_sound_init(shaders, 2);
     debugf("[cine] sound init ok\n");
 
     // ── Actor + event systems ─────────────────────────────────────
-    m64_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    m64_event_init();
+    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    kiln_event_init();
     debugf("[cine] actor/event init ok\n");
 
     // ── Map + clip world ──────────────────────────────────────────
-    m64_map_register_classname("info_player_start", PROFILE_PLAYER_GOBLIN);
-    m64_map_register_classname("info_droid",        PROFILE_DROID);
-    m64_map_register_classname("info_alien",        PROFILE_ALIEN);
+    kiln_map_register_classname("info_player_start", PROFILE_PLAYER_GOBLIN);
+    kiln_map_register_classname("info_droid",        PROFILE_DROID);
+    kiln_map_register_classname("info_alien",        PROFILE_ALIEN);
 
     // mkRawAsset bakes ./assets/hangar.map into rom:/maps/hangar-map.map
     // (name="hangar-map", extension="map").
-    int map_rc = m64_map_load(&g_map, "rom:/maps/hangar-map.map");
+    int map_rc = kiln_map_load(&g_map, "rom:/maps/hangar-map.map");
     debugf("[cine] map rc=%d brushes=%d spawns=%d\n",
            map_rc, g_map.brush_count, g_map.spawn_count);
     if (map_rc < 0) {
-        debugf("[cine] m64_map_load FAILED\n");
+        debugf("[cine] kiln_map_load FAILED\n");
     }
-    m64_clip_set_world(g_map.brushes, g_map.brush_count);
+    kiln_clip_set_world(g_map.brushes, g_map.brush_count);
 
     // ── Models + skeleton ──────────────────────────────────────────
     g_ship_model    = t3d_model_load("rom:/models/interceptor.t3dm");
@@ -636,9 +636,9 @@ int main(void)
     g_alien_model   = t3d_model_load("rom:/models/alien.t3dm");
     debugf("[cine] alien_model=%p\n", (void*)g_alien_model);
 
-    m64_skel_create(&g_goblin_skel, g_goblin_model);
-    m64_skel_play(&g_goblin_skel, "Idle", true);
-    m64_skel_play_blend(&g_goblin_skel, "Walk", true);
+    kiln_skel_create(&g_goblin_skel, g_goblin_model);
+    kiln_skel_play(&g_goblin_skel, "Idle", true);
+    kiln_skel_play_blend(&g_goblin_skel, "Walk", true);
     debugf("[cine] skel anim playing\n");
 
     // ── Cube primitives for door + crate render ───────────────────
@@ -648,29 +648,29 @@ int main(void)
     // ── Spawn actors from the map ─────────────────────────────────
     int spawned_player = 0, nd = 0, na = 0;
     for (int i = 0; i < g_map.spawn_count; i++) {
-        M64RoomSpawn *s = &g_map.spawns[i];
+        KilnRoomSpawn *s = &g_map.spawns[i];
         if (s->profile_id == PROFILE_PLAYER_GOBLIN && !spawned_player) {
-            g_player_h = m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
+            g_player_h = kiln_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
             spawned_player = 1;
         } else if (s->profile_id == PROFILE_DROID && nd < 2) {
-            g_droid_h[nd++] = m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
+            g_droid_h[nd++] = kiln_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
         } else if (s->profile_id == PROFILE_ALIEN && na < 2) {
-            g_alien_h[na++] = m64_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
+            g_alien_h[na++] = kiln_actor_spawn(s->profile_id, s->pos, s->yaw, &s->dict);
         }
     }
     debugf("[cine] spawned: player=%d droids=%d aliens=%d door=%d\n",
            spawned_player, nd, na,
-           (g_door_h == M64_ACTOR_HANDLE_NONE) ? 0 : 1);
+           (g_door_h == KILN_ACTOR_HANDLE_NONE) ? 0 : 1);
 
     // ── Ship + door (not in the map) ───────────────────────────────
-    M64Transform ship_xform;
-    m64_transform_init(&ship_xform);
+    KilnTransform ship_xform;
+    kiln_transform_init(&ship_xform);
     ship_xform.pos = (fm_vec3_t){{ 0.0f, 4.4f, 0.0f }};   // on top of the pad
     ship_xform.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
     ship_xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
     ship_xform.rot_angle = 3.14159f;                      // nose toward +Z
 
-    g_door_h = m64_actor_spawn(
+    g_door_h = kiln_actor_spawn(
         PROFILE_DOOR,
         (fm_vec3_t){{ -65.0f, 0.0f, -94.0f }},            // at the back wall
         0.0f, NULL);
@@ -680,7 +680,7 @@ int main(void)
     debugf("[cine] physics bodies=%d\n", g_pworld.count);
 
     // ── Scene + camera in CUTSCENE mode ───────────────────────────
-    m64_scene_init(&g_scene);
+    kiln_scene_init(&g_scene);
     g_scene.far_z = 200.0f;
     // Cool low ambient + warm key from upper-front-right. The previous
     // full-white ambient flattened every surface; with a directional
@@ -696,12 +696,12 @@ int main(void)
     g_scene.light_dir = (fm_vec3_t){{ -0.4f, 0.85f, 0.35f }};
     fm_vec3_norm(&g_scene.light_dir, &g_scene.light_dir);
 
-    m64_camera_init(&g_cam);
-    m64_camera_push(&g_cam, M64_CAM_CUTSCENE);
+    kiln_camera_init(&g_cam);
+    kiln_camera_push(&g_cam, KILN_CAM_CUTSCENE);
     {
         fm_vec3_t eye, look;
         cam_sample(0.0f, &eye, &look);
-        m64_camera_set_cutscene(&g_cam, eye, look);
+        kiln_camera_set_cutscene(&g_cam, eye, look);
     }
     debugf("[cine] scene/camera init ok\n");
 
@@ -711,12 +711,12 @@ int main(void)
     // libdragon's wav64 player. Bypasses the .xm / xm_tick / libxm path
     // entirely — the BPM-0 divide-by-zero family of bugs is off the
     // table, and the music is actually audible (not silent).
-    g_music = m64_sfx_load("rom:/sfx/cine_loop.wav64");
+    g_music = kiln_sfx_load("rom:/sfx/cine_loop.wav64");
     debugf("[cine] music bed rc=%d\n", g_music);
     if (g_music >= 0) {
-        g_music_ch = m64_sfx_play(g_music, -1, 0);
+        g_music_ch = kiln_sfx_play(g_music, -1, 0);
         if (g_music_ch >= 0) {
-            m64_sfx_set_vol_pan(g_music_ch, 0.55f, 0.5f);
+            kiln_sfx_set_vol_pan(g_music_ch, 0.55f, 0.5f);
             debugf("[cine] music bed playing ch=%d vol=0.55\n", g_music_ch);
         }
     }
@@ -727,7 +727,7 @@ int main(void)
     static uint32_t frame_n = 0;
     static int last_beat_s = -1;
     for (;;) {
-        m64_input_update();
+        kiln_input_update();
         float dt = DT;
         frame_n++;
         g_cine_frame = frame_n;
@@ -744,17 +744,17 @@ int main(void)
 
         // Events first, so any actor whose update reads its own event state
         // (the door, in particular) sees the event this frame.
-        m64_event_process(dt);
+        kiln_event_process(dt);
 
         // Skel + physics before actor updates. Skel integrates the goblin's
         // animation timeline; physics integrates the crates' velocities.
         // Order vs. actor_update_all is irrelevant because they don't read
         // each other, but doing them together keeps the frame order
         // obvious to a reader.
-        m64_skel_update(&g_goblin_skel, dt);
-        m64_physics_step(&g_pworld, dt);
+        kiln_skel_update(&g_goblin_skel, dt);
+        kiln_physics_step(&g_pworld, dt);
 
-        m64_actor_update_all(dt);
+        kiln_actor_update_all(dt);
 
         // ── Scripted events ────────────────────────────────────
         // t=22: door opens (500 ms delayed event, like event-demo).
@@ -770,19 +770,19 @@ int main(void)
             // rare slide iterations). Easiest fix that keeps the
             // audio/visual beat: keep the crates' positions clamped, and
             // play the thump SFX for the camera beat alone.
-            m64_sound_play("step_metal",
+            kiln_sound_play("step_metal",
                 (fm_vec3_t){{ 60.0f, 14.0f, 60.0f }}, 1.0f);
         }
         if (scene_t >= 45.0f && scene_t < 45.0f + dt && blip_armed_alien) {
             blip_armed_alien = 0;
-            m64_sound_play("step_metal",
+            kiln_sound_play("step_metal",
                 (fm_vec3_t){{-65.0f, 14.0f, 25.0f }}, 1.0f);
         }
         if (scene_t >= 22.0f && scene_t < 22.0f + dt) {
-            // 500 ms-delayed door open (m64_event_post handles the delay
+            // 500 ms-delayed door open (kiln_event_post handles the delay
             // before the door's event callback runs).
             int32_t args[1] = { 1 };
-            m64_event_post(g_door_h, EV_DOOR_OPEN, 500, args, 1, 1);
+            kiln_event_post(g_door_h, EV_DOOR_OPEN, 500, args, 1, 1);
         }
 
         // ── Auto-target at t=30s ───────────────────────────────
@@ -790,25 +790,25 @@ int main(void)
         // camera target through the camera state directly, since the camera
         // is in CUTSCENE mode and not the standard target lock flow.
         if (scene_t >= 30.0f && scene_t < 36.0f) {
-            M64Actor *alien0 = m64_actor_resolve(g_alien_h[0]);
+            KilnActor *alien0 = kiln_actor_resolve(g_alien_h[0]);
             if (alien0) g_target_lock = g_alien_h[0];
         } else {
-            g_target_lock = M64_ACTOR_HANDLE_NONE;
+            g_target_lock = KILN_ACTOR_HANDLE_NONE;
         }
 
         // ── Camera script ──────────────────────────────────────
         {
             fm_vec3_t eye, look;
             cam_sample(scene_t, &eye, &look);
-            m64_camera_set_cutscene(&g_cam, eye, look);
+            kiln_camera_set_cutscene(&g_cam, eye, look);
         }
-        // m64_camera_update runs the per-mode update (CUTSCENE copies the
-        // cutscene_eye/look into cam->eye/look) — without it m64_camera_apply
+        // kiln_camera_update runs the per-mode update (CUTSCENE copies the
+        // cutscene_eye/look into cam->eye/look) — without it kiln_camera_apply
         // would copy zero vectors and t3d_viewport_look_at would divide by
         // zero in t3d_mat4_to_frustum, raising an FPU exception on frame 1.
-        m64_camera_update(&g_cam, (fm_vec3_t){{0,0,0}}, 0.0f, dt);
-        m64_camera_apply(&g_cam, &g_scene);
-        m64_scene_update(&g_scene);
+        kiln_camera_update(&g_cam, (fm_vec3_t){{0,0,0}}, 0.0f, dt);
+        kiln_camera_apply(&g_cam, &g_scene);
+        kiln_scene_update(&g_scene);
         // Cache for the exception handler — survives a crash mid-frame so
         // the crash log shows what the camera was aiming at, not the prior
         // second's value.
@@ -820,66 +820,66 @@ int main(void)
         g_cine_look[2] = g_scene.cam_target.v[2];
 
         // Listener position for positional sound shaders.
-        m64_sound_update_listener(g_scene.cam_pos,
+        kiln_sound_update_listener(g_scene.cam_pos,
             (fm_vec3_t){{ g_scene.cam_target.v[0] - g_scene.cam_pos.v[0],
                           0,
                           g_scene.cam_target.v[2] - g_scene.cam_pos.v[2] }});
 
         // ── 3D pass ─────────────────────────────────────────────
-        m64_frame_begin();
-        m64_scene_begin(&g_scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&g_scene);
 
-        m64_map_draw(&g_map);
+        kiln_map_draw(&g_map);
 
         // Ship (in the actor pool? no — drawn directly so we can use the
         // local transform; the ship is a static prop with no state machine).
-        m64_transform_push(&ship_xform);
+        kiln_transform_push(&ship_xform);
         t3d_model_draw(g_ship_model);
-        m64_transform_pop();
+        kiln_transform_pop();
 
         // Crates from the physics world. The body list is global; iterate
         // and draw each as a cube whose centre is body->pos and half-extents
         // are body->maxs - body->mins (the body stores -maxs and +maxs so
         // the size on each axis is maxs - mins).
         for (int i = 0; i < g_pworld.count; i++) {
-            M64PhysicsBody *b = &g_pworld.bodies[i];
+            KilnPhysicsBody *b = &g_pworld.bodies[i];
             // Skip the static anchor — it would draw at (0, 4, 50) which is
-            // mid-hangar and is just there to keep m64_physics non-empty.
-            if (b->type == M64_PHYS_STATIC) continue;
-            M64Transform t;
-            m64_transform_init(&t);
+            // mid-hangar and is just there to keep kiln_physics non-empty.
+            if (b->type == KILN_PHYS_STATIC) continue;
+            KilnTransform t;
+            kiln_transform_init(&t);
             t.pos = b->pos;
             t.scale = (fm_vec3_t){{ b->maxs.v[0] - b->mins.v[0],
                                     b->maxs.v[1] - b->mins.v[1],
                                     b->maxs.v[2] - b->mins.v[2] }};
             t.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
             t.rot_angle = 0.0f;
-            m64_transform_push(&t);
+            kiln_transform_push(&t);
             draw_cube(g_cube_crate);
-            m64_transform_pop();
-            m64_transform_free(&t);
+            kiln_transform_pop();
+            kiln_transform_free(&t);
         }
 
         // All actors in category order.
-        m64_actor_draw_all();
+        kiln_actor_draw_all();
 
         // ── 2D pass ─────────────────────────────────────────────
-        m64_gui_begin();
+        kiln_gui_begin();
         draw_hud();
-        if (g_target_lock != M64_ACTOR_HANDLE_NONE) {
-            M64Actor *t = m64_actor_resolve(g_target_lock);
+        if (g_target_lock != KILN_ACTOR_HANDLE_NONE) {
+            KilnActor *t = kiln_actor_resolve(g_target_lock);
             if (t) {
-                m64_target_draw_reticle(&g_scene, t->xform.pos,
+                kiln_target_draw_reticle(&g_scene, t->xform.pos,
                                         SCREEN_W, SCREEN_H,
                                         RGBA32(245, 64, 80, 255));
             }
         }
-        m64_gui_end();
+        kiln_gui_end();
 
-        m64_frame_end();
+        kiln_frame_end();
 
-        m64_sound_update();
-        m64_audio_update();
+        kiln_sound_update();
+        kiln_audio_update();
 
         // ── Time advance + loop reset ──────────────────────────
         scene_t += dt;

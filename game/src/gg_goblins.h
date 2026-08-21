@@ -9,12 +9,12 @@
 //   Glimmer — lucky.     Passive: +1 to dice when behind.   Special: Lucky Puff.
 //
 // The passives + specials are implemented in gg_specials.c; this file is
-// just the table that wires them to m64_char profile structs.
+// just the table that wires them to kiln_char profile structs.
 
 #ifndef GG_GOBLINS_H
 #define GG_GOBLINS_H
 
-#include <m64/m64_char.h>
+#include <kiln/kiln_char.h>
 
 #define GG_GOBLIN_COUNT 4
 
@@ -25,6 +25,6 @@ typedef enum {
     GG_GOBLIN_GLIMMER = 3,
 } GGGoblin;
 
-extern const M64CharProfile gg_goblins[GG_GOBLIN_COUNT];
+extern const KilnCharProfile gg_goblins[GG_GOBLIN_COUNT];
 
 #endif // GG_GOBLINS_H

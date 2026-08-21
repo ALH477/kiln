@@ -13,10 +13,10 @@ in a viewport and neither cooperates with the runtime:
 
   * The island had to be decimated to 15% to fit the console, which is what
     turned a rounded island into a flat-topped mesa with vertical cliffs.
-  * Nothing in either mesh is FLAT, so `m64_clip`'s axis-aligned brushes
+  * Nothing in either mesh is FLAT, so `kiln_clip`'s axis-aligned brushes
     have nothing to bind to and every collision volume is a guess.
-  * Neither carries named sub-objects, so `m64_room` has no bounds and
-    `m64_actor` has no spawn anchors — an entrance is wherever someone
+  * Neither carries named sub-objects, so `kiln_room` has no bounds and
+    `kiln_actor` has no spawn anchors — an entrance is wherever someone
     typed a number.
 
 These two models are authored the other way round: the geometry is derived
@@ -198,7 +198,7 @@ def coast_wobble(theta_deg):
     """A multiplier on the outer radii, so the coastline is not a circle.
 
     Three low harmonics, chosen and not random: this pipeline forbids
-    `random` (m64lib.py's header states the rule) so a rebuild is
+    `random` (kilnlib.py's header states the rule) so a rebuild is
     byte-identical. Three is enough that no lobe repeats within a turn and
     few enough that the shape stays legible from the air.
     """
@@ -382,7 +382,7 @@ def build_island_terrain(rings=None):
 def _box(cx, cy, cz, sx, sy, sz):
     """Axis-aligned box as (verts, faces), centred on (cx,cy) sitting at cz.
 
-    Local rather than m64lib's: m64lib imports bpy at module scope, and
+    Local rather than kilnlib's: kilnlib imports bpy at module scope, and
     everything above has to stay importable for the tests.
     """
     hx, hy = sx * 0.5, sy * 0.5
@@ -942,18 +942,27 @@ def emit_header():
         add("    { %9.1ff, %7.1ff, %9.1ff, %6.1ff }, \\" % (gx, gy, gz, b))
     add("}")
     add("")
-    add("// ── The lab (unused) ─────────────────────────────────────────────────")
+    add("// ── The island's own procedural lab (unused) ─────────────────────────")
     add("// The interior box of THIS generator's procedural build_lab(), which")
     add("// is not what ships as PM_MODEL_LAB — that's dank_lab.obj, whose real")
     add("// extents live in PetaByte-Madness/src/pm_lab.h (PM_LAB_REAL_*) and are")
     add("// what pm_lab.c's collision and pm_demo's/pm_intake's cameras actually")
     add("// use. These describe a room nothing currently draws.")
-    add("#define PM_LAB_X0  %.1ff" % m["lab_x0"])
-    add("#define PM_LAB_X1  %.1ff" % m["lab_x1"])
-    add("#define PM_LAB_Y0  %.1ff" % m["lab_y0"])
-    add("#define PM_LAB_Y1  %.1ff" % m["lab_y1"])
-    add("#define PM_LAB_Z0  %.1ff" % m["lab_z0"])
-    add("#define PM_LAB_Z1  %.1ff" % m["lab_z1"])
+    add("//")
+    add("// PM_WORLD_LAB_*, NOT PM_LAB_*. These used to be spelled PM_LAB_X0..Z1,")
+    add("// which is exactly what dank_lab_gen.py emits into pm_lab_gen.h — with")
+    add("// DIFFERENT numbers (-329.6 here against -451.8 there). Five files")
+    add("// include both headers, so which room PM_LAB_REAL_X0 described came down")
+    add("// to include order, silently, with only a -Wmacro-redefined warning")
+    add("// nobody reads in a build that ships -Wno-error. Two generators must not")
+    add("// publish the same name; the one whose room nothing draws is the one")
+    add("// that gives it up.")
+    add("#define PM_WORLD_LAB_X0  %.1ff" % m["lab_x0"])
+    add("#define PM_WORLD_LAB_X1  %.1ff" % m["lab_x1"])
+    add("#define PM_WORLD_LAB_Y0  %.1ff" % m["lab_y0"])
+    add("#define PM_WORLD_LAB_Y1  %.1ff" % m["lab_y1"])
+    add("#define PM_WORLD_LAB_Z0  %.1ff" % m["lab_z0"])
+    add("#define PM_WORLD_LAB_Z1  %.1ff" % m["lab_z1"])
     add("")
     add("#endif // PM_WORLD_GEN_H")
     return "\n".join(L) + "\n"
@@ -962,7 +971,7 @@ def emit_header():
 # ── Blender entry point ────────────────────────────────────────────────
 
 def main():
-    import m64lib as m
+    import kilnlib as m
 
     name = m.arg("--model")
     m.reset_scene()

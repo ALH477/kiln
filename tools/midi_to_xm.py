@@ -7,7 +7,7 @@ Why this exists
 The N64 has no MIDI synthesiser and no MP3 decoder. libdragon's music path
 is XM64 (FastTracker II modules), converted by audioconv64 and played by
 the RSP mixer — libdragon benchmarks a 10-channel XM at "< 3% CPU and
-< 10% RSP", which is why the M64 report calls XM64 the pragmatic music
+< 10% RSP", which is why the Kiln report calls XM64 the pragmatic music
 engine for this target. So a MIDI score has to become a tracker module
 before it can become music on the console.
 

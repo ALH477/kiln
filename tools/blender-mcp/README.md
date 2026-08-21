@@ -1,5 +1,13 @@
 <!-- SPDX-License-Identifier: MPL-2.0 -->
-# M64 Blender MCP — Quake / Godot map import
+# Kiln Blender MCP — Quake / Godot map import
+
+**Not related to, and shares no code with, the third-party
+[`ahujasid/blender-mcp`](https://github.com/ahujasid/blender-mcp) GitHub
+project** (a Blender addon + in-Blender socket server). This server is
+written from scratch against the official `mcp`/FastMCP SDK and drives
+Blender headlessly via subprocess — there is no addon, and nothing runs
+inside a live Blender instance. The name overlap is coincidental; do not
+install or depend on that project to use this one.
 
 An MCP server that lets an assistant (or a human, via any MCP client)
 convert Quake `.map` levels and Godot `.tscn` scenes into geometry that
@@ -31,15 +39,18 @@ followed by `f3d_inject.py` and — if `gltf_to_t3d` is on hand — a preview
 - `gltf_to_t3d`/`mkasset` are **optional**. Run inside `nix develop` (which
   sets `$N64_INST`) to get the preview-`.t3dm` step; without it, import
   tools still produce a correct glTF and say so.
-- The `mcp` Python package. Not currently a project dependency (this tool
-  is authoring-time only, per CLAUDE.md's Phase B notes on why Blender
-  itself is never a Nix build input) — run it via:
+- The `mcp` Python package, resolved through this flake's own pinned
+  nixpkgs (`flake.lock`) rather than an ad hoc, unpinned `<nixpkgs>` channel
+  lookup — run it via:
 
   ```
-  nix shell --impure --expr \
-    'let pkgs = import <nixpkgs> {}; in pkgs.python3.withPackages (ps: [ps.mcp])' \
-    -c python3 tools/blender-mcp/server.py
+  nix run .#blender-mcp
   ```
+
+  (`flake.nix`'s `apps.blender-mcp` wraps `pkgs.python3.withPackages (ps: [
+  ps.mcp ])` and execs `tools/blender-mcp/server.py` from the live working
+  tree — this server is meant to be run against arbitrary, not-yet-committed
+  content, so the script itself is not copied into the Nix store.)
 
 ## Wiring into Claude Code
 
@@ -48,13 +59,9 @@ Add to `.mcp.json` (project) or `~/.claude/mcp.json` (user):
 ```json
 {
   "mcpServers": {
-    "m64-blender": {
+    "kiln-blender": {
       "command": "nix",
-      "args": [
-        "shell", "--impure", "--expr",
-        "let pkgs = import <nixpkgs> {}; in pkgs.python3.withPackages (ps: [ps.mcp])",
-        "-c", "python3", "/absolute/path/to/M64/tools/blender-mcp/server.py"
-      ]
+      "args": ["run", "/absolute/path/to/Kiln#blender-mcp"]
     }
   }
 }
@@ -71,7 +78,7 @@ Add to `.mcp.json` (project) or `~/.claude/mcp.json` (user):
 
 `point_entities` (Quake) and `other_nodes` (Godot) are reported, not
 imported — spawns, lights, and triggers are content decisions for the game
-to make (usually as `m64_room.h` `M64RoomSpawn` entries or `M64Actor`
+to make (usually as `kiln_room.h` `KilnRoomSpawn` entries or `KilnActor`
 profiles), not something this pipeline should guess at.
 
 ## The manual verification this was built against

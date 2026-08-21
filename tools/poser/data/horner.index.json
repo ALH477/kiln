@@ -1,0 +1,48 @@
+{
+ "model": "horner",
+ "script": "horner.py",
+ "actions": [
+  {
+   "name": "idle_distraught",
+   "length": 108,
+   "loop": true,
+   "keys": 3,
+   "file": "horner.idle_distraught.json"
+  },
+  {
+   "name": "walk",
+   "length": 40,
+   "loop": true,
+   "keys": 3,
+   "file": "horner.walk.json"
+  },
+  {
+   "name": "sit_down",
+   "length": 45,
+   "loop": false,
+   "keys": 2,
+   "file": "horner.sit_down.json"
+  },
+  {
+   "name": "sit_type",
+   "length": 60,
+   "loop": true,
+   "keys": 3,
+   "file": "horner.sit_type.json"
+  },
+  {
+   "name": "stand_up",
+   "length": 45,
+   "loop": false,
+   "keys": 2,
+   "file": "horner.stand_up.json"
+  },
+  {
+   "name": "climb_in",
+   "length": 324,
+   "loop": false,
+   "keys": 5,
+   "file": "horner.climb_in.json"
+  }
+ ]
+}

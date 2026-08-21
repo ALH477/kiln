@@ -10,12 +10,12 @@
 #ifndef GG_BOARD2_H
 #define GG_BOARD2_H
 
-#include <m64/m64_board.h>
+#include <kiln/kiln_board.h>
 
 #define GG_BOARD2_NODES 8
 
-extern const M64BoardNode gg_board2_nodes[GG_BOARD2_NODES];
+extern const KilnBoardNode gg_board2_nodes[GG_BOARD2_NODES];
 
-void gg_board2_init(M64Board *b);
+void gg_board2_init(KilnBoard *b);
 
 #endif // GG_BOARD2_H

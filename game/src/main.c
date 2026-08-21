@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// Ganja Goblin — a 4-player N64-style party game on the M64 engine.
+// Ganja Goblin — a 4-player N64-style party game on the Kiln engine.
 //
 // Phase 4: the game has a shape around the board loop. Title, character
 // select (four goblins, one seat at a time), board select (Ganja Grove or
@@ -19,12 +19,12 @@
 // not a stub.
 
 #include <libdragon.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_gui.h>
-#include <m64/m64_input.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_inventory.h>
-#include <m64/m64_widget.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_gui.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_inventory.h>
+#include <kiln/kiln_widget.h>
 
 #include "gg_types.h"
 #include "gg_boards.h"
@@ -40,15 +40,15 @@
 
 int main(void)
 {
-    m64_engine_init(RESOLUTION_320x240);
-    m64_input_init();
+    kiln_engine_init(RESOLUTION_320x240);
+    kiln_input_init();
 
-    M64Scene scene;
-    m64_scene_init(&scene);
+    KilnScene scene;
+    kiln_scene_init(&scene);
     scene.far_z = 2000.0f;   // board world units run to ~300 across
     scene.clear_color = RGBA32(12, 8, 22, 255);
 
-    M64Board board;
+    KilnBoard board;
     gg_boards_load(&board, 0);
 
     GGTurnState turn;
@@ -63,12 +63,12 @@ int main(void)
         players[p].pending_move_bonus = 0;
         players[p].pending_bud_bonus = 0;
         players[p].turns_played = 0;
-        m64_inventory_init(&players[p].inv);
+        kiln_inventory_init(&players[p].inv);
     }
     gg_specials_set_players(players, GG_PLAYERS);
 
-    M64Camera cam;
-    m64_camera_init(&cam);
+    KilnCamera cam;
+    kiln_camera_init(&cam);
 
     GGApp app;
     gg_app_init(&app);
@@ -84,11 +84,11 @@ int main(void)
         // burns several turns in one frame.
         if (dt > 0.1f) dt = 0.1f;
 
-        m64_input_update();
+        kiln_input_update();
         // The widget layer's sway, lean and per-item drift all hang off one
         // clock; nothing on a menu screen holds still without it.
-        m64_widget_tick(dt);
-        const M64Input *in = m64_input_get(0);
+        kiln_widget_tick(dt);
+        const KilnInput *in = kiln_input_get(0);
 
         gg_screens_update(&app, in, &turn, &board, players, &cam, &scene, dt);
 
@@ -96,20 +96,20 @@ int main(void)
         // no token to follow, so it keeps whatever framing it had.
         if (app.screen == GG_SCREEN_PLAY || app.screen == GG_SCREEN_RESULTS) {
             const fm_vec3_t *tp =
-                m64_board_pos(&board, players[turn.turn.player].node);
-            m64_camera_update(&cam, *tp, cam.yaw, dt);
-            m64_camera_apply(&cam, &scene);
+                kiln_board_pos(&board, players[turn.turn.player].node);
+            kiln_camera_update(&cam, *tp, cam.yaw, dt);
+            kiln_camera_apply(&cam, &scene);
         }
-        m64_scene_update(&scene);
+        kiln_scene_update(&scene);
 
-        m64_frame_begin();
-        m64_scene_begin(&scene);
+        kiln_frame_begin();
+        kiln_scene_begin(&scene);
 
-        m64_gui_begin();
+        kiln_gui_begin();
         gg_screens_draw(&app, &scene, &turn, &board, players,
                         SCREEN_W, SCREEN_H);
-        m64_gui_end();
+        kiln_gui_end();
 
-        m64_frame_end();
+        kiln_frame_end();
     }
 }

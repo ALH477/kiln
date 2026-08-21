@@ -30,10 +30,10 @@
 #ifndef GG_SCREENS_H
 #define GG_SCREENS_H
 
-#include <m64/m64_widget.h>
-#include <m64/m64_input.h>
-#include <m64/m64_camera.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_widget.h>
+#include <kiln/kiln_input.h>
+#include <kiln/kiln_camera.h>
+#include <kiln/kiln_engine.h>
 
 #include "gg_types.h"
 #include "gg_turn.h"
@@ -49,8 +49,8 @@ typedef enum {
 
 typedef struct {
     GGScreen        screen;
-    M64WidgetStyle  style;
-    M64Menu         menu;        // the active screen's list
+    KilnWidgetStyle  style;
+    KilnMenu         menu;        // the active screen's list
 
     // Match configuration, filled in by the select screens.
     uint8_t  goblin[GG_PLAYERS]; // index into gg_goblins per player
@@ -83,18 +83,18 @@ void gg_app_banner(GGApp *app, float seconds, const char *text);
 
 // Advance the active screen one frame. `in` is player 1's input (the menu
 // driver — see the file comment). Owns the camera because the transitions
-// are what change camera mode: entering PLAY pushes M64_CAM_BOARD and fits
+// are what change camera mode: entering PLAY pushes KILN_CAM_BOARD and fits
 // it to the chosen board, leaving PLAY pops back. Returns the screen after
 // the update, so main() can react to a transition without re-reading
 // app->screen.
-GGScreen gg_screens_update(GGApp *app, const M64Input *in, GGTurnState *turn,
-                           M64Board *board, GGPlayer *players,
-                           M64Camera *cam, const M64Scene *scene, float dt);
+GGScreen gg_screens_update(GGApp *app, const KilnInput *in, GGTurnState *turn,
+                           KilnBoard *board, GGPlayer *players,
+                           KilnCamera *cam, const KilnScene *scene, float dt);
 
 // Draw the active screen's 2D layer. Must be called inside the
-// m64_gui_begin/end bracket. PLAY delegates to gg_hud_draw.
-void gg_screens_draw(const GGApp *app, const M64Scene *scene,
-                     const GGTurnState *turn, const M64Board *board,
+// kiln_gui_begin/end bracket. PLAY delegates to gg_hud_draw.
+void gg_screens_draw(const GGApp *app, const KilnScene *scene,
+                     const GGTurnState *turn, const KilnBoard *board,
                      const GGPlayer *players, int screen_w, int screen_h);
 
 // Sort `order` best-first by bud count. Ties break toward the lower seat

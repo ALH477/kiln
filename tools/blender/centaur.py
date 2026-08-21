@@ -15,7 +15,7 @@ dropped every animation channel with `Channel target not found` — they are
 NODE animations on an unskinned hierarchy, and the importer wants a skin.
 
 The centaur is one bone per limb, which means one bone per vertex, which is
-exactly the constraint m64lib's make_skinned_mesh documents:
+exactly the constraint kilnlib's make_skinned_mesh documents:
 
     the importer allows ONE bone per vertex and at most three bones per
     triangle (Tiny3D README)
@@ -54,7 +54,7 @@ import sys
 import bpy
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # Leaf/parallel bone length in Blender units. Cosmetic — rigid skinning uses
 # the explicit vertex groups, never the bone's extent.
@@ -83,7 +83,7 @@ def build_armature(rig):
 def build_meshes(rig, armature):
     """One mesh per material, rigidly bound, vertex groups from the exporter.
 
-    Not m64lib's make_skinned_mesh: that takes parts as (bone, verts, faces),
+    Not kilnlib's make_skinned_mesh: that takes parts as (bone, verts, faces),
     i.e. one bone per PART. This mesh binds one bone per VERTEX, so a triangle
     spanning a seam keeps each corner on its own bone. Same tail as
     make_skinned_mesh — vertex groups, parent, armature modifier — applied to

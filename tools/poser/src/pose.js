@@ -74,8 +74,8 @@ export function quatToPose(restQuat, quat) {
   return [_e.x / DEG, _e.y / DEG, _e.z / DEG];
 }
 
-// ── easing, mirroring m64lib.ease ─────────────────────────────────────────
-// Same four curves, same constants. m64lib's version is the one that ships;
+// ── easing, mirroring kilnlib.ease ─────────────────────────────────────────
+// Same four curves, same constants. kilnlib's version is the one that ships;
 // this one exists so the preview matches, and verify() is what keeps them
 // honest about it.
 export function ease(t, mode) {

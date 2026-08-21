@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
-"""test_prims.py — winding checks for m64lib's primitive builders.
+"""test_prims.py — winding checks for kilnlib's primitive builders.
 
     python3 tools/blender/test_prims.py        # no Blender needed
 
@@ -16,7 +16,7 @@ point, EVERY face normal must point away from that point. Normals come from
 Newell's method rather than the first triangle's cross product, so a
 non-planar quad is judged by its whole outline.
 
-m64lib imports bpy at module scope but only touches it inside functions, so a
+kilnlib imports bpy at module scope but only touches it inside functions, so a
 stub module is enough to import the pure builders.
 """
 
@@ -28,7 +28,7 @@ from pathlib import Path
 sys.modules.setdefault("bpy", types.ModuleType("bpy"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 
 def area_normal(verts, face):

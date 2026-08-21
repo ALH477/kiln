@@ -50,7 +50,7 @@ same integer and the triangle between them becomes a zero-area sliver that
 still costs a vertex slot and still costs RSP transform time.
 
 So every part goes through _emit(), which snaps it to that grid and then
-merges what the snapping made redundant (m64lib.weld). Per character:
+merges what the snapping made redundant (kilnlib.weld). Per character:
 
     Dank    827 -> 512 verts    862 -> 880 tris
     Sparky  851 -> 510          854 -> 872
@@ -79,7 +79,7 @@ about the shape of the chunk.
 
 So the masses are lofted now — hips, chest and skull are tapered octagonal
 and hexagonal stacks with a real waist, brow and jawline — and the limbs are
-m64lib.segment() prisms running between the ACTUAL joint positions rather
+kilnlib.segment() prisms running between the ACTUAL joint positions rather
 than upright boxes centred near them. The arm bone runs 37 degrees off
 vertical; a vertical box on it covers the bone approximately, and
 "approximately" is what made the old model read as unrelated blocks floating
@@ -108,7 +108,7 @@ against an arm chain of 0.82, hip-to-ankle 0.48 against a leg chain of 0.52.
 Both reaches are shorter than their chain, so the riding poses come out with
 a natural bend rather than a limb visibly stretched straight to fit — and
 the leg has almost no margin, because these are short goblin legs and the
-first station put the footrests 0.69 away from a 0.52 chain. test_rider.py
+first station put the footrests 0.69 away from a 0.52 chain. blender_test_rider.py
 measures the actual posed distance on every run.
 """
 
@@ -118,7 +118,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # ── shared palette entries ─────────────────────────────────────────────────
 # Colours every character shares, so four goblins standing together read as
@@ -301,7 +301,7 @@ def _box(cx, cy, cz, sx, sy, sz, color):
     """A box as the (verts, faces, colors) triple the parts list wants.
 
     `color` is one srgb() or a list of six, one per face. The six-entry form
-    works because m64lib.box() splits all 24 corners per face, so nothing is
+    works because kilnlib.box() splits all 24 corners per face, so nothing is
     averaged — which is how the eyes get their pupils for free, as a darkened
     front face rather than extra geometry.
     """
@@ -309,7 +309,7 @@ def _box(cx, cy, cz, sx, sy, sz, color):
     return verts, faces, m.expand_colors("box", color, verts, faces)
 
 
-# Face indices into the six-colour form of _box. m64lib.box() returns faces
+# Face indices into the six-colour form of _box. kilnlib.box() returns faces
 # in the order -Z, +Z, -Y, +X, +Y, -X, so FRONT is index 4 now that he faces
 # +Y (it used to be index 2, which is exactly the sort of thing that breaks
 # silently when a model is turned around).
@@ -704,7 +704,7 @@ def build_goblin(spec):
 # its last frame, so it cycles without a visible snap.
 #
 # ── Sign conventions, established by MEASURING ─────────────────────────────
-# Not by reasoning about Blender's bone axes. test_rider.py's first run put
+# Not by reasoning about Blender's bone axes. blender_test_rider.py's first run put
 # the goblin's hands 1.25 units behind the grips, which is what a wrong guess
 # about this looks like.
 #
@@ -737,7 +737,7 @@ def build_goblin(spec):
 # So the poses below are keyframes in the animator's sense, and _bake()
 # turns them into the dense linear keys the exporter wants, applying:
 #
-#   * EASING, sampled from m64lib.ease() — the curve lives in the keys
+#   * EASING, sampled from kilnlib.ease() — the curve lives in the keys
 #     because it cannot live in the interpolation.
 #   * OVERSHOOT, via the "over" mode: a limb travels past its target and
 #     settles back. This is most of what makes a move feel like it has mass.
@@ -747,7 +747,7 @@ def build_goblin(spec):
 #     ears flap like a machine.
 #
 # ── What the baking costs, measured ────────────────────────────────────────
-# m64lib's make_action says keying densely "buys nothing" because the
+# kilnlib's make_action says keying densely "buys nothing" because the
 # importer resamples at a fixed 60 Hz. That is true of the SAMPLE RATE and
 # false of the file size, which is worth writing down because I assumed
 # otherwise and then measured it. One character, all nine actions:
@@ -999,7 +999,7 @@ def anim_taunt(armature):
 #
 # The arm and leg angles here are SOLVED, not eyeballed: a grid search over
 # the shoulder/elbow and hip/knee angles minimising the distance from the
-# hand tip and ankle to rider.GRIP and rider.REST. test_rider.py re-measures
+# hand tip and ankle to rider.GRIP and rider.REST. blender_test_rider.py re-measures
 # that distance on every run, so a change to either the rig or the station
 # fails loudly instead of showing up as hands hovering next to a wheel.
 RIDE = {

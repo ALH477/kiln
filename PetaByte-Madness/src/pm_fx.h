@@ -24,7 +24,7 @@
 // ── Shake is tabulated, not sinf ───────────────────────────────────────
 // A shake that calls sinf three times a frame is three transcendentals for
 // something nobody can distinguish from a lookup. Consistent with the
-// engine's stance on libm (see m64_camera.h on why its damping is linear
+// engine's stance on libm (see kiln_camera.h on why its damping is linear
 // rather than exp) and with VEIL_DESIGN.md's habit of pre-baking anything
 // that can be pre-baked.
 
@@ -33,7 +33,7 @@
 
 #include <libdragon.h>
 #include <t3d/t3dmath.h>
-#include <m64/m64_engine.h>
+#include <kiln/kiln_engine.h>
 
 /** Reset every effect. Call when a scene starts. */
 void pm_fx_reset(void);
@@ -60,9 +60,9 @@ int pm_fx_letterbox_settled(void);
 void pm_fx_shake(float amount, float seconds);
 
 /** Add the current shake offset to the scene's camera. Call after the
- *  camera has been applied and before m64_scene_update, so the shake is
+ *  camera has been applied and before kiln_scene_update, so the shake is
  *  in the matrices rather than fighting the damper that produced them. */
-void pm_fx_apply_camera(M64Scene *scene);
+void pm_fx_apply_camera(KilnScene *scene);
 
 // ── Flash ──────────────────────────────────────────────────────────────
 /** Fill the screen with `c` and fall off over `seconds`. The alpha in `c`

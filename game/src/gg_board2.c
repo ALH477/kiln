@@ -13,18 +13,18 @@
 // Spirit bonus — speed traded for yield, which is the choice the fork is
 // there to pose. Positions are a compact ring so the board camera's fit
 // radius is noticeably tighter than board 1's.
-const M64BoardNode gg_board2_nodes[GG_BOARD2_NODES] = {
-    { M64_SPACE_START,    {{   0, 0,    0 }}, { 1 },      1 }, // 0
-    { M64_SPACE_GROW,     {{  80, 0,  -40 }}, { 2 },      1 }, // 1
-    { M64_SPACE_TRADE,    {{ 140, 0,   20 }}, { 3 },      1 }, // 2
-    { M64_SPACE_DRY,      {{ 160, 0,  100 }}, { 4, 7 },   2 }, // 3 fork
-    { M64_SPACE_GROW,     {{ 110, 0,  160 }}, { 5 },      1 }, // 4 long
-    { M64_SPACE_GROW,     {{  30, 0,  170 }}, { 6 },      1 }, // 5 long
-    { M64_SPACE_SPIRIT,   {{ -40, 0,  120 }}, { 7 },      1 }, // 6 long
-    { M64_SPACE_SHORTCUT, {{ -50, 0,   50 }}, { 0 },      1 }, // 7 rejoin / shortcut
+const KilnBoardNode gg_board2_nodes[GG_BOARD2_NODES] = {
+    { KILN_SPACE_START,    {{   0, 0,    0 }}, { 1 },      1 }, // 0
+    { KILN_SPACE_GROW,     {{  80, 0,  -40 }}, { 2 },      1 }, // 1
+    { KILN_SPACE_TRADE,    {{ 140, 0,   20 }}, { 3 },      1 }, // 2
+    { KILN_SPACE_DRY,      {{ 160, 0,  100 }}, { 4, 7 },   2 }, // 3 fork
+    { KILN_SPACE_GROW,     {{ 110, 0,  160 }}, { 5 },      1 }, // 4 long
+    { KILN_SPACE_GROW,     {{  30, 0,  170 }}, { 6 },      1 }, // 5 long
+    { KILN_SPACE_SPIRIT,   {{ -40, 0,  120 }}, { 7 },      1 }, // 6 long
+    { KILN_SPACE_SHORTCUT, {{ -50, 0,   50 }}, { 0 },      1 }, // 7 rejoin / shortcut
 };
 
-void gg_board2_init(M64Board *b)
+void gg_board2_init(KilnBoard *b)
 {
-    m64_board_init(b, gg_board2_nodes, GG_BOARD2_NODES, 0);
+    kiln_board_init(b, gg_board2_nodes, GG_BOARD2_NODES, 0);
 }

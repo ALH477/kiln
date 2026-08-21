@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# tools/drive/beach.txt — the sub ascent and the beach reveal.
+#
+#   ./dev drive petabyte-madness-debug tools/drive/beach.txt pm-beach
+#
+# SUB is the LOACH rising off the seabed toward the island (12 s); BEACH is the
+# crash, the two guards, and the first sight of what Horner became (13 s). Both
+# are PMDemoShots over the night island — so both depend on pm_env's moonlit
+# rig, the storm, the animated sea, and the horizon colour matching across sky
+# dome, sea rim and fog.
+#
+# They are captured together because they share that environment and because
+# the transition between them is the one place the sea and the island are both
+# on screen at a distance where a horizon mismatch shows.
+#
+# SUB is entry eight, BEACH is entry nine:
+#   TITLE FILE NARRATION LAB_CINE LAB INTAKE CREDITS *SUB* BEACH PLAY
+
+log Jump menu -> SUB (seven downs)
+wait 0.5
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+press ddown
+wait 0.12
+shot 00-menu-on-sub.png
+press a
+wait 0.8
+
+log SUB — off the seabed. Silt, the hull lamp, no surface yet.
+shot 01-sub-seabed.png
+wait 5.0
+
+log Mid-ascent
+shot 02-sub-ascent.png
+wait 4.0
+
+log Breaking the surface: the horizon match between dome, sea rim and fog
+shot 03-sub-surface.png
+wait 3.0
+
+log BEACH — the crash
+shot 04-beach-crash.png
+wait 3.0
+
+log Fire, and the guards noticing
+shot 05-beach-fire.png
+wait 4.0
+
+log The kills, the shout, the face
+shot 06-beach-shout.png
+wait 4.0
+
+log MADNESS — the binary scroll
+shot 07-beach-madness.png
+
+log The camera-path overlay over whatever is still running
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.4
+shot 08-overlay-cam.png

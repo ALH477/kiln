@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MPL-2.0
 """quake_map.py — import a Quake .map (standard/"Valve 220" NOT supported,
-see below) into geometry via m64lib, so it flows through the same
+see below) into geometry via kilnlib, so it flows through the same
 Blender -> f3d_inject -> gltf_to_t3d pipeline every other model here does.
 
     blender --background --factory-startup -noaudio \
@@ -52,9 +52,9 @@ map's texture set is known.
 ── What is skipped ─────────────────────────────────────────────────────────
 Point entities (lights, spawn points, item pickups — anything without a
 brush list) are parsed but NOT turned into geometry or actors; they are only
-reported in inspect_map()'s summary. A game wanting them as M64Actor spawns
+reported in inspect_map()'s summary. A game wanting them as KilnActor spawns
 reads the reported classname/origin list and writes its own room spawn table
-(m64_room.h's M64RoomSpawn) by hand — this importer's job stops at geometry.
+(kiln_room.h's KilnRoomSpawn) by hand — this importer's job stops at geometry.
 """
 
 import math
@@ -282,7 +282,7 @@ def brush_to_faces(brush):
 def _order_ring(verts, normal):
     """Dedupe near-coincident points, then sort the remainder into a winding
     order (CCW looking against `normal`, i.e. from outside the solid — the
-    convention m64lib.make_mesh / Blender face winding both want)."""
+    convention kilnlib.make_mesh / Blender face winding both want)."""
     uniq = []
     for v in verts:
         if not any(_len(_sub(v, u)) < 1e-4 for u in uniq):
@@ -324,7 +324,7 @@ SKIP_TEXTURES = {"skip", "clip", "trigger", "hint", "areaportal", "caulk",
 
 def import_map(text, scale=1.0 / 32.0):
     """Parse + build every worldspawn/brush-entity solid into Blender meshes,
-    one object per texture per entity (matching m64lib's one-material-per-mesh
+    one object per texture per entity (matching kilnlib's one-material-per-mesh
     convention). Returns a summary dict for the caller to report/log.
 
     scale: Quake's grid is traditionally ~32 units per Blender-unit-ish human
@@ -332,7 +332,7 @@ def import_map(text, scale=1.0 / 32.0):
     the same order of magnitude as this repo's hand-authored models (goblin
     is ~2.3 Blender units tall). Override for a specific map's grid.
     """
-    import m64lib as m
+    import kilnlib as m
 
     entities = parse_map(text)
 
@@ -365,7 +365,7 @@ def import_map(text, scale=1.0 / 32.0):
                     base = len(vlist)
                     # Quake Z-up, same handedness as Blender — only a uniform
                     # scale is needed, no axis swap (unlike the glTF/engine
-                    # Y-up conversion, which m64lib's export_gltf handles).
+                    # Y-up conversion, which kilnlib's export_gltf handles).
                     vlist.extend((v[0] * scale, v[1] * scale, v[2] * scale)
                                 for v in poly)
                     flist.append(tuple(range(base, base + len(poly))))
@@ -408,7 +408,7 @@ def inspect_map(text):
 
 
 def main():
-    import m64lib as m
+    import kilnlib as m
 
     path = m.arg("--map")
     out = m.arg("--out")

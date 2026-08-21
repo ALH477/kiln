@@ -2,7 +2,7 @@
 """Generate a minimal 2-bone skinned glTF: a "hip" box and an "arm" box
 hinged above it, plus two rotation-only animations on the arm bone — "idle"
 (a slight constant tilt) and "swing" (a back-and-forth wave) — so a demo can
-exercise m64_skel's two-slot blend the way Tiny3D's own examples blend
+exercise kiln_skel's two-slot blend the way Tiny3D's own examples blend
 idle/walk. This is the smallest rig that exercises gltf_to_t3d's skin +
 animation path (rigid one-bone-per-vertex skinning, quaternion rotation
 keyframes) without needing fast64 custom properties — --ignore-materials
@@ -151,7 +151,7 @@ def gltf_make(outpath):
         return base64.b64encode(data).decode("ascii")
 
     gltf = {
-        "asset": {"version": "2.0", "generator": "M64 test skel asset generator"},
+        "asset": {"version": "2.0", "generator": "Kiln test skel asset generator"},
         "scene": 0,
         "scenes": [{"nodes": [0, 2]}],
         "nodes": [

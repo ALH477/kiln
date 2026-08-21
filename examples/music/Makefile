@@ -8,7 +8,7 @@
 
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
-include $(N64_INST)/include/m64.mk
+include $(N64_INST)/include/kiln.mk
 
 OBJS = $(BUILD_DIR)/main.o
 
@@ -17,7 +17,7 @@ all: music.z64
 $(BUILD_DIR)/music.dfs: $(wildcard filesystem/*)
 $(BUILD_DIR)/music.elf: $(OBJS)
 
-music.z64: N64_ROM_TITLE = "M64 Music"
+music.z64: N64_ROM_TITLE = "Kiln Music"
 music.z64: $(BUILD_DIR)/music.dfs
 
 clean:

@@ -7,9 +7,10 @@
 #include <libdragon.h>
 #include <t3d/t3d.h>
 #include <t3d/t3dmodel.h>
-#include <m64/m64_engine.h>
-#include <m64/m64_skel.h>
+#include <kiln/kiln_engine.h>
+#include <kiln/kiln_skel.h>
 
+#include "pm_cine.h"  // the cue trace; compiles away without KILN_DEBUG
 #include "pm_fx.h"
 #include "pm_lab.h"
 #include "pm_models.h"
@@ -128,7 +129,7 @@ static float sample_table(float frame)
 // walks to the machine -> hands off into ROOT[]/TABLE[] above at
 // ORIG_HANDOFF_FRAME. Named clips switched on state change (same
 // play_once idiom pm_arrival.c uses for the centaur), one-shots gated by
-// m64_skel_is_done() rather than a guessed duration.
+// kiln_skel_is_done() rather than a guessed duration.
 //
 // Root position during this sequence is a plain per-state (x,z) lerp: y
 // stays at standing hip height throughout (SIT_DESK's own leg bend sells
@@ -153,36 +154,61 @@ typedef enum {
 #define INTRO_T (T_DISTRAUGHT + T_WALK_DESK + T_SIT_DOWN + T_AT_DESK \
                  + T_STAND_UP + T_WALK_MRI)
 
-// Waypoints, world units. PM_LAB_DESK_X/Y/Z (pm_lab.h) are the single
-// source of truth for the console's position; the others are converted
-// once here via CM (generator cm -> world, same derivation as pm_lab.h's
-// own PM_LAB_REAL_* comment).
-#define POS_DISTRAUGHT_X   (0.0f * CM)
-#define POS_DISTRAUGHT_Z   (0.0f * CM)
+// Waypoints, world units. Everything that is a fact about the ROOM now derives
+// from pm_lab_gen.h (via pm_lab.h) rather than being a `cm * CM` literal — the
+// generator measures the room and publishes it, so a resize moves these
+// waypoints with it instead of leaving them behind. See pm_lab.h's own note.
+//
+// The one exception is POS_MRI_Z, flagged below: it is not room geometry.
+//
+// He starts at the room's FAR +Z WALL, not at the origin. dank_lab_gen.py puts
+// the scanner at world (-44.8, 69.1) — only ~45-65 units from the origin — so
+// "distraught, alone in a room too big and empty" was unframeable with the
+// machine standing next to him. Moving the character rather than the lens is
+// what fixed it. Expressed as a clearance from the measured wall so it stays
+// against the wall if the room is ever resized.
+#define POS_DISTRAUGHT_CLEAR (40.0f)  // a body's width and a bit off the wall
+#define POS_DISTRAUGHT_X   (0.0f)
+#define POS_DISTRAUGHT_Z   (PM_LAB_Z1 - POS_DISTRAUGHT_CLEAR)
 #define POS_DESK_X          PM_LAB_DESK_X
 #define POS_DESK_Z          PM_LAB_DESK_Z
-#define POS_MRI_X          (-70.0f * CM)   // == ROOT[0].x / 8, in cm
-#define POS_MRI_Z          (152.0f * CM)   // == ROOT[2].z / 8 (frame 45's z), in cm
-#define POS_STAND_Y         PM_LAB_DESK_Y  // standing hip height, constant throughout
+#define POS_MRI_X           PM_MRI_X      // the scanner's own bore-axis X
+// NOT derived from the scanner. This is the animation's own root Z at frame 45
+// (ROOT[2].z / 8, in generator cm), transcribed with the rest of the intake
+// sequence out of reference/ph_anim_intake.h — the clip was authored in its own
+// space and the runtime plays it there. Deriving it from PM_MRI_Z_FACE would
+// look tidier and would move him off the path his own animation walks.
+#define POS_MRI_Z          (152.0f * CM)
+// Standing hip height, constant throughout. PM_HORNER_HIP_Y and not
+// PM_LAB_DESK_Y: this is a fact about HIS RIG (the root pivot his model is
+// exported around), and it only ever matched the desk's "hip above the seat
+// face" by coincidence — 61.44 against 61.40. Two numbers that happen to be
+// equal are not a relationship, and moving the stool would have dropped him
+// through the floor for no reason a reader could see.
+#define POS_STAND_Y         PM_HORNER_HIP_Y
 
-static M64Skel g_skel;
+static KilnSkel g_skel;
 static int     g_skel_ready;
 static const char *g_clip;
 static IntakeState g_state;
 static float   g_state_t;
 
-static M64Skel g_arms_skel;
+static KilnSkel g_arms_skel;
 static int     g_arms_ready;
 
-/** Switch clips only on a change — m64_skel_play tears down and rebuilds
+/** Switch clips only on a change — kiln_skel_play tears down and rebuilds
  *  the T3DAnim, so calling it every frame would restart the animation on
  *  every frame and nothing would ever visibly play. Same idiom as
  *  pm_arrival.c's play_once. */
 static int play_once(const char *clip, bool loop)
 {
     if (!g_skel_ready || g_clip == clip) return 0;
+    // The clip name IS the cue. Every animation change in this shot is a beat
+    // worth seeing on the timeline, and switching on a change is exactly the
+    // edge to record it on.
+    PM_CUE(clip);
     g_clip = clip;
-    m64_skel_play(&g_skel, clip, loop);
+    kiln_skel_play(&g_skel, clip, loop);
     return 1;
 }
 
@@ -233,20 +259,78 @@ static void intro_root_xz(float *x, float *z)
 static const PMCamKey INTAKE_KEYS[] = {
     // ── New: the leading sequence's own coverage ────────────────────────
     // Distraught, alone in the middle of the room — wide, so the empty
-    // space around him reads as part of the beat.
-    { 0.0f,                    {{  40.0f, 130.0f,  90.0f }}, {{   0.0f,  80.0f,   0.0f }} },
-    { T_DISTRAUGHT,             {{  30.0f, 120.0f,  70.0f }}, {{   0.0f,  75.0f,   0.0f }} },
+    // space around him reads as part of the beat. The scanner falls INTO
+    // frame as background depth beyond him instead of standing next to him,
+    // now that his own spawn has moved (see POS_DISTRAUGHT_Z above).
+    //
+    // These two used to sit near the +Z wall directly behind him, which is
+    // the reading that matches "looking back across the room toward -Z" and
+    // is not one this room can give you. He stands 40 units off a wall at
+    // z=171.5, so a camera on the line from the scanner through him has at
+    // most ~49 units of room before it is through the wall — and at 49 units
+    // a 112-unit-tall man does not fit in an 85-degree frame. The old keys
+    // were 64-88 units out with the eye at y=130-140, ABOVE his head, so
+    // they looked down at him hard enough to push his feet off the bottom of
+    // the frame entirely (measured: -1.24 at the second key).
+    //
+    // The distance has to come from somewhere, and the room is 631 units
+    // wide in X against 319 deep in Z, so it comes from X — these look down
+    // the room's LONG axis. That matters twice: it is the only axis with
+    // enough depth to stand back on, and it puts the near walls BEHIND the
+    // camera instead of in the frame. Aiming across the short axis from the
+    // corner framed him correctly and still filled 40% of the picture with
+    // the +X wall seventeen units from the lens.
+    //
+    // He lands dead centre at 40% then 47% of frame height, feet and
+    // headroom both inside, with the scanner behind and to his right at
+    // depth ~200 against his ~150 — the background-depth read the beat
+    // wanted in the first place. Verified by projecting his own feet, hip
+    // and head through these keys rather than by eye.
+    { 0.0f,                    {{ 150.0f,  85.0f, 140.0f }}, {{ -110.0f, 55.0f, 120.0f }} },
+    { T_DISTRAUGHT,             {{ 128.0f,  82.0f, 138.0f }}, {{ -100.0f, 54.0f, 122.0f }} },
+    // Midpoint of the walk to the desk. The Catmull-Rom interpolator below
+    // (pm_demo_apply/spline1) derives its tangent at a key from its TWO
+    // neighbors, not just the segment it's currently in — so a big jump
+    // straight from the distraught hold to the desk arrival drags the
+    // tangent hard enough to overshoot the small sit/type hold that
+    // follows. Splitting the jump into two steps, each the arithmetic mean
+    // of its segment's endpoints (using the widened distraught key above),
+    // is the standard fix for uniform-Catmull-Rom overshoot on unevenly
+    // sized deltas.
+    { T_DISTRAUGHT + T_WALK_DESK * 0.5f,
+                                {{ 144.0f,  91.0f, 114.0f }}, {{  10.0f,  62.0f,  78.0f }} },
     // Follows him toward the console, then holds on the sit/type beat from
     // the side — a level, human framing after the wide opening.
     { T_DISTRAUGHT + T_WALK_DESK,
                                 {{ 160.0f, 100.0f,  90.0f }}, {{ 120.0f,  70.0f,  34.0f }} },
     { T_DISTRAUGHT + T_WALK_DESK + T_SIT_DOWN + T_AT_DESK * 0.5f,
                                 {{ 170.0f,  90.0f,  70.0f }}, {{ 118.0f,  65.0f,  34.0f }} },
+    // He stands — same overshoot fix, symmetric with the key above: halves
+    // the -130/-178 eye.x/look.x jump into the stand-up pull-back.
+    { T_DISTRAUGHT + T_WALK_DESK + T_SIT_DOWN + T_AT_DESK,
+                                {{ 105.0f, 105.0f,  65.0f }}, {{  29.0f,  72.5f,  17.0f }} },
     // Stands, then the long walk back to the machine — pulls wide again
     // so the machine is already in frame well before he arrives at it.
     { T_DISTRAUGHT + T_WALK_DESK + T_SIT_DOWN + T_AT_DESK + T_STAND_UP,
                                 {{  40.0f, 120.0f,  60.0f }}, {{ -60.0f,  80.0f,   0.0f }} },
-    { INTRO_T,                 {{ -120.0f, 110.0f, 160.0f }}, {{ -300.0f,  80.0f,  90.0f }} },
+    // Midpoint of the walk back to the machine — same fix again, halving the
+    // jump into the handoff key below, which is now T2(45).
+    //
+    // There used to be a separate `{ INTRO_T, ... }` key here, and INTRO_T is
+    // EXACTLY T2(45): T2(f) is INTRO_T + T(f - ORIG_HANDOFF_FRAME) and
+    // ORIG_HANDOFF_FRAME is 45, so the leading sequence's last key and the
+    // original sequence's first key sat on the same instant with two different
+    // poses 30 units apart. pm_camkey_sample's bracketing scan walks past a
+    // zero-span segment, so the INTRO_T key was never flown THROUGH — but
+    // Catmull-Rom takes its tangent from a key's two NEIGHBOURS, so it still
+    // bent the curve either side of the seam while being unreachable itself.
+    // Dead data that is not inert. pm_cine_lint's ERR_TIME_ORDER found it.
+    //
+    // Merged into T2(45), whose pose this halves toward — it keeps its own
+    // "pulled inside the real Z1" history below and shifts correctly if
+    // ORIG_HANDOFF_FRAME ever moves, which a literal INTRO_T would not.
+    { T_DISTRAUGHT + T_WALK_DESK + T_SIT_DOWN + T_AT_DESK + T_STAND_UP + T_WALK_MRI * 0.5f,
+                                {{ -55.0f, 112.5f, 105.0f }}, {{ -182.5f,  77.5f,  35.0f }} },
 
     // ── Original scanner sequence, shifted by INTRO_T ───────────────────
     // LOOK — wide and level, across the room. He is small and the machine
@@ -288,13 +372,13 @@ static void intake_setup(void)
 
     T3DModel *horner = pm_models_get(PM_MODEL_HORNER);
     if (horner && !g_skel_ready) {
-        m64_skel_create(&g_skel, horner);
+        kiln_skel_create(&g_skel, horner);
         g_skel_ready = 1;
     }
     T3DModel *arms = pm_models_get(PM_MODEL_LAB_ARMS);
     if (arms && !g_arms_ready) {
-        m64_skel_create(&g_arms_skel, arms);
-        m64_skel_play(&g_arms_skel, "idle", true);
+        kiln_skel_create(&g_arms_skel, arms);
+        kiln_skel_play(&g_arms_skel, "idle", true);
         g_arms_ready = 1;
     }
 
@@ -308,15 +392,15 @@ static void intake_setup(void)
 static void intake_teardown(void)
 {
     pm_fx_letterbox(0.0f);
-    if (g_skel_ready) { m64_skel_destroy(&g_skel); g_skel_ready = 0; }
-    if (g_arms_ready) { m64_skel_destroy(&g_arms_skel); g_arms_ready = 0; }
+    if (g_skel_ready) { kiln_skel_destroy(&g_skel); g_skel_ready = 0; }
+    if (g_arms_ready) { kiln_skel_destroy(&g_arms_skel); g_arms_ready = 0; }
 }
 
 static void intake_update(float elapsed, float dt)
 {
     (void)elapsed;
-    if (g_skel_ready) m64_skel_update(&g_skel, dt);
-    if (g_arms_ready) m64_skel_update(&g_arms_skel, dt);
+    if (g_skel_ready) kiln_skel_update(&g_skel, dt);
+    if (g_arms_ready) kiln_skel_update(&g_arms_skel, dt);
 
     if (g_state != IS_CLIMB_IN) {
         g_state_t += dt;
@@ -331,7 +415,7 @@ static void intake_update(float elapsed, float dt)
             break;
         case IS_SIT_DOWN:
             play_once("sit_down", false);
-            if (m64_skel_is_done(&g_skel)) { g_state = IS_AT_DESK; g_state_t = 0.0f; }
+            if (kiln_skel_is_done(&g_skel)) { g_state = IS_AT_DESK; g_state_t = 0.0f; }
             break;
         case IS_AT_DESK:
             play_once("sit_type", true);
@@ -339,7 +423,7 @@ static void intake_update(float elapsed, float dt)
             break;
         case IS_STAND_UP:
             play_once("stand_up", false);
-            if (m64_skel_is_done(&g_skel)) { g_state = IS_WALK_MRI; g_state_t = 0.0f; }
+            if (kiln_skel_is_done(&g_skel)) { g_state = IS_WALK_MRI; g_state_t = 0.0f; }
             break;
         case IS_WALK_MRI:
             play_once("walk", true);
@@ -364,6 +448,7 @@ static void intake_update(float elapsed, float dt)
     // has started, and the shake is what says so.
     if (frame >= CUE_MOTOR && !g_cue_motor) {
         g_cue_motor = 1;
+        PM_CUE("cue.motor");
         pm_sfx_play(PM_SFX_MRI_START);
     }
     if (g_cue_motor && frame < CUE_IN) {
@@ -374,6 +459,9 @@ static void intake_update(float elapsed, float dt)
 
     if (frame >= CUE_IN && !g_cue_in) {
         g_cue_in = 1;
+        // Named, because its only visible effect is a shake, and "fx.shake" on
+        // its own does not say WHICH beat that was.
+        PM_CUE("cue.in");
         pm_fx_shake(7.0f, 0.8f);
     }
 
@@ -392,16 +480,16 @@ static void intake_update(float elapsed, float dt)
 static void draw_arms(void)
 {
     if (!g_arms_ready) return;
-    static M64Transform xf;
+    static KilnTransform xf;
     static int ready;
-    if (!ready) { m64_transform_init(&xf); ready = 1; }
+    if (!ready) { kiln_transform_init(&xf); ready = 1; }
     xf.pos = (fm_vec3_t){{ PM_LAB_ARMS_X, PM_LAB_ARMS_Y, PM_LAB_ARMS_Z }};
     xf.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
     xf.rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
     xf.rot_angle = 0.0f;
-    m64_transform_push(&xf);
-    m64_skel_draw(&g_arms_skel);
-    m64_transform_pop();
+    kiln_transform_push(&xf);
+    kiln_skel_draw(&g_arms_skel);
+    kiln_transform_pop();
 }
 
 static void intake_draw(float elapsed)
@@ -409,17 +497,17 @@ static void intake_draw(float elapsed)
     (void)elapsed;
 
     T3DModel *lab = pm_models_get(PM_MODEL_LAB);
-    static M64Transform lab_x;
+    static KilnTransform lab_x;
     static int lab_ready;
-    if (!lab_ready) { m64_transform_init(&lab_x); lab_ready = 1; }
+    if (!lab_ready) { kiln_transform_init(&lab_x); lab_ready = 1; }
     if (lab) {
         lab_x.pos = (fm_vec3_t){{ 0, 0, 0 }};
         lab_x.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
         lab_x.rot_axis = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
         lab_x.rot_angle = 0.0f;
-        m64_transform_push(&lab_x);
+        kiln_transform_push(&lab_x);
         t3d_model_draw(lab);
-        m64_transform_pop();
+        kiln_transform_pop();
     }
 
     draw_arms();
@@ -450,15 +538,15 @@ static void intake_draw(float elapsed)
         if (frame >= (float)CUE_LIE) z += sample_table(frame);
     }
 
-    static M64Transform x_form;
+    static KilnTransform x_form;
     static int ready;
-    if (!ready) { m64_transform_init(&x_form); ready = 1; }
+    if (!ready) { kiln_transform_init(&x_form); ready = 1; }
 
     x_form.pos = (fm_vec3_t){{ x, y, z }};
     x_form.scale = (fm_vec3_t){{ 1.0f, 1.0f, 1.0f }};
 
     // A skinned mesh still only gets ONE axis-angle rotation through
-    // M64Transform, same constraint Pass A had — pitch is the one that
+    // KilnTransform, same constraint Pass A had — pitch is the one that
     // carries the scanner sequence (standing to flat), yaw only ever
     // changes early, while the camera is far away, so: pitch about X while
     // he is going down, yaw about Y before that.
@@ -470,9 +558,9 @@ static void intake_draw(float elapsed)
         x_form.rot_angle = yaw;
     }
 
-    m64_transform_push(&x_form);
-    m64_skel_draw(&g_skel);
-    m64_transform_pop();
+    kiln_transform_push(&x_form);
+    kiln_skel_draw(&g_skel);
+    kiln_transform_pop();
 }
 
 const PMDemoShot pm_intake_shot = {

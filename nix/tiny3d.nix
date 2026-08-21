@@ -27,7 +27,7 @@ pkgs.stdenv.mkDerivation {
   inherit src;
 
   # The one vendored Tiny3D patch. Pure refactor: extracts the body of
-  # t3d_model_load(path) into t3d_model_load_buf(buf, sz) so m64_asset_model
+  # t3d_model_load(path) into t3d_model_load_buf(buf, sz) so kiln_asset_model
   # can parse a .t3dm already in RAM (out of a StreamDB container). See
   # nix/patches/tiny3d-load-buf.patch for the rationale. Upstream-able as-is;
   # if Tiny3D bumps and this no longer applies, `nix flake check` fails loudly

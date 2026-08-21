@@ -24,12 +24,12 @@ referencing an external file) — only `[ext_resource]` files Blender's own
 importers already understand. It does NOT import materials, physics
 shapes, lights, or scripts; non-mesh nodes are reported in the summary
 (same convention as quake_map.py's point entities) so a game can turn them
-into M64Actor spawns or m64_room lights by hand, reading their type and
+into KilnActor spawns or kiln_room lights by hand, reading their type and
 origin from the report rather than this script guessing intent.
 
 ── Axes: Godot is Y-up, like glTF — NOT like Blender ───────────────────────
 Godot's Transform3D uses the same convention glTF does (Y up, -Z forward,
-right-handed) — the exact convention `m64lib.export_gltf`'s `export_yup`
+right-handed) — the exact convention `kilnlib.export_gltf`'s `export_yup`
 converts BLENDER's Z-up TO on the way out. So a Godot transform needs the
 inverse of that conversion on the way IN, which is a straight axis swap
 (no reprojection, since it is a signed permutation of orthonormal basis
@@ -188,7 +188,7 @@ def import_scene(text, project_root, scale=1.0):
     """Import every supported mesh-bearing node into the current Blender
     scene, transformed per its Transform3D. Returns a summary dict."""
     import bpy
-    import m64lib as m
+    import kilnlib as m
 
     scene = parse_tscn(text)
     imported, skipped, other = [], [], []
@@ -247,7 +247,7 @@ def _matrix_from_columns(bx, by, bz, origin):
 
 
 def main():
-    import m64lib as m
+    import kilnlib as m
 
     scene_path = m.arg("--scene")
     project_root = m.arg("--project")

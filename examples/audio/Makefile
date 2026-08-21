@@ -18,7 +18,7 @@ all: audio.z64
 $(BUILD_DIR)/audio.dfs: $(wildcard filesystem/*)
 $(BUILD_DIR)/audio.elf: $(OBJS)
 
-audio.z64: N64_ROM_TITLE = "M64 Audio"
+audio.z64: N64_ROM_TITLE = "Kiln Audio"
 audio.z64: $(BUILD_DIR)/audio.dfs
 
 clean:

@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# tools/drive/intake.txt — the intake cutscene, reached in seconds.
+#
+#   ./dev drive petabyte-madness-debug tools/drive/intake.txt pm-intake
+#
+# INTAKE is the transformation: Horner, distraught, walks to a console, sits,
+# types, stands, walks to the MRI, and the machine takes him. 14.5 s of
+# keyframed camera over a skinned rig, and the shot most likely to need
+# re-framing — which is why it gets its own script.
+#
+# ── Why this is not tools/drive/intro.txt ──────────────────────────────
+# intro.txt plays the game: boot splash, title, a 12 s attract idle, file
+# select, a narration crawl, a walk across the lab to the MRI. Roughly ninety
+# seconds before INTAKE starts, and that is the correct thing for a script whose
+# job is "capture every screen in order". It is the wrong thing for iterating on
+# one shot, and iterating on one shot by editing forced transitions into
+# pm_screens.c is what this replaces (see the debug jump menu's comment there).
+#
+# The debug ROM opens on a jump menu. INTAKE is the sixth entry:
+#   TITLE FILE NARRATION LAB_CINE LAB *INTAKE* CREDITS SUB BEACH PLAY
+#
+# ── Read the pixel statistics, not the PNGs ────────────────────────────
+# A dim underwater lab upscaled into a large screenshot reads as "black" to the
+# eye when the picture is right there; that misread has already cost this
+# project real time (CLAUDE.md, "Screenshots"). Every shot below prints colour
+# histograms and a non-black percentage. Trust those.
+#
+# ── And turn the spatial overlay on ────────────────────────────────────
+# C-Up + C-Down cycles pm_debug's layers (pm_debug.h). The `cam` set draws the
+# shot's keyframe path and each key's sightline, which is the only way to see
+# the Catmull-Rom overshoot the INTAKE_KEYS midpoints exist to suppress — as a
+# table of eye coordinates it is invisible.
+
+log The debug jump menu is up over the splash
+wait 0.5
+shot 00-jump-menu.png
+
+log Down five to INTAKE, then A
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+press ddown
+wait 0.15
+shot 01-menu-on-intake.png
+press a
+wait 0.8
+
+log INTAKE — distraught, alone, wide. T_DISTRAUGHT.
+shot 02-distraught.png
+wait 2.0
+
+log The walk to the desk, through the first inserted midpoint key
+shot 03-walk-to-desk.png
+wait 2.0
+
+log Sitting and typing — the level, human framing after the wide opening
+shot 04-at-desk.png
+wait 3.0
+
+log Standing, and the pull back
+shot 05-stand-up.png
+wait 2.0
+
+log The long walk back to the machine, through the second midpoint key
+shot 06-walk-to-mri.png
+wait 2.5
+
+log The handoff to the scanner sequence
+shot 07-at-mri.png
+wait 2.0
+
+log Turn the camera-path overlay on (C-Up + C-Down cycles to `cam`)
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.4
+shot 08-overlay-cam.png
+
+log And the collision set, for the room the shot is flying through
+down cup
+down cdown
+wait 0.2
+up cup
+up cdown
+wait 0.4
+shot 09-overlay-clip.png

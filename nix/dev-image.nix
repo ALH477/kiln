@@ -7,7 +7,7 @@
 # NOT duplicate toolchain/n64Inst/gnumake/faust/ares from devShells.default
 # (flake.nix) — those come from running this flake's own `nix develop`
 # against a cloned checkout of the repo, exactly as on a native NixOS
-# machine, so there is one source of truth for the M64 toolchain and zero
+# machine, so there is one source of truth for the Kiln toolchain and zero
 # drift between "what the image ships" and "what the flake's devShell
 # defines". This image only needs to provide a working Nix (with flakes),
 # git, Claude Code, and Tailscale (for the private registry + private git

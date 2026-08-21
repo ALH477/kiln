@@ -313,7 +313,7 @@ rec {
     };
 
   # ── Video (FMV) ──────────────────────────────────────────────────────
-  # engine/src/m64/m64_video.h decodes raw MPEG1 elementary streams
+  # engine/src/kiln/kiln_video.h decodes raw MPEG1 elementary streams
   # (`.m1v`, libdragon's mpeg1_codec) frame by frame at runtime. No
   # audioconv64 step and no re-encode here: unlike mkSound's mp3/wav
   # inputs, a `.m1v` is already exactly the bytes the console's decoder
@@ -424,16 +424,147 @@ rec {
       '';
     };
 
+  # ── The scarlet veil's CI4 textures ──────────────────────────────────
+  # PetaByte-Madness/docs/VEIL_DESIGN.md §1 calls the palette swap "the one
+  # idea": author both states offline, and at runtime change only which 16-entry
+  # TLUT a material points at. 32 bytes of DMA and zero extra pixels shaded,
+  # against the 76,800 blended read-modify-writes a full-screen tinted quad
+  # costs at 320x240 — which is the single most expensive thing you can ask an
+  # RDP to do, and buys nothing the swap does not.
+  #
+  # The runtime half of that has existed and been unreachable: pm_veil.c's
+  # `pm_veil_bind_palette`, `_material_pass`, `_prim_alpha` and `_ramp_build`
+  # are written and had ZERO call sites, because §8's checklist opens with
+  # "convert every material in the demon zone to CI4… this is the real work"
+  # and nothing did. This builder is that work.
+  #
+  # ── One derivation, three outputs, for the same reason as mkTextures ──
+  #   $out/filesystem/<dest>/<name>.sprite   the CI4 image
+  #   $out/filesystem/<dest>/<name>.pal      64 bytes: cold then veiled,
+  #                                          16 x RGBA5551 big-endian each
+  #   $out/png/<name>.png                    the SOURCE png, for gltf_to_t3d
+  #
+  # The third exists because `gltf_to_t3d` decodes the PNG at CONVERSION time
+  # purely to learn the texture's pixel dimensions — glTF stores UVs as pixel
+  # coordinates (meshConverter.cpp:120), so a model referencing this texture
+  # cannot be built without the image being on disk beside it. Same arrangement
+  # mkTextures uses, and for the same reason: generating the pixels twice and
+  # hoping the two runs agree is how a model ends up carrying UVs scaled for one
+  # texture while the ROM ships another.
+  #
+  # They must describe the SAME quantisation. A `.pal` built from one
+  # quantisation of a PNG and a `.sprite` built from another would produce a
+  # texture whose texel indices address the wrong colours — a model that
+  # renders, in the wrong palette, with nothing failing anywhere. Splitting
+  # these into two derivations is exactly how that happens, so they are one.
+  #
+  # ── The source must ALREADY be indexed ───────────────────────────────
+  # `format = "CI4"` makes mksprite quantise, and tools/veil_palette.py reads
+  # the PNG's own palette. If the PNG were truecolour those would be two
+  # independent quantisations of the same image and the indices would not
+  # correspond. So an indexed (PIL mode "P") source is required and the absence
+  # of one is an error rather than a silent mismatch — see the checkPhase.
+  #
+  # PetaByte Madness already has three such sources: mc_face.png,
+  # mc_plate.png and mc_gore.png are indexed with 15, 7 and 5 colours, which is
+  # why docs/ASSET_PIPELINE.md already names them "the natural first real
+  # customer for pm_veil_bind_palette".
+  mkVeilTexture =
+    { name
+    , src
+      # world | demon | phantom | eyes — VEIL_DESIGN.md §4's material classes.
+      # This is the single most consequential parameter: `phantom` makes the
+      # cold palette alpha-0 on every entry, i.e. the creature is not drawn at
+      # all with the veil down, and getting it wrong on a demon body shows the
+      # player a monster the design says they cannot see yet.
+    , veilClass ? "world"
+      # `textures`, not something veil-specific, because gltf_to_t3d's path
+      # mapping is not negotiable: mkBlenderModel stages a model's textures into
+      # `stage/assets/textures/`, a material spec names `tex=textures/<n>.png`,
+      # and the importer rewrites that to `rom:/textures/<n>.sprite`. Shipping
+      # the sprite anywhere else gives the model a rom path with nothing at it.
+      # The .pal rides along in the same directory rather than getting a tidier
+      # home of its own, so the pair stays together.
+    , dest ? "textures"
+    , compress ? 1
+    , generator ? ../tools/veil_palette.py
+    }:
+    pkgs.stdenv.mkDerivation {
+      pname = "veil-${name}";
+      version = "0.1.0";
+      dontUnpack = true;
+      dontConfigure = true;
+      nativeBuildInputs = [ n64Inst pkgs.python3 pkgs.python3Packages.pillow ];
+      inherit src;
+
+      buildPhase = ''
+        runHook preBuild
+        outdir="filesystem/${dest}"
+        mkdir -p "$outdir"
+
+        cp "$src" "${name}.png"
+
+        # The palette first: it is the step that will reject a truecolour
+        # source, and failing before mksprite has produced a plausible-looking
+        # .sprite keeps a half-built pair out of the store.
+        python3 ${generator} "${name}.png" "$outdir/${name}.pal" \
+            --class ${veilClass}
+
+        mksprite -v --format CI4 --compress ${toString compress} \
+            -o "$outdir" "${name}.png"
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        outdir="filesystem/${dest}"
+        [ -s "$outdir/${name}.sprite" ] || {
+          echo "mkVeilTexture: no ${name}.sprite" >&2; exit 1; }
+        # Exactly 64 bytes: 2 palettes x 16 entries x 2 bytes. Asserted rather
+        # than assumed because pm_veil_ramp_build reads a fixed 16 entries from
+        # each half and a short file would feed it whatever followed in RAM.
+        sz=$(stat -c%s "$outdir/${name}.pal")
+        [ "$sz" = 64 ] || {
+          echo "mkVeilTexture: ${name}.pal is $sz bytes, expected 64" >&2
+          exit 1; }
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p "$out/png"
+        cp -r filesystem "$out/"
+        # The source PNG under the name gltf_to_t3d will look for. Kept
+        # unquantised: mksprite did the CI4 conversion for the ROM, but the
+        # importer only wants the dimensions, and handing it an indexed PNG it
+        # has no reason to decode is a needless dependency on its PNG support.
+        cp "${name}.png" "$out/png/${name}.png"
+        runHook postInstall
+      '';
+
+      dontStrip = true;
+      dontPatchELF = true;
+
+      passthru = {
+        assetName = "${name}.sprite";
+        palName = "${name}.pal";
+        inherit dest veilClass;
+      };
+
+      meta.description = "veil CI4 texture + cold/veiled TLUT pair: ${name}";
+    };
+
   # ── Single-file asset container ──────────────────────────────────────
   # Packs a list of already-converted assets into one .streamdb file the
-  # runtime m64_asset layer mounts from DFS. The pack tool is the upstream C
+  # runtime kiln_asset layer mounts from DFS. The pack tool is the upstream C
   # writer — the SAME binary nix/checks/streamdb.nix builds to verify the
   # reader, so the format writer is reviewed code we already trust. No new
   # writer to maintain.
   #
   # Each entry is `{ key, asset }`:
   #   * `key`  is the StreamDB key, e.g. "models/cube.t3dm" — the same string
-  #     the ROM will pass to m64_asset_load. Convention: the key IS the path
+  #     the ROM will pass to kiln_asset_load. Convention: the key IS the path
   #     the file would have had in loose DFS, so an asset can move between
   #     the two containers with no code change at the call site.
   #   * `asset` is a mkModel/mkSprite/mkSound/mkRawAsset derivation (anything

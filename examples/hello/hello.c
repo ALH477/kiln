@@ -14,11 +14,11 @@ int main(void)
     // debugf() goes to the host over flashcart USB when one is attached, and
     // is a no-op otherwise. This is the channel `./dev debug` reads.
     debug_init_isviewer();
-    debugf("M64: hello from the VR4300\n");
+    debugf("Kiln: hello from the VR4300\n");
 
     while (1) {
         console_clear();
-        printf("\n  M64\n\n");
+        printf("\n  Kiln\n\n");
         printf("  libdragon on a Nix-built mips64-elf toolchain.\n");
         console_render();
     }

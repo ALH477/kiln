@@ -11,7 +11,7 @@
 
 Two hero props in the sense interceptor.py established: one silhouette each,
 assembled from interpenetrating solids, shaded entirely by COLOR_0 through the
-`shade` combiner m64_scene_begin() already sets, no texture and no TMEM.
+`shade` combiner kiln_scene_begin() already sets, no texture and no TMEM.
 
 ── Why one file for two models ────────────────────────────────────────────
 They share the parts that are hard to get right — the wheel (a cylinder laid
@@ -71,7 +71,7 @@ triangles mostly buy RDP fill, which at 320x240 is not the bottleneck.
 A goblin (~870) on a bike (804) is ~1700 tris per player. Four in one frame
 is ~6700, which is the number to watch if the board camera ever frames every
 player's vehicle at once — that is a real budget now, not a rounding error,
-and it is the case for m64_lod on the far tokens.
+and it is the case for kiln_lod on the far tokens.
 
 ── Checked before Blender starts ──────────────────────────────────────────
 tools/blender/test_vehicles.py runs every builder here on the host with a
@@ -88,7 +88,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 import rider  # noqa: E402
 
 # ── body scale ─────────────────────────────────────────────────────────────

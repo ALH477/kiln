@@ -10,7 +10,7 @@ renderer bug per shape, goblin.py exists to exercise skinning. Nothing was a
 model built the way a game's actual content gets built — one silhouette,
 assembled from several parts, shaded entirely by vertex colour, sized and
 budgeted for a scene that also has to run at 60 Hz. This is that reference,
-and it is what m64lib's loft()/slab() were added for.
+and it is what kilnlib's loft()/slab() were added for.
 
 ── Orientation ────────────────────────────────────────────────────────────
 Nose along Blender +Y, which export_yup turns into engine -Z: the direction
@@ -25,7 +25,7 @@ goblin.py's 2.3-unit character, and well inside the int16 vertex range.
 
 ── No texture, on purpose ─────────────────────────────────────────────────
 Every surface is COLOR_0 through the `shade` preset, which is exactly the
-combiner m64_scene_begin() already sets — so this model composes with
+combiner kiln_scene_begin() already sets — so this model composes with
 hand-built geometry in the same pass, costs no TMEM, and needs no tile setup.
 Panel lines and insignia would need a texture and a UV unwrap; the colour
 here does the work instead, which is the trade N64-era models generally made.
@@ -44,7 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import m64lib as m  # noqa: E402
+import kilnlib as m  # noqa: E402
 
 # ── palette ────────────────────────────────────────────────────────────────
 # Cold hull, one warm accent, one hot exhaust. Two families and no more: with

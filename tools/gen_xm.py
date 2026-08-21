@@ -11,10 +11,10 @@ import struct, sys
 def xm_make(outpath):
     # XM header
     id = b"Extended Module: "
-    name = b"m64-test\x00" * (20 - 9) + b"\x00"  # 20 bytes, null-padded
-    name = b"m64-test\x00" * 1
-    name = b"m64-test" + b"\x00" * 11  # 20 bytes total
-    tracker = b"m64-gen\x00" + b"\x00" * 13  # 20 bytes
+    name = b"kiln-test\x00" * (20 - 9) + b"\x00"  # 20 bytes, null-padded
+    name = b"kiln-test\x00" * 1
+    name = b"kiln-test" + b"\x00" * 11  # 20 bytes total
+    tracker = b"kiln-gen\x00" + b"\x00" * 13  # 20 bytes
 
     # We'll generate a very simple XM with no instruments that have samples.
     # Actually XM requires at least 1 instrument. Let's make a minimal one
