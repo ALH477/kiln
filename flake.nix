@@ -1796,6 +1796,13 @@
             platHost = ./plat/host;
             uipreviewSrc = ./tools/uipreview;
           };
+          # The whole frame bracket — 3D pass, the seam, 2D pass — rendered
+          # by the real kiln_engine.c and kiln_gui.c on the host.
+          kiln-scene = import ./nix/checks/kiln-scene.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;

@@ -137,13 +137,24 @@ nix/host-math.nix   libdragon's OWN fast-math library, compiled NATIVELY.
                     fm_sinf — not a hand-copy. One patch: four MIPS
                     instructions become the libm calls libdragon documents them
                     as optimising, held true by nix/checks/kiln-hostmath.nix.
-plat/host/src/      the host 2D pass: a SOFTWARE rasteriser (fill rect,
+plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     gouraud triangle, the builtin font) behind the rdpq and
                     display surface, plus a deterministic PNG writer. Software
                     and not OpenGL on purpose — the gate has to run in the Nix
                     sandbox, and this pass draws rectangles. It also counts
                     what it drew (kiln_host_counters), because pixels-written
-                    is the quantity the console actually spends.
+                    is the quantity the console actually spends. host_t3d.c
+                    reimplements the Tiny3D API's semantics — vertex cache,
+                    matrix stack, lights, fog, depth — and HONOURS the s16.16
+                    matrix quantisation rather than staying in floats, because
+                    a host that is more precise than the console disagrees
+                    with it about exactly what precision decides. Every RSP
+                    limit that is silent on hardware (the 70-vertex cache, the
+                    matrix stack) is an assert. host_panic.c is the one place
+                    plat/host implements a kiln_* function, because kiln_panic
+                    is a CPU exception handler and has no shared logic to
+                    duplicate — on the host it is a SIGSEGV handler with a
+                    backtrace.
 plat/host/include/  the host's <libdragon.h> and <t3d/t3dmath.h>. The shim sits
                     at the libdragon/Tiny3D API boundary, NOT at a new
                     engine-internal HAL, so no engine .c changes and no #ifdef
@@ -1039,7 +1050,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (79 checks, 18 implementations)
+### The full check list (80 checks, 19 implementations)
 
 `rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1055,7 +1066,18 @@ worth knowing by name:
   landed, failing with *"kiln_gui compiles natively but is NOT in
   HOST_MODULES"* — a module that had just become host-clean and would otherwise
   have gone a year without `-Werror`.
-- **`kiln-gui`** is the frame gate: the real `kiln_gui.c`, rendered through the
+- **`kiln-scene`** is the whole-frame gate: `kiln_frame_begin` →
+  `kiln_scene_begin` → geometry → `kiln_gui_begin` → HUD → `kiln_frame_end`,
+  run by the real `kiln_engine.c`. Before it, nothing outside a ROM on hardware
+  had ever executed that bracket. It caught its own reason for existing on the
+  first run: the cubes rendered inside-out, which looked exactly like a broken
+  depth compare and was in fact a missing `rdpq_mode_zbuf(true, true)` in the
+  shim — **nothing in `kiln_engine.c` calls it, because Tiny3D's own
+  `t3d_frame_start` does** (`t3d.c:176`). `T3D_FLAG_DEPTH` is the RSP's half of
+  depth; `rdpq_mode_zbuf` is the RDP's, and only one of them is visible in
+  engine code. Same two-halves shape `kiln_scene_begin`'s comment describes for
+  fog.
+- **`kiln-gui`** is the 2D frame gate: the real `kiln_gui.c`, rendered through the
   host rasteriser, diffed against a committed capture AND a text manifest. Two
   files because they fail differently — the PNG catches geometry, and the
   manifest catches the thing a pixel diff reports worst. A one-pixel baseline

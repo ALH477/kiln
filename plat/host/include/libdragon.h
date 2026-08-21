@@ -128,6 +128,33 @@ static inline void *malloc_uncached_aligned(int align, size_t size) {
 }
 static inline void free_uncached(void *buf) { free(buf); }
 
+/* ── cache coherency, which is a no-op off-console ────────────────────
+ * On the VR4300 these push the CPU's view of memory out so the RSP, reading
+ * over the system bus, sees it. A host has one coherent view, so there is
+ * nothing to push — this is not an approximation of the operation, it is the
+ * whole of what the operation means here.
+ *
+ * They stay as functions rather than becoming empty macros so a caller that
+ * passes the wrong thing still gets a type error, and so the argument is still
+ * evaluated exactly once. */
+static inline void data_cache_hit_writeback(volatile const void *p, unsigned long n)
+{ (void)p; (void)n; }
+static inline void data_cache_hit_writeback_invalidate(volatile void *p, unsigned long n)
+{ (void)p; (void)n; }
+static inline void data_cache_hit_invalidate(volatile void *p, unsigned long n)
+{ (void)p; (void)n; }
+static inline void data_cache_writeback_invalidate_all(void) { }
+static inline void inst_cache_hit_invalidate(volatile void *p, unsigned long n)
+{ (void)p; (void)n; }
+
+/* Segment translation. On console these move a pointer between the cached and
+ * uncached views of the same physical memory; here there is one view, so both
+ * are the identity. Kept because kiln_scratch names them explicitly. */
+#define UncachedAddr(p)       (p)
+#define CachedAddr(p)         (p)
+#define UncachedShortAddr(p)  (p)
+#define PhysicalAddr(p)       ((unsigned long)(p))
+
 /* ── the tick counter ──────────────────────────────────────────────────
  * TICKS_READ() is COP0's count register, which ticks at half the VR4300's
  * 93.75 MHz. There is no host equivalent and pretending otherwise would make

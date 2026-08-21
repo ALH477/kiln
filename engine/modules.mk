@@ -73,10 +73,12 @@ HEADER_ONLY := kiln_camkey
 # HUD through it. nix/checks/kiln-logic.nix keeps its own list of what it
 # ASSERTS on, with the reasoning at the point of use.
 HOST_MODULES := \
-	kiln_cache kiln_camlint kiln_char kiln_clip kiln_dialogue kiln_dice \
-	kiln_dict kiln_gui kiln_inventory kiln_lod kiln_physics kiln_prof kiln_rng \
-	kiln_sound kiln_surface kiln_tile kiln_turn kiln_voxel kiln_weapon \
-	kiln_weapons kiln_widget
+	kiln_actor kiln_board kiln_cache kiln_camera kiln_camlint kiln_char \
+	kiln_clip kiln_context kiln_debugdraw kiln_dialogue kiln_dice kiln_dict \
+	kiln_engine kiln_event kiln_fpscam kiln_gui kiln_inventory kiln_lod \
+	kiln_physics kiln_player kiln_prof kiln_projectile kiln_rng kiln_room \
+	kiln_scratch kiln_sound kiln_surface kiln_target kiln_tile kiln_trigger \
+	kiln_turn kiln_twopass kiln_voxel kiln_weapon kiln_weapons kiln_widget \
 
 # nix/engine.nix's installCheck and nix/checks/kiln-parity.nix ask make for
 # these rather than restating any list in Nix — which is exactly how the old

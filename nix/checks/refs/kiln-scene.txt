@@ -1,0 +1,5 @@
+# kiln host text manifest: one line per rdpq_text_print
+# x y  rgba  width missing  "text"
+   6    9  00f5d4ff    60 0  "KILN SCENE"
+  14   34  ffffffff    48 0  "lights 2"
+  14   48  ffffffff    36 0  "fog on"

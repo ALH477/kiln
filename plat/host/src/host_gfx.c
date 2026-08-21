@@ -34,6 +34,9 @@
 #include <kiln_host.h>
 #include <kiln_host_font.h>
 
+#include "host_internal.h"
+
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -51,9 +54,9 @@ static uint8_t   g_fb[MAX_W * MAX_H * 4];   /* RGBA8, row major. Alpha is
                                              * whatever the viewer's page
                                              * background is — which read as a
                                              * white screen the first time. */
-static uint16_t  g_zb[MAX_W * MAX_H];       /* present so display_get_zbuf can
-                                             * hand back something real; the 2D
-                                             * pass never reads it. */
+static uint16_t  g_zb[MAX_W * MAX_H];       /* 0 near .. 65535 far. The 2D pass
+                                             * never touches it; the 3D pass
+                                             * tests and writes it. */
 static surface_t g_color, g_depth;
 static int       g_w, g_h;
 static int       g_inited;
@@ -124,6 +127,7 @@ void display_init(resolution_t res, int bitdepth, uint32_t num_buffers,
     assertf(g_w > 0 && g_h > 0 && g_w <= MAX_W && g_h <= MAX_H,
             "host display_init: %dx%d is outside 1x1..%dx%d", g_w, g_h, MAX_W, MAX_H);
     clear_opaque();
+    for (long i = 0, n = (long)g_w * g_h; i < n; i++) g_zb[i] = 0xFFFF;
     g_color = (surface_t){ .flags = 0, .width = (uint16_t)g_w, .height = (uint16_t)g_h,
                            .stride = (uint16_t)(g_w * 4), .buffer = g_fb };
     g_depth = (surface_t){ .flags = 0, .width = (uint16_t)g_w, .height = (uint16_t)g_h,
@@ -172,12 +176,18 @@ void rdpq_set_mode_standard(void)
 void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_prim = c; }
 void rdpq_mode_combiner(rdpq_combiner_t comb) { g_comb = comb; }
 void rdpq_mode_blender(rdpq_blender_t b)      { g_blend = b; }
-void rdpq_mode_zbuf(bool cmp, bool wr)  { (void)cmp; (void)wr; }
+/* The 3D pass reads these; the 2D pass ignores them, which is exactly what
+ * kiln_gui_begin's `rdpq_mode_zbuf(false, false)` is for. */
+static int g_ztest, g_zwrite;
+void rdpq_mode_zbuf(bool cmp, bool wr)  { g_ztest = cmp; g_zwrite = wr; }
+int  kiln_hostfb_ztest(void)  { return g_ztest; }
+int  kiln_hostfb_zwrite(void) { return g_zwrite; }
 void rdpq_mode_alphacompare(int t)      { (void)t; }
 void rdpq_mode_fog(rdpq_blender_t f)    { (void)f; }
 void rdpq_mode_antialias(int m)         { (void)m; }
 void rdpq_set_prim_color(color_t c)     { g_prim = c; }
 void rdpq_set_fog_color(color_t c)      { g_fog = c; }
+color_t kiln_hostfb_fog_color(void)     { return g_fog; }
 
 void rdpq_fill_rectangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
@@ -362,6 +372,38 @@ int rdpq_text_print(const rdpq_textparms_t *parms, uint8_t font_id,
         snprintf(r->s, sizeof r->s, "%s", utf8_text);
     }
     return cursor - run_start;
+}
+
+/* ── what host_t3d.c borrows ───────────────────────────────────────────── */
+
+int kiln_hostfb_w(void) { return g_w; }
+int kiln_hostfb_h(void) { return g_h; }
+int kiln_hostfb_attached(void) { return g_attached; }
+void kiln_hostfb_put(int x, int y, color_t c) { put(x, y, c); }
+
+void kiln_hostfb_put_z(int x, int y, uint16_t z, color_t c, int test, int write)
+{
+    if (x < 0 || y < 0 || x >= g_w || y >= g_h) return;
+    uint16_t *zp = &g_zb[y * g_w + x];
+    /* Less-than, matching the RDP's default depth compare. Equal fails, so
+     * coplanar geometry drawn later does not win — which is why a decal needs
+     * test-without-write rather than a bias. */
+    if (test && z >= *zp) return;
+    if (write) *zp = z;
+    put(x, y, c);
+}
+
+void kiln_hostfb_clear_color(color_t c)
+{
+    for (long i = 0, n = (long)g_w * g_h; i < n; i++) {
+        g_fb[i * 4 + 0] = c.r; g_fb[i * 4 + 1] = c.g;
+        g_fb[i * 4 + 2] = c.b; g_fb[i * 4 + 3] = 255;
+    }
+}
+
+void kiln_hostfb_clear_depth(void)
+{
+    for (long i = 0, n = (long)g_w * g_h; i < n; i++) g_zb[i] = 0xFFFF;
 }
 
 /* ── the host control surface ──────────────────────────────────────────── */
