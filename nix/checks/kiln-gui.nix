@@ -47,8 +47,8 @@ pkgs.runCommand "check-kiln-gui"
         -o guicheck \
         ${./kiln-gui-check.c} \
         ${engineSrc}/src/kiln/kiln_gui.c \
-        ${platHost}/src/host_gfx.c \
-        ${platHost}/src/host_png.c \
+        \
+        $(echo ${platHost}/src/*.c) \
         ${hostMath}/lib/libkilnmath.a -lz -lm
 
     ./guicheck out.png out.txt

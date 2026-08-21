@@ -154,7 +154,11 @@ plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     plat/host implements a kiln_* function, because kiln_panic
                     is a CPU exception handler and has no shared logic to
                     duplicate — on the host it is a SIGSEGV handler with a
-                    backtrace.
+                    backtrace. host_tex.c is TMEM: 4 KB, tracked, and asserted,
+                    because overflowing it on console does not fail — it wraps,
+                    and you get a texture built out of whatever else was
+                    resident, with no diagnostic at all. It is one of the very
+                    few console limits a host build can genuinely check.
 plat/host/include/  the host's <libdragon.h> and <t3d/t3dmath.h>. The shim sits
                     at the libdragon/Tiny3D API boundary, NOT at a new
                     engine-internal HAL, so no engine .c changes and no #ifdef
@@ -674,10 +678,28 @@ a corridor.
   DMA, against `kiln_map_draw`'s one load per 8-vertex face. 68 and not 70
   because a quad is 4 vertices and no quad may straddle a load boundary.
 - **The atlas is CI4 by design, not to save space.** 16 tiles of 16×16 in a
-  64×64 surface, 2 KB against a 4 KB TMEM. CI4 + TLUT is the format the veil is
-  built on, so a Forge level is veil-capable by construction — which is the
-  thing `pm_veil_bind_palette` has been blocked on for want of a CI4-textured
-  mesh with UVs. The 16-colour palette is also why block types cap at 15.
+  64×64 surface, 2 KB against a 4 KB TMEM (`kiln-voxmesh` asserts that number).
+  CI4 + TLUT is the format the veil is built on, so a Forge level is
+  veil-capable by construction. The 16-colour palette is also why block types
+  cap at 15.
+- **…but the atlas is not currently reaching the screen, and every block type
+  draws the same grey.** `kiln_voxmesh` puts the block TYPE only in the UVs
+  (`:103-106`); vertex colour is `DIR_SHADE[dir]`, greyscale per-face
+  brightness, carrying no type at all (`:108`). `forge_geo.c:27` sets
+  `T3D_FLAG_TEXTURED`, so the RSP emits texture coordinates — but the
+  **combiner** decides whether the texel survives, and it is
+  `RDPQ_COMBINER_SHADE` from `kiln_scene_begin` (`kiln_engine.c:126`), which
+  outputs vertex colour and discards the texel. Tiny3D's
+  `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`), and
+  nothing in `Forge/src` sets one. So PAINT mode's authored palette never
+  appears, and `Z`'s veiled preview cannot change the geometry it is previewing.
+  `nix/checks/kiln-voxmesh.nix` renders it both ways and its two committed
+  captures are the before and after: ~83,000 texels sampled and thrown away in
+  one frame. **The fix is one `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)` in
+  Forge**, not the engine — `kiln_voxmesh_draw`'s own comment says "Sets NO
+  render state: the caller has already chosen the combiner" — and whether the
+  palettes still read once it lands is a judgement about a CRT that only
+  hardware settles.
 - **WALK mode installs the greedy boxes and hands the pad to the real
   `kiln_fpscam`**, so a doorway's width is judged by walking through it. It
   leaves `kiln_clip`'s broadphase **off** on purpose: the grid is 16×16 in XZ with
@@ -1050,7 +1072,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (80 checks, 19 implementations)
+### The full check list (81 checks, 20 implementations)
 
 `rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1066,6 +1088,9 @@ worth knowing by name:
   landed, failing with *"kiln_gui compiles natively but is NOT in
   HOST_MODULES"* — a module that had just become host-clean and would otherwise
   have gone a year without `-Werror`.
+- **`kiln-voxmesh`** renders a real voxel mesh with two different combiners and
+  keeps both captures, which is how "Forge's atlas is never sampled" stopped
+  being an inference and became a picture. See the Forge section above.
 - **`kiln-scene`** is the whole-frame gate: `kiln_frame_begin` →
   `kiln_scene_begin` → geometry → `kiln_gui_begin` → HUD → `kiln_frame_end`,
   run by the real `kiln_engine.c`. Before it, nothing outside a ROM on hardware

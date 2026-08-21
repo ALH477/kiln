@@ -1803,6 +1803,13 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
+          # A real voxel mesh rendered with two combiners, which is how the
+          # atlas-never-sampled defect became visible instead of arguable.
+          kiln-voxmesh = import ./nix/checks/kiln-voxmesh.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;

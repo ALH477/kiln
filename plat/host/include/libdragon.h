@@ -214,6 +214,52 @@ typedef struct surface_s {
 
 typedef struct sprite_s sprite_t;
 
+/* ── texture formats: the RDP's own encoding, copied ───────────────────
+ * (fmt << 2) | size, so FMT_CI4 is 0x08 — which is exactly what the flags
+ * byte of libdragon's builtin font atlas holds, and how tools/font_extract.py
+ * identified it. Copied rather than renumbered for that reason: the value
+ * appears in on-disk sprites. */
+#define _RDP_FORMAT_CODE(fmt, size)   (((fmt) << 2) | (size))
+#define TEX_FORMAT_BITDEPTH(fmt)      (4 << ((fmt) & 0x3))
+#define TEX_FORMAT_PIX2BYTES(fmt, px) ((((px) << (((fmt) & 3) + 2)) + 7) >> 3)
+
+typedef enum {
+    FMT_NONE   = 0,
+    FMT_RGBA16 = _RDP_FORMAT_CODE(0, 2),
+    FMT_RGBA32 = _RDP_FORMAT_CODE(0, 3),
+    FMT_YUV16  = _RDP_FORMAT_CODE(1, 2),
+    FMT_CI4    = _RDP_FORMAT_CODE(2, 0),
+    FMT_CI8    = _RDP_FORMAT_CODE(2, 1),
+    FMT_IA4    = _RDP_FORMAT_CODE(3, 0),
+    FMT_IA8    = _RDP_FORMAT_CODE(3, 1),
+    FMT_IA16   = _RDP_FORMAT_CODE(3, 2),
+    FMT_I4     = _RDP_FORMAT_CODE(4, 0),
+    FMT_I8     = _RDP_FORMAT_CODE(4, 1),
+} tex_format_t;
+
+#define SURFACE_FLAGS_TEXFORMAT   0x1F
+#define SURFACE_FLAGS_OWNEDBUFFER 0x20
+
+static inline surface_t surface_make(void *buffer, tex_format_t format,
+                                     uint16_t width, uint16_t height,
+                                     uint16_t stride)
+{
+    return (surface_t){ .flags = (uint32_t)format, .width = width,
+                        .height = height, .stride = stride, .buffer = buffer };
+}
+
+static inline surface_t surface_make_linear(void *buffer, tex_format_t format,
+                                            uint16_t width, uint16_t height)
+{
+    return surface_make(buffer, format, width, height,
+                        (uint16_t)TEX_FORMAT_PIX2BYTES(format, width));
+}
+
+static inline tex_format_t surface_get_format(const surface_t *s)
+{
+    return (tex_format_t)(s->flags & SURFACE_FLAGS_TEXFORMAT);
+}
+
 #define DEPTH_16_BPP 2
 #define DEPTH_32_BPP 4
 #define GAMMA_NONE   0
@@ -239,10 +285,12 @@ int         display_get_height(void);
 typedef uint64_t rdpq_combiner_t;
 typedef uint32_t rdpq_blender_t;
 
-#define RDPQ_COMBINER_FLAT   ((rdpq_combiner_t)1)   /* colour from PRIM      */
-#define RDPQ_COMBINER_SHADE  ((rdpq_combiner_t)2)   /* colour from vertices  */
-#define RDPQ_COMBINER_TEX0   ((rdpq_combiner_t)3)
-#define RDPQ_BLENDER_MULTIPLY ((rdpq_blender_t)1)   /* src*a + dst*(1-a)     */
+#define RDPQ_COMBINER_FLAT      ((rdpq_combiner_t)1)  /* PRIM                 */
+#define RDPQ_COMBINER_SHADE     ((rdpq_combiner_t)2)  /* vertex colour        */
+#define RDPQ_COMBINER_TEX       ((rdpq_combiner_t)3)  /* texel               */
+#define RDPQ_COMBINER_TEX_FLAT  ((rdpq_combiner_t)4)  /* texel * PRIM        */
+#define RDPQ_COMBINER_TEX_SHADE ((rdpq_combiner_t)5)  /* texel * vertex      */
+#define RDPQ_BLENDER_MULTIPLY   ((rdpq_blender_t)1)   /* src*a + dst*(1-a)   */
 
 typedef enum { TILE0 = 0, TILE1, TILE2, TILE3,
                TILE4, TILE5, TILE6, TILE7 } rdpq_tile_t;
@@ -287,6 +335,50 @@ void rspq_wait(void);
 void rspq_flush(void);
 
 #define RDPQ_FOG_STANDARD ((rdpq_blender_t)2)
+
+/* ── texturing ────────────────────────────────────────────────────────
+ * The RDP samples from TMEM: 4 KB of on-chip memory that every texture must
+ * be DMA'd into before it can be drawn. Overflowing it does not fail — it
+ * wraps, and you get a texture built out of whatever else was resident. So
+ * the host TRACKS occupancy and asserts, which is one of the few console
+ * limits a host build can genuinely check. See kiln_host_tmem_used(). */
+#define TMEM_BYTES 4096
+
+#define REPEAT_INFINITE 2048
+#define MIRROR_REPEAT   true
+#define MIRROR_NONE     false
+
+typedef struct rdpq_texparms_s {
+    int tmem_addr;
+    int palette;
+    struct {
+        float translate;
+        int   scale_log;
+        float repeats;
+        bool  mirror;
+    } s, t;
+} rdpq_texparms_t;
+
+typedef enum { TLUT_NONE = 0, TLUT_RGBA16 = 2, TLUT_IA16 = 3 } rdpq_tlut_t;
+
+int  rdpq_tex_upload(rdpq_tile_t tile, const surface_t *tex,
+                     const rdpq_texparms_t *parms);
+void rdpq_tex_upload_tlut(uint16_t *tlut, int color_idx, int num_colors);
+void rdpq_mode_tlut(rdpq_tlut_t tlut);
+void rdpq_mode_persp(bool perspective);
+void rdpq_mode_filter(int filter);
+void rdpq_mode_dithering(int dither);
+void rdpq_set_lookup_address(uint8_t index, void *rdram_addr);
+
+#define FILTER_POINT     0
+#define FILTER_BILINEAR  1
+#define AA_STANDARD      1
+#define AA_NONE          0
+#define DITHER_NONE_NONE 0
+#define DITHER_SQUARE_SQUARE 1
+
+/** TMEM bytes currently occupied by uploaded textures and the TLUT. */
+int kiln_host_tmem_used(void);
 
 /* ── rdpq_font / rdpq_text ─────────────────────────────────────────────
  * The host draws with libdragon's OWN builtin font, decoded out of the same

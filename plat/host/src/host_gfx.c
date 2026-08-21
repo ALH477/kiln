@@ -175,6 +175,7 @@ void rdpq_set_mode_standard(void)
 }
 void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_prim = c; }
 void rdpq_mode_combiner(rdpq_combiner_t comb) { g_comb = comb; }
+rdpq_combiner_t kiln_hostfb_combiner(void) { return g_comb; }
 void rdpq_mode_blender(rdpq_blender_t b)      { g_blend = b; }
 /* The 3D pass reads these; the 2D pass ignores them, which is exactly what
  * kiln_gui_begin's `rdpq_mode_zbuf(false, false)` is for. */

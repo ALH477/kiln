@@ -3,6 +3,19 @@ name: n64-forge
 description: Author levels, cinematics and textures ON the console with Forge (.#forge) — the voxel editor whose save button emits Quake .map brushes, and the SD-card loop that makes it work on an ED64 Plus with no USB. Use when building or editing level geometry for this engine, when moving content between the repo and a flashcart (./dev forge-push / forge-pull), when a level saved on hardware does not come back, when working on kiln_voxel / kiln_voxmesh / kiln_store or tools/forge/frg.py, or when deciding whether content should be authored in Blender, the three.js mapmaker, or Forge.
 ---
 
+> **Known defect, before you tune anything visual: the CI4 atlas is uploaded
+> and then discarded.** `kiln_voxmesh` puts the block type only in the UVs and
+> vertex colour is greyscale `DIR_SHADE[dir]`, so with
+> `RDPQ_COMBINER_SHADE` — which `kiln_scene_begin` sets every frame, and which
+> nothing in `Forge/src` overrides — all fifteen block types render as the same
+> grey and a greedy-merged wall reads as one flat slab. `T3D_FLAG_TEXTURED`
+> only makes the RSP emit texture coordinates; the combiner decides whether the
+> texel survives. `nix flake check`'s `kiln-voxmesh` renders it both ways and
+> the two committed captures in `nix/checks/refs/` are the before and after.
+> The fix is one `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)` in Forge's draw
+> path; whether the authored palettes still separate once it lands is exactly
+> the CRT judgement PAINT mode exists to make, so make it on hardware.
+
 # Forge — editing on the machine the content runs on
 
 `nix build .#forge`. Read `n64-verify` first if the question is "what is the ROM

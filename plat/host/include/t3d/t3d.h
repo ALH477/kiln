@@ -140,6 +140,10 @@ typedef struct {
     uint32_t vert_loads, verts, tris_submitted, tris_drawn;
     uint32_t tris_culled, tris_clipped;
     uint32_t matrix_depth_max;
+    /* Texels sampled and then thrown away because the combiner does not use
+     * them. A non-zero value means a texture was uploaded, coordinates were
+     * emitted, and none of it reached the screen. */
+    uint32_t texels_discarded;
 } KilnHostT3DCounters;
 
 const KilnHostT3DCounters *kiln_host_t3d_counters(void);

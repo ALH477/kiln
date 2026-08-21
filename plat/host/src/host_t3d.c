@@ -395,7 +395,11 @@ void *t3d_vertbuffer_get_pos(T3DVertPacked *vert, uint32_t idx)
 
 /* ── triangles ────────────────────────────────────────────────────────── */
 
-typedef struct { float x, y, z, w; uint8_t r, g, b, a; } Out;
+typedef struct {
+    float   x, y, z, w;
+    uint8_t r, g, b, a;
+    float   sow, tow;   /* s/w and t/w, for perspective-correct interpolation */
+} Out;
 
 static void shade(const Vtx *v, Out *o)
 {
@@ -444,6 +448,14 @@ static void transform(const Vtx *v, Out *o)
     o->z = pr->m[2][2]*ez + pr->m[3][2];
     o->w = -ez;                 /* right-handed: view -Z is forward */
     shade(v, o);
+    /* Perspective-correct UV: s/w and t/w interpolate linearly in screen
+     * space, 1/w does too, and the quotient recovers s. The RDP does the same
+     * (rdpq_mode_persp, which Tiny3D's t3d_frame_start turns on), so affine
+     * interpolation here would swim visibly on anything but a screen-parallel
+     * quad — and would look like a UV authoring mistake. */
+    const float iw = (o->w > 1e-6f) ? (1.0f / o->w) : 0.0f;
+    o->sow = v->s * iw;
+    o->tow = v->t * iw;
 
     if (g_fog_on) {
         float d = -ez;
@@ -546,6 +558,25 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
             if (z < 0.0f) z = 0.0f;
             if (z > 1.0f) z = 1.0f;
 
+            /* ── the texel, and whether it survives the combiner ──
+             * T3D_FLAG_TEXTURED makes the RSP emit texture coordinates. It is
+             * the COMBINER that decides whether the sampled texel reaches the
+             * framebuffer, and with RDPQ_COMBINER_SHADE — which is what
+             * kiln_scene_begin sets every frame — it does not. Reproduced
+             * rather than smoothed over: "uploaded but never sampled" is a
+             * real state, and a host that sampled anyway would hide it. */
+            color_t tex = { 255, 255, 255, 255 };
+            int have_tex = 0;
+            if (g_flags & T3D_FLAG_TEXTURED) {
+                const float iw = w0*(1.0f/o[0].w) + w1*(1.0f/o[1].w)
+                               + w2*(1.0f/o[2].w);
+                if (iw > 1e-9f) {
+                    const float ss = (w0*o[0].sow + w1*o[1].sow + w2*o[2].sow) / iw;
+                    const float tt = (w0*o[0].tow + w1*o[1].tow + w2*o[2].tow) / iw;
+                    have_tex = kiln_hosttex_sample(0, ss, tt, &tex);
+                }
+            }
+
             color_t col;
             if (g_flags & T3D_FLAG_SHADED) {
                 col.r = (uint8_t)(w0*o[0].r + w1*o[1].r + w2*o[2].r);
@@ -555,6 +586,26 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
             } else {
                 col = (color_t){ o[0].r, o[0].g, o[0].b, o[0].a };
             }
+
+            const rdpq_combiner_t comb = kiln_hostfb_combiner();
+            if (have_tex) {
+                if (comb == RDPQ_COMBINER_TEX) {
+                    col = tex;
+                } else if (comb == RDPQ_COMBINER_TEX_SHADE) {
+                    col.r = (uint8_t)((col.r * tex.r + 127) / 255);
+                    col.g = (uint8_t)((col.g * tex.g + 127) / 255);
+                    col.b = (uint8_t)((col.b * tex.b + 127) / 255);
+                    col.a = (uint8_t)((col.a * tex.a + 127) / 255);
+                } else if (comb == RDPQ_COMBINER_TEX_FLAT) {
+                    assertf(0, "RDPQ_COMBINER_TEX_FLAT is not implemented in "
+                               "the host 3D pass; add it to host_t3d.c rather "
+                               "than letting it render as something else.");
+                }
+                /* SHADE and FLAT: the texel is discarded, exactly as on
+                 * console. Counted so it is at least visible in the numbers. */
+                else g_c.texels_discarded++;
+            }
+
             kiln_hostfb_put_z(x, y, (uint16_t)(z * 65535.0f), col, ztest, zwrite);
             drew = 1;
         }

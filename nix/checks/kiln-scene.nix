@@ -57,10 +57,8 @@ pkgs.runCommand "check-kiln-scene"
         ${./kiln-scene-check.c} \
         ${engineSrc}/src/kiln/kiln_engine.c \
         ${engineSrc}/src/kiln/kiln_gui.c \
-        ${platHost}/src/host_gfx.c \
-        ${platHost}/src/host_t3d.c \
-        ${platHost}/src/host_png.c \
-        ${platHost}/src/host_panic.c \
+        \
+        $(echo ${platHost}/src/*.c) \
         ${hostMath}/lib/libkilnmath.a -lz -lm
 
     ./scenecheck out.png out.txt
