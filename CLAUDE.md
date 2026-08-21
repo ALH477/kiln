@@ -1039,7 +1039,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (78 checks, 17 implementations)
+### The full check list (79 checks, 18 implementations)
 
 `rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1061,6 +1061,16 @@ worth knowing by name:
   manifest catches the thing a pixel diff reports worst. A one-pixel baseline
   shift lights up every glyph in an image diff and says only "text changed";
   the manifest says *which label moved and where*. Verified firing on both.
+- **`kiln-widget`** renders `kiln_widget`'s five screens through the same host
+  backend (`tools/uipreview`) and diffs them. It exists because that harness
+  used to implement `kiln_gui`'s primitives ITSELF, over a private
+  `<libdragon.h>` shim and a hand-rolled 3x5 font — so the tool whose whole job
+  was judging layout disagreed with the console about panel edge order, bar
+  inset, and whether `kiln_gui_rect` blends alpha at all. **It does not:** with
+  the blender off, which is where `kiln_gui_begin` leaves it, the RDP ignores
+  source alpha and writes opaque, so `kiln_widget`'s translucent background
+  "motes" are solid squares on hardware. A preview that draws its own pixels is
+  a second implementation of the thing it is previewing.
 - **`kiln-font`** regenerates `plat/host/include/kiln_host_font.h` from
   libdragon's own font blob and diffs, then asserts what a diff cannot: still
   monospaced at 6 px, every printable ASCII codepoint present, every glyph

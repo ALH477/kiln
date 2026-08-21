@@ -1788,6 +1788,14 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
+          # kiln_widget's screens, rendered through the same host backend and
+          # diffed against their committed captures.
+          kiln-widget = import ./nix/checks/kiln-widget.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+            uipreviewSrc = ./tools/uipreview;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;

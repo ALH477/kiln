@@ -4,27 +4,44 @@
 //
 //     make -C tools/uipreview && tools/uipreview/uipreview out-prefix
 //
-// ── Why this exists ────────────────────────────────────────────────────────
-// Every other visual decision in this repo is checked by rendering it:
-// models go through Blender, geometry goes through the signed-volume tests.
-// The 2D layer had nothing. `./dev shot` is the intended answer and it does
-// not work in every environment (CLAUDE.md documents an Ares whose Vulkan
-// surface never composites), which left the menus as the one thing being
-// designed blind — and a UI whose whole brief is "off-kilter" is exactly the
-// thing you cannot tune without looking at it.
+// ── Why this exists ──────────────────────────────────────────────
+// Every other visual decision in this repo is checked by rendering it. The 2D
+// layer had nothing: `./dev shot` is the intended answer and it does not work
+// in every environment (CLAUDE.md documents an Ares whose Vulkan surface never
+// composites), which left the menus as the one thing being designed blind —
+// and a UI whose whole brief is "off-kilter" is exactly the thing you cannot
+// tune without looking at it.
 //
-// kiln_widget.c happens to be trivially portable: it calls nothing but
-// kiln_gui's four primitives and fm_sinf. So it compiles natively against two
-// small shim headers and the four primitives implemented here as a software
-// rasteriser. What you see is the real widget code doing its real layout
-// arithmetic — not a mock-up of it.
+// ── It used to draw its own pixels, and that was the bug ────────────────
+// This harness originally implemented kiln_gui's four primitives itself, over
+// a private <libdragon.h> shim and a hand-rolled 3x5 font. The layout was
+// real, because kiln_widget.c was real — but the drawing was a second
+// implementation, and it disagreed with the first in three ways that all
+// mattered to exactly the judgement this tool exists to support:
 //
-// ── What it is NOT ─────────────────────────────────────────────────────────
+//   * panel   drew the border first and inset the body. The real one draws
+//             the body and then four 1px edges, because a translucent body
+//             over a solid border tints the border.
+//   * bar     filled from the very edge at full height. The real one insets
+//             by a pixel on all four sides.
+//   * alpha   blended every rect. The console does NOT: with the blender off
+//             — which is where kiln_gui_begin leaves it — the RDP ignores
+//             source alpha and writes opaque. So motes(), which asks for
+//             alpha 40-68, is solid squares on hardware. That is worth
+//             seeing, and this tool used to hide it.
+//
+// It now links the REAL engine/src/kiln/kiln_gui.c against the shared host
+// backend in plat/host/, and draws with libdragon's OWN builtin font, decoded
+// out of the blob the ROM links (tools/font_extract.py). So glyph shapes and
+// advances are the console's, not indicative. One host rasteriser, one font,
+// one set of primitives.
+//
+// ── What it is NOT ─────────────────────────────────────────────
 // Not an emulator, and not a substitute for `./dev shot`. It knows nothing
-// about the RDP: no alpha-blend ordering quirks, no scissor, no 16-bit
-// colour, no CPU cost. It answers "is the layout right and does it look
-// good", which is the question the design work needs, and leaves "does it
-// draw correctly on hardware" to the console.
+// about scissoring, 16-bit colour dithering, or fill rate — the console's
+// actual binding constraint, which has no host analogue at all. It answers
+// "is the layout right and does it look good", and leaves "is it affordable"
+// to the console.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,130 +49,24 @@
 #include <stdarg.h>
 #include <math.h>
 
+#include <libdragon.h>
+#include <kiln_host.h>
+
+#include "kiln_gui.h"
 #include "kiln_widget.h"
 
 #define W 320
 #define H 240
-#define SCALE 3
-
-static uint8_t fb[H][W][3];
-
-// ── the four kiln_gui primitives, in software ──────────────────────────────
-
-static void blend(int x, int y, color_t c)
-{
-    if (x < 0 || y < 0 || x >= W || y >= H) return;
-    float a = c.a / 255.0f;
-    fb[y][x][0] = (uint8_t)(fb[y][x][0] * (1 - a) + c.r * a);
-    fb[y][x][1] = (uint8_t)(fb[y][x][1] * (1 - a) + c.g * a);
-    fb[y][x][2] = (uint8_t)(fb[y][x][2] * (1 - a) + c.b * a);
-}
-
-void kiln_gui_rect(int x, int y, int w, int h, color_t c)
-{
-    for (int j = 0; j < h; j++)
-        for (int i = 0; i < w; i++)
-            blend(x + i, y + j, c);
-}
-
-void kiln_gui_panel(int x, int y, int w, int h, color_t fill, color_t border)
-{
-    kiln_gui_rect(x, y, w, h, border);
-    if (w > 2 && h > 2) kiln_gui_rect(x + 1, y + 1, w - 2, h - 2, fill);
-}
-
-void kiln_gui_bar(int x, int y, int w, int h, float frac, color_t fg,
-                 color_t bg)
-{
-    if (frac < 0) frac = 0;
-    if (frac > 1) frac = 1;
-    kiln_gui_rect(x, y, w, h, bg);
-    kiln_gui_rect(x, y, (int)(w * frac), h, fg);
-}
-
-void kiln_gui_init(void) {}
-void kiln_gui_close(void) {}
-void kiln_gui_begin(void) {}
-void kiln_gui_end(void) {}
-
-// ── a 3x5 font ────────────────────────────────────────────────────────────
-// Enough to read the labels back. Not libdragon's built-in debug font — that
-// one lives in the ROM and has different metrics — so glyph SHAPES here are
-// indicative and glyph ADVANCE is exact (KILN_WIDGET_CHAR_W), which is the
-// half that layout depends on.
-static const char *glyph(char c)
-{
-    switch (c) {
-    case 'A': return "111101111101101";  case 'B': return "110101110101110";
-    case 'C': return "111100100100111";  case 'D': return "110101101101110";
-    case 'E': return "111100111100111";  case 'F': return "111100111100100";
-    case 'G': return "111100101101111";  case 'H': return "101101111101101";
-    case 'I': return "111010010010111";  case 'J': return "001001001101111";
-    case 'K': return "101101110101101";  case 'L': return "100100100100111";
-    case 'M': return "101111111101101";  case 'N': return "110101101101101";
-    case 'O': return "111101101101111";  case 'P': return "111101111100100";
-    case 'Q': return "111101101111001";  case 'R': return "111101110101101";
-    case 'S': return "111100111001111";  case 'T': return "111010010010010";
-    case 'U': return "101101101101111";  case 'V': return "101101101101010";
-    case 'W': return "101101111111101";  case 'X': return "101101010101101";
-    case 'Y': return "101101010010010";  case 'Z': return "111001010100111";
-    case '0': return "111101101101111";  case '1': return "010110010010111";
-    case '2': return "111001111100111";  case '3': return "111001111001111";
-    case '4': return "101101111001001";  case '5': return "111100111001111";
-    case '6': return "111100111101111";  case '7': return "111001001001001";
-    case '8': return "111101111101111";  case '9': return "111101111001111";
-    case '.': return "000000000000010";  case '-': return "000000111000000";
-    case ':': return "000010000010000";  case '!': return "010010010000010";
-    case '/': return "001001010100100";  case '>': return "100010001010100";
-    case '<': return "001010100010001";  case '?': return "111001010000010";
-    case '%': return "101001010100101";  case '+': return "000010111010000";
-    default:  return NULL;
-    }
-}
-
-void kiln_gui_text(int x, int y, color_t c, const char *fmt, ...)
-{
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof buf, fmt, ap);
-    va_end(ap);
-
-    // kiln_gui_text takes a BASELINE; the glyphs hang above it.
-    for (int i = 0; buf[i]; i++) {
-        char ch = buf[i];
-        if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
-        const char *g = glyph(ch);
-        if (!g) continue;
-        int gx = x + i * KILN_WIDGET_CHAR_W;
-        for (int row = 0; row < 5; row++)
-            for (int col = 0; col < 3; col++)
-                if (g[row * 3 + col] == '1')
-                    kiln_gui_rect(gx + col * 2, y - 10 + row * 2, 2, 2, c);
-    }
-}
-
-// ── output ────────────────────────────────────────────────────────────────
 
 static void clear(color_t c)
 {
-    for (int y = 0; y < H; y++)
-        for (int x = 0; x < W; x++) {
-            fb[y][x][0] = c.r; fb[y][x][1] = c.g; fb[y][x][2] = c.b;
-        }
+    /* Through the real kiln_gui, like everything else here. */
+    kiln_gui_rect(0, 0, W, H, c);
 }
 
-static void write_ppm(const char *path)
+static void capture(const char *path)
 {
-    FILE *f = fopen(path, "wb");
-    if (!f) { perror(path); exit(1); }
-    fprintf(f, "P6\n%d %d\n255\n", W * SCALE, H * SCALE);
-    for (int y = 0; y < H; y++)
-        for (int sy = 0; sy < SCALE; sy++)
-            for (int x = 0; x < W; x++)
-                for (int sx = 0; sx < SCALE; sx++)
-                    fwrite(fb[y][x], 1, 3, f);
-    fclose(f);
+    if (kiln_host_capture(path) != 0) { perror(path); exit(1); }
     printf("  wrote %s\n", path);
 }
 
@@ -305,6 +216,9 @@ static void screen_hud(const KilnWidgetStyle *st)
 int main(int argc, char **argv)
 {
     const char *prefix = (argc > 1) ? argv[1] : "ui";
+    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
+    rdpq_init();
+    kiln_gui_init();
     KilnWidgetStyle funky = kiln_widget_style_funky();
     KilnWidgetStyle plain = kiln_widget_style_default();
     color_t bg = RGBA32(14, 10, 26, 255);
@@ -327,16 +241,24 @@ int main(int argc, char **argv)
         KilnMenu menu;
         kiln_menu_init(&menu, screens[i].count, 0);
         menu.cursor = screens[i].cursor;
+        rdpq_attach(display_get(), display_get_zbuf());
+        kiln_gui_begin();
         clear(bg);
         screens[i].fn(&funky, &menu);
-        snprintf(path, sizeof path, "%s-%s.ppm", prefix, screens[i].name);
-        write_ppm(path);
+        kiln_gui_end();
+        rdpq_detach_show();
+        snprintf(path, sizeof path, "%s-%s.png", prefix, screens[i].name);
+        capture(path);
     }
 
+    rdpq_attach(display_get(), display_get_zbuf());
+    kiln_gui_begin();
     clear(bg);
     screen_hud(&funky);
-    snprintf(path, sizeof path, "%s-hud.ppm", prefix);
-    write_ppm(path);
+    kiln_gui_end();
+    rdpq_detach_show();
+    snprintf(path, sizeof path, "%s-hud.png", prefix);
+    capture(path);
 
     // The same title screen with the funk dialled to zero, as the control.
     // If these two are hard to tell apart, the funk is not doing anything.
@@ -344,10 +266,14 @@ int main(int argc, char **argv)
         KilnMenu menu;
         kiln_menu_init(&menu, 3, 0);
         menu.cursor = 1;
+        rdpq_attach(display_get(), display_get_zbuf());
+        kiln_gui_begin();
         clear(bg);
         screen_title(&plain, &menu);
-        snprintf(path, sizeof path, "%s-title-plain.ppm", prefix);
-        write_ppm(path);
+        kiln_gui_end();
+        rdpq_detach_show();
+        snprintf(path, sizeof path, "%s-title-plain.png", prefix);
+        capture(path);
     }
     return 0;
 }
