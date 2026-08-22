@@ -1819,10 +1819,20 @@
             n64Inst = n64Inst;
             cubeGltf = ./assets/cube.gltf;
           };
+          # A real Quake .map, loaded off the host VFS and rendered. Found
+          # two defects in kiln_map and pins both — see the check's header.
+          kiln-map = import ./nix/checks/kiln-map.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+            streamdbInc = "${streamdb-emb}/mips64-elf/include";
+            mapAsset = ./assets/quake_test.map;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;
             platHost = ./plat/host;
+            streamdbInc = "${streamdb-emb}/mips64-elf/include";
           };
           kiln-logic = import ./nix/checks/kiln-logic.nix {
             inherit pkgs hostMath;

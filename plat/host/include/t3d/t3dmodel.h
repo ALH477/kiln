@@ -110,18 +110,22 @@ typedef struct {
     char            _chunkType;
 } T3DModelIter;
 
-typedef void (*T3DTileCb)(void *userData, rdpq_texparms_t *tileParams,
-                          rdpq_tile_t tile);
-typedef void (*T3DFilterCb)(void *userData, const T3DObject *obj);
-typedef void (*T3DDynTextureCb)(void *userData, void *material,
-                                rdpq_texparms_t *tileParams, rdpq_tile_t tile);
+/* Verbatim from Tiny3D, names included: kiln_texanim builds a
+ * T3DModelDrawConf with designated initialisers, so the FIELD names are part
+ * of the contract, and filterCb returns bool rather than void. */
+typedef void (*T3DModelTileCb)(void *userData, rdpq_texparms_t *tileParams,
+                               rdpq_tile_t tile);
+typedef bool (*T3DModelFilterCb)(void *userData, const T3DObject *obj);
+typedef void (*T3DModelDynTextureCb)(void *userData, const T3DMaterial *material,
+                                     rdpq_texparms_t *tileParams,
+                                     rdpq_tile_t tile);
 
 typedef struct {
-    T3DMat4FP  *matrices;
-    T3DTileCb   tileCb;
-    T3DFilterCb filterCb;
-    T3DDynTextureCb dynTextureCb;
-    void       *userData;
+    void                *userData;
+    T3DModelTileCb       tileCb;
+    T3DModelFilterCb     filterCb;
+    T3DModelDynTextureCb dynTextureCb;
+    T3DMat4FP           *matrices;
 } T3DModelDrawConf;
 
 /* The parts of T3DModel the engine reads. The rest is opaque. */
@@ -152,7 +156,9 @@ void t3d_model_draw_skinned(const T3DModel *model, const T3DSkeleton *skeleton);
 T3DObject *t3d_model_get_object(const T3DModel *model, const char *name);
 T3DObject *t3d_model_get_object_by_index(const T3DModel *model, uint32_t index);
 T3DVertPacked *t3d_model_get_vertices(const T3DModel *model);
-void t3d_model_make_object_vert_placeholder(T3DObject *obj);
+void t3d_model_make_object_vert_placeholder(const T3DModel *model,
+                                            T3DObject *object,
+                                            uint8_t segmentId);
 
 T3DModelIter t3d_model_iter_create(const T3DModel *model, enum T3DChunkType type);
 bool         t3d_model_iter_next(T3DModelIter *iter);

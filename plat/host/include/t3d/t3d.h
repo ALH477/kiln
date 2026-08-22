@@ -65,7 +65,9 @@ enum T3DDrawFlags {
 
 enum T3DSegment { T3D_SEGMENT_1 = 1, T3D_SEGMENT_2, T3D_SEGMENT_3, T3D_SEGMENT_4 };
 
-typedef enum { T3D_VERTEX_FX_NONE = 0, T3D_VERTEX_FX_SPHERICAL_UV = 1,
+/* Tagged, because kiln_vanim casts to `enum T3DVertexFX` and an
+ * anonymous enum leaves that spelling incomplete. */
+typedef enum T3DVertexFX { T3D_VERTEX_FX_NONE = 0, T3D_VERTEX_FX_SPHERICAL_UV = 1,
                T3D_VERTEX_FX_CELSHADE_COLOR = 2, T3D_VERTEX_FX_OUTLINE = 3 } T3DVertexFX;
 
 /* ── the RSP vertex cache, which is the interesting constraint ─────────

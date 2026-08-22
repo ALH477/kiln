@@ -404,8 +404,12 @@ T3DObject *t3d_model_get_object(const T3DModel *model, const char *name)
     return NULL;
 }
 
-void t3d_model_make_object_vert_placeholder(T3DObject *obj)
+void t3d_model_make_object_vert_placeholder(const T3DModel *model,
+                                            T3DObject *object,
+                                            uint8_t segmentId)
 {
+    (void)model; (void)segmentId;
+    T3DObject *obj = object;
     /* Upstream swaps the object's vertex pointer for a placeholder so a caller
      * can stream vertices in (kiln_vanim's morph path). Nothing in the host
      * drawing path acts on it yet, and quietly doing nothing would make a
@@ -503,7 +507,7 @@ void t3d_model_draw_custom(const T3DModel *model, T3DModelDrawConf conf)
     assertf(model != NULL, "t3d_model_draw_custom: NULL model");
     T3DModelIter it = t3d_model_iter_create(model, T3D_CHUNK_TYPE_OBJECT);
     while (t3d_model_iter_next(&it)) {
-        if (conf.filterCb) conf.filterCb(conf.userData, it.object);
+            if (conf.filterCb && !conf.filterCb(conf.userData, it.object)) continue;
         if (it.object->material) t3d_model_draw_material(it.object->material, NULL);
         t3d_model_draw_object(it.object, conf.matrices);
     }

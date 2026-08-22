@@ -164,6 +164,15 @@ plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     — Tiny3D's loader relocates the file in place, which a
                     64-bit host cannot do. See the hard-won facts for the three
                     things that cost real time there.
+plat/host/src/       host_io.c is DragonFS over a real directory, the joypad,
+                    eepromfs over one file with the console's 4/16 Kbit sizes
+                    ENFORCED, sprite parsing, and libcart reporting no cart.
+                    host_audio.c is the mixer's BOOKKEEPING and explicitly no
+                    samples: nearly all of kiln_audio is channel arithmetic —
+                    a 32-channel budget partitioned into SFX and music ranges,
+                    priority voice stealing, room crossfades — and none of it
+                    needs PCM to be checkable. mixer_poll says "SILENCE" once
+                    rather than pretending.
 plat/host/include/  the host's <libdragon.h> and <t3d/t3dmath.h>. The shim sits
                     at the libdragon/Tiny3D API boundary, NOT at a new
                     engine-internal HAL, so no engine .c changes and no #ifdef
@@ -203,19 +212,17 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 40 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 49 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
-drift either way. The list grows as `plat/host/` does — 6 → 20 → 21 → 37 → 40
-as the math, system, 2D, texture and model tiers landed, each step announced by
-the gate failing. What keeps the last 11 out is the compiler, not a comment:
-`kiln_input`/`kiln_console` want joypad, `kiln_audio` wav64, `kiln_map` DFS,
-`kiln_save` eepromfs, `kiln_store` libcart, `kiln_video` MPEG, `kiln_asset` the
-StreamDB header, and `kiln_texanim`/`kiln_vanim` fields of `T3DMaterial` the
-host reader does not parse. `kiln_panic` is deliberately absent: it is a CPU
-exception handler, so `plat/host/src/host_panic.c` provides its two symbols
-over signals instead.
+drift either way. The list grew as `plat/host/` did — 6 → 20 → 21 → 37 → 40 →
+49 as the math, system, 2D, texture, model and IO tiers landed, and every step
+was announced by the gate failing rather than noticed later. **Two are left out
+and both are principled:** `kiln_video` needs an MPEG1 decoder, and
+`kiln_panic` is a CPU exception handler — it reads VR4300 register state out of
+libdragon's `exception_t`, which has no host analogue, so
+`plat/host/src/host_panic.c` provides its two symbols over signals instead.
 
 | cluster | modules |
 |---|---|
@@ -893,6 +900,30 @@ is what `pm_cine_repro()` is for.
 
 ## Hard-won facts (do not re-derive these)
 
+- **`kiln_map_draw` does not render the brush's faces, and never has.** A Quake
+  `.map` gives three points per face, and those points define a **plane** —
+  conventionally one unit apart, which is exactly what `assets/quake_test.map`
+  uses. `kiln_map.c:155` treats them as face corners and builds the
+  parallelogram `p0,p1,p2,p0+p2-p1`, so a 128-unit wall renders as a **1×2-unit
+  patch at one corner**, six per brush. `nix/checks/kiln-map.nix` measures it:
+  *"face 0 spans 2 units on y; the brush spans 129"*.
+  The correct algorithm is already in this repo, on the host side —
+  `tools/blender/quake_map.py` intersects every triple of a brush's planes and
+  keeps the candidates inside all the others. `kiln_map.c` does no intersection
+  at all.
+  What DOES work is the AABB, componentwise min/max of the plane points, and
+  that is what every consumer actually uses: `kiln_clip_set_world`,
+  `kiln_room`'s brush install, PetaByte Madness' PLAY. Which is presumably why
+  the rendering was never examined — what you see on screen comes from models,
+  and the brushes are collision. The AABB inherits the same off-by-one, so a
+  −64..64 brush becomes a −64..**65** collision box.
+- **`kiln_map.c:165` truncates a packed normal to eight bits.**
+  `uint8_t np = t3d_vert_pack_normal(&n)` takes a `uint16_t` and discards the
+  whole x field plus half of y. Three of `quake_test.map`'s six faces come out
+  with `normA == 0`. The fix is one word; it is not applied yet because it
+  changes what the console shades and wants a look on hardware, and
+  `kiln-map`'s reference capture is what will make it visible when it lands.
+
 - **`.t3dm` is three traps and a render will not find them all.** Writing the
   host reader turned up, in order of how quietly they fail:
   **(1) `gltf_to_t3d` emits triangle STRIPS, not indexed triangles.** A cube
@@ -1105,7 +1136,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (82 checks, 21 implementations)
+### The full check list (83 checks, 22 implementations)
 
 `rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1121,6 +1152,12 @@ worth knowing by name:
   landed, failing with *"kiln_gui compiles natively but is NOT in
   HOST_MODULES"* — a module that had just become host-clean and would otherwise
   have gone a year without `-Werror`.
+- **`kiln-map`** loads `assets/quake_test.map` through the real `kiln_map.c`
+  off the host VFS, installs it into the real clip world and renders it — the
+  first time a level here has been drawn outside a ROM. It proves the NEGATIVE
+  first, because that is the failure this project actually had: a missing map
+  must be a loud miss, not a silent empty world. It found two defects in
+  `kiln_map` and pins both; see the hard-won facts.
 - **`kiln-model`** converts `assets/cube.gltf` with the SAME `gltf_to_t3d` the
   ROM build uses, then parses and renders the result on the host. The `.t3dm`
   is deliberately not committed — it would go stale the first time the

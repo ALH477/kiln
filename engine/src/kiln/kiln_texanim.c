@@ -13,22 +13,6 @@ typedef struct {
     int count;
 } TexAnimCtx;
 
-static KilnTexAnim *find_anim(TexAnimCtx *ctx, const char *mat_name)
-{
-    if (!mat_name) return NULL;
-    for (int i = 0; i < ctx->count; i++) {
-        if (!ctx->anims[i].material_name) continue;
-        if (strcmp(ctx->anims[i].material_name, mat_name) == 0)
-            return &ctx->anims[i];
-    }
-    /* NULL material_name means "animate every material" — return first. */
-    for (int i = 0; i < ctx->count; i++) {
-        if (!ctx->anims[i].material_name)
-            return &ctx->anims[i];
-    }
-    return NULL;
-}
-
 /* ── Tile callback: scroll + palette ──────────────────────────────────── */
 
 static void tile_cb(void *userData, rdpq_texparms_t *tileParams,
@@ -63,6 +47,14 @@ static void tile_cb(void *userData, rdpq_texparms_t *tileParams,
 static void dyn_tex_cb(void *userData, const T3DMaterial *material,
                        rdpq_texparms_t *tileParams, rdpq_tile_t tile)
 {
+    /* `material` IS available here, unlike in tile_cb, and is deliberately
+     * unused: every registered animation is applied to every material, which
+     * is right for the one-animated-material-per-model case every consumer in
+     * this repo has. A per-material path would match material->name against
+     * KilnTexAnim.material_name — a `find_anim` doing exactly that used to sit
+     * above, unreferenced, and native -Werror is what pointed it out. If that
+     * path is ever wanted, write it here where the pointer is, rather than
+     * above where it was not reachable. */
     (void)material;
     (void)tileParams;
     (void)tile;

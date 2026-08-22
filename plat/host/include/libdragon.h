@@ -212,7 +212,6 @@ typedef struct surface_s {
     void    *buffer;
 } surface_t;
 
-typedef struct sprite_s sprite_t;
 
 /* ── texture formats: the RDP's own encoding, copied ───────────────────
  * (fmt << 2) | size, so FMT_CI4 is 0x08 — which is exactly what the flags
@@ -259,6 +258,32 @@ static inline tex_format_t surface_get_format(const surface_t *s)
 {
     return (tex_format_t)(s->flags & SURFACE_FLAGS_TEXFORMAT);
 }
+
+/* Verbatim from libdragon's sprite.h. kiln_texanim reaches into width/height
+ * and the format bits, so the layout is not optional. */
+typedef struct sprite_s {
+    uint16_t width;
+    uint16_t height;
+    uint8_t  bitdepth;   /* deprecated upstream; kept for layout            */
+    uint8_t  flags;      /* format in the low 5 bits, see SURFACE_FLAGS_*   */
+    uint8_t  hslices;
+    uint8_t  vslices;
+    uint32_t data[];
+} sprite_t;
+
+#define SPRITE_FLAGS_TEXFORMAT   0x1F
+#define SPRITE_FLAGS_OWNEDBUFFER 0x20
+#define SPRITE_FLAGS_NODATA      0x40
+#define SPRITE_FLAGS_EXT         0x80
+
+static inline tex_format_t sprite_get_format(const sprite_t *s)
+{ return (tex_format_t)(s->flags & SPRITE_FLAGS_TEXFORMAT); }
+
+sprite_t *sprite_load(const char *path);
+sprite_t *sprite_load_buf(void *buf, int sz);
+void      sprite_free(sprite_t *s);
+surface_t sprite_get_pixels(sprite_t *s);
+uint16_t *sprite_get_palette(sprite_t *s);
 
 #define DEPTH_16_BPP 2
 #define DEPTH_32_BPP 4
@@ -379,6 +404,240 @@ void rdpq_set_lookup_address(uint8_t index, void *rdram_addr);
 
 /** TMEM bytes currently occupied by uploaded textures and the TLUT. */
 int kiln_host_tmem_used(void);
+
+/* ── DragonFS: a directory, on the host ───────────────────────────────
+ * On console this reads a filesystem image appended to the ROM. Here it is a
+ * directory, rooted at $KILN_HOST_DFS (default "."), with the "rom:/" prefix
+ * stripped — so `rom:/maps/pm_lab.map` becomes `$KILN_HOST_DFS/maps/pm_lab.map`.
+ *
+ * That mapping is the point rather than a convenience: CLAUDE.md records that
+ * an asset builder's `name` IS the filename a ROM must open, and that a
+ * mismatch cost PetaByte Madness its entire PLAY screen because every layer
+ * below degraded politely. A host VFS over a real directory makes the same
+ * mismatch a missing file you can see with ls. */
+#define DFS_DEFAULT_LOCATION  0
+#define DFS_ESUCCESS          0
+#define DFS_EBADINPUT        -1
+#define DFS_ENOFILE          -2
+#define DFS_ENOINIT          -5
+
+typedef uint32_t pi_addr_t;
+
+int dfs_init(pi_addr_t base_fs_loc);
+int dfs_open(const char *const path);
+int dfs_read(void *const buf, int size, int count, uint32_t handle);
+int dfs_close(uint32_t handle);
+int dfs_size(uint32_t handle);
+int dfs_seek(uint32_t handle, int offset, int origin);
+int dfs_tell(uint32_t handle);
+int dfs_eof(uint32_t handle);
+
+/* ── joypad ───────────────────────────────────────────────────────────
+ * The bitfield ORDER is copied exactly, because joypad_buttons_t is a union
+ * with a uint16_t `raw` and kiln_input diffs raw values between frames to
+ * derive edges. A field in the wrong bit makes every edge test wrong in a way
+ * that reads as a controller problem. */
+typedef enum { JOYPAD_PORT_1 = 0, JOYPAD_PORT_2, JOYPAD_PORT_3,
+               JOYPAD_PORT_4 } joypad_port_t;
+#define JOYPAD_PORT_COUNT 4
+
+typedef union joypad_buttons_u {
+    uint16_t raw;
+    struct __attribute__((packed)) {
+        unsigned a : 1;       unsigned b : 1;
+        unsigned z : 1;       unsigned start : 1;
+        unsigned d_up : 1;    unsigned d_down : 1;
+        unsigned d_left : 1;  unsigned d_right : 1;
+        unsigned y : 1;       unsigned x : 1;
+        unsigned l : 1;       unsigned r : 1;
+        unsigned c_up : 1;    unsigned c_down : 1;
+        unsigned c_left : 1;  unsigned c_right : 1;
+    };
+} joypad_buttons_t;
+
+typedef struct __attribute__((packed)) joypad_inputs_s {
+    joypad_buttons_t btn;
+    int8_t  stick_x, stick_y;
+    int8_t  cstick_x, cstick_y;
+    uint8_t analog_l, analog_r;
+} joypad_inputs_t;
+
+/* Stick ranges, copied. kiln_input normalises against these, so a wrong value
+ * silently rescales every stick read — which reads as a deadzone problem. */
+#define JOYPAD_RANGE_N64_STICK_MAX    90
+#define JOYPAD_RANGE_GCN_STICK_MAX    100
+#define JOYPAD_RANGE_GCN_CSTICK_MAX   76
+#define JOYPAD_RANGE_GCN_TRIGGER_MAX  200
+
+void joypad_init(void);
+void joypad_close(void);
+void joypad_poll(void);
+joypad_inputs_t  joypad_get_inputs(joypad_port_t port);
+joypad_buttons_t joypad_get_buttons(joypad_port_t port);
+joypad_buttons_t joypad_get_buttons_pressed(joypad_port_t port);
+joypad_buttons_t joypad_get_buttons_released(joypad_port_t port);
+joypad_buttons_t joypad_get_buttons_held(joypad_port_t port);
+bool joypad_is_connected(joypad_port_t port);
+
+/** Host-only: drive the pad from a test or a launcher. There is no physical
+ *  controller in a Nix sandbox, so a check that wants to exercise
+ *  kiln_input's edge detection sets state here. */
+void kiln_host_pad_set(joypad_port_t port, joypad_inputs_t in);
+
+/* ── EEPROM filesystem ────────────────────────────────────────────────
+ * Backed by one file, $KILN_HOST_EEPROM (default "kiln-eeprom.bin"). The
+ * console's 4 Kbit / 16 Kbit sizes are enforced, because kiln_save's whole
+ * job is fitting a game's state into them and a host that let a save grow
+ * would answer the wrong question. */
+typedef enum { EEPROM_NONE = 0, EEPROM_4K = 1, EEPROM_16K = 2 } eeprom_type_t;
+
+typedef struct eepfs_entry_t {
+    const char *path;
+    size_t      size;
+    bool        checksum;   /* upstream field order: checksum before backup */
+    bool        backup;
+} eepfs_entry_t;
+
+#define EEPFS_ESUCCESS      0
+#define EEPFS_EBADINPUT    -1
+#define EEPFS_ENOFILE      -2
+#define EEPFS_EBADFS       -3
+#define EEPFS_ENOMEM       -4
+#define EEPFS_EBADHANDLE   -5
+
+/* ── audio: the mixer's BOOKKEEPING, not its samples ──────────────────
+ * kiln_audio is a wrapper over libdragon's RSP mixer, and almost all of what
+ * it does is bookkeeping: partition the 32 channels into an SFX range and a
+ * music range, steal the lowest-priority voice when the SFX range is full,
+ * crossfade room music. None of that needs a single PCM sample to be correct,
+ * and all of it is the kind of arithmetic that is either right or produces a
+ * silence nobody can explain.
+ *
+ * So the host implements the channel state exactly and produces NO AUDIO. That
+ * is stated rather than hidden: mixer_poll writes silence and says so once,
+ * kiln_host_audio_counters() reports what was actually asked for, and
+ * wav64_open still fails loudly on a missing file — because a missing sound
+ * asset is the failure this project has actually had (see CLAUDE.md on
+ * PetaByte Madness' twelve sfx that were never built).
+ *
+ * VADPCM decoding and an output device are not here. When they arrive, the
+ * reference render for them is already in the tree: mkBakedInstrument writes
+ * share/<name>-reference.wav, the full-quality render the report's Stage 3
+ * wants to A/B against. */
+typedef struct {
+    int      channels;
+    int      bits;
+    int      frequency;
+    int      len;
+    int      loop_len;
+    void    *read;
+    void    *ctx;
+} waveform_t;
+
+typedef struct wav64_s {
+    waveform_t wave;
+    void      *st;
+} wav64_t;
+
+typedef struct { int playing; int first_ch; int channels; float vol; int loop; }
+    xm64player_t;
+typedef struct { int playing; int first_ch; int channels; float vol; }
+    ym64player_t;
+typedef struct { const char *name; int channels; } ym64player_songinfo_t;
+
+void audio_init(const int frequency, float latency);
+void audio_close(void);
+int  audio_can_write(void);
+int  audio_get_frequency(void);
+int  audio_get_buffer_length(void);
+short *audio_write_begin(void);
+void  audio_write_end(void);
+
+/* The RSP mixer's hard channel ceiling. kiln_audio's default partition is
+ * 16 SFX + 10 music = 26 against this, and its header explains why the sum is
+ * the thing that matters. */
+#define MIXER_MAX_CHANNELS 32
+
+void mixer_init(int num_channels);
+void mixer_close(void);
+void mixer_set_vol(float vol);
+void mixer_ch_play(int ch, waveform_t *wave);
+void mixer_ch_set_vol(int ch, float lvol, float rvol);
+void mixer_ch_set_vol_pan(int ch, float vol, float pan);
+void mixer_ch_set_freq(int ch, float frequency);
+void mixer_ch_stop(int ch);
+bool mixer_ch_playing(int ch);
+void mixer_poll(int16_t *out, int nsamples);
+void mixer_try_play(void);
+
+void wav64_open(wav64_t *wav, const char *fn);
+void wav64_play(wav64_t *wav, int ch);
+void wav64_close(wav64_t *wav);
+
+int  xm64player_open(xm64player_t *p, const char *fn);
+void xm64player_play(xm64player_t *p, int first_ch);
+void xm64player_stop(xm64player_t *p);
+void xm64player_close(xm64player_t *p);
+void xm64player_set_loop(xm64player_t *p, bool loop);
+void xm64player_set_vol(xm64player_t *p, float volume);
+int  xm64player_num_channels(xm64player_t *p);
+
+void ym64player_open(ym64player_t *p, const char *fn, ym64player_songinfo_t *info);
+void ym64player_play(ym64player_t *p, int first_ch);
+void ym64player_stop(ym64player_t *p);
+void ym64player_close(ym64player_t *p);
+int  ym64player_num_channels(ym64player_t *p);
+
+void rspq_highpri_begin(void);
+void rspq_highpri_end(void);
+void rspq_highpri_sync(void);
+
+/** What the host mixer was asked to do. No samples are produced, so these are
+ *  the only evidence a check has that the audio layer routed correctly. */
+typedef struct {
+    uint32_t polls;
+    uint32_t samples_requested;
+    uint32_t ch_plays, ch_stops;
+    uint32_t wav_opens, wav_missing;
+    int      channels;
+    int      frequency;
+    int      channels_playing;
+} KilnHostAudioCounters;
+
+const KilnHostAudioCounters *kiln_host_audio_counters(void);
+
+/* ── libdragon's debug SD surface ─────────────────────────────────────
+ * On console debug_init_sdfs mounts a flashcart's SD card through newlib,
+ * which is how kiln_store gets a writable backend on an ED64 Plus. There is no
+ * cart here, so it fails — and kiln_store is written to walk on to the next
+ * backend when it does. */
+bool debug_init_sdfs(const char *prefix, int npart);
+void debug_close_sdfs(void);
+bool debug_init_usblog(void);
+bool debug_init_isviewer(void);
+
+/* ── SRAM ─────────────────────────────────────────────────────────────
+ * There is no save chip. sram_detect returns 0, which is what libdragon
+ * actually does with no chip present — its own doc comment says -1, and
+ * kiln_store's history is the reason that matters: a `< 0` test could never
+ * fail, so the SRAM backend was selected on machines with no chip at all,
+ * after which writes went nowhere and reads came back as zeros that parse as
+ * a valid EMPTY directory. Returning the honest 0 keeps kiln_store's fixed
+ * `<= 0` test meaningful on the host too. */
+void sram_init(void);
+int  sram_detect(void);
+int  sram_read(void *dst, size_t offset, size_t len);
+int  sram_write(const void *src, size_t offset, size_t len);
+
+eeprom_type_t eeprom_present(void);
+size_t eeprom_total_blocks(void);
+int  eepfs_init(const eepfs_entry_t *entries, size_t count);
+void eepfs_close(void);
+int  eepfs_read(const char *path, void *dest, size_t size);
+int  eepfs_write(const char *path, const void *src, size_t size);
+int  eepfs_erase(const char *path);
+bool eepfs_verify_signature(void);
+void eepfs_wipe(void);
 
 /* ── rdpq_font / rdpq_text ─────────────────────────────────────────────
  * The host draws with libdragon's OWN builtin font, decoded out of the same

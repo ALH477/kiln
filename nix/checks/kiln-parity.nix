@@ -26,7 +26,7 @@
 # a uint8_t and the max is 256, so the guard could never fire. That warning had
 # been reported to nobody for as long as the module existed. See the
 # _Static_assert that replaced it.
-{ pkgs, engineSrc, platHost, hostMath }:
+{ pkgs, engineSrc, platHost, hostMath, streamdbInc }:
 
 pkgs.runCommand "check-kiln-parity"
 {
@@ -43,7 +43,8 @@ pkgs.runCommand "check-kiln-parity"
     echo "modules: $(echo $ALL | wc -w), claimed host-clean: $(echo $HOST | wc -w)"
 
     CFLAGS="-c -O1 -std=gnu2x -Wall -Wextra -Werror"
-    INCS="-I${platHost}/include -I${hostMath}/include -Iengine/src -Iengine/src/kiln"
+    INCS="-I${platHost}/include -I${hostMath}/include -I${streamdbInc} \
+           -Iengine/src -Iengine/src/kiln -DSTREAMDB_EMB_BACKEND_DFS=1"
 
     bad=0
     for m in $ALL; do
