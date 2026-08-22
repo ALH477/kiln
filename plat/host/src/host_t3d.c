@@ -335,21 +335,40 @@ static inline int clampi(int v, int lo, int hi)
 
 uint16_t t3d_vert_pack_normal(const T3DVec3 *normal)
 {
-    /* 5,6,5 packed, matching Tiny3D: each component mapped from [-1,1]. */
+    /* Verbatim from Tiny3D (t3d.c:283). The fields are SIGNED two's complement
+     * — 5 bits for x, 6 for y, 5 for z — scaled by 15.5/31.5/15.5, NOT an
+     * unsigned [0,max] mapping of [-1,1].
+     *
+     * That distinction is not cosmetic and it is not visible in a render. An
+     * unsigned pack paired with its own matching unpack is self-consistent, so
+     * a hand-built cube lights perfectly and looks right — and then a real
+     * .t3dm, whose normals were packed by the real encoder, unpacks to
+     * nonsense. This was caught by loading assets/cube.gltf's converted model
+     * and noticing its +Z face carried 0x000f, which only means (0,0,+1) if
+     * the fields are signed. */
     assertf(normal != NULL, "t3d_vert_pack_normal: NULL");
     fm_vec3_t n = *normal;
     if (fm_vec3_len(&n) > 1e-6f) fm_vec3_norm(&n, &n);
-    const int x = clampi((int)lrintf((n.v[0] * 0.5f + 0.5f) * 31.0f), 0, 31);
-    const int y = clampi((int)lrintf((n.v[1] * 0.5f + 0.5f) * 63.0f), 0, 63);
-    const int z = clampi((int)lrintf((n.v[2] * 0.5f + 0.5f) * 31.0f), 0, 31);
-    return (uint16_t)((x << 11) | (y << 5) | z);
+    const int xi = clampi((int)lrintf(n.v[0] * 15.5f), -16, 15);
+    const int yi = clampi((int)lrintf(n.v[1] * 31.5f), -32, 31);
+    const int zi = clampi((int)lrintf(n.v[2] * 15.5f), -16, 15);
+    return (uint16_t)((((uint16_t)xi & 0x1Fu) << 11)
+                    | (((uint16_t)yi & 0x3Fu) << 5)
+                    |  ((uint16_t)zi & 0x1Fu));
+}
+
+/* Sign-extend an n-bit two's complement field. */
+static inline int sext(unsigned v, int bits)
+{
+    const unsigned sign = 1u << (bits - 1);
+    return (v & sign) ? (int)v - (int)(sign << 1) : (int)v;
 }
 
 static void unpack_normal(uint16_t p, fm_vec3_t *out)
 {
-    out->v[0] = ((float)((p >> 11) & 0x1F) / 31.0f) * 2.0f - 1.0f;
-    out->v[1] = ((float)((p >> 5)  & 0x3F) / 63.0f) * 2.0f - 1.0f;
-    out->v[2] = ((float)( p        & 0x1F) / 31.0f) * 2.0f - 1.0f;
+    out->v[0] = (float)sext((p >> 11) & 0x1Fu, 5) / 15.5f;
+    out->v[1] = (float)sext((p >> 5)  & 0x3Fu, 6) / 31.5f;
+    out->v[2] = (float)sext( p        & 0x1Fu, 5) / 15.5f;
     if (fm_vec3_len(out) > 1e-6f) fm_vec3_norm(out, out);
 }
 
@@ -614,3 +633,82 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
 }
 
 void t3d_tri_sync(void) { }
+
+/* ── strips and sequences ─────────────────────────────────────────────
+ * gltf_to_t3d emits STRIPS, not indexed triangles — the first model checked
+ * against this reader, a cube, has numIndices 0 and numStripIndices[0] = 24.
+ * So a backend that only handled t3d_tri_draw would load every model in this
+ * repo and draw nothing.
+ *
+ * The encoding is Tiny3D's documented one (t3d.h above t3d_indexbuffer_convert):
+ * the first three values are a triangle, each value after that extends the
+ * strip by one triangle with the winding FLIPPED, and an index with bit 15 set
+ * restarts the strip — that value and the two following form a fresh triangle.
+ *
+ * The host reads the RAW file indices. Tiny3D rewrites them in place into DMEM
+ * pointers, which is why t3d_indexbuffer_convert exists; there is no DMEM
+ * here, so host_t3dmodel.c deliberately does not call it and this function
+ * interprets plain local indices. */
+void t3d_tri_draw_strip(int16_t *indexBuff, int count)
+{
+    assertf(indexBuff != NULL, "t3d_tri_draw_strip: NULL index buffer");
+    assertf(count >= 3, "t3d_tri_draw_strip: %d indices cannot form a triangle",
+            count);
+
+    uint32_t a = 0, b = 0, c = 0;
+    int have = 0, flip = 0;
+
+    for (int i = 0; i < count; i++) {
+        const uint16_t raw = (uint16_t)indexBuff[i];
+        const int restart = (raw & 0x8000u) != 0;
+        const uint32_t idx = raw & 0x7FFFu;
+        assertf(idx < T3D_VERTEX_CACHE,
+                "t3d_tri_draw_strip: index %u at position %d is outside the "
+                "%d-entry vertex cache", idx, i, T3D_VERTEX_CACHE);
+
+        if (restart || have < 3) {
+            if (restart) have = 0;
+            if (have == 0)      { a = idx; have = 1; flip = 0; continue; }
+            else if (have == 1) { b = idx; have = 2; continue; }
+            else                { c = idx; have = 3; t3d_tri_draw(a, b, c); continue; }
+        }
+        /* Extend: drop the oldest vertex and alternate the winding, which is
+         * the universal strip convention and what "winding order flipped"
+         * means. Nothing in this engine sets a cull flag, so the flip is
+         * currently unobservable — but getting it wrong would become visible
+         * the moment one is added, which is a bad time to find out. */
+        a = b; b = c; c = idx;
+        flip = !flip;
+        if (flip) t3d_tri_draw(b, a, c);
+        else      t3d_tri_draw(a, b, c);
+    }
+}
+
+void t3d_tri_draw_strip_and_sync(int16_t *indexBuff, int count)
+{
+    t3d_tri_draw_strip(indexBuff, count);
+    t3d_tri_sync();
+}
+
+void t3d_tri_draw_unindexed(int base, int count)
+{
+    /* Sequential triangles straight out of the vertex cache. */
+    assertf(base >= 0 && count >= 0, "t3d_tri_draw_unindexed: base %d count %d",
+            base, count);
+    assertf(base + count * 3 <= T3D_VERTEX_CACHE,
+            "t3d_tri_draw_unindexed: %d triangles from %d overruns the "
+            "%d-entry vertex cache", count, base, T3D_VERTEX_CACHE);
+    for (int i = 0; i < count; i++) {
+        const uint32_t v = (uint32_t)(base + i * 3);
+        t3d_tri_draw(v, v + 1, v + 2);
+    }
+}
+
+void t3d_indexbuffer_convert(int16_t indices[], int count)
+{
+    /* Upstream rewrites local indices into DMEM pointers for the ucode to DMA.
+     * The host reads raw indices, so converting would corrupt them. Kept as a
+     * no-op rather than removed because the symbol is part of the API and a
+     * caller doing its own strip submission still calls it. */
+    (void)indices; (void)count;
+}

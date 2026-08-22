@@ -1810,6 +1810,15 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
+          # A real .t3dm, converted by the same gltf_to_t3d the ROM uses,
+          # parsed and rendered by the host reader.
+          kiln-model = import ./nix/checks/kiln-model.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+            n64Inst = n64Inst;
+            cubeGltf = ./assets/cube.gltf;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;

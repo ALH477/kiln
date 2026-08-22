@@ -159,6 +159,11 @@ plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     and you get a texture built out of whatever else was
                     resident, with no diagnostic at all. It is one of the very
                     few console limits a host build can genuinely check.
+                    host_t3dmodel.c is a .t3dm READER, and the only part of the
+                    backend that reimplements a file format rather than an API
+                    — Tiny3D's loader relocates the file in place, which a
+                    64-bit host cannot do. See the hard-won facts for the three
+                    things that cost real time there.
 plat/host/include/  the host's <libdragon.h> and <t3d/t3dmath.h>. The shim sits
                     at the libdragon/Tiny3D API boundary, NOT at a new
                     engine-internal HAL, so no engine .c changes and no #ifdef
@@ -198,14 +203,19 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 20 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 40 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
-drift either way. What keeps the other 31 out is the compiler, not a comment:
-25 need `<t3d/t3d.h>` (most only transitively, through a header), 5 need
-`<t3d/t3dmodel.h>`, 1 `<libcart/cart.h>`, 1 `<video.h>`, and 4 want one
-specific libdragon type.
+drift either way. The list grows as `plat/host/` does — 6 → 20 → 21 → 37 → 40
+as the math, system, 2D, texture and model tiers landed, each step announced by
+the gate failing. What keeps the last 11 out is the compiler, not a comment:
+`kiln_input`/`kiln_console` want joypad, `kiln_audio` wav64, `kiln_map` DFS,
+`kiln_save` eepromfs, `kiln_store` libcart, `kiln_video` MPEG, `kiln_asset` the
+StreamDB header, and `kiln_texanim`/`kiln_vanim` fields of `T3DMaterial` the
+host reader does not parse. `kiln_panic` is deliberately absent: it is a CPU
+exception handler, so `plat/host/src/host_panic.c` provides its two symbols
+over signals instead.
 
 | cluster | modules |
 |---|---|
@@ -883,6 +893,29 @@ is what `pm_cine_repro()` is for.
 
 ## Hard-won facts (do not re-derive these)
 
+- **`.t3dm` is three traps and a render will not find them all.** Writing the
+  host reader turned up, in order of how quietly they fail:
+  **(1) `gltf_to_t3d` emits triangle STRIPS, not indexed triangles.** A cube
+  comes out as `numIndices` 0 and `numStripIndices[0]` 24 — six groups of four,
+  each group a quad. A reader handling only `t3d_tri_draw` loads every model in
+  this repo perfectly and draws nothing.
+  **(2) The file is BIG-ENDIAN**, because it is built for MIPS, and Tiny3D
+  needs no conversion because the console agrees. Strip index 23 is `0x0017`
+  and reads as 5888 little-endian, which trips the vertex-cache assert at once
+  — the easy half. The vertex data has the same problem and *no assert can
+  catch it*: a position of −32 reads as −8193, so the model renders as a spray
+  of triangles that looks like a bad matrix or a broken exporter.
+  **(3) `t3d_vert_pack_normal`'s 5.6.5 fields are SIGNED two's complement**
+  scaled by 15.5/31.5/15.5 — not an unsigned mapping of [−1,1]. This is the one
+  that needed real file data: an unsigned pack paired with its own matching
+  unpack is self-consistent, so a hand-built cube lights perfectly and looks
+  right, and only a model whose normals were packed by the real encoder shows
+  the error. The cube's +Z face carries `0x000f`, which means (0,0,+1) only
+  under the signed reading.
+  Corollary worth keeping: a self-consistent wrong encoding is invisible to any
+  amount of rendering. That is why `kiln-model` runs the real converter instead
+  of hand-building its input.
+
 - **A rename is a sed over identifiers and a rebuild over everything else.**
   The M64→Kiln sweep was 9,393 occurrences in 330 files and the mechanical part
   was the easy half. What a `sed` cannot do, and what has to be found by
@@ -1072,7 +1105,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (81 checks, 20 implementations)
+### The full check list (82 checks, 21 implementations)
 
 `rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1088,6 +1121,12 @@ worth knowing by name:
   landed, failing with *"kiln_gui compiles natively but is NOT in
   HOST_MODULES"* — a module that had just become host-clean and would otherwise
   have gone a year without `-Werror`.
+- **`kiln-model`** converts `assets/cube.gltf` with the SAME `gltf_to_t3d` the
+  ROM build uses, then parses and renders the result on the host. The `.t3dm`
+  is deliberately not committed — it would go stale the first time the
+  converter changed. The structural assertions matter more than the pixels
+  here: a misread offset in a format reader does not fail, it produces
+  geometry.
 - **`kiln-voxmesh`** renders a real voxel mesh with two different combiners and
   keeps both captures, which is how "Forge's atlas is never sampled" stopped
   being an inference and became a picture. See the Forge section above.
