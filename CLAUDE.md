@@ -191,7 +191,7 @@ beside `libdragon.a`) and Nix store paths are immutable.
 
 ## The engine — the whole inventory
 
-**51 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
+**53 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
 lines, ~290 public `kiln_*` functions. The sections below this one describe
 Phases B/C/D in detail and do NOT cover everything — this table does. Anyone
 (or anything) planning against the Phase sections alone will conclude the engine
@@ -212,13 +212,17 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 49 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 51 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
 drift either way. The list grew as `plat/host/` did — 6 → 20 → 21 → 37 → 40 →
-49 as the math, system, 2D, texture, model and IO tiers landed, and every step
-was announced by the gate failing rather than noticed later. **Two are left out
+49 → 51 as the math, system, 2D, texture, model, IO and streaming-pacer tiers
+landed, and every step was announced by the gate failing rather than noticed
+later — `kiln_stream` and `kiln_streamio` (below) both turned out to compile
+natively for free, once `kiln_asset`/`kiln_room`/`kiln_tile`/`kiln_cache` all
+did, and `kiln-parity` is what caught that rather than leaving them
+unlisted. **Two are left out
 and both are principled:** `kiln_video` needs an MPEG1 decoder, and
 `kiln_panic` is a CPU exception handler — it reads VR4300 register state out of
 libdragon's `exception_t`, which has no host analogue, so
@@ -229,7 +233,7 @@ libdragon's `exception_t`, which has no host analogue, so
 | frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line) |
 | runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel` |
 | feel (Phase D) | `kiln_input`, `kiln_clip`, `kiln_dict`, `kiln_map`, `kiln_surface`, `kiln_sound`, `kiln_event`, `kiln_target`, `kiln_player` |
-| streaming (Phase C/E) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass` |
+| streaming (Phase C/E/F) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass`, `kiln_stream`, `kiln_streamio` |
 | first person + shooting | `kiln_fpscam`, `kiln_weapon`, `kiln_weapons`, `kiln_projectile`, `kiln_inventory`, `kiln_trigger`, `kiln_context`, `kiln_dialogue` |
 | simulation | `kiln_physics`, `kiln_crater` |
 | visual effects | `kiln_texanim` (scroll/flipbook/palette/offscreen), `kiln_vanim` (RSP VFX, morph, deform) |
@@ -544,6 +548,112 @@ Verified by `examples/oot-demo`: a player actor walks `assets/oot_test.map`
 SFX via `kiln_event` + `kiln_sound`, and gets a 1.5 s `KILN_CAM_CUTSCENE`
 pan on boot that pops back to NORMAL — every Phase D module in one frame.
 `nix build .#oot-demo` and `nix flake check` are green (32 checks).
+
+## Phase F — a priority/budget pacer for room+tile streaming (kiln_stream, kiln_streamio)
+
+Closes a gap Phase C/E left open: `kiln_room`, `kiln_tile`, `kiln_asset` and
+`kiln_cache` were four independent systems — no example ever wired real asset
+loading into room/tile streaming, `kiln_room` had **no per-frame load budget
+at all** (a whole cross-shaped set can load synchronously in one frame), and
+`kiln_tile`'s only budget (`load_budget`) was a flat count serviced in
+slot-scan order, not by distance or urgency. This is **not** an async I/O
+system — nothing in this engine or platform does background/threaded I/O,
+and every `kiln_asset_model`/`kiln_asset_sprite` call stays a single
+blocking call. What it adds is a **pacer**: which of the currently
+outstanding requests gets that blocking call issued *this frame*, in
+priority order, under a real byte/count budget, deferring the rest exactly
+the way `kiln_tile`'s existing `TILE_PENDING` already did for its narrower,
+FIFO-only case.
+
+- **`kiln_stream.h/.c`** — pure admission policy. A flat pool
+  (`KILN_STREAM_MAX_PENDING`, default 64) of `(key, urgency, rank, byte_cost,
+  tag)` requests, generation-counted handles packed like `KilnCacheHandle`
+  (index biased +1 so slot 0/gen 0 can't collide with `INVALID == 0` — the
+  exact bug `kiln_cache`'s handle packing once had, not reintroduced here).
+  Pool-full eviction is deliberately `kiln_event_post`'s exact rule (evict
+  the lowest-priority PENDING slot only if the newcomer strictly outranks
+  it, else drop + `debugf`) — a scarce flat pool under contention is the
+  same problem there and here. `kiln_stream_frame_begin` admits the
+  highest-`(urgency, rank)` PENDING requests that fit `max_bytes_per_frame`
+  and `max_admits_per_frame`, stopping at the first one that doesn't fit
+  rather than bin-packing smaller lower-priority ones around it — except a
+  single request bigger than the whole per-frame budget is forced through
+  when nothing else has been admitted yet, or it would starve forever. Knows
+  nothing about `KilnAsset`/`KilnCache`/`KilnRoom`/`KilnTileSlot` — same
+  pure-logic-vs-console-glue split as `kiln_voxel`/`kiln_voxmesh` — so it
+  sits in `HOST_MODULES` and is asserted on by `nix/checks/kiln-logic.nix`.
+- **`kiln_streamio.h/.c`** — binds one `KilnStream` to a real `KilnAsset*` +
+  `KilnCache*`, and provides `kiln_streamio_room_on_load`/`_on_unload` and
+  `kiln_streamio_tile_on_load`/`_on_unload` — **literal**
+  `KilnRoomLoadFn`/`UnloadFn` and `KilnTileLoadFn`/`UnloadFn` implementations,
+  not a new callback contract, so a game opts in by pointing its existing
+  `kiln_room_system_init`/`kiln_tile_init` function-pointer slots at these
+  instead of hand-writing its own. `on_load` does no I/O — it only calls
+  `kiln_stream_request` and returns — so `kiln_tile`'s own `load_budget` must
+  be set to 255 (its documented "synchronous, load-all-immediately" escape
+  hatch) to disable `kiln_tile`'s own throttling; `kiln_stream` becomes the
+  sole budget authority. `kiln_streamio_pump`, called once per frame after
+  residency update and before draw, issues the real `kiln_cache_acquire`
+  (internally `kiln_asset_model`/`kiln_asset_sprite`) for every request
+  `kiln_stream` admitted, and writes the result into `room->user_mesh` or
+  the tile slot's `user_data` — both already documented as engine-never-
+  dereferences, read only by the caller's own null-checking draw callback,
+  so writing them asynchronously after the triggering `on_load` returned is
+  safe. Turned out to compile natively too (every module it touches already
+  does), so it sits in `HOST_MODULES` alongside `kiln_stream` — though its
+  own `kiln_asset`/`kiln_cache` round-trip needs real StreamDB content to
+  exercise, which is a heavier follow-on check, not required for this to
+  land.
+- Two health gauges, meant to read 0 in a healthy frame:
+  `kiln_stream_dropped_total` (pool full, nothing lower-priority to evict —
+  a capacity/tuning problem) and `kiln_streamio_fail_total` (an admitted
+  request's asset call returned NULL — a content problem, the same
+  "missing map / wrong asset filename" failure class that has already cost
+  this project a whole PLAY screen once). Distinct counters on purpose, per
+  Forge's "every gauge goes red at the value that means it's lying to you."
+
+Verified by `examples/openworld-demo`, rewired from its original hand-malloc'd
+2-vert tile stub onto a real `openworld.streamdb` (`models/tile.t3dm`, one
+shared model — the point is the pacer's priority ordering across many
+simultaneous requests, not per-tile unique geometry): `nix build
+.#openworld-demo` links clean, and `./dev shot openworld-demo` shows the full
+5×5 window (25 tiles) loaded through `kiln_stream`→`kiln_streamio`→
+`kiln_cache`→`kiln_asset` with `pending 0 dropped 0 failed 0`.
+
+**Getting that screenshot found four pre-existing, previously-unverified
+bugs, none of them in the new pacer** — this appears to be the first time
+either `examples/streamdb-demo` or `examples/openworld-demo` had actually
+been booted rather than just built:
+1. `streamdb_emb_io_dfs()` (`streamdb-embedded/src/streamdb_io_dfs.c`) called
+   `dfs_open()` with the `"rom:/"`-prefixed path `kiln_asset.h`'s own doc
+   comment tells every caller to pass — but `dfs_open` wants the prefix
+   stripped, exactly the mismatch `kiln_map_load` already found and fixed
+   once (see its comment). Invisible to `nix/checks/kiln-asset.nix` because
+   that check builds `kiln_asset.c` against a host stdio stub, never the
+   real DFS backend.
+2. `examples/streamdb-demo/main.c`'s `kiln_asset_model` call passed a
+   hardcoded key length of `17` for `"models/cube.t3dm"`, which is 16 bytes
+   — an off-by-one that made the lookup miss every time, never caught
+   because nothing exercises `streamdb_emb_find` against real key lengths
+   outside a booted ROM.
+3. `openworld-demo`'s `kiln_tile_init` passed `NULL` as `user_ctx`, which
+   `kiln_lod_selector_cb` dereferences as a `KilnLODConfig*` — every tile's
+   distance compare read off a null config, came back "beyond the last
+   threshold," and no tile was ever marked resident. (kiln_streamio's own
+   `user_ctx` need — `&g_tile_binding` — is what forced this one into the
+   open: the demo now reads `lod_cfg` from a module-global directly instead.)
+4. `openworld-demo`'s draw callback translated each tile by `tile_center -
+   cam_pos` while `kiln_scene_update`'s `t3d_viewport_look_at` already takes
+   `cam_pos` as an absolute world position — double-subtracting the camera
+   offset and pushing every tile off the far plane. Tiles now draw at their
+   actual world coordinates.
+
+All four are content/wiring bugs in example code and a sibling library, not
+in `kiln_stream`/`kiln_streamio` themselves, but the project's own precedent
+(`kiln-map`, `kiln-parity`, `kiln-logic`'s first runs) is that a check which
+has never actually been exercised end to end is a check that might not be
+checking anything — this is that lesson recurring one level up, at "has this
+ROM ever been booted" rather than "has this gate ever fired."
 
 ## The audio layer (engine/src/kiln/kiln_audio.*, examples/audio, examples/live-voice, examples/music)
 

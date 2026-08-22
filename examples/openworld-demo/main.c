@@ -1,17 +1,33 @@
 // SPDX-License-Identifier: MPL-2.0
 //
-// Open-world streaming demo: all five Phase E primitives in one ROM.
+// Open-world streaming demo: all five Phase E primitives, plus Phase F's
+// kiln_stream + kiln_streamio pacer:
 //
 //   kiln_scratch   — per-frame bump allocator for transform matrices
 //   kiln_cache     — refcounted cache for shared tile geometry
 //   kiln_tile      — tile residency manager (grid streaming + LOD)
 //   kiln_lod       — distance-based LOD selector
 //   kiln_twopass   — far (Z-off) + near (Z-on) two-pass renderer
+//   kiln_stream    — priority/budget admission for the loads below
+//   kiln_streamio  — binds kiln_stream to real kiln_asset + kiln_cache loads
 //
-// The world is a 16×16 grid of 64-unit tiles. Each tile is a flat coloured
-// quad whose colour depends on its LOD level (bright = near, dim = far).
-// The camera moves with the D-pad, and tiles stream in/out around it.
-// The HUD shows the loaded tile count, cache entries, and scratch usage.
+// This used to build its "tiles" out of a hand-malloc'd 2-vert stub with no
+// real asset behind it — every kiln_tile consumer in this repo still does.
+// Now tile_on_load submits a kiln_stream_request instead of loading
+// anything itself; kiln_streamio_pump issues the real kiln_asset_model +
+// kiln_cache_acquire call later the same frame, only for requests the
+// pacer actually admitted under this frame's byte/count budget, in
+// distance/urgency order. tiles.load_budget is set to 255 so kiln_tile's
+// OWN throttling never engages — kiln_stream is the only budget authority
+// (see kiln_streamio.h's file comment for why that is safe).
+//
+// The world is a 16×16 grid of 64-unit tiles, each drawing the same shared
+// StreamDB-packed model (openworld.streamdb: models/tile.t3dm) — the point
+// of this demo is the pacer's priority ordering across many simultaneous
+// tile requests, not per-tile unique geometry. The camera moves with the
+// D-pad; the HUD reports loaded tile count, cache entries, scratch usage,
+// and the pacer's two health gauges (dropped/failed), which should both
+// read zero in a normal run.
 
 #include <libdragon.h>
 #include <t3d/t3d.h>
@@ -24,6 +40,8 @@
 #include <kiln/kiln_tile.h>
 #include <kiln/kiln_lod.h>
 #include <kiln/kiln_twopass.h>
+#include <kiln/kiln_asset.h>
+#include <kiln/kiln_streamio.h>
 
 #include <malloc.h>
 #include <string.h>
@@ -38,71 +56,30 @@
 #define WINDOW_TILES 2    /* half-size: 5×5 loaded window */
 #define SLOTS_X      8    /* slot array (must be >= 2*WINDOW+1) */
 #define SLOTS_Y      8
-
-/* Each tile's user_data is a small struct with a colour + vertex buffer. */
-typedef struct {
-    color_t color;
-    T3DVertPacked *verts;  /* 2 verts = 1 quad (degenerate) */
-} TileData;
-
-/* Per-LOD colours. */
-static const color_t lod_colors[KILN_TILE_MAX_LOD] = {
-    { 255, 100, 100, 255 },  /* LOD 0: bright red */
-    { 180,  80,  80, 255 },  /* LOD 1: medium red */
-    { 120,  60,  60, 255 },  /* LOD 2: dim red */
-};
+#define SLOT_COUNT   (SLOTS_X * SLOTS_Y)
 
 /* Global state (single-player N64, module-global is fine). */
 static KilnScratch scratch;
 static KilnCache   cache;
 static KilnLODConfig lod_cfg;
 static KilnTileManager tiles;
-static KilnTileSlot  visual_slots[SLOTS_X * SLOTS_Y];
+static KilnTileSlot  visual_slots[SLOT_COUNT];
 static KilnScene     scene;
 static float cam_x = 512.0f, cam_z = 512.0f;
 static float cam_angle = 0.0f;
 
-/* ---- Tile load/unload callbacks ---- */
+/* The streaming pacer: one shared asset DB + cache, bound through
+ * kiln_streamio to the tile grid above. */
+static KilnAsset *g_db;
+static KilnStreamIO g_io;
+static KilnStreamIOTileBinding g_tile_binding;
+static KilnStreamIOSlot g_tile_io_slots[SLOT_COUNT];
 
-static void *tile_load(int16_t tx, int16_t ty, uint8_t lod, void *ctx)
+/* Every tile shares the same model key — see the file comment. */
+static void tile_key(int16_t tx, int16_t ty, uint8_t lod, char *out, size_t out_len)
 {
-    (void)ctx;
-    TileData *td = malloc(sizeof(TileData));
-    if (!td) return NULL;
-
-    td->color = lod_colors[lod < KILN_TILE_MAX_LOD ? lod : KILN_TILE_MAX_LOD - 1];
-    td->verts = malloc_uncached(sizeof(T3DVertPacked));
-    if (!td->verts) { free(td); return NULL; }
-
-    /* Build a flat quad for this tile. */
-    float x0 = tx * TILE_SIZE;
-    float z0 = ty * TILE_SIZE;
-    float x1 = x0 + TILE_SIZE;
-    float z1 = z0 + TILE_SIZE;
-    int16_t s = (int16_t)(TILE_SIZE * 0.5f);
-
-    fm_vec3_t n = {{ 0, 1, 0 }};
-    uint32_t rgba = ((uint32_t)td->color.r << 24) |
-                    ((uint32_t)td->color.g << 16) |
-                    ((uint32_t)td->color.b << 8) | 0xFF;
-
-    td->verts[0] = (T3DVertPacked){
-        .posA = { -s, 0, -s }, .rgbaA = rgba, .normA = t3d_vert_pack_normal(&n),
-        .posB = {  s, 0, -s }, .rgbaB = rgba, .normB = t3d_vert_pack_normal(&n),
-    };
-    /* A real tile would have 4+ verts; this is a degenerate 2-vert "tile"
-     * for demonstration. The point is the streaming, not the geometry. */
-    return td;
-}
-
-static void tile_unload(int16_t tx, int16_t ty, uint8_t lod,
-                        void *user_data, void *ctx)
-{
-    (void)tx; (void)ty; (void)lod; (void)ctx;
-    TileData *td = (TileData *)user_data;
-    if (!td) return;
-    if (td->verts) free(td->verts);
-    free(td);
+    (void)tx; (void)ty; (void)lod;
+    snprintf(out, out_len, "models/tile.t3dm");
 }
 
 static void tile_sync(void *ctx)
@@ -111,6 +88,21 @@ static void tile_sync(void *ctx)
     /* No GPU sync needed in this simple demo — the tile geometry is
      * drawn synchronously within the frame. A real game with async
      * display lists would call rspq_wait() here. */
+}
+
+/* kiln_lod_selector_cb expects `user_ctx` to BE a KilnLODConfig*, but
+ * KilnTileManager has only one user_ctx slot, and this demo needs it for
+ * kiln_streamio's tile binding (&g_tile_binding) instead. Reading the
+ * module-global lod_cfg directly sidesteps the conflict — the same fix a
+ * game with its own tile-load context would need. (The demo's ORIGINAL
+ * user_ctx was NULL here, which kiln_lod_selector_cb dereferenced as a
+ * KilnLODConfig* — every tile's distance-vs-threshold compare then read off
+ * a NULL cfg, came back beyond the last threshold, and no tile was ever
+ * loaded. Streaming or not, that bug pre-dates this file's pacer wiring.) */
+static uint8_t lod_select_from_global(int16_t tx, int16_t ty, float dist_sq, void *ctx)
+{
+    (void)tx; (void)ty; (void)ctx;
+    return kiln_lod_select(&lod_cfg, dist_sq);
 }
 
 /* ---- Pass draw callback ---- */
@@ -124,16 +116,28 @@ static void pass_draw(KilnTileGrid *grid, const KilnLODConfig *lod,
 
     for (KilnTileSlot *slot = kiln_tile_first(grid); slot;
          slot = kiln_tile_next(grid, slot)) {
-        TileData *td = (TileData *)slot->user_data;
-        if (!td) continue;
+        /* NULL means the load is still outstanding — kiln_streamio_pump
+         * hasn't resolved it yet, or it's still waiting on the pacer's
+         * budget. Skipping it is the same null-check every kiln_tile/
+         * kiln_room consumer already needs for a tile that has no visible
+         * geometry yet. */
+        T3DModel *model = (T3DModel *)slot->user_data;
+        if (!model) continue;
 
         int is_far = (slot->lod >= far_threshold) ? 1 : 0;
         if (pass == 0 && !is_far) continue;  /* far pass: only far tiles */
         if (pass == 1 && is_far) continue;   /* near pass: only near tiles */
 
-        /* Camera-relative transform. */
-        float wx = slot->world_x * TILE_SIZE + TILE_SIZE * 0.5f - s->cam_pos.v[0];
-        float wz = slot->world_y * TILE_SIZE + TILE_SIZE * 0.5f - s->cam_pos.v[2];
+        /* World-space transform. kiln_scene_update's t3d_viewport_look_at
+         * already takes s->cam_pos as an absolute WORLD position, so tile
+         * geometry belongs at its own world coordinates — subtracting
+         * cam_pos here (the demo's original code did, unconditionally)
+         * double-counts the camera offset and pushes every tile roughly
+         * cam_pos units further from wherever the camera is actually
+         * looking, well outside far_z. Pre-existing, independent of the
+         * streaming pacer this file now also exercises. */
+        float wx = slot->world_x * TILE_SIZE + TILE_SIZE * 0.5f;
+        float wz = slot->world_y * TILE_SIZE + TILE_SIZE * 0.5f;
 
         T3DMat4FP *mtx = kiln_scratch_mat4fp(sc);
         if (!mtx) continue;
@@ -144,9 +148,7 @@ static void pass_draw(KilnTileGrid *grid, const KilnLODConfig *lod,
         t3d_mat4_to_fixed_3x4(mtx, &m);
 
         t3d_matrix_push(mtx);
-        t3d_vert_load(td->verts, 0, 2);
-        t3d_tri_draw(0, 1, 1);  /* degenerate triangle (demo only) */
-        t3d_tri_sync();
+        t3d_model_draw(model);
         t3d_matrix_pop(1);
     }
 }
@@ -172,6 +174,23 @@ int main(void)
     /* Init LOD config. */
     kiln_lod_init_defaults(&lod_cfg, TILE_SIZE);
 
+    /* Open the StreamDB and bind the streaming pacer to it. A missing DB is
+     * a content fact (wrong ROM), not a programming error, but this demo
+     * has nothing to show without it. */
+    dfs_init(DFS_DEFAULT_LOCATION);
+    size_t need = kiln_asset_probe_size("rom:/openworld.streamdb");
+    assertf(need > 0, "openworld-demo: openworld.streamdb not found / probe failed");
+    void *arena = malloc(need);
+    assertf(arena, "openworld-demo: arena malloc %zu failed", need);
+    g_db = kiln_asset_open("rom:/openworld.streamdb", arena, need);
+    assertf(g_db, "openworld-demo: kiln_asset_open failed");
+
+    /* 2 admits/frame, 8 KB/frame: deliberately tight enough that scrolling
+     * fast produces visible PENDING tiles, so the pacer's deferral is
+     * actually exercised rather than trivially satisfied every frame. */
+    KilnStreamBudget budget = { .max_admits_per_frame = 2, .max_bytes_per_frame = 8192 };
+    kiln_streamio_init(&g_io, g_db, &cache, budget);
+
     /* Init tile manager. */
     KilnTileGridConfig cfg = {
         .tile_count_x = WORLD_TILES_X,
@@ -182,9 +201,21 @@ int main(void)
         .slots_x = SLOTS_X,
         .slots_y = SLOTS_Y,
     };
+
+    /* kiln_tile_init first: it populates tiles.visual.cfg (slots_x/slots_y),
+     * which kiln_streamio_tile_bind needs to size and index g_tile_io_slots.
+     * Binding before init would size the slot table off a zeroed cfg. */
     kiln_tile_init(&tiles, &cfg, visual_slots,
                   NULL, NULL,  /* no collision grid for this demo */
-                  tile_load, tile_unload, tile_sync, NULL);
+                  kiln_streamio_tile_on_load, kiln_streamio_tile_on_unload,
+                  tile_sync, &g_tile_binding);
+    kiln_streamio_tile_bind(&g_tile_binding, &g_io, &tiles.visual, g_tile_io_slots,
+                            KILN_STREAMIO_MODEL, tile_key);
+    /* kiln_tile's own load_budget must be disabled (255 = load-all-
+     * immediately) so kiln_stream is the ONLY budget authority — see
+     * kiln_streamio.h's file comment for why this is safe: on_load does no
+     * real I/O, it only enqueues a request. */
+    tiles.load_budget = 255;
 
     /* Main loop. */
     joypad_init();
@@ -210,9 +241,14 @@ int main(void)
         scene.cam_pos = (fm_vec3_t){{ cam_x, 100, cam_z }};
         scene.cam_target = (fm_vec3_t){{ cam_x, 0, cam_z + 100 }};
 
-        /* Per-frame: flush unload queue from last frame, then update. */
+        /* Per-frame: flush unload queue from last frame, update residency
+         * (this issues cheap kiln_stream_request calls only), then let the
+         * pacer admit and actually load under budget. */
+        g_tile_binding.camera_pos = scene.cam_pos;
         kiln_tile_flush_unload(&tiles);
-        kiln_tile_update(&tiles, scene.cam_pos, kiln_lod_selector_cb);
+        kiln_tile_update(&tiles, scene.cam_pos, lod_select_from_global);
+        kiln_streamio_pump(&g_io);
+
         kiln_scratch_begin(&scratch);
         kiln_scene_update(&scene);
 
@@ -226,18 +262,28 @@ int main(void)
 
         kiln_gui_begin();
 
-        /* HUD. */
-        char buf[192];
+        /* HUD. Routed through kiln_gui_text (font id KILN_GUI_FONT,
+         * registered by kiln_engine_init's kiln_gui_init call) rather than
+         * a raw rdpq_text_print(NULL, 0, ...) — font id 0 is reserved and
+         * asserts, which this demo's original HUD calls never actually hit
+         * before now because nothing had booted this ROM to find out. */
         uint16_t loaded = 0;
         for (KilnTileSlot *s = kiln_tile_first(&tiles.visual); s;
              s = kiln_tile_next(&tiles.visual, s)) loaded++;
 
-        snprintf(buf, sizeof(buf), "Tiles: %d  Scratch: %u/%d  LOD0-2",
-                 loaded, scratch.offset, KILN_SCRATCH_SIZE);
-        rdpq_text_print(NULL, 0, 10, 10, buf);
+        color_t hud_color = RGBA32(232, 232, 240, 255);
+        kiln_gui_text(10, 10, hud_color, "Tiles: %d  Scratch: %lu/%d  LOD0-2",
+                     loaded, (unsigned long)scratch.offset, KILN_SCRATCH_SIZE);
+        kiln_gui_text(10, 20, hud_color, "Cam: (%.0f, %.0f)", cam_x, cam_z);
 
-        snprintf(buf, sizeof(buf), "Cam: (%.0f, %.0f)", cam_x, cam_z);
-        rdpq_text_print(NULL, 0, 10, 20, buf);
+        /* Pacer gauges: both should read 0 in a healthy run. dropped is a
+         * capacity/tuning problem (pool too small); failed is a content
+         * problem (bad key / missing StreamDB entry) — see kiln_stream.h /
+         * kiln_streamio.h for why they're tracked separately. */
+        kiln_gui_text(10, 30, hud_color, "Stream: pending %u  dropped %lu  failed %lu",
+                     kiln_stream_pending_count(&g_io.stream),
+                     (unsigned long)kiln_stream_dropped_total(&g_io.stream),
+                     (unsigned long)kiln_streamio_fail_total(&g_io));
 
         kiln_gui_end();
         kiln_frame_end();

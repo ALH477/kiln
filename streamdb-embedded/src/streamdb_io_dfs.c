@@ -11,6 +11,7 @@
 #include "streamdb_embedded.h"
 
 #include <libdragon.h>
+#include <string.h>
 
 typedef struct { int fd; uint64_t len; } dfs_ctx_t;
 
@@ -30,6 +31,17 @@ streamdb_emb_result_t streamdb_emb_io_dfs(streamdb_emb_io_t *io,
 {
     if (!io || !storage || !path) return STREAMDB_EMB_ERR_INVAL;
     dfs_ctx_t *d = (dfs_ctx_t *)storage;
+
+    /* libdragon's dfs_open takes a native DFS path ("assets.streamdb"), not
+     * the newlib-style "rom:/assets.streamdb" prefix kiln_asset.h's own doc
+     * comment tells every caller to pass (and every caller in this repo
+     * does). Strip it here so both forms work — kiln_map_load's dfs_open
+     * call hit this exact mismatch once already; see its comment. Without
+     * this, dfs_open fails on real DFS (console/emulator) while the host
+     * stub backend used by nix/checks/kiln-asset.nix never exercises this
+     * function at all, so the mismatch was invisible to every existing gate. */
+    if (strncmp(path, "rom:/", 5) == 0) path += 5;
+
     d->fd = dfs_open(path);
     if (d->fd < 0) return STREAMDB_EMB_ERR_IO;
     d->len = (uint64_t)dfs_size(d->fd);

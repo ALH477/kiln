@@ -70,7 +70,7 @@ int main(void)
     // Models and sprites, parsed in place from the StreamDB payload. These
     // two paths are the whole point of the Tiny3D patch and the
     // sprite_load_buf wrap respectively.
-    T3DModel *model = kiln_asset_model(db, "models/cube.t3dm", 17);
+    T3DModel *model = kiln_asset_model(db, "models/cube.t3dm", 16);
     assertf(model, "streamdb-demo: kiln_asset_model failed");
 
     sprite_t *logo = kiln_asset_sprite(db, "sprites/logo.sprite", 19);

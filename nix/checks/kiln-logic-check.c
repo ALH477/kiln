@@ -30,6 +30,7 @@
 #include "kiln_cache.h"
 #include "kiln_lod.h"
 #include "kiln_rng.h"
+#include "kiln_stream.h"
 #include "kiln_voxel.h"
 
 static int g_fail;
@@ -525,6 +526,220 @@ static void test_rng(void)
 }
 
 
+/* ────────────────────────────────────────────────────────────────────────
+ * kiln_stream
+ *
+ * The room/tile streaming pacer's admission policy. Its failure modes are
+ * exactly kiln_tile's and kiln_room's own: a wrong priority compare loads
+ * the WRONG tile first under pressure, which reads as "that asset popped in
+ * late" — a frame-pacing bug indistinguishable from a content mistake in
+ * any capture. The eviction rule is deliberately identical to
+ * kiln_event_post's, so it is asserted the same way.
+ * ──────────────────────────────────────────────────────────────────────── */
+static void test_stream(void)
+{
+    puts("── kiln_stream ──");
+
+    /* ── Priority ordering + admit-count budget ──────────────────────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 2, .max_bytes_per_frame = 1000 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+
+        KilnStreamHandle ha = kiln_stream_request(&s, "a", KILN_STREAM_NORMAL, 10.0f, 100, (void *)1);
+        KilnStreamHandle hb = kiln_stream_request(&s, "b", KILN_STREAM_NORMAL, 5.0f, 100, (void *)2);
+        KilnStreamHandle hc = kiln_stream_request(&s, "c", KILN_STREAM_NORMAL, 20.0f, 100, (void *)3);
+        ok(ha && hb && hc, "three distinct requests each get a handle");
+        ok(kiln_stream_pending_count(&s) == 3, "all three are outstanding (%u)",
+           kiln_stream_pending_count(&s));
+
+        kiln_stream_frame_begin(&s);
+        ok(kiln_stream_admits_this_frame(&s) == 2,
+           "admits stop at max_admits_per_frame (%u)", kiln_stream_admits_this_frame(&s));
+        ok(kiln_stream_bytes_admitted_this_frame(&s) == 200,
+           "byte total matches the two admitted (%u)", kiln_stream_bytes_admitted_this_frame(&s));
+
+        int saw_a = 0, saw_b = 0, saw_c = 0;
+        for (KilnStreamSlot *sl = kiln_stream_first_admitted(&s); sl;
+             sl = kiln_stream_next_admitted(&s, sl)) {
+            if (!strcmp(sl->key, "a")) saw_a = 1;
+            if (!strcmp(sl->key, "b")) saw_b = 1;
+            if (!strcmp(sl->key, "c")) saw_c = 1;
+        }
+        ok(saw_a && saw_b, "the two closer requests (rank 10, 5) were admitted");
+        ok(!saw_c, "the farthest request (rank 20) was NOT admitted — deferred, not dropped");
+        ok(kiln_stream_dropped_total(&s) == 0,
+           "deferring under budget is not the same as dropping (%u)",
+           kiln_stream_dropped_total(&s));
+    }
+
+    /* ── Byte budget stops admission even with admits to spare ───────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 250 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+        kiln_stream_request(&s, "x", KILN_STREAM_NORMAL, 1.0f, 100, (void *)1);
+        kiln_stream_request(&s, "y", KILN_STREAM_NORMAL, 2.0f, 100, (void *)2);
+        kiln_stream_request(&s, "z", KILN_STREAM_NORMAL, 3.0f, 100, (void *)3);
+
+        kiln_stream_frame_begin(&s);
+        ok(kiln_stream_admits_this_frame(&s) == 2,
+           "the byte budget (250) admits x+y (200) but not a third 100 (%u admitted)",
+           kiln_stream_admits_this_frame(&s));
+        ok(kiln_stream_bytes_admitted_this_frame(&s) == 200,
+           "bytes admitted never exceeds the budget (%u)",
+           kiln_stream_bytes_admitted_this_frame(&s));
+    }
+
+    /* ── A single oversized request must not starve forever ──────────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 100 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+        kiln_stream_request(&s, "huge", KILN_STREAM_NORMAL, 0.0f, 5000, (void *)1);
+
+        kiln_stream_frame_begin(&s);
+        ok(kiln_stream_admits_this_frame(&s) == 1,
+           "a request bigger than the whole per-frame budget is still forced "
+           "through when nothing else is competing (%u admits)",
+           kiln_stream_admits_this_frame(&s));
+        ok(kiln_stream_bytes_admitted_this_frame(&s) == 5000,
+           "the forced admission's real cost is reported, not clamped (%u)",
+           kiln_stream_bytes_admitted_this_frame(&s));
+    }
+
+    /* ── Urgency beats rank, even a very close one ───────────────────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+        kiln_stream_request(&s, "close-but-normal", KILN_STREAM_NORMAL, 1.0f, 10, (void *)1);
+        kiln_stream_request(&s, "far-but-urgent",   KILN_STREAM_URGENT, 100.0f, 10, (void *)2);
+
+        kiln_stream_frame_begin(&s);
+        KilnStreamSlot *only = kiln_stream_first_admitted(&s);
+        ok(only && strcmp(only->key, "far-but-urgent") == 0,
+           "URGENT wins over a merely-closer NORMAL request (got '%s')",
+           only ? only->key : "(none)");
+    }
+
+    /* ── Idempotent re-request: refresh, not duplicate ───────────────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+        void *tag = (void *)0x1234;
+        KilnStreamHandle h1 = kiln_stream_request(&s, "tile", KILN_STREAM_NORMAL, 50.0f, 10, tag);
+        ok(kiln_stream_pending_count(&s) == 1, "one outstanding request");
+
+        KilnStreamHandle h2 = kiln_stream_request(&s, "tile", KILN_STREAM_URGENT, 5.0f, 10, tag);
+        ok(h1 == h2, "re-requesting the same key+tag returns the SAME handle");
+        ok(kiln_stream_pending_count(&s) == 1,
+           "and does not consume a second slot (%u)", kiln_stream_pending_count(&s));
+
+        kiln_stream_request(&s, "other", KILN_STREAM_NORMAL, 1.0f, 10, (void *)0x5678);
+        kiln_stream_frame_begin(&s);
+        KilnStreamSlot *only = kiln_stream_first_admitted(&s);
+        ok(only && strcmp(only->key, "tile") == 0,
+           "the refreshed URGENT priority is what admission actually sees, "
+           "not the stale NORMAL it was first requested at");
+    }
+
+    /* ── Pool-full eviction, the same rule as kiln_event_post ────────── */
+    {
+        KilnStream s;
+        kiln_stream_init(&s, (KilnStreamBudget){ 0, 0 });
+
+        char keybuf[KILN_STREAM_MAX_PENDING][16];
+        int fill_ok = 1;
+        for (int i = 0; i < KILN_STREAM_MAX_PENDING; i++) {
+            snprintf(keybuf[i], sizeof keybuf[i], "fill%d", i);
+            /* Larger i = larger rank = LESS urgent = more expendable. */
+            KilnStreamHandle h = kiln_stream_request(&s, keybuf[i], KILN_STREAM_NORMAL,
+                                                    (float)i, 1, (void *)(intptr_t)(i + 1));
+            if (h == KILN_STREAM_HANDLE_INVALID) fill_ok = 0;
+        }
+        ok(fill_ok, "the pool is not full while filling it for the first time");
+        ok(kiln_stream_pending_count(&s) == KILN_STREAM_MAX_PENDING,
+           "the pool is exactly full (%u)", kiln_stream_pending_count(&s));
+        ok(kiln_stream_high_water(&s) == KILN_STREAM_MAX_PENDING,
+           "high_water tracks the fullest the pool has ever been (%u)",
+           kiln_stream_high_water(&s));
+
+        /* A HIGHER-priority newcomer (smaller rank) must evict the single
+         * worst occupant (fill(MAX-1), the largest rank) and succeed. */
+        KilnStreamHandle evictor = kiln_stream_request(&s, "evictor", KILN_STREAM_NORMAL,
+                                                       -1.0f, 1, (void *)999);
+        ok(evictor != KILN_STREAM_HANDLE_INVALID,
+           "a higher-priority request evicts the worst PENDING occupant");
+        ok(kiln_stream_dropped_total(&s) == 0,
+           "an eviction is not counted as a drop (%u)", kiln_stream_dropped_total(&s));
+
+        /* A LOWER-priority newcomer than everything now resident must be
+         * refused outright, and reported as a genuine drop. */
+        uint32_t dropped_before = kiln_stream_dropped_total(&s);
+        KilnStreamHandle refused = kiln_stream_request(&s, "too-low-priority", KILN_STREAM_NORMAL,
+                                                       99999.0f, 1, (void *)888);
+        ok(refused == KILN_STREAM_HANDLE_INVALID,
+           "a lower-priority request than everything resident is refused");
+        ok(kiln_stream_dropped_total(&s) == dropped_before + 1,
+           "and IS counted as a drop, unlike the successful eviction above (%u -> %u)",
+           dropped_before, kiln_stream_dropped_total(&s));
+    }
+
+    /* ── ADMITTED slots are never eviction victims ───────────────────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+
+        /* "bait" is deliberately the WORST-priority item this pool will
+         * ever hold (PREFETCH, the lowest urgency tier, an enormous rank) —
+         * exactly what a search that (incorrectly) considered ADMITTED
+         * slots as eviction candidates would pick as "globally worst". */
+        KilnStreamHandle h_bait = kiln_stream_request(&s, "bait", KILN_STREAM_PREFETCH,
+                                                      1e9f, 1, (void *)1);
+        kiln_stream_frame_begin(&s);  /* only request so far: admitted regardless of priority */
+        ok(kiln_stream_admits_this_frame(&s) == 1, "bait is admitted (nothing else competing yet)");
+
+        for (int i = 0; i < KILN_STREAM_MAX_PENDING - 1; i++) {
+            char key[16];
+            snprintf(key, sizeof key, "fill%d", i);
+            kiln_stream_request(&s, key, KILN_STREAM_NORMAL, (float)i, 1, (void *)(intptr_t)(i + 2));
+        }
+        ok(kiln_stream_pending_count(&s) == KILN_STREAM_MAX_PENDING, "pool is exactly full");
+
+        /* Better than the worst PENDING fill, but this must NOT be
+         * satisfied by evicting "bait" even though bait looks like the
+         * worse target by priority alone. */
+        KilnStreamHandle newcomer = kiln_stream_request(&s, "newcomer", KILN_STREAM_NORMAL,
+                                                        -1.0f, 1, (void *)9999);
+        ok(newcomer != KILN_STREAM_HANDLE_INVALID,
+           "a request better than the worst PENDING fill still finds room");
+        ok(kiln_stream_cancel(&s, h_bait) == 0,
+           "the ADMITTED 'bait' slot survived — eviction only ever considers PENDING slots");
+    }
+
+    /* ── cancel(): distinct outcomes for live vs. stale handles ──────── */
+    {
+        KilnStreamBudget budget = { .max_admits_per_frame = 5, .max_bytes_per_frame = 100000 };
+        KilnStream s;
+        kiln_stream_init(&s, budget);
+
+        KilnStreamHandle h = kiln_stream_request(&s, "cancel-me", KILN_STREAM_NORMAL, 1.0f, 1, NULL);
+        ok(kiln_stream_cancel(&s, h) == 0, "cancelling a live PENDING handle succeeds");
+        ok(kiln_stream_cancel(&s, h) == -1,
+           "cancelling the SAME handle again is refused — it is already gone");
+
+        KilnStreamHandle h2 = kiln_stream_request(&s, "complete-me", KILN_STREAM_NORMAL, 1.0f, 1, NULL);
+        kiln_stream_frame_begin(&s);
+        kiln_stream_complete(&s, h2);
+        ok(kiln_stream_cancel(&s, h2) == -1,
+           "cancelling an already-completed handle is refused, not applied "
+           "to whatever now occupies the slot");
+    }
+}
+
 /* ── kiln_voxel ─────────────────────────────────────────────────────────
  *
  * The two reductions are the whole reason this module exists, and both have
@@ -839,6 +1054,7 @@ int main(void)
     test_cache();
     test_lod();
     test_rng();
+    test_stream();
     test_voxel();
 
     putchar('\n');

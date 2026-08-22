@@ -263,6 +263,26 @@
           ];
         };
 
+        # openworld-demo's tile mesh, StreamDB-packed so kiln_streamio can
+        # load it through kiln_asset_model + kiln_cache instead of the
+        # hand-built 2-vert stub the demo used before it had a real streaming
+        # pacer to exercise. One shared model at one key — the point of the
+        # demo is the pacer's priority/budget admission across many
+        # simultaneous tile requests, not per-tile unique geometry.
+        owTileModel = assetLib.mkModel {
+          name = "tile";
+          src = ./assets/cube.gltf;
+          ignoreMaterials = true;
+          baseScale = 24;
+          compress = 0;
+        };
+        owStreamdb = assetLib.mkStreamdb {
+          name = "openworld";
+          entries = [
+            { key = "models/tile.t3dm"; asset = owTileModel; }
+          ];
+        };
+
         # Geometry authoring. Owns the whole Blender strategy; see the file for
         # why Fast64 is deliberately not vendored.
         blenderLib = import ./nix/blender.nix {
@@ -538,11 +558,15 @@
         };
 
         # Open-world streaming demo: scratch allocator, refcounted cache,
-        # tile residency manager, LOD selector, two-pass renderer.
+        # tile residency manager, LOD selector, two-pass renderer, and
+        # (Phase F) kiln_stream + kiln_streamio pacing real kiln_asset loads
+        # through kiln_cache instead of the hand-built stub loaders every
+        # other kiln_tile consumer still uses.
         openworld-demo = mkN64Rom {
           name = "openworld-demo";
           src = ./examples/openworld-demo;
           romTitle = "Kiln Open World";
+          assets = [ owStreamdb ];
         };
 
         # XM64 tracker music playback example. mkMusic converts the .xm

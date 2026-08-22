@@ -32,34 +32,42 @@
 # and kiln_clip.c's placement-pass comment.
 #
 # ── Which modules, and why not more ────────────────────────────────────
-# All fifteen engine modules that both COMPILE and LINK natively. The tier
-# itself is engine/modules.mk's HOST_MODULES (twenty names) and is held exact
-# in both directions by nix/checks/kiln-parity.nix; the five it has that this
-# does not — kiln_dialogue, kiln_prof, kiln_sound, kiln_surface, kiln_widget —
-# compile fine but call into the graphics and audio tiers, so they get the
-# -Werror second opinion there and cannot be run standalone here.
+# Sixteen engine modules that both COMPILE and LINK natively. The tier itself
+# is engine/modules.mk's HOST_MODULES and is held exact in both directions by
+# nix/checks/kiln-parity.nix; most of what HOST_MODULES has that this does
+# not — kiln_dialogue, kiln_prof, kiln_sound, kiln_surface, kiln_widget, and
+# now the wider IO/asset/audio tier — compile fine but call into the
+# graphics, audio or filesystem tiers, so they get the -Werror second opinion
+# there and cannot be run standalone here.
 #
 # The ones whose defects are worth spelling out, because they all render
 # plausibly and none of them looks like a bug in a screenshot:
-#   kiln_clip   the module PetaByte Madness' whole first-person section rests
-#               on; its failures read as level-design mistakes
-#   kiln_dict   the .map-text-to-typed-args mapping every spawn goes through
-#   kiln_cache  generation-counted handles, i.e. exactly the kind of bit
-#               packing that is either right or catastrophically wrong
-#   kiln_lod    threshold selection; must be monotonic in distance
-#   kiln_rng    seeded determinism, and kiln_dice sits directly on it
-#   kiln_voxel  the block grid's two reductions. A greedy box that overlaps
-#               its neighbour is a collision brush the player sticks inside,
-#               and a dropped surface quad is a hole you can see through —
-#               neither distinguishable from level-design intent in a capture.
-#               The Tiny3D-facing half is kiln_voxmesh and is deliberately NOT
-#               here, which is why the vertex packing was split out of the
-#               mesher rather than the other way round.
+#   kiln_clip    the module PetaByte Madness' whole first-person section rests
+#                on; its failures read as level-design mistakes
+#   kiln_dict    the .map-text-to-typed-args mapping every spawn goes through
+#   kiln_cache   generation-counted handles, i.e. exactly the kind of bit
+#                packing that is either right or catastrophically wrong
+#   kiln_lod     threshold selection; must be monotonic in distance
+#   kiln_rng     seeded determinism, and kiln_dice sits directly on it
+#   kiln_stream  the room/tile streaming pacer's priority ordering, budget
+#                admission and pool-full eviction — a wrong priority compare
+#                renders as "the wrong tile loaded first", indistinguishable
+#                from a content/authoring mistake in any capture
+#   kiln_voxel   the block grid's two reductions. A greedy box that overlaps
+#                its neighbour is a collision brush the player sticks inside,
+#                and a dropped surface quad is a hole you can see through —
+#                neither distinguishable from level-design intent in a capture.
+#                The Tiny3D-facing half is kiln_voxmesh and is deliberately NOT
+#                here, which is why the vertex packing was split out of the
+#                mesher rather than the other way round.
 #
 # Deliberately NOT here: anything that talks to the RDP, the RSP, the mixer,
 # DFS or a T3DModel. Stubbing those would mean asserting against the stub.
-# kiln_scratch and kiln_board are candidates for a follow-on; kiln_asset already
-# has its own check.
+# kiln_scratch and kiln_board are candidates for a follow-on; kiln_asset
+# already has its own check, and kiln_streamio (the console-glue half of the
+# streaming pacer, binding kiln_stream to real kiln_asset/kiln_cache calls)
+# is a heavier follow-on for the same reason kiln_asset's own runtime check
+# is separate — it needs real StreamDB content, not just stubs.
 #
 # ── -Werror, on purpose ────────────────────────────────────────────────
 # The engine's own Makefile sets -Wno-error (a deliberate choice for
@@ -119,6 +127,7 @@ pkgs.runCommand "check-kiln-logic"
         ${engineSrc}/src/kiln/kiln_lod.c \
         ${engineSrc}/src/kiln/kiln_physics.c \
         ${engineSrc}/src/kiln/kiln_rng.c \
+        ${engineSrc}/src/kiln/kiln_stream.c \
         ${engineSrc}/src/kiln/kiln_tile.c \
         ${engineSrc}/src/kiln/kiln_turn.c \
         ${engineSrc}/src/kiln/kiln_voxel.c \
