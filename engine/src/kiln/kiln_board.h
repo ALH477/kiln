@@ -37,10 +37,10 @@
 
 typedef enum {
     KILN_SPACE_START     = 0,
-    KILN_SPACE_GROW      = 1,
-    KILN_SPACE_DRY       = 2,
+    KILN_SPACE_GOOD      = 1,
+    KILN_SPACE_BAD       = 2,
     KILN_SPACE_TRADE     = 3,
-    KILN_SPACE_SPIRIT    = 4,
+    KILN_SPACE_BONUS     = 4,
     KILN_SPACE_MINIGAME  = 5,
     KILN_SPACE_SHORTCUT  = 6,
     KILN_SPACE_COUNT

@@ -424,19 +424,18 @@ rec {
       '';
     };
 
-  # ── The scarlet veil's CI4 textures ──────────────────────────────────
-  # PetaByte Madness's docs/VEIL_DESIGN.md §1 calls the palette swap "the one
-  # idea": author both states offline, and at runtime change only which 16-entry
-  # TLUT a material points at. 32 bytes of DMA and zero extra pixels shaded,
-  # against the 76,800 blended read-modify-writes a full-screen tinted quad
-  # costs at 320x240 — which is the single most expensive thing you can ask an
-  # RDP to do, and buys nothing the swap does not.
+  # ── CI4 textures for a palette-swap material effect ────────────────────
+  # See the n64-modeling skill's "CI4 and a palette-swap contract": author
+  # both states offline, and at runtime change only which 16-entry TLUT a
+  # material points at. 32 bytes of DMA and zero extra pixels shaded, against
+  # the read-modify-writes a full-screen tinted quad costs at 320x240 for the
+  # same effect done as a screen filter instead — the single most expensive
+  # thing you can ask an RDP to do, buying nothing the swap does not.
   #
-  # The runtime half of that has existed and been unreachable: pm_veil.c's
-  # `pm_veil_bind_palette`, `_material_pass`, `_prim_alpha` and `_ramp_build`
-  # are written and had ZERO call sites, because §8's checklist opens with
-  # "convert every material in the demon zone to CI4… this is the real work"
-  # and nothing did. This builder is that work.
+  # `kiln_voxmesh`'s `kiln_voxatlas_bind` is the generic engine-side half of
+  # binding one of a pair of resident palettes; a game wanting this on its
+  # own materials (not just Forge's voxel atlas) binds per-material on top of
+  # that. This builder produces the pixel+palette pair either consumes.
   #
   # ── One derivation, three outputs, for the same reason as mkTextures ──
   #   $out/filesystem/<dest>/<name>.sprite   the CI4 image
@@ -465,14 +464,11 @@ rec {
   # correspond. So an indexed (PIL mode "P") source is required and the absence
   # of one is an error rather than a silent mismatch — see the checkPhase.
   #
-  # PetaByte Madness already has three such sources: mc_face.png,
-  # mc_plate.png and mc_gore.png are indexed with 15, 7 and 5 colours, which is
-  # why docs/ASSET_PIPELINE.md already names them "the natural first real
-  # customer for pm_veil_bind_palette".
   mkVeilTexture =
     { name
     , src
-      # world | demon | phantom | eyes — VEIL_DESIGN.md §4's material classes.
+      # world | demon | phantom | eyes — see tools/veil_palette.py's module
+      # docstring for the four material classes.
       # This is the single most consequential parameter: `phantom` makes the
       # cold palette alpha-0 on every entry, i.e. the creature is not drawn at
       # all with the veil down, and getting it wrong on a demon body shows the
@@ -522,8 +518,9 @@ rec {
         [ -s "$outdir/${name}.sprite" ] || {
           echo "mkVeilTexture: no ${name}.sprite" >&2; exit 1; }
         # Exactly 64 bytes: 2 palettes x 16 entries x 2 bytes. Asserted rather
-        # than assumed because pm_veil_ramp_build reads a fixed 16 entries from
-        # each half and a short file would feed it whatever followed in RAM.
+        # than assumed because a runtime ramp-build reads a fixed 16 entries
+        # from each half and a short file would feed it whatever followed in
+        # RAM.
         sz=$(stat -c%s "$outdir/${name}.pal")
         [ "$sz" = 64 ] || {
           echo "mkVeilTexture: ${name}.pal is $sz bytes, expected 64" >&2

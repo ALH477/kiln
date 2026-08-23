@@ -9,9 +9,9 @@
 // stateful globals and (depending on configuration) locks, and there is no
 // contract on its period or seed semantics across versions. A party game
 // wants reproducible rolls from a known seed (so a replay or a debug log can
-// pin down "why did the CPU goblin roll a 6 here"), and it wants a per-table
-// PRNG instance rather than one global — Ganja Goblin's dice and its board
-// event scheduler should not share state.
+// pin down "why did the CPU player roll a 6 here"), and it wants a per-table
+// PRNG instance rather than one global — a game's dice and its board event
+// scheduler should not share state.
 //
 // Single precision on console, but the PRNG draws are 64-bit integer math;
 // the float helper exists because the dice and event tables want [0,1)

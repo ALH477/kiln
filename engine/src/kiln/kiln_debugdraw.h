@@ -8,12 +8,12 @@
  * trace normal, not a tile boundary. Everything an engine knows about where
  * things are was reachable only as numbers printed by a HUD.
  *
- * That is a bad trade for 3D work, and PetaByte Madness paid it repeatedly.
- * Its own pm_debug.h opens by listing four defects that each cost real time,
- * and every one of them is spatial — a camera inside the island's footprint, a
- * shot opening 69 units behind a wall, a model quantised into a slab. The
- * project's answer was to print eye/target/near/far as text and reason about
- * it. Drawing it is strictly better, and it is cheap.
+ * That is a bad trade for 3D work, and a downstream game paid it repeatedly:
+ * four real defects that each cost real time, and every one of them spatial
+ * — a camera inside a landmark's own footprint, a shot opening dozens of
+ * units behind a wall, a model quantised into a slab. That game's first
+ * answer was to print eye/target/near/far as text and reason about it.
+ * Drawing it is strictly better, and it is cheap.
  *
  * ── Screen space, on purpose ────────────────────────────────────────────
  * Every primitive here projects its world points through kiln_scene_project()
@@ -39,8 +39,8 @@
  *
  * ── It is not free ──────────────────────────────────────────────────────
  * Each line is two rdpq triangles and each label is a text draw, and both go
- * through the 2D pass's blender. Measured in PetaByte Madness: about 37 lines
- * plus a dozen labels takes a 60 fps scene to 54. That is the right trade for a
+ * through the 2D pass's blender. Measured in real use: about 37 lines plus a
+ * dozen labels takes a 60 fps scene to 54. That is the right trade for a
  * debug overlay and the wrong one for anything shipped — which is why the
  * layers are opt-in and default to off. If a layer ever needs to be on while
  * judging frame time, note that the number it is reporting is not the number
@@ -68,8 +68,7 @@
  *
  * A ROM that never calls these pays nothing anyway, because libdragon's link
  * uses --gc-sections. A ROM that wants the calls themselves to vanish gates
- * them, which is what PetaByte Madness' pm_debug.h already does for its whole
- * overlay — one `#ifdef KILN_DEBUG` around the game's own debug module rather
+ * them: one `#ifdef KILN_DEBUG` around the game's own debug module rather
  * than one per call site.
  *
  * ── Usage ───────────────────────────────────────────────────────────────

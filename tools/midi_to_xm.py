@@ -25,8 +25,8 @@ sixteenths); anything shorter than half a row is dropped rather than moved,
 because a note nudged onto a neighbour's row reads as a wrong note where a
 missing sixteenth reads as articulation.
 
-Deliberately NOT implemented, because this targets scores like
-PetaByte Madness' string quartet rather than arbitrary General MIDI:
+Deliberately NOT implemented, because this targets small fixed-instrumentation
+scores (a string quartet, say) rather than arbitrary General MIDI:
 
   * No tempo map. A MIDI with tempo changes is rejected rather than
     silently flattened — XM's speed/BPM are global, and pretending

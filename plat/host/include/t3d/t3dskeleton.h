@@ -15,7 +15,8 @@
  * problem. A skeleton that silently did nothing would look exactly like that.
  *
  * The engine reads no member of either type — verified across engine/src/kiln
- * and PetaByte Madness's src — so the layouts are the host's own.
+ * and every downstream game built on it so far — so the layouts are the
+ * host's own.
  */
 #ifndef KILN_HOST_T3DSKELETON_H
 #define KILN_HOST_T3DSKELETON_H

@@ -24,18 +24,20 @@
 #include <stdio.h>
 #include "forge.h"
 
-/* Mirrors tools/mapmaker/src/entity.js's KNOWN_CLASSNAMES plus the two this
- * engine's own examples register. Kept short deliberately: a picker is only
- * better than typing while it is short enough to cycle. */
+/* Mirrors tools/mapmaker/src/entity.js's KNOWN_CLASSNAMES (ENTITY_PALETTE) and
+ * the `info_*` vocabulary the engine's own examples register via
+ * kiln_map_register_classname — examples/fps/main.c registers the widest set.
+ * Kept short deliberately: a picker is only better than typing while it is
+ * short enough to cycle. */
 static const char *const CLASSNAMES[FORGE_CLASSNAMES] = {
     "info_player_start",
-    "light",
-    "trigger_once",
-    "func_door",
-    "monster_imp",
-    "monster_hellhound",
-    "monster_gargoyle",
-    "prop_static",
+    "info_enemy",
+    "info_heavy",
+    "info_health",
+    "info_ammo",
+    "info_armor",
+    "info_npc",
+    "info_key_door",
 };
 
 /* The numeric epairs an entity can carry. Names, not indices, because the .map

@@ -11,8 +11,9 @@
 # gate that can hold it. 9,393 occurrences across 330 files were swept in one
 # pass; what makes that stick is not the sweep but the fact that reintroducing
 # the name now fails the build. Without this check the tree drifts back one
-# comment at a time — the same failure the X-macro tables in pm_screens.h and
-# pm_models.h exist to prevent, applied to a name instead of a list.
+# comment at a time — the same failure an X-macro table (name -> enum/path/
+# label generated from one list) exists to prevent for a name to enum/path
+# mapping, applied here to a single name instead.
 #
 # HOW: each line has every allowlisted phrase struck out of it before it is
 # searched. Striking phrases rather than skipping whole lines is what lets
@@ -63,9 +64,6 @@ pkgs.runCommand "check-kiln-names"
           my $f = "$d/$e";
           if (-d $f) { push @stack, $f; next; }
           next unless -f $f;
-          # The feasibility report is about the ModRetro console throughout
-          # and is excluded wholesale rather than allowlisted line by line.
-          next if $e =~ /^compass_artifact_/;
           # This check and its allowlist necessarily spell out the name they
           # ban. A linter is not a violation of its own rule.
           next if $e =~ /^kiln-names(\.nix|-allow\.txt)$/;

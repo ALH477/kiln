@@ -62,11 +62,11 @@
  * is much lower: 24 non-empty chunks. That is reported, not enforced silently —
  * see `kiln_voxel_chunk_count`.
  *
- * 32 units per block is 0.5 m at this project's 64-units-per-metre convention
- * (PetaByte Madness's docs/ASSET_PIPELINE.md). Half a metre is chosen so a 4-block
- * doorway is 2 m and a corridor reads at the right scale; it is a #define
- * because a game with a different world scale should change it once here rather
- * than multiply at every call site.
+ * 32 units per block is 0.5 m at the n64-modeling skill's 64-units-per-metre
+ * convention. Half a metre is chosen so a 4-block doorway is 2 m and a
+ * corridor reads at the right scale; it is a #define because a game with a
+ * different world scale should change it once here rather than multiply at
+ * every call site.
  *
  * ── What is deliberately NOT here ─────────────────────────────────────
  *

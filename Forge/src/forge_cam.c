@@ -2,8 +2,9 @@
  *
  * forge_cam.c — the editing camera: free-fly, no gravity, no collision.
  *
- * Lifted in shape from pm_cine.c's detached fly camera, and for the reasons
- * that file records rather than out of convenience:
+ * Lifted in shape from a downstream game's own detached fly camera (built
+ * for its cinematic debugger), and for the reasons that camera was built the
+ * way it was rather than out of convenience:
  *
  * - **Not kiln_fpscam.** That camera probes the ground against the clip world
  *   and falls when there is none. An editor with an empty world would drop
@@ -11,14 +12,13 @@
  *   like a black screen with a working HUD for its entire life.
  *
  * - **Look on the C-buttons AND the C-stick.** kiln_fpscam reads only the
- *   C-stick, and a real N64 controller does not have one. pm_cine.c:271 flags
- *   that path as dead on the pad the hardware actually ships. An editor that
- *   cannot turn around is not an editor, so both are read.
+ *   C-stick, and a real N64 controller does not have one — that path is dead
+ *   on the pad the hardware actually ships. An editor that cannot turn
+ *   around is not an editor, so both are read.
  *
- * - **Fly speed scales off the far plane.** One fixed speed is unusable across
- *   both a 512-unit room and a 8192-unit world; this is pm_cine's fix, and it
- *   matters more here because a voxel world spans block scale to world scale by
- *   design.
+ * - **Fly speed scales off the far plane.** One fixed speed is unusable
+ *   across both a 512-unit room and an 8192-unit world, and it matters more
+ *   here because a voxel world spans block scale to world scale by design.
  */
 #include "forge.h"
 

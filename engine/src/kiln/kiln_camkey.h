@@ -2,27 +2,27 @@
 //
 // kiln_camkey.h — one camera keyframe, and the curve through a table of them.
 //
-// Was PetaByte Madness's src/pm_camkey.h, and moved into the engine when a FOURTH
-// consumer appeared: Forge's CAM mode authors these tables, and an editor that
-// previews a curve merely resembling the one the game flies is the same failure
-// as a validator measuring one — worse, because the author then tunes against
-// the wrong shape. PetaByte Madness's src/pm_camkey.h is now a shim so
-// KilnCamKey/kiln_camkey_sample keep working unchanged.
+// Originated in a downstream game (now in that game's own repo) and moved
+// into the engine when a second consumer appeared: Forge's CAM mode authors
+// these tables, and an editor that previews a curve merely resembling the
+// one a game flies is the same failure as a validator measuring one — worse,
+// because the author then tunes against the wrong shape. That game keeps a
+// shim over its old header path so KilnCamKey/kiln_camkey_sample keep
+// working unchanged for it.
 //
-// Split out of pm_demo.h so that consumers can share one implementation of the
-// interpolation instead of several that agree by inspection:
+// Split out of the runtime's own camera-table header so consumers can share
+// one implementation of the interpolation instead of several that agree by
+// inspection — a game's runtime (the camera the player sees), a game's own
+// spatial-overlay debugger (which draws the flown curve), the static
+// validator (`kiln_camlint`, which measures it), and Forge (the editor,
+// which authors the table in the first place).
 //
-//   * pm_demo.c    — the runtime. This is the camera the player sees.
-//   * pm_debug.c   — the spatial overlay, which draws the flown curve.
-//   * pm_cine_lint — the static validator, which measures it.
-//   * Forge         — the editor, which authors the table in the first place.
-//
-// The third is why this header exists at all. pm_cine_lint.c is deliberately
-// free of libdragon and Tiny3D so it compiles natively in `nix flake check`
-// (the pattern nix/checks/kiln-logic.nix proves), and pm_demo.h is not — it
-// pulls in kiln_camera.h and kiln_engine.h. Rather than let the validator carry
-// its own copy of the spline, the spline moved here, where it needs nothing but
-// `fm_vec3_t`.
+// The validator is why this header exists at all: it is deliberately free
+// of libdragon and Tiny3D so it compiles natively in `nix flake check` (the
+// pattern nix/checks/kiln-logic.nix proves), while a runtime's own camera
+// code is not — it pulls in kiln_camera.h and kiln_engine.h. Rather than let
+// the validator carry its own copy of the spline, the spline moved here,
+// where it needs nothing but `fm_vec3_t`.
 //
 // That matters more than it sounds. A validator measuring overshoot on a curve
 // that is merely SIMILAR to the one the camera flies is worse than no
@@ -33,8 +33,9 @@
 // It is one small function called once a frame by the runtime and a few hundred
 // times by the validator, and inlining it removes every question about which
 // object file each consumer links. The alternative — a kiln_camkey.c — would
-// have to be added to PetaByte Madness's Makefile's OBJS, Forge/Makefile's OBJS
-// *and* two native check compile lines, i.e. four more places to forget.
+// have to be added to Forge/Makefile's OBJS and the native check compile
+// lines in every project that uses it, i.e. more places to forget with each
+// new consumer.
 //
 // That is also why engine/Makefile grew a HEADER_ONLY list rather than putting
 // this in MODULES: MODULES drives $(OBJS), and a name in there with no .c fails
@@ -84,15 +85,15 @@ static inline float kiln_camkey_spline1(float p0, float p1, float p2, float p3,
  *  deceleration straight back.
  *
  *  A looping shot wraps for its neighbours, so the seam is as smooth as
- *  anywhere else — PetaByte Madness' flyover ends on a copy of its first key,
- *  so the wrap skips that duplicate. A one-shot clamps at the ends instead,
+ *  anywhere else — a shot that ends on a copy of its first key should skip
+ *  that duplicate in the wrap. A one-shot clamps at the ends instead,
  *  which makes the tangent zero there: a natural ease in and out at the START
  *  and END of the shot only, which is what a cut wants.
  *
  *  The price, and the reason the validator measures it: the tangent at a key
  *  comes from that key's TWO NEIGHBOURS, so a large gap next to a small one
- *  drags the curve past the small one. pm_intake.c carries three hand-inserted
- *  midpoint keys whose only job is suppressing exactly that. */
+ *  drags the curve past the small one. A real shot has needed three
+ *  hand-inserted midpoint keys whose only job was suppressing exactly that. */
 static inline void kiln_camkey_sample(const KilnCamKey *keys, int n, int loop,
                                     float t, fm_vec3_t *eye, fm_vec3_t *look)
 {

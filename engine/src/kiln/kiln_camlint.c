@@ -3,10 +3,10 @@
 // kiln_camlint.c — see kiln_camlint.h.
 //
 // NOTHING in this file may include libdragon or Tiny3D. It is compiled twice:
-// once into the ROM by PetaByte Madness's Makefile, and once natively by
-// nix/checks/pm-cine.nix against nix/checks/stub/. The second build is what
-// proves the detector fires in both directions, and it stops working the moment
-// this file grows a dependency on the console.
+// once into a game's own ROM alongside its runtime, and once natively by
+// nix/checks/kiln-logic.nix against nix/checks/stub/. The second build is
+// what proves the detector fires in both directions, and it stops working
+// the moment this file grows a dependency on the console.
 //
 // For the same reason the vector arithmetic below is written out against
 // `.v[]` rather than reaching for fm_vec3_sub and friends: the surface this
@@ -146,9 +146,9 @@ uint32_t kiln_camlint(const KilnCamShot *shot, const KilnCamBounds *bounds,
             if (first) r.bad_key = i;
         }
 
-        // Unreachable. pm_demo_update clamps g_elapsed at `duration`, so a key
-        // beyond it is never the near end of a bracketing pair and never
-        // contributes anything but a tangent.
+        // Unreachable, in a runtime that clamps its elapsed-time counter at
+        // `duration`: a key beyond it is never the near end of a bracketing
+        // pair and never contributes anything but a tangent.
         if (k[i].t > shot->duration + 1e-3f) {
             r.err |= KILN_CAMLINT_ERR_KEY_PAST_END;
             if (first) r.bad_key = i;
@@ -157,18 +157,19 @@ uint32_t kiln_camlint(const KilnCamShot *shot, const KilnCamBounds *bounds,
         const float d = v_dist(k[i].eye, k[i].look);
         if (d > r.subject_dist) r.subject_dist = d;
 
-        // The NaN halt main.c:190 documents: kiln_camera normalises look-eye,
-        // and a zero-length vector normalises to NaN, which the VR4300 raises
-        // as "floating point invalid operation" inside t3d_viewport_attach —
-        // several layers away from the table that caused it.
+        // The NaN halt CLAUDE.md's CAM section documents: kiln_camera
+        // normalises look-eye, and a zero-length vector normalises to NaN,
+        // which the VR4300 raises as "floating point invalid operation"
+        // inside t3d_viewport_attach — several layers away from the table
+        // that caused it.
         if (d <= 0.0f) {
             r.err |= KILN_CAMLINT_ERR_DEGENERATE;
             if (first) r.bad_key = i;
         }
 
         // The aim point is past the far plane, so whatever the shot is POINTED
-        // AT is not drawn. This is the class pm_demo.h records as having "cost
-        // six shots their geometry", and it is entirely static.
+        // AT is not drawn. This class of defect has cost multiple shots their
+        // geometry in real use, and it is entirely static.
         if (!(r.err & KILN_CAMLINT_ERR_FRUSTUM) && d > shot->far_z) {
             r.err |= KILN_CAMLINT_ERR_SUBJECT_CUT;
             if (first) r.bad_key = i;

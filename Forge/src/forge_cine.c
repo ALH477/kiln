@@ -4,15 +4,15 @@
  *
  * Fly to a pose, press A, and that pose becomes a keyframe. Scrub the timeline
  * and the camera flies the curve those keys describe. Save and it comes out as a
- * `static const PMCamKey NAME[]` table in the exact literal syntax
- * PetaByte Madness's src/pm_arrival.c already uses.
+ * `static const PMCamKey NAME[]` table in the exact literal syntax a game's
+ * own keyframe tables already use.
  *
- * This replaces a loop that already worked and was entirely manual: pm_cine's
- * detached free-fly prints `KEY t ... eye ... look ...` continuously so that any
- * screenshot carries the numbers, and you transcribe them into the table by
- * hand. That is a good loop — it is why the readout is unlatched — but it is one
- * key at a time with no way to see the CURVE the keys imply until the next
- * build.
+ * This replaces a loop that already worked and was entirely manual: a
+ * downstream game's own cinematic debugger's detached free-fly prints
+ * `KEY t ... eye ... look ...` continuously so that any screenshot carries
+ * the numbers, and you transcribe them into the table by hand. That is a
+ * good loop — it is why the readout is unlatched — but it is one key at a
+ * time with no way to see the CURVE the keys imply until the next build.
  *
  * ── The three things that make this worth having ───────────────────────
  *
@@ -25,9 +25,9 @@
  * 2. **Both curves drawn.** The dim line is the straight chord through the keys;
  *    the bright one is what kiln_camkey_sample actually produces. The gap between
  *    them IS the Catmull-Rom overshoot, which is invisible as a table of
- *    coordinates and obvious as a bulge. pm_intake.c carries three hand-inserted
- *    midpoint keys whose only job is suppressing exactly that, and they were
- *    found the hard way.
+ *    coordinates and obvious as a bulge — a shot needing hand-inserted
+ *    midpoint keys purely to suppress that overshoot is a real, previously
+ *    hard-won case, not a hypothetical one.
  *
  * 3. **The validator runs before the save, not after.** kiln_camlint's hard
  *    failures are facts — duplicate times, a key past the duration, eye == look
@@ -348,8 +348,8 @@ void forge_cine_draw(Forge *f)
 
 /* ── Export ────────────────────────────────────────────────────────────
  *
- * The exact literal syntax PetaByte Madness's src/pm_arrival.c:84 uses, including
- * the DOUBLE BRACE — fm_vec3_t wraps a `float v[3]`, so each vector is
+ * The exact literal syntax a game's own PMCamKey tables use, including the
+ * DOUBLE BRACE — fm_vec3_t wraps a `float v[3]`, so each vector is
  * {{ x, y, z }} and a single brace does not compile. Emitting text the target
  * project can paste unchanged is the whole reason this is ASCII rather than a
  * blob: the host side is a copy, not a decoder.

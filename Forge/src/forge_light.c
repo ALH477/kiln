@@ -16,14 +16,17 @@
  *
  * ── Do not install a rig's brightness ──────────────────────────────────
  *
- * The one trap this mode has to avoid teaching people to fall into: PetaByte
- * Madness' lab has its twelve-fixture rig ALREADY MULTIPLIED into its vertex
- * colours by dank_lab_gen.py's bake(), so the runtime lights it close to unity
- * or it double-darkens — which is exactly what "the lab reads as unlit" turned
- * out to be. `pm_env_interior_from_rig` therefore takes only the fixtures'
- * DIRECTIONS. A Forge level's geometry carries a per-face shade and no baked
- * rig, so it wants real lighting; the exported header says which it is, and
- * says it in a comment rather than leaving the next reader to find out.
+ * The one trap this mode has to avoid teaching people to fall into: a
+ * generator whose bake() multiplies a fixture rig into its own vertex
+ * colours (see the n64-modeling skill's "Is the model's light already IN
+ * it?" section) needs the runtime to light it close to unity, or it
+ * double-darkens — which is exactly what "the room reads as unlit" turns
+ * out to be for content built that way. Such a generator's own bake-rig
+ * should feed the runtime only its fixtures' DIRECTIONS, never its
+ * intensities. A Forge level's geometry carries a per-face shade and no
+ * baked rig, so it wants real lighting; a generated header describing
+ * pre-baked content should say so in a comment rather than leaving the
+ * next reader to find out.
  */
 #include <stdio.h>
 #include "forge.h"
@@ -200,9 +203,11 @@ void forge_light_draw3d(Forge *f)
 /* ── Export ────────────────────────────────────────────────────────────
  *
  * A generated header, prefixed FORGE_<LEVEL>_ because a generated header is a
- * NAMESPACE and not just a file: pm_world.py and dank_lab_gen.py both emitted
- * PM_LAB_X0..Z1 with different numbers, and which room those macros described
- * came down to include order, silently, behind a warning nobody saw.
+ * NAMESPACE and not just a file: two independent generators emitting the same
+ * macro name for two different things is a real defect class (see
+ * CLAUDE.md's "Two generators must not publish the same macro name") — which
+ * room a shared unprefixed macro described has come down to include order,
+ * silently, behind a warning nobody saw.
  */
 int forge_light_emit(const Forge *f, char *out, int cap)
 {
@@ -214,9 +219,9 @@ int forge_light_emit(const Forge *f, char *out, int cap)
         " * These are DIRECTIONS AND LEVELS for a runtime rig, i.e. the geometry\n"
         " * they light must NOT already have a rig baked into its vertex colours.\n"
         " * A Forge level carries only a per-face shade, so it wants real lighting.\n"
-        " * PetaByte Madness' lab is the opposite case (dank_lab_gen.py bakes its\n"
-        " * twelve fixtures into the mesh), and installing brightness there\n"
-        " * double-darkens it — which is what 'the lab reads as unlit' was.\n"
+        " * A room whose generator already bakes a fixture rig into its own\n"
+        " * vertex colours is the opposite case, and installing this rig's\n"
+        " * brightness there double-darkens it instead of lighting it.\n"
         " */\n"
         "#ifndef FORGE_%s_LIGHT_H\n"
         "#define FORGE_%s_LIGHT_H\n"

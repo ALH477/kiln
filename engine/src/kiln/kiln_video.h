@@ -30,7 +30,7 @@
  * ── No audio here ───────────────────────────────────────────────────────
  * Deliberately not wired to wav64 — a caller that wants a synced audio
  * track loads and plays it itself (kiln_sfx_load/play), same as any other
- * screen's music. See pm_credits.c for why this clip currently has none.
+ * screen's music.
  */
 #ifndef KILN_VIDEO_H
 #define KILN_VIDEO_H

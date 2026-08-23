@@ -4,9 +4,9 @@
 
     python3 tools/blender/test_objkit.py
 
-objkit.py is the reader every OBJ-sourced PetaByte Madness model goes through
-(tools/blender/pm_props.py), and PetaByte Madness's docs/ASSET_PIPELINE.md
-credits it with catching three real mesh defects in the drop. It had no test.
+objkit.py is the reader any OBJ-sourced model goes through, and it caught
+three real mesh defects the first time a real asset drop went through it. It
+had no test.
 
 That is a worse gap than it looks, because every one of its failure modes is
 silent: a mis-parsed negative index scrambles a mesh that still converts, a
@@ -92,11 +92,11 @@ f 1 2 3 4
 
     # ── load_obj: vertex colours ───────────────────────────────────────
     print("── load_obj: vertex colours ──")
-    # loach.obj's convention: three EXTRA floats on the v line. The
+    # The extended-OBJ convention: three EXTRA floats on the v line. The
     # distinction that matters is `colors is None` vs a list of white — a
     # caller that treats "no colours" as "white colours" renders a model that
-    # should be lit as if it were pre-baked, which is the exact difference
-    # docs/LOACH_spec.md's "run with G_LIGHTING off" turns on.
+    # should be lit as if it were pre-baked, which is exactly the difference
+    # between a model meant to be shaded and one meant to be drawn unlit.
     plain = objkit.load_obj(write(tmp, "plain.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"))
     check(plain["colors"] is None, "no extended v lines -> colors is None")
 
@@ -167,8 +167,8 @@ f 1 3 4
     # ── loose_parts ────────────────────────────────────────────────────
     print("── loose_parts ──")
     # Two disjoint triangles plus a two-triangle strip. The strip is the
-    # biggest component and must come out first, because pm_props.py names
-    # them part_00.. in order and the game places palm_00 as the hero plant.
+    # biggest component and must come out first, because a caller that names
+    # parts part_00.. in order relies on index 0 being the important one.
     parts = objkit.loose_parts([(0, 1, 2), (3, 4, 5), (6, 7, 8), (6, 8, 9)])
     check(len(parts) == 3, "three connected components (%d)" % len(parts))
     check(len(parts[0]) == 2, "largest component first (%d faces)" % len(parts[0]))
@@ -178,10 +178,10 @@ f 1 3 4
 
     # ── split_double_sided ─────────────────────────────────────────────
     print("── split_double_sided ──")
-    # loach.obj's real defect: two faces on the same three vertices with
-    # OPPOSITE winding. ASSET_PIPELINE.md §2 is explicit that this is content,
-    # not a mistake — dropping one would make the surface vanish from one side
-    # under backface culling — so the repair must clone vertices and keep BOTH
+    # A real defect found in a real drop: two faces on the same three
+    # vertices with OPPOSITE winding. This is content, not a mistake —
+    # dropping one would make the surface vanish from one side under
+    # backface culling — so the repair must clone vertices and keep BOTH
     # windings. Asserting on the face tuple alone would not catch a repair
     # that quietly re-wound the clone, so this checks the geometric normals.
     ds = {
@@ -238,10 +238,11 @@ f 1 3 4
           "bbox is componentwise min/max (lo=%s hi=%s)" % (lo, hi))
 
     # The conversion must be a proper ROTATION, determinant +1. objkit's own
-    # docstring records what the reflection (x, z, y) cost: VEIL_DESIGN.md §9's
-    # hellhound with its skull pointing backwards out of its own neck. A
-    # reflection flips handedness and inverts every normal, and the model
-    # still builds — so this is checked arithmetically rather than trusted.
+    # docstring records what the reflection (x, z, y) costs: a model's head
+    # pointing backwards out of its own neck (n64-animation skill's failure-
+    # mode table). A reflection flips handedness and inverts every normal,
+    # and the model still builds — so this is checked arithmetically rather
+    # than trusted.
     cols = [objkit.yup_to_zup(b) for b in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
     det = (cols[0][0] * (cols[1][1] * cols[2][2] - cols[1][2] * cols[2][1])
            - cols[1][0] * (cols[0][1] * cols[2][2] - cols[0][2] * cols[2][1])

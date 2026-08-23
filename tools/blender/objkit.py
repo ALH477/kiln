@@ -1,17 +1,18 @@
 # SPDX-License-Identifier: MIT
-"""objkit.py — a Wavefront OBJ reader for the PetaByte Madness asset drop.
+"""objkit.py — a Wavefront OBJ reader for art dropped in as .obj rather than
+authored through kilnlib.
 
     python3 tools/blender/objkit.py <file.obj>     # parse and report
 
-Deliberately NOT `bpy.ops.wm.obj_import`. Two reasons, both learned from the
-files this has to read:
+Deliberately NOT `bpy.ops.wm.obj_import`. Two reasons, both learned from real
+drops this has had to read:
 
-  * **Vertex colours.** `loach.obj` carries them as three extra floats on each
-    `v` line — the "extended" OBJ convention, which is where its baked AO and
-    per-facet rust bias live (docs/LOACH_spec.md: "vertex colours in the v
-    lines", "run with G_LIGHTING off"). Whether a given Blender release
-    imports those, and into which attribute, is exactly the kind of thing that
-    silently changes under a nixpkgs bump and comes out as a grey model.
+  * **Vertex colours.** Some OBJ exporters carry them as three extra floats
+    on each `v` line — the "extended" OBJ convention, used to bring in baked
+    AO or a per-facet colour bias authored outside Blender entirely. Whether
+    a given Blender release imports those, and into which attribute, is
+    exactly the kind of thing that silently changes under a nixpkgs bump and
+    comes out as a grey model.
   * **Materials.** gltf_to_t3d keys its material table by name and silently
     DROPS primitives whose material is missing (kilnlib.make_material's note).
     The importer's naming is its own business; this way the names are ours.
@@ -232,8 +233,8 @@ def split_double_sided(obj):
 
     Blender's mesh validate() rejects two faces built on the SAME set of
     vertices, whichever way they wind — and rejecting means the whole mesh is
-    discarded, so one such pair silently costs an entire material. loach.obj
-    has two of them in `hull`.
+    discarded, so one such pair silently costs an entire material. A real
+    hull mesh has had two of them.
 
     A reversed-winding twin is not a mistake: it is a deliberately
     double-sided surface, and dropping one would make it vanish from one side
@@ -243,8 +244,8 @@ def split_double_sided(obj):
     twin.
 
     (Exactly-duplicated faces — same winding — are a different defect and are
-    handled where they occur, by dropping one. See
-    PetaByte Madness's tools/mc_rig_export.py, which found one in the centaur.)
+    handled where they occur, by dropping one: a real exporter has found one
+    of these in a real mesh.)
 
     Returns the number of faces cloned.
     """
@@ -275,8 +276,9 @@ def yup_to_zup(p):
     """OBJ (Y up, this drop's convention) -> Blender (Z up).
 
     (x, y, z) -> (x, -z, y). NOT (x, z, y), which is a reflection: it flips
-    handedness and inverts every normal. docs/VEIL_DESIGN.md §9 records that
-    exact mistake putting a hellhound's skull backwards out of its own neck.
+    handedness and inverts every normal. The n64-animation skill's failure-
+    mode table records this exact mistake pointing a model's head backwards
+    out of its own neck.
     """
     return (p[0], -p[2], p[1])
 

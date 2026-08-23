@@ -9,13 +9,14 @@
  *
  * ── Why an in-ROM pixel editor is not a novelty ────────────────────────
  *
- * Because the veil discards hue. `docs/VEIL_DESIGN.md` §4: under the filter only
- * VALUE carries, so a palette separated by hue stops reading entirely the moment
- * it goes up. That is a judgement about a 16-colour ramp seen at 320x240 through
- * a TLUT swap on a CRT, and there is no host preview that settles it — you look
- * at the veiled state on the television or you guess. `kiln_voxatlas_bind` takes
- * the state, so `Z` here flips between cold and veiled with the geometry still
- * on screen behind the editor.
+ * Because a palette-swap filter can discard hue (see the n64-modeling skill's
+ * "CI4 and a palette-swap contract"): under one, only VALUE carries, so a
+ * palette separated by hue stops reading entirely the moment the filter goes
+ * up. That is a judgement about a 16-colour ramp seen at 320x240 through a
+ * TLUT swap on a CRT, and there is no host preview that settles it — you look
+ * at the swapped state on the television or you guess. `kiln_voxatlas_bind`
+ * takes the state, so `Z` here flips between cold and veiled with the
+ * geometry still on screen behind the editor.
  *
  * ── Why the edit buffer is one byte per pixel ──────────────────────────
  *

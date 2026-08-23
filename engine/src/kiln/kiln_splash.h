@@ -10,8 +10,8 @@
  * It is a publisher mark, not a game's title screen. Every ROM built on
  * this engine should be able to open with it by calling four functions,
  * and none of them should have to re-time the animation or re-derive when
- * the flash lands relative to the music. PetaByte Madness and Ganja Goblin
- * want the identical sequence with different things after it.
+ * the flash lands relative to the music. Every game built on this engine so
+ * far wants the identical sequence with different things after it.
  *
  * ── Assets are the GAME's, not the engine's ────────────────────────────
  * The engine ships no files. The logo model and the jingle are built at

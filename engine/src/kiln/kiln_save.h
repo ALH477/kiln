@@ -3,11 +3,11 @@
  * kiln_save.h — save slots on EEPROM.
  *
  * ── Why this is in the engine and not in a game ────────────────────────
- * Two games in this repo want the same thing and would otherwise write it
- * twice: PetaByte Madness needs OoT-style profiles (three files, and
- * whether a file exists is what decides if the intro plays), and Ganja
- * Goblin needs match progress plus per-goblin unlock flags. Neither needs
- * anything the other does not. What IS game-specific — how big a slot is,
+ * Two downstream games wanted the same thing and would otherwise have
+ * written it twice: an OoT-style profile save (three files, and whether a
+ * file exists is what decides if the intro plays) for one, and match
+ * progress plus per-character unlock flags for the other. Neither needed
+ * anything the other did not. What IS game-specific — how big a slot is,
  * what goes in it, what the screen looks like — stays a parameter.
  *
  * ── A thin layer over eepromfs, not a replacement ──────────────────────

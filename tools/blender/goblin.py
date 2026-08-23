@@ -6,10 +6,11 @@
 
     --model dank | sparky | moss | glimmer | goblin
 
-Ganja Goblin has four characters (see game/src/gg_goblins.c for the passives
-and specials they carry in code). This file is all four, plus `goblin`, the
-neutral build the earlier demos loaded and the one to look at when you want
-the shape language without a character on top of it.
+A downstream party game (now in its own repo) has four playable characters,
+each carrying its own passive and special via kiln_char.h. This file is all
+four, plus `goblin`, the neutral build the earlier demos loaded and the one
+to look at when you want the shape language without a character on top of
+it.
 
 ── One rig, four bodies ───────────────────────────────────────────────────
 Every character uses the SAME skeleton: identical bone names, identical rest
@@ -17,9 +18,9 @@ head/tail positions, no exceptions. Their proportions differ entirely in the
 geometry hung off those bones — Dank's belly is a wider mass on the same
 torso bone, Sparky's limbs are thinner prisms between the same joints.
 
-That is a deliberate constraint and it buys the thing the game actually
-needs: one set of animations that plays on all four. Ganja Goblin picks a
-character per player at runtime (gg_screens.c's character select) and then
+That is a deliberate constraint and it buys the thing a game actually
+needs: one set of animations that plays on all four. A game picks a
+character per player at runtime (a character-select screen) and then
 runs the same Idle/Walk/Ride actions whichever was picked. If Sparky's rig
 were genuinely taller, every action would need a Sparky variant, the ROM
 would carry four copies of the animation data, and the four would drift
@@ -87,10 +88,11 @@ near a skeleton.
 
 ── He faces +Y ────────────────────────────────────────────────────────────
 He used to face -Y: nose, eyes, jaw and toes all pointed that way. Everything
-else authored here — interceptor.py, vehicles.py — puts the nose along +Y,
-which export_yup turns into the -Z that glTF and Tiny3D call forward. Nothing
-caught it, because a lone character has no second object to disagree with;
-the moment he had to sit in the go-kart he sat in it backwards.
+else authored here — interceptor.py, and a downstream game's own vehicle
+models — puts the nose along +Y, which export_yup turns into the -Z that
+glTF and Tiny3D call forward. Nothing caught it, because a lone character
+has no second object to disagree with; the moment he had to sit in a
+vehicle he sat in it backwards.
 
 ── The joints exist for riding ────────────────────────────────────────────
 The rig has a neck, an elbow (`forearm_*`) and a knee (`shin_*`). A standing
@@ -102,14 +104,14 @@ the floor and misses the pedals, and no rotation of a single bone gets both.
 ~2.3 Blender units tall, standing on Z=0, so at the default --base-scale=64
 that is ~150 Tiny3D units — comfortably inside the int16 position range.
 
-The limb chains and rider.py's station are sized against each other, and the
-numbers are tight enough to be worth stating: shoulder-to-grip is 0.55
-against an arm chain of 0.82, hip-to-ankle 0.48 against a leg chain of 0.52.
-Both reaches are shorter than their chain, so the riding poses come out with
-a natural bend rather than a limb visibly stretched straight to fit — and
-the leg has almost no margin, because these are short goblin legs and the
-first station put the footrests 0.69 away from a 0.52 chain. blender_test_rider.py
-measures the actual posed distance on every run.
+The limb chains and a vehicle's own rider station are sized against each
+other, and the numbers are tight enough to be worth stating: shoulder-to-grip
+is 0.55 against an arm chain of 0.82, hip-to-ankle 0.48 against a leg chain
+of 0.52. Both reaches are shorter than their chain, so the riding poses come
+out with a natural bend rather than a limb visibly stretched straight to fit
+— and the leg has almost no margin, because these are short goblin legs and
+a first attempt at a station put the footrests 0.69 away from a 0.52 chain.
+A test measuring the actual posed distance on every run is what caught that.
 """
 
 import math
@@ -161,7 +163,8 @@ GOBLINS = {
     ),
     # Dank: the mellow one. Heaviest of the four, lowest centre of mass, a
     # permanent slouch and eyes at half mast. Everything about the shape says
-    # "not in a hurry", which is what his +1-bud-per-Grow passive plays like.
+    # "not in a hurry", which is what a slow-and-steady passive ability
+    # plays like.
     "dank": dict(
         label="Dank", skin=m.srgb(96, 148, 84), tunic=m.srgb(86, 62, 104),
         belt=m.srgb(52, 38, 64), accent=m.srgb(206, 176, 96),
@@ -231,8 +234,9 @@ BONES = [
 #
 # loft() winds correctly when each ring runs in increasing angle about the
 # sweep axis in the sense that makes U x V = -T (see sweep()'s docstring for
-# the derivation). For the +Y sweeps vehicles.py uses that works out to
-# increasing atan2(z, x); for a +Z sweep it is the other way round —
+# the derivation). For a +Y sweep (a vehicle body's long axis, say) that
+# works out to increasing atan2(z, x); for a +Z sweep it is the other way
+# round —
 # CLOCKWISE seen from above. Authoring anticlockwise and reversing once, in
 # one place, is less error-prone than remembering which way round a given
 # axis wants, and test_goblins.py catches it either way.
@@ -347,7 +351,7 @@ EAR_PLATES = {
 def _ear(spec, x_sign):
     """One ear: authored flat in XY (x = outward span, y = height) because
     slab() extrudes along Z, then stood upright by a proper rotation — the
-    same rotate-don't-reflect discipline vehicles.py's wheels use."""
+    same rotate-don't-reflect discipline a mirrored wheel or panel wants."""
     plate = EAR_PLATES[spec["ear"]]
     if x_sign < 0:
         plate = m.mirror_x(plate)
@@ -704,9 +708,9 @@ def build_goblin(spec):
 # its last frame, so it cycles without a visible snap.
 #
 # ── Sign conventions, established by MEASURING ─────────────────────────────
-# Not by reasoning about Blender's bone axes. blender_test_rider.py's first run put
+# Not by reasoning about Blender's bone axes. A first attempt at this put
 # the goblin's hands 1.25 units behind the grips, which is what a wrong guess
-# about this looks like.
+# about this looks like — caught by a test that poses the rig and measures.
 #
 #   X   For LIMB bones (which rest pointing DOWN) positive swings FORWARD
 #       (+Y). For SPINE bones (which rest pointing UP) the same rotation
@@ -977,16 +981,18 @@ def anim_taunt(armature):
 
 
 # ── riding ─────────────────────────────────────────────────────────────────
-# ONE set of riding actions, used on the go-kart and on the motorcycle alike,
-# by every one of the four characters.
+# ONE set of riding actions, meant to work across more than one vehicle body
+# (a downstream game paired this rig with two: a kart and a motorcycle), by
+# every one of the four characters.
 #
 # Two separate things make that work. Across CHARACTERS it is the shared rig
-# at the top of this file. Across VEHICLES it is rider.py: both vehicles fix a
-# hip point and then place their grips and footrests at the same offsets from
-# it, so a pose that reaches the kart's wheel and pedals reaches the bike's
-# bars and pegs without a single value changing. The bike became an
-# ape-hanger chopper with forward controls to meet that, which is the one
-# motorcycle ergonomic that genuinely matches a kart's.
+# at the top of this file. Across VEHICLES it is a shared convention (kept in
+# that vehicle's own module, now in its own repo): every vehicle fixes a hip
+# point and then places its grips and footrests at the same offsets from it,
+# so a pose that reaches one vehicle's wheel and pedals reaches another's
+# bars and pegs without a single value changing. A motorcycle built to that
+# convention wants forward controls (ape-hanger, chopper-style), which is the
+# one motorcycle ergonomic that genuinely matches a kart's.
 #
 # The alternative was riding animations per vehicle per character — eight sets
 # differing only in arm angles, which doubles and redoubles the authoring,
@@ -999,9 +1005,10 @@ def anim_taunt(armature):
 #
 # The arm and leg angles here are SOLVED, not eyeballed: a grid search over
 # the shoulder/elbow and hip/knee angles minimising the distance from the
-# hand tip and ankle to rider.GRIP and rider.REST. blender_test_rider.py re-measures
-# that distance on every run, so a change to either the rig or the station
-# fails loudly instead of showing up as hands hovering next to a wheel.
+# hand tip and ankle to the vehicle's own published grip/footrest points. A
+# test re-measuring that distance on every run is what makes a change to
+# either the rig or the vehicle's station fail loudly instead of showing up
+# as hands hovering next to a wheel.
 RIDE = {
     # The spine bones point UP and the limb bones point DOWN, so the SAME
     # local-X rotation swings them opposite ways in the world. That is why
@@ -1354,7 +1361,7 @@ def main():
     # knee, the solid ears and the per-character extras are all new, and each
     # one is there because the box-stack version either read badly or could
     # not hold a riding pose. Four of these on screen at once is ~2000 tris
-    # before their vehicles; see vehicles.py's budget note for the total.
+    # before whatever vehicle they might be riding.
     # Author high, weld down. The reclaim is printed rather than assumed:
     # if it ever drops to nothing, the detail being added is already at or
     # below the console's 1/64 grid and is costing triangles for a shape the

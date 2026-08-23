@@ -5,29 +5,28 @@
     python3 tools/veil_palette.py <in.png> <out.pal> --class demon
     python3 tools/veil_palette.py --selftest
 
-PetaByte Madness's docs/VEIL_DESIGN.md §1 calls the palette swap "the one idea":
-author both states offline, and at runtime change only which 16-entry lookup
-table a material points at. 32 bytes of DMA, zero extra pixels shaded, against
-76,800 blended read-modify-writes for the full-screen quad it replaces.
+The palette-swap trick this bakes for (see the n64-modeling skill's "CI4 and
+a palette-swap contract"): author both states offline, and at runtime change
+only which 16-entry lookup table a material points at. 32 bytes of DMA, zero
+extra pixels shaded, against a blended full-screen quad's worth of
+read-modify-writes for the same effect done as a screen filter.
 
-The runtime half of that is written and working — pm_veil.c's
-`pm_veil_bind_palette`, `_material_pass`, `_prim_alpha` and `_ramp_build` are all
-there. They have never been called by anything, because there was no bake to
-point them at: §8's integration checklist opens with "convert every material in
-the demon zone to CI4… this is the real work". This file is that bake's palette
-half; nix/assets.nix's mkVeilTexture is the pixel half.
+This file is that bake's palette half; `nix/assets.nix`'s `mkVeilTexture` is
+the pixel half, and `kiln_voxmesh`'s `kiln_voxatlas_bind` is the generic
+engine-side entry point that swaps which TLUT of a pair is resident. A
+specific game's own runtime binds a palette per-material and per-frame on
+top of that; this tool only has to agree on the file format and the
+class-to-palette contract below.
 
 ── What comes out ─────────────────────────────────────────────────────────
 A `.pal` file: 32 big-endian uint16 in RGBA5551, cold palette first, then
-veiled. That is exactly the pair `pm_veil_ramp_build(out, cold, veiled)` takes,
-so the runtime interpolates the nine crossfade steps at boot and a later
-fully-offline bake can replace this by pointing at baked ramps instead — which
-pm_veil.h promises is "a change of one pointer, not of any call site".
+veiled — a pair a runtime can also crossfade between over several frames
+rather than swapping in one step, if it wants a transition rather than a cut.
 
 Big-endian because the N64 is, and because the runtime hands the bytes straight
 to rdpq_tex_upload_tlut without swapping.
 
-── The four material classes (VEIL_DESIGN.md §4) ──────────────────────────
+── The four material classes ───────────────────────────────────────────────
 Under the veil hue carries no information and only VALUE does, so value is
 rationed:
 
@@ -35,11 +34,12 @@ rationed:
            true white, because those are reserved. Hue collapses toward red.
   demon    Full range: owns both ends. That contrast is what physiologically
            drags the player's eye onto the creature.
-  phantom  A demon body. Its VEILED palette is the demon one; its COLD palette
-           has alpha 0 on EVERY entry, which under an alpha-compare render mode
-           means no pixel of the creature is written. The runtime goes further
-           and does not submit the display list at all
-           (`pm_veil_demon_submit`), so an invisible demon costs nothing.
+  phantom  A body meant to be invisible until the veil is up. Its VEILED
+           palette is the demon one; its COLD palette has alpha 0 on EVERY
+           entry, which under an alpha-compare render mode means no pixel of
+           it is written. A runtime can go further and skip submitting the
+           display list at all while the veil is down, so an invisible body
+           costs nothing rather than merely rendering as nothing.
   eyes     The exception that makes the trick frightening rather than merely
            cheap: the cold palette keeps alpha on its BRIGHTEST few entries, so
            veil down you get pinpricks in the dark and nothing else.
@@ -70,7 +70,7 @@ CLASSES = ("world", "demon", "phantom", "eyes")
 WORLD_LO, WORLD_HI = 0.28, 0.72
 
 # How many of the brightest entries an `eyes` material keeps visible with the
-# veil DOWN. Four, per VEIL_DESIGN.md's "keeps alpha on its top four entries".
+# veil DOWN — few enough to read as pinpricks in the dark, not a lit face.
 EYES_KEEP = 4
 
 
@@ -83,10 +83,10 @@ def luma(rgb):
 def to_rgba5551(rgb, opaque):
     """(r, g, b) 0-255 -> RGBA5551.
 
-    Layout is rrrrrggg ggbbbbba — five bits each and the alpha in bit 0, which
-    is the same unpacking pm_veil.c's ramp_build performs. The shift by 3 is a
-    truncation, not a round: rounding can carry 255 to 32 and overflow the
-    field into the next channel.
+    Layout is rrrrrggg ggbbbbba — five bits each and the alpha in bit 0, the
+    layout `rdpq_tex_upload_tlut` expects. The shift by 3 is a truncation,
+    not a round: rounding can carry 255 to 32 and overflow the field into
+    the next channel.
     """
     r = (min(255, max(0, int(rgb[0]))) >> 3) & 0x1F
     g = (min(255, max(0, int(rgb[1]))) >> 3) & 0x1F
@@ -280,7 +280,7 @@ def main():
     ap.add_argument("src", nargs="?", help="indexed (mode P) PNG")
     ap.add_argument("out", nargs="?", help="output .pal (64 bytes)")
     ap.add_argument("--class", dest="cls", default="world", choices=CLASSES,
-                    help="material class; see VEIL_DESIGN.md section 4")
+                    help="material class; see this file's module docstring")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
 

@@ -16,9 +16,9 @@
  * have several (a terrain object sharing a .t3dm with gate and landmark
  * objects, say). Paying for a whole-model segment redirect and
  * multi-buffering for that is the wrong cost. This module instead
- * generalises the pattern PetaByte Madness's own sea-swell code
- * (pm_env.c's g_sea_rest/xforms_init/pm_env_update) already ships: snapshot
- * a model's own vertex buffer positions once via t3d_vertbuffer_get_pos,
+ * generalises a sea-swell pattern a downstream game shipped first (now in
+ * that game's own repo): snapshot a model's own vertex buffer positions
+ * once via t3d_vertbuffer_get_pos,
  * then write straight back into that SAME buffer in place, every frame,
  * with no segment redirection and no extra buffering. t3d_model_draw stays
  * completely unchanged at the call site. The only addition over the sea's
@@ -31,10 +31,10 @@
  * The shipped mesh's own baked Y values ARE the base heightmap. A crater is
  * "subtract from a vertex's own already-baked Y, keyed by its own
  * already-baked (x,z), and let the subtraction decay to 0" — there is
- * nothing to re-derive from tools/blender/pm_world.py's island_height() in
- * C, and so nothing that can drift from it. This is the same "geometry
- * measures itself" discipline pm_world.py's own header describes, applied
- * to a runtime effect instead of a build-time one.
+ * nothing to re-derive from a terrain generator's own height function in C,
+ * and so nothing that can drift from it. This is the n64-modeling skill's
+ * "geometry measures itself" discipline, applied to a runtime effect
+ * instead of a build-time one.
  *
  * ── Why touching every vertex per active crater is fine here ─────────────
  * Terrain meshes this module targets are low-poly by design (chunky-facet
@@ -86,7 +86,8 @@ typedef struct {
  *  pose read from it ONCE at init, before any mutation. Every frame's
  *  write is `rest.y0 - sink`, never an accumulated delta, so drift and
  *  rounding cannot build up across a long attract loop — the same reason
- *  pm_env.c's sea swell writes absolute positions rather than deltas. */
+ *  the sea-swell pattern this module generalises writes absolute positions
+ *  rather than deltas. */
 typedef struct {
     int16_t *pos;          /* &T3DVertPacked.posA/posB[0..2], live         */
     int16_t x, y0, z;       /* rest pose, world units                       */

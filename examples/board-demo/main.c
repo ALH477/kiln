@@ -7,7 +7,7 @@
 //   kiln_board  — a 10-node branching path with one fork
 //   kiln_turn   — 4 players, 5 rounds, ROLL→MOVE→LAND→EVENT→END per turn
 //
-// The HUD prints each player's position + bud count and a rolling log of
+// The HUD prints each player's position + point count and a rolling log of
 // the last few rolls so the state machine is auditable. The board is drawn
 // as a top-down 2D schematic in the GUI pass — no 3D, no assets — because
 // the proof here is the topology and the turn state, not rendering.
@@ -26,24 +26,24 @@
 #define ROUNDS   5
 
 // A 10-node board: a loop with a fork at node 3 (long way / short cut) that
-// rejoins at node 7. Spaces alternate Grow/Dry/Spirit to exercise the
-// per-type on-enter hook in gg_spaces (Phase 2); here the on-enter just
-// awards buds based on type.
+// rejoins at node 7. Spaces alternate GOOD/BAD/BONUS to exercise the
+// per-type on-enter hook a real game would replace with its own per-type
+// table; here the on-enter just awards points based on type.
 static const KilnBoardNode nodes[10] = {
     { KILN_SPACE_START,    {{   0, 0,   0 }}, { 1 },         1 }, // 0 start
-    { KILN_SPACE_GROW,     {{  40, 0,   0 }}, { 2 },         1 }, // 1
-    { KILN_SPACE_DRY,      {{  80, 0,   0 }}, { 3 },         1 }, // 2
-    { KILN_SPACE_SPIRIT,   {{ 120, 0,   0 }}, { 4, 5 },      2 }, // 3 fork
-    { KILN_SPACE_GROW,     {{ 160, 0,  40 }}, { 6 },         1 }, // 4 long way
-    { KILN_SPACE_GROW,     {{ 160, 0, -40 }}, { 6 },         1 }, // 5 shortcut
-    { KILN_SPACE_DRY,      {{ 200, 0,   0 }}, { 7 },         1 }, // 6 rejoin
-    { KILN_SPACE_SPIRIT,   {{ 240, 0,   0 }}, { 8 },         1 }, // 7
-    { KILN_SPACE_GROW,     {{ 280, 0,   0 }}, { 9 },         1 }, // 8
-    { KILN_SPACE_GROW,     {{ 320, 0,   0 }}, { 0 },         1 }, // 9 back to start
+    { KILN_SPACE_GOOD,     {{  40, 0,   0 }}, { 2 },         1 }, // 1
+    { KILN_SPACE_BAD,      {{  80, 0,   0 }}, { 3 },         1 }, // 2
+    { KILN_SPACE_BONUS,    {{ 120, 0,   0 }}, { 4, 5 },      2 }, // 3 fork
+    { KILN_SPACE_GOOD,     {{ 160, 0,  40 }}, { 6 },         1 }, // 4 long way
+    { KILN_SPACE_GOOD,     {{ 160, 0, -40 }}, { 6 },         1 }, // 5 shortcut
+    { KILN_SPACE_BAD,      {{ 200, 0,   0 }}, { 7 },         1 }, // 6 rejoin
+    { KILN_SPACE_BONUS,    {{ 240, 0,   0 }}, { 8 },         1 }, // 7
+    { KILN_SPACE_GOOD,     {{ 280, 0,   0 }}, { 9 },         1 }, // 8
+    { KILN_SPACE_GOOD,     {{ 320, 0,   0 }}, { 0 },         1 }, // 9 back to start
 };
 
 static int16_t token_node[PLAYERS];
-static int     buds[PLAYERS];
+static int     points[PLAYERS];
 static int     last_roll = 0;
 static int     last_player = 0;
 static char    log_lines[6][40];
@@ -58,14 +58,14 @@ static void log_push(const char *fmt, ...)
     log_head = (log_head + 1) % 6;
 }
 
-// Award buds on landing. The space's effect is game-side logic — this is the
-// stub Phase 2 will replace with gg_spaces.c's per-type table.
+// Award points on landing. The space's effect is game-side logic — this is
+// the stub a real game would replace with its own per-type table.
 static int award_for_space(KilnSpaceType t)
 {
     switch (t) {
-        case KILN_SPACE_GROW:     return 3;
-        case KILN_SPACE_DRY:      return -2;
-        case KILN_SPACE_SPIRIT:   return 5;
+        case KILN_SPACE_GOOD:     return 3;
+        case KILN_SPACE_BAD:      return -2;
+        case KILN_SPACE_BONUS:    return 5;
         case KILN_SPACE_SHORTCUT: return 1;
         case KILN_SPACE_MINIGAME: return 4;
         case KILN_SPACE_TRADE:    return 0;
@@ -92,7 +92,7 @@ int main(void)
 
     for (int p = 0; p < PLAYERS; p++) {
         token_node[p] = board.start_node;
-        buds[p] = 0;
+        points[p] = 0;
     }
 
     // Auto-advance: one state transition per frame. A real game would gate
@@ -113,8 +113,8 @@ int main(void)
             }
             case KILN_PHASE_MOVE: {
                 for (int s = 0; s < last_roll; s++) {
-                    // At a fork, pick branch 0 (long way). Phase 2's
-                    // gg_turn.c will replace this with player-choice logic.
+                    // At a fork, pick branch 0 (long way). A real game would
+                    // replace this with player-choice logic.
                     uint8_t branch = 0;
                     token_node[cur] = kiln_board_step(&board, token_node[cur], branch);
                 }
@@ -124,12 +124,12 @@ int main(void)
             case KILN_PHASE_LAND: {
                 KilnSpaceType st = board.nodes[token_node[cur]].type;
                 int award = award_for_space(st);
-                buds[cur] += award;
-                if (buds[cur] < 0) buds[cur] = 0;
+                points[cur] += award;
+                if (points[cur] < 0) points[cur] = 0;
                 log_push("P%d landed %s (%+d)", cur + 1,
-                         st == KILN_SPACE_GROW ? "GROW" :
-                         st == KILN_SPACE_DRY  ? "DRY " :
-                         st == KILN_SPACE_SPIRIT ? "SPRT" : "????",
+                         st == KILN_SPACE_GOOD  ? "GOOD" :
+                         st == KILN_SPACE_BAD   ? "BAD " :
+                         st == KILN_SPACE_BONUS ? "BNUS" : "????",
                          award);
                 kiln_turn_advance_phase(&turn);  // -> EVENT
                 break;
@@ -173,8 +173,8 @@ int main(void)
                 ? RGBA32(0, 245, 212, 255)
                 : RGBA32(232, 232, 240, 255);
             kiln_gui_text(14, 50 + p * 14, c,
-                         "P%d  node %2d  buds %3d%s",
-                         p + 1, (int)token_node[p], buds[p],
+                         "P%d  node %2d  pts  %3d%s",
+                         p + 1, (int)token_node[p], points[p],
                          p == cur ? "  <- turn" : "");
         }
 
@@ -192,9 +192,9 @@ int main(void)
         kiln_gui_panel(8, SCREEN_H - 32, SCREEN_W - 16, 24,
                       RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
         kiln_gui_text(14, SCREEN_H - 22, RGBA32(232, 232, 240, 255),
-                     "P%d last roll: %d   total buds: %d",
+                     "P%d last roll: %d   total points: %d",
                      last_player + 1, last_roll,
-                     buds[0] + buds[1] + buds[2] + buds[3]);
+                     points[0] + points[1] + points[2] + points[3]);
 
         kiln_gui_end();
         kiln_frame_end();

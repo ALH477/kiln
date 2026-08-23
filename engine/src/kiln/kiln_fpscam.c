@@ -105,11 +105,11 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
      *      finally stopped was wherever kiln_clip_ground's short probe happened
      *      to catch a brush's underside.
      *
-     * In PetaByte Madness that put the player about 111 units — 1.7 m — under
-     * the lab floor for the whole playable section, with the room's contents
+     * In real use that put the player about 111 units — 1.7 m — under the
+     * floor for the whole playable section, with the room's contents
      * squeezed into the top of the frame and a large dark nothing below. It
-     * read as a lighting or camera-framing problem, and the acknowledgement of
-     * it in main.c ("the player can leave PM_SCREEN_LAB mid-fall") had been
+     * read as a lighting or camera-framing problem, and a known "the player
+     * can leave the room mid-fall" comment in the game's own code had been
      * treated as a fact of life rather than a symptom. Found in one capture
      * once kiln_debugdraw could draw the room's brushes next to the camera the
      * scene was actually built from. */

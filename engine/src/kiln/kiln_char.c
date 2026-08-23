@@ -32,20 +32,20 @@ int kiln_char_try_special(KilnCharState *s, void *game_player, void *target)
     int fired = s->profile->special(s, game_player, target);
     if (fired) {
         s->charge = 0;
-        // Cooldown is per-spec; Ganja Goblin's specials are once-per-match
-        // candidates, so 3 turns is a reasonable default for "fired but
-        // not permanently spent". Game-side specials can override by
+        // Cooldown is per-spec; a special that isn't meant to be permanently
+        // spent still wants some default gap before it can fire again, so 3
+        // turns is a reasonable one. Game-side specials can override by
         // writing s->cooldown themselves before returning.
         if (s->cooldown == 0) s->cooldown = 3;
     }
     return fired;
 }
 
-void kiln_char_add_charge(KilnCharState *s, uint16_t buds)
+void kiln_char_add_charge(KilnCharState *s, uint16_t amount)
 {
     if (!s->active) return;
     // Saturate at the threshold so the bar doesn't wrap.
-    uint32_t sum = (uint32_t)s->charge + buds;
+    uint32_t sum = (uint32_t)s->charge + amount;
     if (s->profile && sum > s->profile->charge_threshold)
         sum = s->profile->charge_threshold;
     s->charge = (uint16_t)sum;

@@ -129,26 +129,28 @@ PRESETS = {
                            ("ZERO", "ZERO", "ZERO", "PRIM")),
         textured=False,
     ),
-    # ── The veil's combiner ────────────────────────────────────────────
+    # ── A decal combiner for a palette-swap material ────────────────────
     # The texture STRAIGHT THROUGH — no shade multiply. This is fast64's
-    # G_CC_DECALRGBA, and for the scarlet veil it is a requirement rather
-    # than a style: PetaByte Madness's docs/VEIL_DESIGN.md section 9 measured it.
+    # G_CC_DECALRGBA, and for a material built on the n64-modeling skill's
+    # "CI4 and a palette-swap contract" it is a requirement rather than a
+    # style, measured the hard way:
     #
-    #   "Demons must draw near-DECAL, not modulated. Run enemies through the
-    #    same modulate combiner as the room and they come out DARKER than the
-    #    walls — the exact inverse of the design. Vertex colour x lighting x
-    #    TLUT is three multiplications and the bright end of the palette never
-    #    survives it."
+    #   "A material meant to own the bright end of a value-rationed palette
+    #    must draw near-DECAL, not modulated. Run it through the same
+    #    modulate combiner as everything else and it comes out DARKER than
+    #    its surroundings — the exact inverse of the intent. Vertex colour x
+    #    lighting x TLUT is three multiplications and the bright end of the
+    #    palette never survives it."
     #
-    # The whole point of the veil's palette contract is that demons own true
-    # black and true white while the environment is rationed to a mid band
-    # (section 4). Multiplying the demon's texel by a shade term below 1 gives
-    # that contrast away, and no palette entry can win it back. It is a
-    # combiner mode, not an extra pass, so it costs nothing.
+    # The whole point of that contract is that some material class owns true
+    # black and true white while another is rationed to a mid band. Multiplying
+    # its texel by a shade term below 1 gives that contrast away, and no
+    # palette entry can win it back. It is a combiner mode, not an extra pass,
+    # so it costs nothing.
     #
-    # Alpha comes from the texture, because a CI4 veil palette carries its
-    # transparency in the RGBA5551 alpha bit — that bit is what makes a
-    # `phantom` material's cold state invisible.
+    # Alpha comes from the texture, because a CI4 veil-style palette carries
+    # its transparency in the RGBA5551 alpha bit — that bit is what makes a
+    # `phantom`-class material's cold state invisible.
     #
     # ── Why TEX0 * PRIM and not the literal (0,0,0,TEX0) ────────────────
     # fast64's G_CC_DECALRGBA is (0, 0, 0, TEXEL0) — TEX0 in the combiner's D

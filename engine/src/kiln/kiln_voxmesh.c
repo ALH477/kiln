@@ -173,10 +173,11 @@ void kiln_voxmesh_draw(const KilnVoxMesh *m)
 
 /* ── The runtime CI4 atlas ─────────────────────────────────────────────*/
 
-/* A default ramp that separates by VALUE, not hue. Under the veil hue carries
- * nothing and only value does (VEIL_DESIGN.md §4), so a palette distinguished
- * only by hue stops reading the moment the filter goes up — which makes this
- * the correct default even before any veil code runs.
+/* A default ramp that separates by VALUE, not hue. Under a hue-discarding
+ * palette-swap filter (see the n64-modeling skill) only value carries, so a
+ * palette distinguished only by hue stops reading the moment such a filter
+ * goes up — which makes this the correct default even before any such code
+ * runs.
  * Index 0 is left fully transparent so a tile can have holes. */
 static void default_palette(KilnVoxAtlas *a)
 {

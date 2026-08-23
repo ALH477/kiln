@@ -48,9 +48,9 @@ all: forge.z64
 
 # THE FILESYSTEM. Without these two lines n64.mk never builds or attaches a
 # DragonFS and a mkN64Rom `assets` list is SILENTLY IGNORED — the ROM comes out
-# byte-for-byte the size of the assetless one. PetaByte Madness's Makefile:129
-# records this trap in full because that game shipped without a filesystem for a
-# while; Forge walked into it anyway, and the symptom was `.#forge-dfs` booting
+# byte-for-byte the size of the assetless one. A downstream game shipped
+# without a filesystem for a while because it hit this exact trap; Forge
+# walked into it anyway, and the symptom was `.#forge-dfs` booting
 # with `store none` and the seeded starter room instead of the baked level.
 #
 # Guarded on the directory existing, because `.#forge` ships no assets at all and

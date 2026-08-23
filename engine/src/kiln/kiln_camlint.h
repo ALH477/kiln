@@ -2,23 +2,25 @@
 //
 // kiln_camlint.h — static validation of a keyframed camera shot.
 //
-// Was PetaByte Madness's src/pm_cine_lint.h, and moved into the engine alongside
+// Originated in a downstream game (now in that game's own repo, which keeps
+// a shim over its old header path) and moved into the engine alongside
 // kiln_camkey when Forge's CAM mode needed it: an editor that lets you SAVE a
 // table the game will then refuse is worse than one that never validated,
-// because the failure surfaces two tools later. So Forge runs the same rules at
-// authoring time, and PetaByte Madness's src/pm_cine_lint.h is a shim.
+// because the failure surfaces two tools later. So Forge runs the same rules
+// at authoring time.
 //
 // Moving it cost nothing structurally, because it was already written to be
-// movable: PMCineShot deliberately MIRRORED the fields of a PMDemoShot rather
-// than taking one, precisely so this header needed nothing from the game. That
-// discipline is what made a second consumer a rename rather than a rewrite.
+// movable: the originating game's own shot struct deliberately MIRRORED the
+// fields of its runtime's camera-table struct rather than taking one,
+// precisely so this header needed nothing from the game. That discipline is
+// what made a second consumer a rename rather than a rewrite.
 //
-// Every camera bug this game has had was a static property of a keyframe table
-// sitting next to a dimension the generators already publish, and every one was
-// found by building a ROM and looking at it. pm_demo.h's own comments list
-// them: an eye 69 units behind the lab's back wall, an eye at 1,400 units
-// INSIDE the island's footprint rendering black, an orbit chord dipping through
-// the ridges, and a frustum default that "cost six shots their geometry".
+// Every camera bug that game had was a static property of a keyframe table
+// sitting next to a dimension its generators already published, and every
+// one was found by building a ROM and looking at it: an eye behind a wall,
+// an eye inside a landmark's own footprint rendering black, an orbit chord
+// dipping through terrain, and a frustum default that cost several shots
+// their geometry.
 //
 // None of those needed an emulator to find. They needed someone to compare two
 // numbers.
@@ -26,10 +28,10 @@
 // ── Hard failures and notes are different kinds of thing ────────────────
 // The ERR_ flags are facts: the shot is wrong in a way that does not depend on
 // taste, intent or what it is pointed at. A key whose time is past the shot's
-// duration is unreachable — pm_demo_update clamps at `duration` — so it is dead
-// data whatever it says. An eye equal to its look target is a zero-length view
-// vector, which normalises to a NaN and halts the VR4300 (main.c records the
-// crash this actually produced).
+// duration is unreachable — a runtime that clamps elapsed time at `duration`
+// never reaches it — so it is dead data whatever it says. An eye equal to
+// its look target is a zero-length view vector, which normalises to a NaN
+// and halts the VR4300 (a real crash this has actually produced).
 //
 // The NOTE_ flags are measurements. Every one of them is legitimately
 // intentional in some shot: a wide exterior shot's eye IS outside the room, and
@@ -40,16 +42,17 @@
 // ── Where this runs ─────────────────────────────────────────────────────
 // Two places, and the split is deliberate.
 //
-//   * NATIVELY, in `nix flake check` (nix/checks/pm-cine.nix), against
+//   * NATIVELY, in `nix flake check` (nix/checks/kiln-logic.nix), against
 //     synthetic tables — one clean, and one deliberately broken per ERR_ flag.
 //     That verifies the DETECTOR, in both directions, in seconds, with no
 //     emulator. A gate only ever seen to pass is a gate that might not be
 //     checking anything.
 //
-//   * ON CONSOLE, over the real tables, in the `PM_CINE_LINT=1` ROM. The real
-//     tables cannot leave the ROM build — pm_demo.c needs libdragon and Tiny3D,
-//     and FLYOVER_KEYS is not even a compile-time constant (flyover_build_keys
-//     fills it during `setup`) — so the data is inspected where it lives.
+//   * ON CONSOLE, over a game's real tables, in a debug ROM built for the
+//     purpose. Real keyframe tables often cannot leave the ROM build at all —
+//     a runtime's own camera code needs libdragon and Tiny3D, and a table
+//     built procedurally at boot is not even a compile-time constant — so
+//     the data is inspected where it lives.
 //
 // This file is therefore FREE OF libdragon and Tiny3D by construction: it
 // includes kiln_camkey.h, whose only dependency is `fm_vec3_t`. Keep it that way,
@@ -112,8 +115,9 @@ typedef struct {
     int       valid;
 } KilnCamBounds;
 
-/** What to validate. Mirrors the fields of a PMDemoShot rather than taking one,
- *  so this header stays free of pm_demo.h (and therefore of libdragon). */
+/** What to validate. Mirrors the fields of a game's own camera-shot struct
+ *  rather than taking one, so this header stays free of that game's runtime
+ *  headers (and therefore of libdragon). */
 typedef struct {
     const KilnCamKey *keys;
     int   key_count;

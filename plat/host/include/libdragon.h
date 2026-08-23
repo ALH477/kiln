@@ -408,7 +408,7 @@ int kiln_host_tmem_used(void);
 /* ── DragonFS: a directory, on the host ───────────────────────────────
  * On console this reads a filesystem image appended to the ROM. Here it is a
  * directory, rooted at $KILN_HOST_DFS (default "."), with the "rom:/" prefix
- * stripped — so `rom:/maps/pm_lab.map` becomes `$KILN_HOST_DFS/maps/pm_lab.map`.
+ * stripped — so `rom:/maps/oot_test.map` becomes `$KILN_HOST_DFS/maps/oot_test.map`.
  *
  * That mapping is the point rather than a convenience: CLAUDE.md records that
  * an asset builder's `name` IS the filename a ROM must open, and that a

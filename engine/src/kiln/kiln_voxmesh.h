@@ -33,12 +33,12 @@
  * ── Shading ────────────────────────────────────────────────────────────
  *
  * Per-vertex RGBA carries a fixed per-face-direction brightness, so a cube
- * reads as a cube with the lights off. This is the same decision the lab's
- * geometry made — `dank_lab_gen.py` bakes its rig into vertex colours — and it
- * matters more here: an editor has no art director, so if the six faces of a
- * block shade identically the geometry is unreadable and every judgement made
- * standing in it is worthless. Lighting is left to the game that consumes the
- * exported .map.
+ * reads as a cube with the lights off. This is the same decision a generator
+ * that bakes its own fixture rig into vertex colours makes (see the
+ * n64-modeling skill), and it matters more here: an editor has no art
+ * director, so if the six faces of a block shade identically the geometry is
+ * unreadable and every judgement made standing in it is worthless. Lighting
+ * is left to the game that consumes the exported .map.
  */
 #ifndef KILN_VOXMESH_H
 #define KILN_VOXMESH_H
@@ -111,12 +111,12 @@ void kiln_voxmesh_draw(const KilnVoxMesh *m);
  * same image as RGBA16 would be 8 KB and could not be loaded at all. The
  * 16-entry palette limit is also why kiln_voxel caps block types at 15.
  *
- * CI4 is not a size optimisation here, it is the format the scarlet veil is
- * built on (PetaByte Madness's docs/VEIL_DESIGN.md): swap the TLUT and every
- * material changes colour for 32 bytes of DMA and zero extra shaded pixels. So
- * a Forge level is automatically veil-capable, which is the thing the game has
- * been blocked on — pm_veil_bind_palette has had no call site purely for want
- * of a CI4-textured mesh with UVs.
+ * CI4 is not a size optimisation here, it is the format a palette-swap
+ * mechanic is built on (see the n64-modeling skill's "CI4 and a
+ * palette-swap contract"): swap the TLUT and every material changes colour
+ * for 32 bytes of DMA and zero extra shaded pixels. So a Forge level is
+ * automatically capable of that kind of swap, for any game that binds one to
+ * a CI4-textured mesh with UVs.
  *
  * Two TLUTs are held, cold and veiled, and `kiln_voxatlas_bind` picks one. The
  * indices are shared, which is the contract mkVeilTexture exists to enforce

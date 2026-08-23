@@ -71,9 +71,10 @@ static void capture(const char *path)
 }
 
 // ── the screens ───────────────────────────────────────────────────────────
-// Deliberately NOT gg_screens.c: that file is game code and pulls in the
-// board, the turn machine and the actor system. These are the same widget
-// calls with the same style, which is what the design pass needs to see.
+// Deliberately NOT a real game's own screen code: that would pull in the
+// board, the turn machine and the actor system just to look at a layout.
+// These are the same widget calls with the same style, which is what the
+// design pass needs to see.
 
 static const char *const TITLE_ITEMS[] = {
     "START MATCH", "AUTO DEMO", "HOW TO PLAY",
@@ -116,9 +117,9 @@ static void screen_title(const KilnWidgetStyle *st, KilnMenu *menu)
     motes(st);
     kiln_widget_panel_skew(38, 26, W - 76, 48, -st->lean * 1.6f,
                           st->bg, st->accent);
-    wobble_title(W / 2, 52, "GANJA GOBLIN", st, 3.2f, 0.30f);
+    wobble_title(W / 2, 52, "GOBLIN GROVE", st, 3.2f, 0.30f);
     kiln_gui_text(W / 2 - 11 * KILN_WIDGET_CHAR_W, 68, st->dim,
-                 "A HARVEST FOR FOUR GOBLINS");
+                 "A PARTY GAME FOR FOUR GOBLINS");
     kiln_menu_draw(menu, 98, 100, 124, TITLE_ITEMS, NULL, st);
     kiln_gui_text(W / 2 - 13 * KILN_WIDGET_CHAR_W, H - 14, st->dim,
                  "D-PAD MOVE   A CONFIRM   B BACK");
@@ -149,8 +150,8 @@ static void screen_select(const KilnWidgetStyle *st, KilnMenu *menu)
     kiln_gui_text(cx + 8, cy + 34, st->text, "PASSIVE");
     kiln_gui_text(cx + 8, cy + 46, st->dim, "MOVE +1 EVERY 3RD");
     kiln_gui_text(cx + 6, cy + 64, st->text, "SPECIAL");
-    kiln_gui_text(cx + 6, cy + 76, st->dim, "SPARK PLUG");
-    kiln_gui_text(cx + 4, cy + 92, st->warn, "CHARGE: 12 BUDS");
+    kiln_gui_text(cx + 6, cy + 76, st->dim, "QUICK CHARGE");
+    kiln_gui_text(cx + 4, cy + 92, st->warn, "CHARGE: 12 PTS");
 
     for (int p = 0; p < 4; p++) {
         int bx = 12 + p * 76 + (int)(st->jitter * kiln_widget_jitter(p + 40u));
@@ -200,17 +201,17 @@ static void screen_hud(const KilnWidgetStyle *st)
     static const char *names[4] = { "DANK", "SPARKY", "MOSS", "GLIMMER" };
     for (int i = 0; i < 4; i++) {
         slots[i] = (KilnPlayerSlot){
-            .name = names[i], .note = (i == 2) ? "COUCH" : NULL,
+            .name = names[i], .note = (i == 2) ? "DIZZY" : NULL,
             .score = 12 + i * 7, .charge = 0.2f + i * 0.26f,
             .tint = tint[i], .active = (i == 1), .ready = (i == 3),
         };
     }
     kiln_gui_panel(0, 0, W, 16, st->bg, st->border);
-    kiln_gui_text(4, 12, st->accent, "GANJA GROVE");
+    kiln_gui_text(4, 12, st->accent, "GOBLIN GROVE");
     kiln_gui_text(W - 15 * KILN_WIDGET_CHAR_W, 12, st->text, "R 3/10  MOVE");
     kiln_widget_hud_strip(4, 20, 150, slots, 4, st);
     kiln_widget_dice(W - 40, 22, 32, 5, 0, 0.0f, st);
-    kiln_widget_banner(W / 2 - 92, 118, 184, 26, "HARVEST EVENT", 1.0f, st);
+    kiln_widget_banner(W / 2 - 92, 118, 184, 26, "BONUS EVENT", 1.0f, st);
 }
 
 int main(int argc, char **argv)

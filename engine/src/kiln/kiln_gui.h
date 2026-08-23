@@ -67,8 +67,8 @@ void kiln_gui_bar(int x, int y, int w, int h, float frac, color_t fg, color_t bg
  *  Drawn as two shaded triangles rather than a run of kiln_gui_rect calls: an
  *  arbitrary diagonal needs one or the other, and a 200-pixel diagonal is two
  *  triangles here against ~200 fill rectangles the other way. Same
- *  rdpq_triangle(&TRIFMT_SHADE, ...) shape PetaByte Madness' veil vignette
- *  already uses inside the 2D pass.
+ *  rdpq_triangle(&TRIFMT_SHADE, ...) shape a full-screen vignette effect
+ *  would use inside the 2D pass.
  *
  *  Exists for kiln_debugdraw, which projects world-space geometry into screen
  *  space and needs to join the results. It is a general primitive and a HUD is

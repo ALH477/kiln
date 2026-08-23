@@ -69,12 +69,12 @@ def _round(v):
 def capture_rig(rig_path):
     """Read source keyframes straight out of a rig JSON.
 
-    centaur.py and horner.py do not hold their clips in code the way goblin.py
-    does — the clips arrive in assets/rig/<name>.json, produced by
-    PetaByte Madness's tools/{mc,ph}_rig_export.py, and the Blender script's job is
-    only to build an armature and replay them. So for those characters the JSON
-    IS the source-keyframe form this module exists to expose, and running the
-    builder to recover it would be recovering it from itself.
+    A downstream game's own characters did not hold their clips in code the
+    way goblin.py does — the clips arrived in assets/rig/<name>.json, produced
+    by that game's own exporter tools, and the Blender script's job was only
+    to build an armature and replay them. So for a character like that the
+    JSON IS the source-keyframe form this module exists to expose, and
+    running the builder to recover it would be recovering it from itself.
 
     It also cannot be run: their build_armature() does real bpy work on the
     object kilnlib.make_armature returns, and the stub returns None. Stubbing far
@@ -88,11 +88,12 @@ def capture_rig(rig_path):
     whole difference.
 
     ── euler_order is carried, not assumed ─────────────────────────────────
-    horner.json declares "YZX". tools/poser/src/pose.js's convention is Blender
-    pose-bone XYZ, and tools/poser/verify.py exists precisely because a wrong
-    Euler order produces a viewport showing a plausible character doing plausible
-    things that is not the one the ROM will contain. So the order travels with
-    the data and a consumer that ignores it is choosing to.
+    A real rig JSON has declared "YZX" for its source data.
+    tools/poser/src/pose.js's convention is Blender pose-bone XYZ, and
+    tools/poser/verify.py exists precisely because a wrong Euler order
+    produces a viewport showing a plausible character doing plausible
+    things that is not the one the ROM will contain. So the order travels
+    with the data and a consumer that ignores it is choosing to.
     """
     rig = json.loads(Path(rig_path).read_text())
     order = rig.get("euler_order", "XYZ")
@@ -170,8 +171,8 @@ def capture(script, model, rig=None):
     spec = importlib.util.spec_from_file_location("m_" + model, HERE / script)
     mod = importlib.util.module_from_spec(spec)
 
-    # `--rig` for the rig-JSON characters (centaur.py, horner.py). Harmless to
-    # the others: kilnlib.arg() just never looks it up.
+    # `--rig` is for rig-JSON characters. Harmless to the others: kilnlib.arg()
+    # just never looks it up.
     sys.argv = ["blender", "--", "--model", model, "--out", "/dev/null"]
     if rig:
         sys.argv += ["--rig", str(rig)]

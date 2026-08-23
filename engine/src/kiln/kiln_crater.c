@@ -42,9 +42,9 @@ static float crater_contribution(const KilnCraterSlot *s, float x, float z)
 
     const float dx = x - s->x, dz = z - s->z;
     /* sqrtf, not fm_sqrtf: fmath has no fm_sqrtf because plain sqrtf
-     * already compiles to the sqrt.s opcode (see pm_env.c's strike code for
-     * the same reasoning) — this is one sqrt per active crater per vertex
-     * within its radius, not a hot inner loop run every frame regardless. */
+     * already compiles to the sqrt.s opcode — this is one sqrt per active
+     * crater per vertex within its radius, not a hot inner loop run every
+     * frame regardless. */
     const float dist = sqrtf(dx * dx + dz * dz);
     const float falloff = 1.0f - smoothstep01(dist / s->radius);
     return depth_now * falloff;

@@ -242,9 +242,8 @@ echo "n64-rec: wrote $OUT (region $REGION, ${DURATION}s requested, dur ${DUR}s, 
 #      alias badly because it is a >3x reduction, which is the one place a
 #      point filter is the wrong choice.
 #   3. SCALE UP 4x with `neighbor`. Now every console pixel is a hard 4x4
-#      block — the "point-upscaled, so the pixel count you see is the pixel
-#      count you get" convention PetaByte Madness's docs/VEIL_DESIGN.md §10
-#      already uses for its own renders.
+#      block — "point-upscaled, so the pixel count you see is the pixel
+#      count you get."
 #
 # ── The encoder settings are not decoration ───────────────────────────
 # A point-upscale is only worth doing if the codec does not then smear it.

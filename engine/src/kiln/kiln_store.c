@@ -206,8 +206,9 @@ static int try_sd(void)
 /* ── The read-only ROM backend has to mount its own filesystem ──────────
  *
  * `dfs_init(DFS_DEFAULT_LOCATION)` is conventionally the ROM's job in this
- * engine — examples/map-demo, examples/assets-demo and PetaByte Madness all call
- * it in main(). That convention quietly broke this backend: Forge does not load
+ * engine — examples/map-demo and examples/assets-demo both call it in
+ * main(), and every downstream game has too. That convention quietly broke
+ * this backend: Forge does not load
  * models by DFS path, so it had no reason to call dfs_init, and kiln_store
  * happily reported `store rom` over a filesystem that was never mounted. Every
  * read then returned "not found" whether the file was there or not, and the

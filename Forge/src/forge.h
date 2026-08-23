@@ -93,9 +93,9 @@ typedef enum {
 } ForgeLightField;
 
 /* ── CAM ───────────────────────────────────────────────────────────────
- * 32 keys is generous against the real tables: PetaByte Madness' longest is the
- * flyover at 15, and pm_intake's is 17 including three inserted purely to
- * suppress overshoot. */
+ * 32 keys is generous against real tables built with this system: a
+ * downstream game's longest shot used 17, including three keys inserted
+ * purely to suppress overshoot. */
 #define FORGE_MAX_KEYS 32
 
 typedef struct {

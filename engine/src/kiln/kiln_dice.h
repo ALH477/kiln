@@ -5,19 +5,19 @@
 // A "die" here is a face table plus an optional bias per face, not a fixed
 // 1..6 roll. Two reasons:
 //
-//   1. Ganja Goblin's leafy die has "occasional special faces" per the
-//      design doc — a small handful of faces that, when rolled, trigger
-//      unusual effects. That is naturally a face table with extra face
-//      ids, not a uniform 1..6.
+//   1. A party game's themed die commonly wants "occasional special faces" —
+//      a small handful of faces that, when rolled, trigger unusual effects
+//      beyond a plain move count. That is naturally a face table with extra
+//      face ids, not a uniform 1..6.
 //
-//   2. Glimmer's passive is "better dice odds when behind". That is a bias
+//   2. A character passive like "better dice odds when behind" is a bias
 //      tweak on a per-roll basis, not a different die. Letting the caller
 //      pass a bias array per roll means the passive is one line in the
 //      game-side code: bump the bias on the high-value faces when behind.
 //
-// Up to 16 faces — enough for the design doc's "1-6 with occasional special
-// faces" plus headroom, and small enough that the bias table fits in 16
-// bytes. The roll is O(faces) via cumulative-bucket sampling, which is
+// Up to 16 faces — enough for a "1-6 with occasional special faces" die plus
+// headroom, and small enough that the bias table fits in 16 bytes. The roll
+// is O(faces) via cumulative-bucket sampling, which is
 // cheaper than it sounds at face_count <= 16.
 
 #ifndef KILN_DICE_H

@@ -157,12 +157,12 @@ ${lib.optionalString (assets != [ ]) ''
     # byte-for-byte identical to the assetless build — after which every
     # `rom:/` path fails at runtime.
     #
-    # That has now cost two ROMs in this repo. PetaByte Madness shipped without
-    # a filesystem for a while (its Makefile records the whole story at line
-    # 129) because it was copied from a game that had no assets, and Forge
-    # repeated it exactly: `.#forge-dfs` booted with the level absent and no
-    # layer complained, because a missing DFS and an empty one are the same
-    # thing to every reader below.
+    # That has now cost two ROMs built on this engine. A downstream game
+    # shipped without a filesystem for a while because its Makefile was
+    # copied from a game that had no assets, and Forge repeated it exactly:
+    # `.#forge-dfs` booted with the level absent and no layer complained,
+    # because a missing DFS and an empty one are the same thing to every
+    # reader below.
     #
     # So it is a build failure now instead of a runtime mystery. The check is
     # the direct one — did make produce a .dfs — rather than inspecting the

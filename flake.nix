@@ -884,7 +884,8 @@
         # A parody of the Nintendo 64's boot, and a publisher mark rather
         # than any one game's title screen — which is why the runtime half
         # is in the engine (engine/src/kiln/kiln_splash.h) and only the two
-        # assets live here. Ganja Goblin can adopt it with four calls.
+        # assets live here. Any game built on this engine can adopt it with
+        # four calls.
         kilnLogo = blenderLib.mkBlenderModel {
           name = "kiln_logo";
           script = "kiln_logo.py";
