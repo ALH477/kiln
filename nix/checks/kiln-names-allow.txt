@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+#
+# Every place "M64" may still legitimately appear after the Kiln rename.
+# nix/checks/kiln-names.nix strips each of these phrases from a line before
+# looking for a residual "m64", so this file is the whole definition of what
+# the old name is still allowed to mean.
+#
+# Two groups, and the distinction is the point:
+#
+#   1. Identifiers that merely CONTAIN "m64" and belong to somebody else.
+#      xm64/ym64 are libdragon's tracker players (xm64player_*, .xm64, .ym64);
+#      sm64 is Fast64's draw_layer key in the f3d_mat JSON that gltf_to_t3d
+#      reads. A rename that touched either would break the build in a way
+#      that looks like a codegen bug.
+#
+#   2. The ModRetro M64 console, which is a shipping product and keeps its
+#      name. This is the group that makes the gate necessary: without it the
+#      only way to keep these lines correct would be to remember, and the
+#      whole reason the project renamed away from M64 is that one name for
+#      two things does not survive contact with a sed.
+#
+# Adding a line here is a claim that this occurrence is NOT the engine. Say
+# which group it is in.
+
+# group 1 — other people's identifiers
+xm64
+XM64
+ym64
+YM64
+sm64
+
+# group 3 — the pre-rename on-disk format magic, which is DATA, not a name.
+# kiln_store still accepts blobs written before the rename, because a project
+# rename must not strand a level already saved to a flashcart. Three sites:
+# the constant, its explanation, and frg.py's host mirror of the same reader.
+'M64S'
+
+# group 4 — the old name quoted as history in documentation. Identifier forms
+# fail even in prose (a dangling identifier in a document is a document that
+# lies), so the two places CLAUDE.md quotes one to explain what went wrong are
+# named here rather than exempting the file.
+"m64_rng.h"
+"M64L"
+
+# group 2 — the ModRetro M64 console
+ModRetro M64
+M64 is a deployment
+The M64 has no cartridge-side USB
+report's M64
+M64's fixed 48 kHz
+decision — the M64
+the M64 resamples
+with the M64's
+engine for the M64

@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+#
+# Exposes t3d_model_load_buf(void *buf, int sz) by refactoring the existing
+# t3d_model_load(path) into asset_load(path) + t3d_model_load_buf(buf, sz).
+# Pure refactor: t3d_model_load's behaviour is unchanged. Lets a model be
+# parsed from a buffer already in memory — needed by kiln_asset_model, which
+# pulls a .t3dm payload out of a StreamDB container instead of DFS.
+#
+# Applied in nix/tiny3d.nix's postPatch. Upstream-able as-is; until then this
+# is the single fork-divergence point on Tiny3D.
+--- a/src/t3d/t3dmodel.h
++++ b/src/t3d/t3dmodel.h
+@@ -202,6 +202,15 @@
+  */
+ T3DModel* t3d_model_load(const char *path);
+
++/**
++ * Loads a model from a buffer already in memory (e.g. pulled out of a
++ * single-file asset container). The buffer must outlive the model, since
++ * the parsed T3DModel points into it. `sz` is the buffer's byte size.
++ *
++ * @return pointer to the model (caller owns both the buffer and the model)
++ */
++T3DModel* t3d_model_load_buf(void *buf, int sz);
++
+ // callback for custom drawing, this hooks into the tile-setting section
+ typedef void (*T3DModelTileCb)(void* userData, rdpq_texparms_t *tileParams, rdpq_tile_t tile);
+ typedef bool (*T3DModelFilterCb)(void* userData, const T3DObject *obj);
+--- a/src/t3d/t3dmodel.c
++++ b/src/t3d/t3dmodel.c
+@@ -181,13 +181,12 @@
+   return hadMatrixPush;
+ }
+
+-T3DModel *t3d_model_load(const char *path) {
+-  int size = 0;
+-  T3DModel* model = asset_load(path, &size);
++T3DModel *t3d_model_load_buf(void *buf, int size) {
++  T3DModel* model = (T3DModel*)buf;
+   int32_t ptrOffset = (int32_t)(void*)model;
+
+   if(memcmp(model->magic, "T3M", 3) != 0) {
+-    assertf(false, "Invalid T3D model file: %s", path);
++    assertf(false, "Invalid T3D model (bad magic)");
+   }
+   assertf(model->magic[3] == T3DM_VERSION,
+     "Invalid T3D model version: %d != %d\n"
+@@ -270,6 +269,12 @@
+   return model;
+ }
+
++T3DModel *t3d_model_load(const char *path) {
++  int size = 0;
++  void *buf = asset_load(path, &size);
++  return t3d_model_load_buf(buf, size);
++}
++
+ void t3d_model_draw_custom(const T3DModel* model, T3DModelDrawConf conf)
+ {
+   T3DModelState state = t3d_model_state_create();

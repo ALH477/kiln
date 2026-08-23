@@ -1,0 +1,83 @@
+{
+ "model": "dank",
+ "script": "goblin.py",
+ "actions": [
+  {
+   "name": "Idle",
+   "length": 60,
+   "loop": true,
+   "keys": 5,
+   "file": "dank.Idle.json"
+  },
+  {
+   "name": "Walk",
+   "length": 40,
+   "loop": true,
+   "keys": 9,
+   "file": "dank.Walk.json"
+  },
+  {
+   "name": "Wave",
+   "length": 50,
+   "loop": false,
+   "keys": 8,
+   "file": "dank.Wave.json"
+  },
+  {
+   "name": "Taunt",
+   "length": 60,
+   "loop": false,
+   "keys": 7,
+   "file": "dank.Taunt.json"
+  },
+  {
+   "name": "Pose",
+   "length": 72,
+   "loop": true,
+   "keys": 4,
+   "file": "dank.Pose.json"
+  },
+  {
+   "name": "Ride",
+   "length": 60,
+   "loop": true,
+   "keys": 6,
+   "file": "dank.Ride.json"
+  },
+  {
+   "name": "RideDrive",
+   "length": 40,
+   "loop": true,
+   "keys": 6,
+   "file": "dank.RideDrive.json"
+  },
+  {
+   "name": "RideLeft",
+   "length": 30,
+   "loop": false,
+   "keys": 5,
+   "file": "dank.RideLeft.json"
+  },
+  {
+   "name": "RideRight",
+   "length": 30,
+   "loop": false,
+   "keys": 5,
+   "file": "dank.RideRight.json"
+  },
+  {
+   "name": "RideBoost",
+   "length": 46,
+   "loop": false,
+   "keys": 6,
+   "file": "dank.RideBoost.json"
+  },
+  {
+   "name": "RideHit",
+   "length": 52,
+   "loop": false,
+   "keys": 6,
+   "file": "dank.RideHit.json"
+  }
+ ]
+}

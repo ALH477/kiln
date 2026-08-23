@@ -1,0 +1,177 @@
+# Kiln Bass Synth
+
+A 4-controller collaborative bass synthesizer ROM for N64 / ModRetro M64,
+modeled on a Moog Subsequent 37 rather than a synth-action game.
+
+A scripted four-bar intro plays at boot — one engine per bar — to demo the
+system. Any button skips. The same voice allocator, mix, ADSR and stick
+modulation that drive the intro also drive live performance, so the intro
+*is* a real performance of the synth, not a separate audio asset.
+
+## Controls
+
+| Control                        | Action                                                        |
+| ------------------------------ | ------------------------------------------------------------- |
+| **D-pad / C-pad / A B Z L R**  | Play a note in the player's octave (13 chromatic semitones)   |
+| **Analog stick X**             | Body brightness crossfade (live, per held note)               |
+| **Analog stick Y**             | Sub-layer drive: Y up = sub louder, body right-pan             |
+| **Stick magnitude**            | Vibrato (LFO depth scales with stick deflection)              |
+| **C-stick X**                  | ±1 semitone pitch bend                                        |
+| **C-stick Y**                  | Mod-wheel: 0..1 → LFO depth (mod-wheel on stick)              |
+| **Z (held)**                   | Sustain: held note waits in SUSTAIN until Z released          |
+| **Start**                      | Toggle per-player menu (engine/octave/legato/portamento/scale)|
+
+In the menu (Start toggles), D-pad navigates rows, L/R changes the value,
+Start closes. Top strip = global master gain + LFO rate.
+
+## Engines (4 layers)
+
+Each engine is `(body_bright, body_dark, sub)` — three single-cycle
+256-sample wavetables played on two mixer channels per note (body + sub).
+Stick X crossfades body brightness live, sub stays at fixed gain one
+octave below the body.
+
+| Engine       | Body (bright)                          | Sub                  |
+| ------------ | -------------------------------------- | -------------------- |
+| **HEAVY**    | sawtooth                               | low sine             |
+| **SUB**      | sine + 3rd harmonic                    | sine                 |
+| **GROWL**    | 2-op FM (carrier = mod freq)           | low sine             |
+| **INDUSTRIAL** | square + filtered noise              | pure square          |
+
+Default per-player: P1=HEAVY, P2=SUB, P3=GROWL, P4=INDUSTRIAL. Octave
+offsets +0/+12/+24/+36. Both configurable from the menu.
+
+## Per-engine ADSR
+
+| Engine       | Attack | Decay | Sustain | Release |
+| ------------ | ------ | ----- | ------- | ------- |
+| HEAVY        | 5 ms   | 180 ms | 0.7    | 120 ms  |
+| SUB          | 8 ms   | 300 ms | 0.8    | 200 ms  |
+| GROWL        | 4 ms   | 220 ms | 0.6    | 140 ms  |
+| INDUSTRIAL   | 3 ms   | 140 ms | 0.5    |  90 ms  |
+
+Linear ramps, single multiplies per frame — no libm.
+
+## Polyphony and voice management
+
+- **6 simultaneous notes** × 2 channels each = **12 RSP mixer channels**
+- 2-channel atomic allocation; voice steal picks release-phase notes first,
+  sustained second, attack-phase last; ties broken by lowest pitch
+- Always-on portamento (50–500 ms) glides pitch between consecutive
+  legato notes
+- Legato mode (default ON): new note without releasing the held button
+  glides pitch without re-attacking the envelope
+- Stick magnitude + mod-wheel modulate a 5 Hz global LFO driving vibrato
+- Master soft-clip `x/(1+|x|)` per channel before summing to AI
+
+## Boot intro
+
+`INTRO_SCRIPT[]` is a flat list of `{t_ms, player, midi, dur_ms, bend}`
+events that fire through the same `note_on_ext` / `note_off` paths as live
+input. Eight-bar E-minor walking bass:
+- Bar 1 (0–1.5 s): P1 HEAVY walks E2–G2–A2–B2
+- Bar 2 (1.7–3.1 s): P2 SUB rises E3–F3–G3–A3
+- Bar 3 (3.2–4.9 s): P3 GROWL syncopated stabs
+- Bar 4 (5.1–8.5 s): P4 INDUSTRIAL climax with octave power chords,
+  closing E2 bent up one semitone
+
+Any button edge on any controller skips. Skipping force-releases all
+intro notes so the voice allocator doesn't carry phantom held notes
+into the live state.
+
+## Performance
+
+| Metric        | Value                                |
+| ------------- | ------------------------------------ |
+| Voices        | 6 simultaneous notes                 |
+| Mixer channels | 12 (sfx_channels = 12, music = 0)   |
+| Sample rate   | 32000 Hz                             |
+| ROM size      | ~290 KB (uncompressed)               |
+| Wavetables    | 12 × 256 samples × 2 bytes = 6 KB    |
+| VR4300 cost   | per-frame envelope + portamento + LFO + crossfade for ≤12 channels |
+| RSP cost      | 12 single-cycle wavs looped + 12 mixer channels = well within budget |
+| 3D cost       | 12 cubes (body + sub per note), Y-scaled by per-channel volume |
+| Memory        | 4 MB base; no Expansion Pak required |
+
+## Architecture
+
+Single-file ROM (`main.c`), eight sections:
+
+1. **Wavetables** — 12 single-cycle 256-sample mono WAVs generated by
+   `tools/gen_bass_wav.py`, baked as looping VADPCM wav64s by `mkSound`
+   in `flake.nix`. The RSP mixer loops them; `kiln_sfx_set_freq` sets
+   `freq_hz × 256` per frame to produce the desired pitch.
+
+2. **ADSR state machine** — per-engine `{attack_ms, decay_ms, sustain_lvl,
+   release_ms}`. Linear ramp per stage. Sustain is the *held* level after
+   decay; release starts from the current level (so quick retriggers
+   don't click).
+
+3. **Voice allocator** (`g_notes[6]`) — fixed channel pair per slot
+   (slot*2 = body, slot*2+1 = sub). Note-on finds a free slot or steals
+   the lowest-priority active note (release > sustain > attack by note
+   pitch + age).
+
+4. **Input mapping** — `kiln_input_get(port)` for each of the 4 pads.
+   13-button chromatic map; scale quantization at note-on
+   (chromatic / major pentatonic / minor pentatonic / blues). Per-player
+   octave offset. Legato mode glides pitch between consecutive held
+   buttons; portamento always on.
+
+5. **Per-frame update** — ADSR ramp, portamento step (linear interp of
+   `freq_hz * 256`), LFO step (sine at 5 Hz), crossfade (stick X →
+   body_bright share), pitch bend (c-stick X ±1 semitone), mod-wheel
+   depth (c-stick Y → LFO), master soft-clip. ~12 channels × ~15
+   multiplies per frame; well under 1% VR4300 cost at 30 Hz update rate.
+
+6. **Intro sequence** — `INTRO_SCRIPT[]` of `{t_ms, player, midi,
+   dur_ms, bend}` events. `intro_advance()` fires events whose time has
+   come; `intro_drain_offs()` walks a small FIFO of pending note-offs
+   and calls `note_off` when due. Any button edge skips.
+
+7. **UI** — start-toggled menu (engine/octave/legato/portamento/scale
+   per player + global master gain / LFO rate). Always-on activity
+   overlay (per-player engine, octave, legato, scale, stick viz, last
+   note, envelope stage, c-stick bend+mod, voice meter). Intro overlay
+   (title panel, engine legend, progress bar with skip hint).
+
+8. **Save state** — per-player engine/octave/legato/portamento/scale,
+   plus global master gain and LFO rate, persist across reboot via DFS
+   (`bass-synth.pat` at `rom:/`). Written on entering the menu, read on
+   boot; defaults stand if the file is missing.
+
+3D pass draws 12 spectrum cubes (6 notes × 2 layers) Y-scaled per
+channel volume, with sub-layers offset along +X to make the two-channel
+design visible.
+
+## Build
+
+```sh
+nix build .#bass-synth
+./dev shot bass-synth            # boot in Ares, screenshot
+```
+
+`nix flake check` validates the ROM. Per CLAUDE.md, audio verification on
+real hardware is mandatory — emulators (including Ares) get the AI
+clock-divider, RDRAM latency contention, and FPU denormals subtly wrong.
+Test on a real N64 or ModRetro M64 with controllers before trusting
+the sound.
+
+## Files
+
+- `main.c` — the ROM
+- `Makefile` — standard `n64.mk + t3d.mk + kiln.mk` shape
+- `../../tools/gen_bass_wav.py` — wavetable generator
+- `../../assets/bass_wav/*.wav` — the 12 wavetables
+
+## Follow-ups (intentionally not in v2)
+
+- **Per-channel filter biquad** (real subtractive filter) — would mean
+  per-sample VR4300 DSP; out of scope per CLAUDE.md.
+- **Effects** (chorus, delay, reverb) — RSP mixer doesn't have them;
+  would need a custom RSP microcode. Listed in CLAUDE.md's "not yet built."
+- **Polyphony > 6** — each additional note is 2 more mixer channels;
+  max 32 / 2 = 16 notes, but the dual-layer model eats CPU visibility.
+- **Per-player master gain** — currently shared (`g_master_gain`); a
+  menu row is reserved (`FIELD_VOLUME`) but writes to the global.
+- **Custom font** — uses libdragon's built-in debug mono.

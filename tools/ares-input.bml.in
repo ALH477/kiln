@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: MIT
+//
+// tools/ares-input.bml.in — ares settings template for an automated run.
+//
+// tools/n64-input.py substitutes @NAME@ with an assignment string of the
+// form <sdl-guid>/<slot>/<groupID>/<inputID>[/Lo|/Hi], which is what
+// ares' desktop-ui/input/input.cpp parses. The GUID and the indices come
+// from probing the virtual pad through libSDL3, not from a table here —
+// see that file's header for why.
+//
+// The `;;` suffix is not decoration: ares stores three bindings per input
+// joined by ";" (BindingLimit == 3 in desktop-ui/input/input.hpp), and
+// this is the shape it writes itself.
+//
+// L-Up/L-Down/L-Left/L-Right are absent ON PURPOSE. They address the same
+// mapping objects X-Axis/Y-Axis do, and settings.cpp loads the pairs after
+// the individual inputs — so listing both here would have the empty one
+// silently erase the bound one.
+
+Input
+  // A drive run moves windows and takes screenshots, so ares must not be
+  // holding input (or the whole emulator) until it is the focused window.
+  Defocus: Allow
+
+Nintendo64
+  Input
+    Controller.Port.@PORT@
+      Gamepad
+        Up: @DUP@;;
+        Down: @DDOWN@;;
+        Left: @DLEFT@;;
+        Right: @DRIGHT@;;
+        B: @B@;;
+        A: @A@;;
+        C-Up: @CUP@;;
+        C-Down: @CDOWN@;;
+        C-Left: @CLEFT@;;
+        C-Right: @CRIGHT@;;
+        L: @L@;;
+        R: @R@;;
+        Z: @Z@;;
+        Start: @START@;;
+        X-Axis
+          Lo: @XLO@;;
+          Hi: @XHI@;;
+        Y-Axis
+          Lo: @YLO@;;
+          Hi: @YHI@;;

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kiln poser</title>
+<style>
+  :root {
+    color-scheme: dark;
+    font-family: system-ui, sans-serif;
+    --bg: #141024;
+    --panel: #1d1834;
+    --line: #342c56;
+    --accent: #00f578;
+    --muted: #8b83b0;
+    --warn: #ffbe3c;
+    --bad: #ff5a7d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: #e9e6f5; }
+  body { display: flex; font-size: 13px; }
+  #viewport { flex: 1 1 auto; position: relative; overflow: hidden; }
+  #viewport canvas { display: block; }
+  #panel {
+    width: 320px; flex: 0 0 320px; background: var(--panel);
+    border-left: 1px solid var(--line); overflow-y: auto; padding: 10px;
+  }
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 14px 0 6px; font-weight: 600;
+  }
+  h2:first-child { margin-top: 0; }
+  .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .row > * { min-width: 0; }
+  button, select, input {
+    background: #2a2348; color: #e9e6f5; border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 7px; font: inherit;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.dirty { border-color: var(--warn); color: var(--warn); }
+  input[type=range] { flex: 1 1 auto; padding: 0; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  #bones { max-height: 190px; overflow-y: auto; border: 1px solid var(--line);
+           border-radius: 4px; }
+  #bones li { padding: 2px 7px; cursor: pointer; }
+  #bones li:hover { background: #2a2348; }
+  #bones li.cur { background: var(--accent); color: #0d1a12; font-weight: 600; }
+  #keys li {
+    display: flex; gap: 5px; align-items: center; padding: 2px 4px;
+    border-radius: 4px; cursor: pointer;
+  }
+  #keys li.cur { background: #2f2757; }
+  #keys li span { width: 42px; color: var(--muted); }
+  #keys li select { flex: 1 1 auto; padding: 1px 4px; }
+  #keys li button { padding: 0 6px; }
+  #rot { font-family: ui-monospace, monospace; font-size: 12px;
+         background: #120f22; border: 1px solid var(--line); border-radius: 4px;
+         padding: 6px; }
+  #py { width: 100%; font-family: ui-monospace, monospace; font-size: 11px; }
+  #verify { font-size: 12px; padding: 6px; border-radius: 4px;
+            background: #120f22; border: 1px solid var(--line); }
+  #verify.ok { color: var(--accent); }
+  #verify.warn { color: var(--warn); }
+  #verify.bad { color: var(--bad); }
+  #status {
+    position: absolute; left: 10px; bottom: 10px; color: var(--muted);
+    background: #120f22cc; padding: 5px 9px; border-radius: 4px;
+    border: 1px solid var(--line); font-size: 12px; pointer-events: none;
+  }
+  .hint { color: var(--muted); font-size: 11px; line-height: 1.45; }
+</style>
+</head>
+<body>
+  <div id="viewport"><div id="status">booting…</div></div>
+
+  <div id="panel">
+    <h2>model</h2>
+    <div class="row">
+      <select id="model" style="flex:1">
+        <option value="dank">dank</option>
+        <option value="sparky">sparky</option>
+        <option value="moss">moss</option>
+        <option value="glimmer">glimmer</option>
+        <option value="goblin">goblin</option>
+      </select>
+    </div>
+
+    <h2>action</h2>
+    <div class="row">
+      <select id="action" style="flex:1"></select>
+    </div>
+    <div class="row">
+      <label class="hint">len</label>
+      <input id="length" type="number" min="1" max="600" style="width:64px" />
+      <label class="hint"><input id="loop" type="checkbox" /> loop</label>
+      <button id="play" style="margin-left:auto">play</button>
+    </div>
+    <div class="row">
+      <input id="scrub" type="range" min="0" max="60" step="1" value="0" />
+      <span id="frameNum" style="width:28px;text-align:right">0</span>
+    </div>
+
+    <h2>keys <span class="hint" id="onKey">—</span></h2>
+    <div class="row">
+      <button id="setKey" style="flex:1">add key</button>
+    </div>
+    <ul id="keys"></ul>
+
+    <h2>bones</h2>
+    <div class="row">
+      <select id="gizmoMode" style="flex:1">
+        <option value="rotate">rotate</option>
+        <option value="translate">translate</option>
+      </select>
+    </div>
+    <ul id="bones"></ul>
+    <div id="rot" style="margin-top:6px">select a bone</div>
+    <div class="row" style="margin-top:6px">
+      <input id="py" readonly
+             title="paste straight into goblin.py's POSES table" />
+    </div>
+
+    <h2>verify</h2>
+    <div id="verify">—</div>
+    <div class="row" style="margin-top:6px">
+      <button id="reverify">re-check</button>
+      <button id="save" style="margin-left:auto">save JSON</button>
+    </div>
+    <p class="hint">
+      Compares this editor's bake of the SOURCE keyframes against the curves
+      Blender itself baked into the .gltf. Green means the Euler convention
+      and the easing agree with the build; red means one of them drifted.
+    </p>
+
+    <h2>keys/mouse</h2>
+    <p class="hint">
+      drag gizmo — rotate the selected bone in BONE space (the space
+      goblin.py's numbers are in)<br />
+      space — play/pause · ←/→ — step a frame · k — key here<br />
+      Editing off a keyframe creates one, so nothing you do is silently
+      thrown away.
+    </p>
+
+    <h2>round trip</h2>
+    <p class="hint">
+      <code>python3 tools/blender/anim_io.py dump goblin dank tools/poser/data</code>
+      writes the source keyframes here.<br />
+      Save drops a JSON in your downloads; move it back into
+      <code>tools/poser/data/</code>, then point goblin.py at it to build the
+      ROM from what you posed.
+    </p>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kiln map maker</title>
+<style>
+  :root {
+    color-scheme: dark;
+    font-family: system-ui, sans-serif;
+    --bg: #1c2228;
+    --panel: #232a31;
+    --line: #3a444d;
+    --accent: #ffcc33;
+    --muted: #8a99a6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: #e6ecf2; }
+  body { display: flex; }
+  #viewport { flex: 1 1 auto; position: relative; overflow: hidden; }
+  #viewport canvas { display: block; }
+  #sidebar {
+    width: 320px;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    padding: 14px;
+    overflow-y: auto;
+  }
+  h1 { font-size: 14px; margin: 0 0 12px; color: var(--accent); letter-spacing: 0.04em; }
+  h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; letter-spacing: 0.1em; }
+  h3 { font-size: 13px; margin: 0 0 8px; }
+  h4 { font-size: 11px; margin: 12px 0 4px; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .row label { flex: 0 0 56px; font-size: 11px; color: var(--muted); }
+  input, select, button {
+    background: #161b20; color: #e6ecf2; border: 1px solid var(--line);
+    border-radius: 3px; padding: 3px 6px; font-size: 12px;
+  }
+  input[type=number] { width: 64px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .mode-btn, .grid-btn { min-width: 0; }
+  .mode-btn.active, .grid-btn.active { background: var(--accent); color: #1c2228; border-color: var(--accent); }
+  .btn-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .epair-row { display: flex; gap: 4px; margin: 3px 0; }
+  .epair-row input { flex: 1 1 0; min-width: 0; }
+  .epair-row button { flex: 0 0 auto; }
+  .muted { color: var(--muted); font-size: 12px; }
+  #validate-out {
+    white-space: pre-wrap; font-family: ui-monospace, monospace;
+    font-size: 11px; background: #11161a; padding: 8px; border-radius: 3px;
+    border: 1px solid var(--line); margin-top: 6px;
+  }
+  #selection { margin-top: 6px; }
+  #import-file { display: none; }
+  .spawn-label {
+    color: #ff9090; background: rgba(0,0,0,0.55);
+    padding: 1px 5px; border-radius: 2px; font-size: 10px;
+    font-family: ui-monospace, monospace; pointer-events: none;
+  }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div id="viewport"></div>
+<aside id="sidebar">
+  <h1>Kiln MAP MAKER</h1>
+
+  <h2>mode</h2>
+  <div class="btn-row">
+    <button class="mode-btn active" data-mode="select">select</button>
+    <button class="mode-btn" data-mode="create-brush">create brush</button>
+    <button class="mode-btn" data-mode="place-spawn">place spawn</button>
+  </div>
+
+  <h2>grid</h2>
+  <div class="btn-row">
+    <button class="grid-btn" data-grid="8">8</button>
+    <button class="grid-btn active" data-grid="16">16</button>
+    <button class="grid-btn" data-grid="32">32</button>
+    <button class="grid-btn" data-grid="64">64</button>
+  </div>
+
+  <h2>edit</h2>
+  <div class="btn-row">
+    <button id="undo">undo</button>
+    <button id="redo">redo</button>
+  </div>
+
+  <h2>selection</h2>
+  <div id="selection"><p class="muted">nothing selected</p></div>
+
+  <h2>file</h2>
+  <div class="btn-row">
+    <button id="import">import .map</button>
+    <button id="export">export .map</button>
+  </div>
+  <input id="import-file" type="file" accept=".map,text/plain" />
+
+  <h2>validate</h2>
+  <button id="validate">client-side check</button>
+  <div id="validate-out"></div>
+
+  <p class="hint">
+    Drag on the ground plane in <b>create brush</b> mode to sweep an AABB
+    (default 64 units tall; edit numerically after). Click in <b>place spawn</b>
+    mode drops an entity at the cursor. Server-side round-trip via
+    <code>./dev map-validate &lt;file.map&gt;</code>.
+  </p>
+</aside>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js",
+    "three/addons/": "./vendor/addons/"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

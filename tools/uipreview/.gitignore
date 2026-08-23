@@ -1,0 +1,8 @@
+# The build artifact. This file lives IN tools/uipreview/, so the pattern is
+# just the name — it used to read "uipreview/uipreview", which resolves to
+# tools/uipreview/uipreview/uipreview and therefore matched nothing. That is
+# how a 121 KB binary came to be committed at cb6dd81.
+/uipreview
+
+# The rendered screens ARE committed on purpose: they are what a design change
+# gets reviewed against, so a diff that shows them moving is the point.

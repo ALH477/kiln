@@ -1,0 +1,441 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# ./dev — the Kiln developer CLI. One command for the whole loop:
+#   ./dev build [rom]        build a ROM (default: hello)
+#   ./dev run   <rom>        boot it in Ares
+#   ./dev deploy <rom>       upload to a SummerCart64
+#   ./dev debug              read debugf() stdio from the cart
+#   ./dev check              everything CI runs (the pre-push gate)
+#   ./dev doctor             report toolchain / tools / hardware
+# Zero deps; auto-enters `nix develop` when the toolchain isn't on PATH.
+set -uo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO"
+
+usage() {
+  cat <<'H'
+./dev — the Kiln developer CLI
+  build [rom]              nix build .#<rom>            (default: hello)
+  shot  <rom> [out] [s]    boot in Ares on Hyprland, screenshot + pixel stats
+  rec   <rom> [out] [dur] [--native]
+                           boot in Ares on Hyprland, record MP4 (default 60 s,
+                           Ares-only audio via PipeWire app routing; out and
+                           dur are order-free — a bare number is the duration)
+  drive <rom> <script> [outdir]
+                           boot in Ares with a uinput virtual pad and run an
+                           input script (wait/press/hold/stick/shot)
+  run   <rom>              boot the ROM in Ares (never trust an emulator for
+                           audio work — the AI clock and RDRAM contention are
+                           reconstructed inexactly)
+  inspect <rom>            Ares with GDB server + print attach command
+  deploy <rom>             sc64deployer upload -> SummerCart64
+  debug                    read debugf() stdio from SC64 or ED64
+  faust [target]           show a voice's gate output + cycle budget
+  bake  [target]           show baked VADPCM assets + reference render
+  check                    nix flake check (the pre-push gate)
+  doctor                   toolchain, libdragon, cart presence, versions
+
+  Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
+  is the transport in BOTH directions, because an ED64 Plus has no USB:
+  forge-card [mount]       print where the card is mounted (or fail loudly)
+  forge-push <file.map> [mount]
+                           convert a .map to Forge's working format on the card,
+                           so an existing level can be edited on the console
+  forge-pull [mount] [name]
+                           bring a session back: copies the .FRG, the ROM's own
+                           .MAP, the generated light header and the PMCamKey
+                           table into assets/, tails FORGE.LOG, and runs the
+                           strict validator over the map
+Examples:
+  ./dev build hello        ./dev run hello        ./dev deploy hello
+  ./dev inspect hello      ./dev debug
+  ./dev mapmaker                        three.js .map maker on http://localhost:8000
+  ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
+  ./dev forge-push assets/oot_test.map     edit an existing level on the console
+  ./dev forge-pull                       and bring it back
+H
+}
+
+case "${1:-help}" in help | -h | --help) usage; exit 0 ;; esac
+
+# ── auto-enter nix develop if the cross toolchain isn't available ────────────
+have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
+if [ "${DEV_IN_NIX:-}" != 1 ] && ! have_toolchain; then
+  export DEV_IN_NIX=1
+  exec nix develop --command "$REPO/dev" "$@"
+fi
+
+die() { echo "dev: $*" >&2; exit 1; }
+
+# Resolve a ROM name to a .z64 path, building it if needed.
+rom_path() {
+  local name="${1:-hello}" out
+  out="$(nix build --no-link --print-out-paths ".#$name")" || die "build of '$name' failed"
+  local z64
+  z64="$(find "$out" -maxdepth 1 -name '*.z64' | head -1)"
+  [ -n "$z64" ] || die "no .z64 in $out"
+  echo "$z64"
+}
+
+# ── Where is the flashcart's SD card? ─────────────────────────────────────
+# An ED64 Plus has no USB, so the card IS the transport in both directions and
+# every forge-* command needs its mount point. Take it as an argument, else
+# $FORGE_CARD, else look for a removable mount that already has a FORGE/ dir or
+# a forge.z64 on it. Refuse rather than guess: writing a level into the wrong
+# directory is silent and the ROM will not find it next boot.
+forge_find_card() {
+  if [ -n "${1:-}" ]; then
+    [ -d "$1" ] || { echo "dev: $1 is not a directory" >&2; return 1; }
+    echo "$1"; return 0
+  fi
+  if [ -n "${FORGE_CARD:-}" ]; then
+    [ -d "$FORGE_CARD" ] || { echo "dev: FORGE_CARD=$FORGE_CARD is not a directory" >&2; return 1; }
+    echo "$FORGE_CARD"; return 0
+  fi
+  for base in /run/media/"$USER" /media/"$USER" /mnt; do
+    [ -d "$base" ] || continue
+    for m in "$base"/*; do
+      [ -d "$m" ] || continue
+      if [ -d "$m/FORGE" ] || [ -f "$m/forge.z64" ] || [ -f "$m/FORGE.Z64" ]; then
+        echo "$m"; return 0
+      fi
+    done
+  done
+  echo "dev: could not find the flashcart's SD card." >&2
+  echo "     Pass it: ./dev forge-pull /run/media/$USER/ED64" >&2
+  echo "     Or export FORGE_CARD=/path/to/card" >&2
+  return 1
+}
+
+
+cmd="$1"; shift
+case "$cmd" in
+  build)
+    nix build --print-out-paths ".#${1:-hello}"
+    ;;
+
+  run)
+    z64="$(rom_path "${1:-hello}")" || exit 1
+    echo "dev: booting $z64 in Ares"
+    echo "dev: NOTE — emulators reconstruct the AI clock divider and RDRAM"
+    echo "dev:        contention inexactly. Validate audio on hardware."
+    nix run .#ares -- "$z64"
+    ;;
+
+  inspect)
+    rom="${1:-hello}"
+    z64="$(rom_path "$rom")" || exit 1
+
+    # Ares mutates its settings file, so use a throwaway config dir.
+    cfgdir="$(mktemp -d)"
+    trap 'rm -rf "$cfgdir"' EXIT
+
+    # Find the debug ELF produced by mkN64Rom.
+    out="$(nix build --no-link --print-out-paths ".#$rom")"
+    elf="$(find "$out" -path '*/lib/debug/*.elf' | head -1)"
+
+    echo "dev: launching Ares with GDB server for $rom"
+    echo "dev: GDB server on localhost:24689"
+    if [ -n "$elf" ]; then
+      echo "dev: attach: gdb-multiarch -ex 'target remote :24689' '$elf'"
+    else
+      echo "dev: no debug ELF found in $out (ROM may not have debug info)"
+    fi
+    echo "dev: press Ctrl-C in this terminal to stop Ares"
+
+    nix run .#ares -- "$z64" \
+        --settings-file "$cfgdir/ares-settings.bml" \
+        --setting Boot/Debugger=true \
+        --setting Boot/AwaitGDBClient=true \
+        --setting DebugServer/Enabled=true \
+        --setting DebugServer/Port=24689 \
+        --setting DebugServer/UseIPv4=true
+    ;;
+
+  shot)
+    # Boot the ROM in Ares on the live Hyprland session and capture the window.
+    rom="${1:-hello}"; out="${2:-$rom.png}"; settle="${3:-8}"
+    z64="$(rom_path "$rom")" || exit 1
+    ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}" \
+      bash "$REPO/tools/n64-shot.sh" "$z64" "$out" "$settle" || exit 1
+
+    # Report what actually got rendered. This exists because eyeballing a
+    # downscaled screenshot of a 640x240 console on a mostly-black screen is
+    # genuinely misleading — it reads as "black" when the text is right there.
+    # Pixel counts do not have that failure mode.
+    python3 - "$out" <<'PY'
+import sys
+try:
+    from PIL import Image
+except ImportError:
+    sys.exit("(install pillow for pixel stats)")
+from collections import Counter
+im = Image.open(sys.argv[1]).convert("RGB")
+data = list(im.getdata())
+top = Counter(data).most_common(4)
+total = len(data)
+print("── frame stats ──")
+print("  size: %dx%d" % im.size)
+for colour, n in top:
+    print("  rgb%-16s %6.2f%%" % (str(colour), 100.0 * n / total))
+nonblack = sum(n for c, n in Counter(data).items() if sum(c) > 60)
+print("  non-black: %.2f%% (%d px)" % (100.0 * nonblack / total, nonblack))
+if nonblack < total * 0.0005:
+    print("  WARNING: frame is essentially empty — the ROM may not be rendering")
+PY
+    ;;
+
+  drive)
+    # Boot the ROM in Ares with a uinput virtual gamepad and run an input
+    # script against it. This is what makes screens behind "press start"
+    # reachable at all: a fresh ares config has every binding empty, so
+    # without it nothing past the boot splash can ever be captured.
+    rom="${1:?usage: ./dev drive <rom> <script.txt> [outdir] [settle]}"
+    script="${2:?usage: ./dev drive <rom> <script.txt> [outdir] [settle]}"
+    outdir="${3:-$rom-shots}"
+    # 3 s, not `shot`'s 8: the first thing intro.txt captures is the boot
+    # splash, which is over 3.8 s after the ROM starts.
+    settle="${4:-3}"
+    z64="$(rom_path "$rom")" || exit 1
+    export ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}"
+    bash "$REPO/tools/n64-drive.sh" "$z64" "$script" "$outdir" "$settle" || exit 1
+    ;;
+
+  rec)
+    # Boot the ROM in Ares on the live Hyprland session and record a clip.
+    # Mirrors `shot` above; tools/n64-rec.sh drives gpu-screen-recorder with
+    # Ares-only audio (-a app:ares) so other apps playing on the desktop do
+    # not bleed into the soundtrack.
+    # `./dev rec <rom> [out.mp4] [dur] [--native]`, in any order after the
+    # ROM: a bare number is the duration, anything else is the output path.
+    # The two used to be strictly positional and the usage text disagreed
+    # with the code about which came first, so both orders now work and
+    # neither can be silently misread as the other.
+    native=0; rom=""; dur=""; out=""
+    for a in "$@"; do
+      case "$a" in
+        --native) native=1 ;;
+        *) if   [ -z "$rom" ]; then rom="$a"
+           elif [[ "$a" =~ ^[0-9]+([.][0-9]+)?$ ]]; then dur="$a"
+           else out="$a"; fi ;;
+      esac
+    done
+    rom="${rom:-cinematic-demo}"; dur="${dur:-60}"; out="${out:-$rom.mp4}"
+    z64="$(rom_path "$rom")" || exit 1
+    # export, not a command prefix: the prefix form was written with a
+    # trailing backslash onto a COMMENT line, which made it a plain shell
+    # assignment. ARES then never reached n64-rec.sh's environment and the
+    # script silently fell back to whatever `ares` was on PATH — or failed
+    # outright when none was.
+    export ARES="${ARES:-$(nix build --no-link --print-out-paths .#ares-bin 2>/dev/null)/bin/ares}"
+    NATIVE="$native" bash "$REPO/tools/n64-rec.sh" "$z64" "$out" "$dur" || exit 1
+    ;;
+
+  deploy)
+    z64="$(rom_path "${1:-hello}")" || exit 1
+    echo "dev: uploading $z64 to SummerCart64"
+    nix run .#sc64 -- upload "$z64"
+    ;;
+
+  debug)
+    # Auto-detect the connected flashcart by USB VID/PID.
+    if lsusb 2>/dev/null | grep -q '0403:6014'; then
+      echo "dev: SC64 (0403:6014) detected — reading debugf() stdio (ctrl-c to stop)"
+      nix run .#sc64 -- debug
+    elif lsusb 2>/dev/null | grep -q '0403:6001'; then
+      echo "dev: ED64 (0403:6001) detected — reading debugf() stdio (ctrl-c to stop)"
+      nix run .#unfloader -- -d
+    else
+      echo "dev: no supported flashcart detected (looked for 0403:6014 SC64, 0403:6001 ED64)"
+      echo "dev: if a cart is plugged in, ensure nixosModules.n64-flashcart is enabled"
+      exit 1
+    fi
+    ;;
+
+  faust)
+    # Compile a live on-console voice and show its gate + budget report.
+    name="${1:-ks-voice}"
+    out="$(nix build --no-link --print-out-paths ".#$name")" || exit 1
+    echo "── undefined symbols (the no-libm gate reads these) ──"
+    cat "$out/share/undefined.txt"
+    echo "── static cycle budget ──"
+    cat "$out/share/budget.txt"
+    echo
+    echo "object: $out/lib/"
+    echo "NOTE: the cycle figure is a static instruction count weighted by the"
+    echo "      VR4300 latency table. It models neither cache nor the ~640ns"
+    echo "      RDRAM latency. Profile on hardware with TICKS for real numbers."
+    ;;
+
+  bake)
+    # Render an instrument offline at full quality and VADPCM-encode it.
+    name="${1:-ks-baked}"
+    out="$(nix build --no-link --print-out-paths ".#$name")" || exit 1
+    echo "── baked assets (drop into a ROM via mkN64Rom's \`assets\`) ──"
+    ls -l "$out/filesystem/"
+    echo "── full-quality reference render (golden A/B source) ──"
+    ls -l "$out/share/"
+    ;;
+
+  check)
+    nix flake check --print-build-logs
+    ;;
+
+  mapmaker)
+    # Launch the three.js .map maker (tools/mapmaker/) on http://localhost:8000.
+    # Dev-only — outside the hermetic build, same split as tools/blender-mcp/.
+    nix run .#mapmaker
+    ;;
+
+  poser)
+    # Launch the three.js animation editor (tools/poser/) on :8001.
+    # Dev-only, same split as mapmaker and tools/blender-mcp/.
+    nix run .#poser
+    ;;
+  poser-stage)
+    # Rebuild the models the poser loads and re-dump their source keyframes.
+    ./tools/poser/stage.sh "$@"
+    ;;
+  poser-verify)
+    # Prove the editor's Euler convention against Blender's own export.
+    nix run .#poser-verify -- "$@"
+    ;;
+  map-validate)
+    # Round-trip a .map through quake_map.py's pure-Python CSG + report counts
+    # vs. the engine's limits. Run after exporting from the map maker.
+    shift
+    nix run .#map-validate -- "$@"
+    ;;
+
+  forge-card)
+    # Where is the flashcart's SD card mounted? Everything below needs it, and
+    # guessing is how you write a level into $HOME.
+    forge_find_card "${1:-}"
+    ;;
+
+  forge-push)
+    # Put a .map onto the card as a Forge working file, so an existing level can
+    # be EDITED on the console. This is what makes Forge a tool for the game that
+    # exists rather than only for new content.
+    #
+    #   ./dev forge-push assets/oot_test.map [/run/media/you/ED64]
+    src="${1:?usage: dev forge-push <file.map> [card-mount]}"
+    card="$(forge_find_card "${2:-}")" || exit 1
+    mkdir -p "$card/FORGE"
+    # frommap WARNS on anything off the 32-unit block grid rather than silently
+    # rounding it, because a wall that moves half a metre during an import is the
+    # kind of change noticed three sessions later. Warnings go to stderr and do
+    # not stop the push; read them.
+    python3 "$REPO/tools/forge/frg.py" frommap "$src" "$card/FORGE/LEVEL.FRG"
+    echo "pushed $src -> $card/FORGE/LEVEL.FRG"
+    echo "put forge.z64 on the card too if it is not already there:"
+    echo "  nix build .#forge && cp -L result/forge.z64 \"$card/\""
+    ;;
+
+  forge-pull)
+    # Bring a session off the card and into the tree. The ROM has already written
+    # the .MAP as plain text in the dialect this repo pins, so this is a copy plus
+    # the strict validator — not a decoder. That is the whole reason forge_io.c
+    # emits ASCII.
+    #
+    #   ./dev forge-pull [card-mount] [dest-name]
+    card="$(forge_find_card "${1:-}")" || exit 1
+    name="${2:-forge_level}"
+    dir="$card/FORGE"
+    [ -d "$dir" ] || { echo "dev: no FORGE/ on $card — has the ROM saved yet?" >&2; exit 1; }
+
+    echo "── on the card ──"
+    ls -la "$dir"
+    echo
+
+    if [ -f "$dir/LEVEL.FRG" ]; then
+      cp "$dir/LEVEL.FRG" "$REPO/assets/$name.frg"
+      python3 "$REPO/tools/forge/frg.py" info "$REPO/assets/$name.frg"
+    else
+      echo "dev: no LEVEL.FRG — nothing was saved" >&2
+      exit 1
+    fi
+
+    # Prefer the ROM's own .MAP. Fall back to re-deriving it from the .FRG, which
+    # is what happens on the save-chip backend where text cannot be written —
+    # and SAY which one it was, because the two agreeing is a property worth
+    # noticing and their disagreeing is worth investigating.
+    if [ -f "$dir/LEVEL.MAP" ]; then
+      cp "$dir/LEVEL.MAP" "$REPO/assets/$name.map"
+      echo "map: taken from the ROM's own emit"
+      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" /tmp/forge_check.map
+      if diff -q /tmp/forge_check.map "$REPO/assets/$name.map" >/dev/null 2>&1; then
+        echo "map: ROM emit and host mirror agree byte for byte"
+      else
+        echo "map: NOTE the ROM's emit differs from the host mirror" >&2
+        diff -u /tmp/forge_check.map "$REPO/assets/$name.map" | head -20 >&2 || true
+      fi
+    else
+      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" "$REPO/assets/$name.map"
+      echo "map: re-derived on the host (the ROM could not write text)"
+    fi
+
+    # The derived text artifacts. Each is optional: a level with no camera path
+    # has no .KEY, and a save on the SRAM fallback has none of them at all
+    # (kiln_store_write_text is SD-only). Absent is normal, so it is reported
+    # rather than treated as an error.
+    if [ -f "$dir/LEVEL.H" ]; then
+      cp "$dir/LEVEL.H" "$REPO/assets/${name}_light.h"
+      echo "light: assets/${name}_light.h"
+    else
+      echo "light: none on the card"
+    fi
+    if [ -f "$dir/LEVEL.KEY" ]; then
+      cp "$dir/LEVEL.KEY" "$REPO/assets/${name}_keys.h"
+      echo "cam:   assets/${name}_keys.h ($(grep -c '^    {' "$dir/LEVEL.KEY") keys)"
+      echo "       paste the table into the shot's own .c — it is already"
+      echo "       validated by kiln_camlint, the same module Forge's CAM mode runs live"
+    else
+      echo "cam:   none on the card (no keys, or the validator refused them —"
+      echo "       check FORGE.LOG below)"
+    fi
+
+    [ -f "$dir/FORGE.LOG" ] && { echo; echo "── FORGE.LOG (tail) ──"; tail -20 "$dir/FORGE.LOG"; }
+
+    echo
+    echo "── validate ──"
+    nix run .#map-validate -- "$REPO/assets/$name.map"
+    echo
+    echo "wrote assets/$name.frg and assets/$name.map"
+    echo "git diff assets/$name.map to review the change."
+    ;;
+
+  doctor)
+    echo "── toolchain ──"
+    if command -v mips64-elf-gcc >/dev/null 2>&1; then
+      mips64-elf-gcc --version | head -1
+      echo "  target: $(mips64-elf-gcc -dumpmachine)"
+    else
+      echo "  MISSING (run inside 'nix develop')"
+    fi
+    echo "── libdragon ──"
+    echo "  N64_INST=${N64_INST:-<unset>}"
+    for t in n64tool mkdfs audioconv64 n64sym; do
+      if [ -x "${N64_INST:-}/bin/$t" ]; then echo "  $t: ok"; else echo "  $t: MISSING"; fi
+    done
+    echo "── hardware ──"
+    if lsusb 2>/dev/null | grep -qi '0403:6014'; then
+      echo "  SummerCart64 (FT232H 0403:6014): present"
+    else
+      echo "  SummerCart64: not detected"
+    fi
+    if lsusb 2>/dev/null | grep -qi '0403:6001'; then
+      echo "  ED64 (FT245R 0403:6001): present"
+    else
+      echo "  ED64: not detected"
+    fi
+    echo "  (if a cart is plugged in, you likely need nixosModules.n64-flashcart)"
+    ;;
+
+
+  *)
+    echo "dev: unknown command '$cmd'" >&2
+    usage
+    exit 1
+    ;;
+esac
