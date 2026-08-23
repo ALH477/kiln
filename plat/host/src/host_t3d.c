@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_t3d.c — the 3D half of the host backend.
  *
@@ -48,15 +48,37 @@
 
 #define MATRIX_STACK 16
 
+/* ── The vertex cache holds TRANSFORMED vertices, not model-space ones ──
+ * This is the semantic that rigid skinning rests on, and it is easy to get
+ * wrong in a way only a skinned model exposes. Tiny3D's t3d_model_draw_object
+ * says it outright: "load vertices, this will already do T&L (so
+ * matrices/fog/lighting must be set before)". The transform happens at LOAD
+ * time, against whatever matrix is current, and the cache accumulates results.
+ *
+ * That is how one-bone-per-vertex skinning works with no per-vertex weights:
+ * gltf_to_t3d splits the mesh into one T3DObjectPart per bone, each carrying a
+ * matrixIdx, and the draw loop pushes that bone's matrix, loads that part's
+ * vertices into its own slice of the cache, and only then draws indices
+ * spanning all of them. assets/skel_test.gltf is exactly this — part 0 has
+ * matrixIdx 1 and draws nothing, part 1 has matrixIdx 0 and draws 72 indices
+ * across both slices.
+ *
+ * Transforming at DRAW time instead is indistinguishable for every
+ * single-matrix consumer (kiln_map, kiln_voxmesh, an unskinned model) and
+ * silently collapses a skinned model onto its last bone. */
 typedef struct {
-    fm_vec3_t pos;      /* model space, as loaded */
-    fm_vec3_t norm;
-    uint8_t   r, g, b, a;
-    float     s, t;
-} Vtx;
+    float   x, y, z, w;     /* clip space */
+    uint8_t r, g, b, a;     /* lit, and fogged */
+    float   sow, tow;       /* s/w, t/w for perspective-correct UV */
+} Out;
 
-static Vtx        g_cache[T3D_VERTEX_CACHE];
+static Out        g_cache[T3D_VERTEX_CACHE];
 static int        g_cache_valid[T3D_VERTEX_CACHE];
+
+/* Defined below, beside the lighting it invokes; declared here because
+ * t3d_vert_load is where it is called from. */
+static void transform_vertex(const fm_vec3_t *pos, const fm_vec3_t *nrm,
+                             uint32_t rgba, float s, float t, Out *o);
 
 static fm_mat4_t  g_stack[MATRIX_STACK];
 static int        g_depth;                 /* 0 = identity only */
@@ -387,20 +409,21 @@ void t3d_vert_load(const T3DVertPacked *vertices, uint32_t offset, uint32_t coun
             "cache. kiln_voxmesh batches 68 for exactly this reason.",
             offset, count, T3D_VERTEX_CACHE);
 
+    assertf(g_vp != NULL, "t3d_vert_load before t3d_viewport_attach: the "
+            "transform happens HERE, not at draw time");
     g_c.vert_loads++;
     for (uint32_t i = 0; i < count; i++) {
         const T3DVertPacked *p = &vertices[(offset + i) / 2];
         const int second = ((offset + i) & 1) != 0;
-        Vtx *v = &g_cache[offset + i];
         const int16_t *pos = second ? p->posB : p->posA;
-        v->pos = (fm_vec3_t){{ (float)pos[0], (float)pos[1], (float)pos[2] }};
-        unpack_normal(second ? p->normB : p->normA, &v->norm);
-        const uint32_t rgba = second ? p->rgbaB : p->rgbaA;
-        v->r = (uint8_t)(rgba >> 24); v->g = (uint8_t)(rgba >> 16);
-        v->b = (uint8_t)(rgba >> 8);  v->a = (uint8_t)rgba;
-        const int16_t *st = second ? p->stB : p->stA;
-        v->s = (float)st[0] / 32.0f;   /* s10.5 */
-        v->t = (float)st[1] / 32.0f;
+        const int16_t *st  = second ? p->stB  : p->stA;
+        const fm_vec3_t mp = {{ (float)pos[0], (float)pos[1], (float)pos[2] }};
+        fm_vec3_t nrm;
+        unpack_normal(second ? p->normB : p->normA, &nrm);
+        transform_vertex(&mp, &nrm, second ? p->rgbaB : p->rgbaA,
+                         (float)st[0] / 32.0f,   /* s10.5 pixel coords */
+                         (float)st[1] / 32.0f,
+                         &g_cache[offset + i]);
         g_cache_valid[offset + i] = 1;
         g_c.verts++;
     }
@@ -414,24 +437,24 @@ void *t3d_vertbuffer_get_pos(T3DVertPacked *vert, uint32_t idx)
 
 /* ── triangles ────────────────────────────────────────────────────────── */
 
-typedef struct {
-    float   x, y, z, w;
-    uint8_t r, g, b, a;
-    float   sow, tow;   /* s/w and t/w, for perspective-correct interpolation */
-} Out;
-
-static void shade(const Vtx *v, Out *o)
+/* Lighting, per vertex, exactly where Tiny3D does it: at load time, in the
+ * space the matrix has already put the normal into. */
+static void shade(const fm_vec3_t *nrm, uint32_t rgba, Out *o)
 {
-    float r = v->r / 255.0f, g = v->g / 255.0f, b = v->b / 255.0f;
+    float r = (float)((rgba >> 24) & 0xFF) / 255.0f;
+    float g = (float)((rgba >> 16) & 0xFF) / 255.0f;
+    float b = (float)((rgba >> 8) & 0xFF) / 255.0f;
+    o->a = (uint8_t)(rgba & 0xFF);
+
     if (!(g_flags & T3D_FLAG_NO_LIGHT)) {
         float lr = g_ambient[0] / 255.0f, lg = g_ambient[1] / 255.0f,
               lb = g_ambient[2] / 255.0f;
         for (int i = 0; i < g_light_count; i++) {
-            /* Tiny3D lights per vertex, with the light direction pointing
-             * FROM the surface toward the source. */
-            float d = -(v->norm.v[0] * g_lights[i].dir.v[0]
-                      + v->norm.v[1] * g_lights[i].dir.v[1]
-                      + v->norm.v[2] * g_lights[i].dir.v[2]);
+            /* Tiny3D's light direction points FROM the surface toward the
+             * source, so the lambert term is -dot(N, dir). */
+            float d = -(nrm->v[0] * g_lights[i].dir.v[0]
+                      + nrm->v[1] * g_lights[i].dir.v[1]
+                      + nrm->v[2] * g_lights[i].dir.v[2]);
             if (d < 0.0f) d = 0.0f;
             lr += d * g_lights[i].color[0] / 255.0f;
             lg += d * g_lights[i].color[1] / 255.0f;
@@ -442,51 +465,58 @@ static void shade(const Vtx *v, Out *o)
     o->r = (uint8_t)(fminf(r, 1.0f) * 255.0f + 0.5f);
     o->g = (uint8_t)(fminf(g, 1.0f) * 255.0f + 0.5f);
     o->b = (uint8_t)(fminf(b, 1.0f) * 255.0f + 0.5f);
-    o->a = v->a;
 }
 
-static void transform(const Vtx *v, Out *o)
+/* Model space -> clip space, through the matrix stack top then the attached
+ * viewport, plus lighting and fog. Both matrices are column-major (fm_mat4_t's
+ * own doc says so), so a row of the product reads m[col][row]. */
+static void transform_vertex(const fm_vec3_t *pos, const fm_vec3_t *nrm,
+                             uint32_t rgba, float s, float tt, Out *o)
 {
-    fm_vec3_t p = v->pos;
+    fm_vec3_t p = *pos, n = *nrm;
     if (g_depth > 0) {
         const fm_mat4_t *m = &g_stack[g_depth - 1];
-        fm_vec3_t q = {{
+        const fm_vec3_t q = {{
             m->m[0][0]*p.v[0] + m->m[1][0]*p.v[1] + m->m[2][0]*p.v[2] + m->m[3][0],
             m->m[0][1]*p.v[0] + m->m[1][1]*p.v[1] + m->m[2][1]*p.v[2] + m->m[3][1],
             m->m[0][2]*p.v[0] + m->m[1][2]*p.v[1] + m->m[2][2]*p.v[2] + m->m[3][2] }};
-        p = q;
+        /* The normal takes the rotation only — no translation. Non-uniform
+         * scale would want the inverse transpose; bone matrices here are rigid
+         * plus uniform scale, where the 3x3 is enough. */
+        const fm_vec3_t nn = {{
+            m->m[0][0]*n.v[0] + m->m[1][0]*n.v[1] + m->m[2][0]*n.v[2],
+            m->m[0][1]*n.v[0] + m->m[1][1]*n.v[1] + m->m[2][1]*n.v[2],
+            m->m[0][2]*n.v[0] + m->m[1][2]*n.v[1] + m->m[2][2]*n.v[2] }};
+        p = q; n = nn;
+        if (fm_vec3_len(&n) > 1e-6f) fm_vec3_norm(&n, &n);
     }
+
     const fm_mat4_t *cv = &g_vp->matCamera;
-    float ex = cv->m[0][0]*p.v[0] + cv->m[1][0]*p.v[1] + cv->m[2][0]*p.v[2] + cv->m[3][0];
-    float ey = cv->m[0][1]*p.v[0] + cv->m[1][1]*p.v[1] + cv->m[2][1]*p.v[2] + cv->m[3][1];
-    float ez = cv->m[0][2]*p.v[0] + cv->m[1][2]*p.v[1] + cv->m[2][2]*p.v[2] + cv->m[3][2];
+    const float ex = cv->m[0][0]*p.v[0] + cv->m[1][0]*p.v[1] + cv->m[2][0]*p.v[2] + cv->m[3][0];
+    const float ey = cv->m[0][1]*p.v[0] + cv->m[1][1]*p.v[1] + cv->m[2][1]*p.v[2] + cv->m[3][1];
+    const float ez = cv->m[0][2]*p.v[0] + cv->m[1][2]*p.v[1] + cv->m[2][2]*p.v[2] + cv->m[3][2];
 
     const fm_mat4_t *pr = &g_vp->matProj;
     o->x = pr->m[0][0]*ex;
     o->y = pr->m[1][1]*ey;
     o->z = pr->m[2][2]*ez + pr->m[3][2];
     o->w = -ez;                 /* right-handed: view -Z is forward */
-    shade(v, o);
-    /* Perspective-correct UV: s/w and t/w interpolate linearly in screen
-     * space, 1/w does too, and the quotient recovers s. The RDP does the same
-     * (rdpq_mode_persp, which Tiny3D's t3d_frame_start turns on), so affine
-     * interpolation here would swim visibly on anything but a screen-parallel
-     * quad — and would look like a UV authoring mistake. */
-    const float iw = (o->w > 1e-6f) ? (1.0f / o->w) : 0.0f;
-    o->sow = v->s * iw;
-    o->tow = v->t * iw;
+
+    shade(&n, rgba, o);
 
     if (g_fog_on) {
-        float d = -ez;
+        const float d = -ez;
         float f = (d - g_fog_near) / (g_fog_far - g_fog_near);
         f = fminf(fmaxf(f, 0.0f), 1.0f);
-        /* rdpq_set_fog_color's value is what the RDP blends toward; the host
-         * reads it back through the same call the engine makes. */
         const color_t fc = kiln_hostfb_fog_color();
         o->r = (uint8_t)(o->r + (fc.r - o->r) * f);
         o->g = (uint8_t)(o->g + (fc.g - o->g) * f);
         o->b = (uint8_t)(o->b + (fc.b - o->b) * f);
     }
+
+    const float iw = (o->w > 1e-6f) ? (1.0f / o->w) : 0.0f;
+    o->sow = s * iw;
+    o->tow = tt * iw;
 }
 
 static inline float edge(float ax, float ay, float bx, float by, float px, float py)
@@ -509,8 +539,8 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
     }
     g_c.tris_submitted++;
 
-    Out o[3];
-    for (int k = 0; k < 3; k++) transform(&g_cache[idx[k]], &o[k]);
+    /* Already transformed, at load time. */
+    const Out o[3] = { g_cache[idx[0]], g_cache[idx[1]], g_cache[idx[2]] };
 
     /* No near-plane clipping: reject the whole triangle if any vertex is at or
      * behind the eye. Tiny3D CLIPS by default (guard band) and only rejects
