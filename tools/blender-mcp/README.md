@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: MIT -->
 # Kiln Blender MCP — Quake / Godot map import
 
 **Not related to, and shares no code with, the third-party

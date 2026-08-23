@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_widget.h — composite screen furniture layered on kiln_gui.
  *

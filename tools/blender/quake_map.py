@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """quake_map.py — import a Quake .map (standard/"Valve 220" NOT supported,
 see below) into geometry via kilnlib, so it flows through the same
 Blender -> f3d_inject -> gltf_to_t3d pipeline every other model here does.

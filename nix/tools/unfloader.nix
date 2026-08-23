@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/tools/unfloader.nix — N64-UNFLoader host-side tool.
 #

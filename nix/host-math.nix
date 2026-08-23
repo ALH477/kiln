@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/host-math.nix — libdragon's OWN fast-math library, compiled for the host.
 #

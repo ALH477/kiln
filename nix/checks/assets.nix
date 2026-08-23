@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/assets.nix — the asset conversion tools must be deterministic.
 #

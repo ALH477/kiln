@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_audio.h — the audio layer of the Kiln engine.
  *

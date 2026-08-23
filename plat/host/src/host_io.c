@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_io.c — DragonFS, the joypad, EEPROM, sprites and the flashcart, on the
  * host.

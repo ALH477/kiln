@@ -115,11 +115,12 @@ cursor or a light aim, and holding the view still is what makes the judgement
 possible — a light judged while the camera moves is a light judged against a
 moving target.
 
-**PAINT is on the console because the veil discards hue.** `VEIL_DESIGN.md` §4:
-under the filter only VALUE carries, so a ramp separated by hue stops reading
-entirely. Whether 16 colours still separate through a TLUT swap at 320x240 on a
-CRT is not answerable from a host preview — `Z` flips cold/veiled with the
-geometry still on screen behind the canvas.
+**PAINT is on the console because a palette-swap mechanic (`tools/veil_palette.py`,
+`assetLib.mkVeilTexture`) can discard hue entirely** — a filter where only
+VALUE carries makes a ramp separated by hue stop reading altogether. Whether
+16 colours still separate through a TLUT swap at 320x240 on a CRT is not
+answerable from a host preview — `Z` flips between a level's two baked
+palettes with the geometry still on screen behind the canvas.
 
 **CAM validates before it saves.** `kiln_camlint` — the same module
 `./dev cine-lint` runs — checks the table every frame, and a hard failure means
@@ -135,10 +136,9 @@ one is the LOOK path, which overshoots the same way and is usually what makes a
 camera feel drunk.
 
 Look is on the C-**buttons** as well as the C-stick deliberately:
-`kiln_fpscam` reads only the stick and a real N64 controller does not have one
-(`pm_cine.c:271`). Fly speed scales off the far plane, the same fix
-`pm_cine`'s free-fly uses, because one speed is unusable across both a
-512-unit room and an 8192-unit world.
+`kiln_fpscam` reads only the stick and a real N64 controller does not have a
+second one. Fly speed scales off the far plane, because one speed is
+unusable across both a 512-unit room and an 8192-unit world.
 
 **WALK is the mode that justifies the tool.** It installs the greedy-meshed
 boxes as the real clip world and hands the pad to the real `kiln_fpscam` — not an
@@ -184,10 +184,12 @@ load ok
 
 ## 5. `kiln_camkey` / `kiln_camlint` — one implementation, four consumers
 
-The keyframe curve and its validator used to be PM-local (`pm_camkey.h`,
-`pm_cine_lint.*`). Both are now engine modules; the PM headers are shims —
-typedefs and defines, not second implementations — so every existing keyframe
-table and `pm-cine-check.c` compile untouched.
+The keyframe curve and its validator were originally local to PetaByte
+Madness. Both were promoted into engine modules once Forge needed the same
+curve authored, drawn and validated on-console; PetaByte Madness (now its own
+repo) keeps thin shim headers over the engine versions — typedefs and
+defines, not a second implementation — so its existing keyframe tables
+compile untouched.
 
 - `kiln_camkey` is **header-only** and stays that way. Its own file explains why:
   a `.c` would have to be added to two ROMs' `OBJS` and two native check compile
@@ -269,10 +271,10 @@ Properties already asserted there, each of which failed at least once:
   came back as zeros, which parse as a valid *empty* directory.
 - **`assets` in `mkN64Rom` is silently ignored unless the Makefile declares a
   DFS.** Two lines, and without them the ROM is byte-for-byte the assetless
-  build. This cost PetaByte Madness its filesystem once
-  (`PetaByte-Madness/Makefile:129`) and Forge repeated it exactly. `nix/rom.nix`
-  now fails the build and prints the two lines, naming the real make target
-  taken from the emitted `.z64` rather than the flake attribute.
+  build. This cost a downstream game its filesystem once, and Forge repeated
+  it exactly. `nix/rom.nix` now fails the build and prints the two lines,
+  naming the real make target taken from the emitted `.z64` rather than the
+  flake attribute.
 - **`kiln_clip`'s broadphase must stay OFF** for voxel-derived brushes. The grid
   is 16x16 in XZ with Y ignored and its placement pass `assertf`s at 512
   brush-cell entries, which one floor slab trips. That assert is a hard crash.
@@ -295,8 +297,9 @@ Properties already asserted there, each of which failed at least once:
   The version field is what stops an old file being read as a new one — the first
   time the payload grew without `FRG_VERSION` growing with it, the baked seed
   level loaded as `bad-version` on every boot.
-- **The atlas is CI4 because of the veil, not to save space.** 16 tiles of 16x16
-  in a 64x64 surface, 2 KB against a 4 KB TMEM. Swap the TLUT and the whole
-  material changes for 32 bytes of DMA. The 16-colour palette is also why block
-  types cap at 15 — and it means a Forge level is the CI4-textured mesh with UVs
-  that `pm_veil_bind_palette` has been waiting for.
+- **The atlas is CI4 to make a level veil-capable by construction, not to save
+  space.** 16 tiles of 16x16 in a 64x64 surface, 2 KB against a 4 KB TMEM.
+  Swap the TLUT and the whole material changes for 32 bytes of DMA. The
+  16-colour palette is also why block types cap at 15 — a palette-swap
+  mechanic (a game's own "scarlet veil" or equivalent) can bind straight to a
+  Forge level's atlas without any new content pipeline.

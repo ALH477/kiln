@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_tile.c — tile residency manager implementation.
  */

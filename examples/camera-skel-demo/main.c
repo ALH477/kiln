@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase B completion: kiln_camera (OoT-style spring-arm follow) + kiln_skel
 // (skeletal animation, idle/swing blend by movement speed) + kiln_audio
@@ -6,6 +6,14 @@
 // examples/actors-demo already exercises. One skinned player actor (the
 // 2-bone rig tools/gen_skel_gltf.py generates) walks around a handful of
 // static prop cubes; the camera booms in behind it.
+//
+// Loose DFS, not StreamDB, for BOTH assets here — not just demoSound. An
+// animated model isn't actually single-file: Tiny3D's t3danim.c streams its
+// clip data from sidecar `.sdata` files via asset_fopen(animDef->filePath,
+// ...), a hardcoded DFS-path open with no buffer variant, the same class of
+// platform limitation kiln_asset_wav64's absence is for audio. See
+// CLAUDE.md's "Datafiles: StreamDB vs loose DFS" for where StreamDB
+// (examples/openworld-demo, examples/assets-demo) is the better fit instead.
 //
 //   models/rig.t3dm  -> kiln_skel, drawn skinned in the 3D pass
 //   sfx/blip.wav64   -> kiln_audio, one footstep every STEP_DISTANCE units

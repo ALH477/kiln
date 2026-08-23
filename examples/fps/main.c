@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // FPS with integrated Half-Life, Doom, and Ocarina of Time mechanics.
 //

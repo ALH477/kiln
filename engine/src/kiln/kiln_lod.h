@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_lod.h — LOD (Level of Detail) selector for tile-based rendering.
  *

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_projectile.c — see kiln_projectile.h for the model.
  */

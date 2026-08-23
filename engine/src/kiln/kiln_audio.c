@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_audio.c — audio layer implementation. See kiln_audio.h for the model.
  *
@@ -79,7 +79,7 @@ void kiln_audio_update(void)
      * the frame has already submitted — and "however much" is not a number
      * this layer can know or bound. A game that grows a sky dome, a sea and
      * denser terrain does not expect its audio to break, but that is what
-     * happens: measured on PetaByte-Madness' flyover, the mixer missed a
+     * happens: measured on PetaByte Madness' flyover, the mixer missed a
      * buffer roughly once per buffer cycle and the output sat at exactly
      * digital zero for milliseconds at a time, in every playback path at
      * once, because they all end here. The Kiln boot jingle stayed clean

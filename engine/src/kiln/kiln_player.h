@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_player.h — the player locomotion state machine. A helper, not an
  * actor profile: the player IS an actor (category PLAYER), and its profile

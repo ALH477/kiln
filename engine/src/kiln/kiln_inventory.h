@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_inventory.h — item inventory. A fixed-size slot inventory for
  * collectible items (keys, keycards, armor, powerups). Modelled on Doom's

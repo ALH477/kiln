@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_camlint.h — static validation of a keyframed camera shot.
 //
-// Was PetaByte-Madness/src/pm_cine_lint.h, and moved into the engine alongside
+// Was PetaByte Madness's src/pm_cine_lint.h, and moved into the engine alongside
 // kiln_camkey when Forge's CAM mode needed it: an editor that lets you SAVE a
 // table the game will then refuse is worse than one that never validated,
 // because the failure surfaces two tools later. So Forge runs the same rules at
-// authoring time, and PetaByte-Madness/src/pm_cine_lint.h is a shim.
+// authoring time, and PetaByte Madness's src/pm_cine_lint.h is a shim.
 //
 // Moving it cost nothing structurally, because it was already written to be
 // movable: PMCineShot deliberately MIRRORED the fields of a PMDemoShot rather

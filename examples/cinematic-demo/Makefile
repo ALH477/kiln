@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Cinematic-demo ROM: one continuous 60-second scene that exercises every
 # engine subsystem in a single shot. Interceptor in a hangar; goblin captain

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // main.js — the poser: load a rig, pose it, key it, ship it back to Blender.
 //

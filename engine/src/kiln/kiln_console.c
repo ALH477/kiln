@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_console.c — retro on-screen debug console. See kiln_console.h for the
  * design rationale.

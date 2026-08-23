@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/tools/sc64deployer.nix — the SummerCart64 host-side tool.
 #

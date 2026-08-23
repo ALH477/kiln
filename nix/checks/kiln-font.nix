@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-font.nix — the host font is libdragon's font.
 #

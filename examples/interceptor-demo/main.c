@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Interceptor demo ROM — one screen that tries to do everything the engine
 // can do in one go, so the .t3dm hero prop has somewhere to live that
@@ -10,7 +10,7 @@
 //
 // ── The story the demo tells ────────────────────────────────────────────
 // Title screen (~3 s) carries the project's credit text: developer ALH477,
-// MPL-2.0 license, "not sponsored or endorsed by ModRetro", and the lineage
+// MIT license, "not sponsored or endorsed by ModRetro", and the lineage
 // tagline — a mix of the Ocarina of Time and IdTech4 engine for the M64,
 // processing your assets and code like IdTech does. After the title, a
 // 3-mode flight loop runs forever:
@@ -352,7 +352,7 @@ static void draw_title_screen(void)
     kiln_gui_text(24, 90,  cyan,  "INTERCEPTOR DEMO");
     kiln_gui_text(24, 120, white, "ALH477");
     kiln_gui_text(24, 140, white, "not sponsored or endorsed by ModRetro");
-    kiln_gui_text(24, 160, white, "MPL-2.0 licensed engine");
+    kiln_gui_text(24, 160, white, "MIT licensed engine");
     kiln_gui_text(24, 180, white, "a mix of the Ocarina of Time");
     kiln_gui_text(24, 192, white, "and IdTech4 engine for Kiln");
     kiln_gui_text(24, 210, dim,   "engine processes your assets + code");
@@ -383,7 +383,7 @@ static void draw_hud(int fps_int_x10)
 
     /* Bottom: credit strip. */
     kiln_gui_panel(8, SCREEN_H - 32, SCREEN_W - 16, 24, RGBA32(10, 10, 24, 200), violet);
-    kiln_gui_text(14, SCREEN_H - 22, white, "ALH477  *  MPL-2.0  *  not sponsored by ModRetro");
+    kiln_gui_text(14, SCREEN_H - 22, white, "ALH477  *  MIT  *  not sponsored by ModRetro");
     kiln_gui_text(14, SCREEN_H - 10, dim,   "engine processes your assets + code like IdTech does");
 }
 

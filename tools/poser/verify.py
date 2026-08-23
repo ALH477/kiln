@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """verify.py — prove the poser's Euler convention against Blender's own bake.
 
     python3 tools/poser/verify.py dank

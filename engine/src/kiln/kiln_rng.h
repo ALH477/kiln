@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_rng.h — a seedable PRNG for any game that needs dice, loot rolls, or
 // unpredictable events. xorshift64* (Marsaglia): one 64-bit state, one

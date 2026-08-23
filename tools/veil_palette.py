@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """veil_palette.py — build the scarlet veil's cold/veiled TLUT pairs.
 
     python3 tools/veil_palette.py <in.png> <out.pal> --class demon
     python3 tools/veil_palette.py --selftest
 
-PetaByte-Madness/docs/VEIL_DESIGN.md §1 calls the palette swap "the one idea":
+PetaByte Madness's docs/VEIL_DESIGN.md §1 calls the palette swap "the one idea":
 author both states offline, and at runtime change only which 16-entry lookup
 table a material points at. 32 bytes of DMA, zero extra pixels shaded, against
 76,800 blended read-modify-writes for the full-screen quad it replaces.

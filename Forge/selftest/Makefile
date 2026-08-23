@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # The store probe. Its own tiny ROM rather than a mode inside Forge, because the
 # thing it is proving is a precondition of Forge existing: if this fails the

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-gui.nix — the 2D pass renders, and renders the same.
 #

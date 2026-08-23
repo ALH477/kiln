@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Builds kiln_widget.c and the REAL kiln_gui.c natively, against the shared
 # host backend in plat/host. There used to be a private shim/ directory and a

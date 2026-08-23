@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """alien.py — a six-legged alien, rigged and animated.
 
     blender --background --factory-startup -noaudio \

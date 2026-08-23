@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Loads a real Quake .map through the real kiln_map.c, off the host VFS, and
  * renders it — the first time a level in this repo has been drawn anywhere but

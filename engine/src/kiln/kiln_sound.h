@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_sound.h — sound shaders. A clean-room analogue of id Tech 4's sound
  * shader system, reduced to what an N64 game can afford.

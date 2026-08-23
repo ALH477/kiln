@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # examples/music/synth_loop.py — synthesise a 15-second dark-sci-fi loop
 # to a 32 kHz mono 16-bit WAV that audioconv64 turns into a VADPCM .wav64

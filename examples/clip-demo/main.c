@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase C step 1: kiln_input (deadzoned joypad wrapper with button edges) +
 // kiln_clip (swept-AABB-vs-AABB-brushes collision with iterative SlideMove).

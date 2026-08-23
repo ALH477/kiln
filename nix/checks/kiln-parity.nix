@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-parity.nix — engine/modules.mk's HOST_MODULES tells the truth.
 #

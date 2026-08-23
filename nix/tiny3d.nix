@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/tiny3d.nix — Tiny3D, the N64 3D library layered on libdragon.
 #

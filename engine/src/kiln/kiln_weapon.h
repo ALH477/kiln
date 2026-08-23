@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_weapon.h — weapon state machine. A Quake-style hitscan weapon
  * system, separate from the actor system because weapons are not actors

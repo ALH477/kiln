@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase 6: the OoT + id Tech 4 integration proof. A player actor (driven by
 // kiln_player) walks a Quake-format .map room, sliding against the walls via

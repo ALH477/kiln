@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/mapmaker-roundtrip.nix — the editor's .map emit and the engine's
 # .map parser must agree. Round-trips assets/quake_test.map (the canonical

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // main.js — three.js map maker orchestrator. Scene + camera + controls, mode
 // switching (select / create-brush / place-spawn), mouse picking, sidebar UI
 // binding, import/export, client-side validation, undo/redo.

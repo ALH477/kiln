@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase 4 verification: kiln_event. A switch actor posts DOOR_OPEN with a
 // 500 ms delay when the player taps A near it; the door actor's event

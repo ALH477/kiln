@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-scene.nix — the 3D pass, the seam, and the 2D pass, in one
 # frame, on the host.

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_gfx.c — the 2D half of the host backend: a framebuffer, a software
  * rasteriser, and the rdpq/display surface the engine's GUI pass talks to.

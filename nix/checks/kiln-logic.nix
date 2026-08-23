@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-logic.nix — host assertions over the engine's pure-logic modules.
 #

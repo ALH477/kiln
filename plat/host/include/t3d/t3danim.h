@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * plat/host/include/t3d/t3danim.h — the host's <t3d/t3danim.h>.
  * Types only; every entry point aborts. See t3dskeleton.h for why that is the

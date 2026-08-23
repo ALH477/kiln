@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * forge_geo.c — placing and breaking blocks, and getting the result on screen.
  *

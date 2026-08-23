@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase C verification: same three asset kinds as examples/assets-demo
 // (model, sprite, raw data), but loaded from a single StreamDB container

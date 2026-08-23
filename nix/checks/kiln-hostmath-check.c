@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Does the host build of libdragon's fast math still mean what the console's
  * does? nix/host-math.nix substitutes four MIPS instructions for the libm

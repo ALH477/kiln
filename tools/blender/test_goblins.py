@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """test_goblins.py — per-part winding + size check for goblin.py's cast.
 
     python3 tools/blender/test_goblins.py     # no Blender needed

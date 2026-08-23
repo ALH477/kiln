@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_room.h — scene / room streaming. See kiln_actor.h for the pool + handle
  * conventions this module follows.

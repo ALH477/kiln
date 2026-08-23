@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_clip.h — the collision layer. A clean-room analogue of id Tech 4's
  * idPhysics / CollisionModel trace API, reduced to what an OoT-style N64 game

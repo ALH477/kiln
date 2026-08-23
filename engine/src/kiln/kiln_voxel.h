@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_voxel.h — a block grid, and the two reductions that make it useful.
  *
@@ -63,7 +63,7 @@
  * see `kiln_voxel_chunk_count`.
  *
  * 32 units per block is 0.5 m at this project's 64-units-per-metre convention
- * (PetaByte-Madness/docs/ASSET_PIPELINE.md). Half a metre is chosen so a 4-block
+ * (PetaByte Madness's docs/ASSET_PIPELINE.md). Half a metre is chosen so a 4-block
  * doorway is 2 m and a corridor reads at the right scale; it is a #define
  * because a game with a different world scale should change it once here rather
  * than multiply at every call site.

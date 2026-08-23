@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Draws a HUD with the REAL kiln_gui.c, through the host 2D backend, and
  * captures it. Every kiln_gui primitive is exercised, because each one takes

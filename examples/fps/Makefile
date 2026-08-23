@@ -14,7 +14,7 @@ all: fps.z64
 # comes out byte-for-byte the size of the assetless build and every rom:/ path
 # fails at runtime. That is what was happening here: the assets have never been
 # in this ROM. Found by nix/rom.nix's gate, which now fails the build instead.
-# See PetaByte-Madness/Makefile's "THE FILESYSTEM" comment for the same story.
+# See Forge/Makefile's "THE FILESYSTEM" comment for the same story.
 $(BUILD_DIR)/fps.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
 fps.z64: $(BUILD_DIR)/fps.dfs
 

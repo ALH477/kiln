@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // board-demo: the four Phase 1 engine primitives exercised in one loop.
 //

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """midi_to_xm.py — convert a MIDI file to an XM tracker module.
 
 Why this exists
@@ -26,7 +26,7 @@ because a note nudged onto a neighbour's row reads as a wrong note where a
 missing sixteenth reads as articulation.
 
 Deliberately NOT implemented, because this targets scores like
-PetaByte-Madness' string quartet rather than arbitrary General MIDI:
+PetaByte Madness' string quartet rather than arbitrary General MIDI:
 
   * No tempo map. A MIDI with tempo changes is rejected rather than
     silently flattened — XM's speed/BPM are global, and pretending

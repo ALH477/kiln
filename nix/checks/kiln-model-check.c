@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Loads a real .t3dm — the same file gltf_to_t3d produces for the ROM — with
  * the host reader, asserts its structure against what the converter reported,

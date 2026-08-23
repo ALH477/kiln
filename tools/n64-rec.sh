@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # tools/n64-rec.sh — boot a ROM in Ares on Hyprland and capture a video clip.
 #
@@ -243,7 +243,7 @@ echo "n64-rec: wrote $OUT (region $REGION, ${DURATION}s requested, dur ${DUR}s, 
 #      point filter is the wrong choice.
 #   3. SCALE UP 4x with `neighbor`. Now every console pixel is a hard 4x4
 #      block — the "point-upscaled, so the pixel count you see is the pixel
-#      count you get" convention PetaByte-Madness/docs/VEIL_DESIGN.md §10
+#      count you get" convention PetaByte Madness's docs/VEIL_DESIGN.md §10
 #      already uses for its own renders.
 #
 # ── The encoder settings are not decoration ───────────────────────────

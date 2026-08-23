@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // entity.js — spawn entity three.js group: an icon + label showing
 // classname + origin so a populated map is readable at a glance.
 //

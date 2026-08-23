@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Drives the REAL frame bracket — kiln_frame_begin / kiln_scene_begin /
  * kiln_gui_begin / kiln_frame_end — on the host, with the real

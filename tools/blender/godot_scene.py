@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """godot_scene.py — place a Godot .tscn scene's meshes into Blender, so a
 level laid out in the Godot editor flows through the same Blender ->
 f3d_inject -> gltf_to_t3d pipeline every other model here does.

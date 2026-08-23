@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_dialogue.h — NPC dialogue text boxes. A multi-page text box system
  * built on kiln_gui_panel + kiln_gui_text, with a typewriter reveal effect.

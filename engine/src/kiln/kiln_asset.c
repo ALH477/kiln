@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_asset.c — runtime asset layer. See kiln_asset.h for the model.
  *

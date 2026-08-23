@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_physics.h — a small Half-Life 2-style rigid-body physics layer for
  * dynamic props, on top of kiln_clip. See CLAUDE.md's Phase E notes for the

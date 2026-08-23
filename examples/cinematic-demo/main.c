@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Cinematic demo — a 60-second single-shot scene. The Interceptor sits on a
 // launchpad in its hangar, the goblin captain walks the perimeter, two
@@ -540,7 +540,7 @@ static void draw_hud(void)
     kiln_gui_panel(SCREEN_W - 132, SCREEN_H - 28, 124, 20,
                   RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
     kiln_gui_text(SCREEN_W - 124, SCREEN_H - 18,
-                 RGBA32(232, 232, 240, 255), "ALH477  *  MPL-2.0");
+                 RGBA32(232, 232, 240, 255), "ALH477  *  MIT");
 }
 
 // ── boot ───────────────────────────────────────────────────────────────

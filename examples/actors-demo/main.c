@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase B verification: the actor system (kiln_actor.h) with one actor type
 // per category that matters for this demo — PLAYER, ENEMY, PROP, ITEM — to

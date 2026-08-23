@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Every place "M64" may still legitimately appear after the Kiln rename.
 # nix/checks/kiln-names.nix strips each of these phrases from a line before

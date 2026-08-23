@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_voxmesh.h — kiln_voxel's merged quads, packed into Tiny3D vertices.
  *
@@ -112,7 +112,7 @@ void kiln_voxmesh_draw(const KilnVoxMesh *m);
  * 16-entry palette limit is also why kiln_voxel caps block types at 15.
  *
  * CI4 is not a size optimisation here, it is the format the scarlet veil is
- * built on (PetaByte-Madness/docs/VEIL_DESIGN.md): swap the TLUT and every
+ * built on (PetaByte Madness's docs/VEIL_DESIGN.md): swap the TLUT and every
  * material changes colour for 32 bytes of DMA and zero extra shaded pixels. So
  * a Forge level is automatically veil-capable, which is the thing the game has
  * been blocked on — pm_veil_bind_palette has had no call site purely for want

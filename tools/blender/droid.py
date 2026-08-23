@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """droid.py — a small service droid. Rigged and animated.
 
     blender --background --factory-startup -noaudio \

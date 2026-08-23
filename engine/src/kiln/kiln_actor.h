@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_actor.h — the actor system. Every live thing in the world (player,
  * enemies, NPCs, props, items, bosses, doors, chests) is a KilnActor with a

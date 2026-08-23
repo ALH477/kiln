@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/dev-image.nix — NixOS config for packages.dev-image (nix/... see flake.nix)
 #

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Bass-synth ROM: a 4-controller collaborative bass synthesizer. 16
 # single-cycle wavetables (4 engines x 4 variants) are baked as looping

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """test_objkit.py — check objkit.py's parsing and repairs without Blender.
 
     python3 tools/blender/test_objkit.py
 
 objkit.py is the reader every OBJ-sourced PetaByte Madness model goes through
-(tools/blender/pm_props.py), and PetaByte-Madness/docs/ASSET_PIPELINE.md
+(tools/blender/pm_props.py), and PetaByte Madness's docs/ASSET_PIPELINE.md
 credits it with catching three real mesh defects in the drop. It had no test.
 
 That is a worse gap than it looks, because every one of its failure modes is

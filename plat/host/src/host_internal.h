@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_internal.h — what host_gfx.c lends to host_t3d.c.
  *

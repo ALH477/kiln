@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // The smallest thing that proves the whole path works: cross toolchain ->
 // libdragon -> n64tool -> a .z64 that boots. If this displays text on real

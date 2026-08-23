@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Stub libdragon.h for the host checks (kiln-asset.nix, kiln-logic.nix).
  *

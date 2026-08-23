@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """goblin.py — the four playable goblins, rigged, animated, and able to ride.
 
     blender --background --factory-startup -noaudio --python goblin.py \

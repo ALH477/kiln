@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * plat/host/include/libdragon.h — the host's <libdragon.h>, system tier.
  *

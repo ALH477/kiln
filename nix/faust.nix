@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/faust.nix — the Faust -> N64 bridge, and the gates that keep it honest.
 #

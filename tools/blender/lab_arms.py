@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """lab_arms.py — a pair of robotic arms for the MRI bay. Rigged and animated.
 
     blender --background --factory-startup -noaudio \
         --python tools/blender/lab_arms.py -- --model lab_arms --out build/lab_arms
 
-Set dressing for PetaByte-Madness' lab: two wall-mounted service arms
+Set dressing for PetaByte Madness' lab: two wall-mounted service arms
 flanking the MRI-like scanner, each two bones (shoulder + elbow), one `idle`
 loop clip — a slow servo hunt, not a gesture. Same rigid-bone-per-vertex
 shape droid.py uses for its own two-bone arms, scaled up and simplified to
@@ -13,7 +13,7 @@ just the arms (no chassis/head/legs — the mount itself is the "body" here).
 Authored at its own local origin, business end (the claw) generally toward
 -Y, so pm_lab.c/pm_demo.c can place the whole pair with one KilnTransform
 next to the MRI bay, the same way draw_at places the centaur — see
-PetaByte-Madness/tools/dank_lab_gen.py for where "next to" actually is.
+PetaByte Madness's tools/dank_lab_gen.py for where "next to" actually is.
 """
 
 import sys

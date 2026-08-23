@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_char.h — a character profile struct for games with selectable
 // characters that have a passive ability + a charged special move.

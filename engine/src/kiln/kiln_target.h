@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_target.h — Z-targeting. A clean-room analogue of Ocarina of Time's
  * Z-target acquire/switch/reticle, reduced to what an N64 game can afford.

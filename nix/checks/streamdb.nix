@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/streamdb.nix — round-trip the embedded reader against databases
 # written by the UPSTREAM C library.

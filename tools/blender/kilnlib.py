@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """kilnlib — shared bpy helpers for authoring N64 geometry.
 
 Runs inside `blender --background --python`. Every model script in this

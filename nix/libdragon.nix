@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/libdragon.nix — libdragon, built into a store path usable as `N64_INST`.
 #

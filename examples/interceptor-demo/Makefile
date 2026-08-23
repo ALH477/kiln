@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Interceptor demo ROM: one screen that tries to do everything the engine can
 # do in one go, so the .t3dm hero prop has somewhere to live that exercises

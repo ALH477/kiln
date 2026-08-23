@@ -1,18 +1,27 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase A verification: a ROM that loads one of each asset kind the pipeline
 // (nix/assets.nix) converts, rather than the hand-built geometry every other
 // example uses. If gltf_to_t3d, mksprite or audioconv64 silently produced a
 // file the runtime can't actually load, this is where that would show up.
 //
-//   models/cube.t3dm   -> t3d_model_load, drawn in the 3D pass
-//   sprites/logo.sprite -> rdpq_sprite_upload + rdpq_texture_rectangle, GUI pass
-//   sfx/blip.wav64      -> wav64, one-shot on A
+// Model and sprite go through StreamDB (kiln_asset), demonstrating the
+// realistic mixed pattern most content actually wants — see CLAUDE.md's
+// "Datafiles: StreamDB vs loose DFS". blip.wav64 stays loose DFS because
+// kiln_asset_wav64 doesn't exist: wav64_open has no in-memory variant.
+//
+//   models/cube.t3dm   -> kiln_asset_model, drawn in the 3D pass
+//   sprites/logo.sprite -> kiln_asset_sprite, GUI pass via rdpq_sprite_upload
+//   sfx/blip.wav64      -> wav64, one-shot on A (loose DFS, see above)
 
 #include <libdragon.h>
 #include <t3d/t3dmodel.h>
 #include <kiln/kiln_engine.h>
 #include <kiln/kiln_gui.h>
+#include <kiln/kiln_asset.h>
+
+#include <malloc.h>
+#include <string.h>
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -26,19 +35,23 @@ int main(void)
 
     dfs_init(DFS_DEFAULT_LOCATION);
 
-    // mkModel runs `mkasset -c 2` over the .t3dm, matching what every Tiny3D
-    // example does. Level 2 is not linked in by default — without this call
-    // asset_load() cannot decompress it and t3d_model_load returns garbage.
-    asset_init_compression(2);
-
     audio_init(SAMPLE_RATE, 4);
     mixer_init(1);
     wav64_t blip;
     wav64_open(&blip, "rom:/sfx/blip.wav64");
 
-    T3DModel *model = t3d_model_load("rom:/models/cube.t3dm");
+    size_t need = kiln_asset_probe_size("rom:/assets-demo.streamdb");
+    assertf(need > 0, "assets-demo: assets-demo.streamdb not found / probe failed");
+    void *arena = malloc(need);
+    assertf(arena, "assets-demo: arena malloc %zu failed", need);
+    KilnAsset *db = kiln_asset_open("rom:/assets-demo.streamdb", arena, need);
+    assertf(db, "assets-demo: kiln_asset_open failed");
 
-    sprite_t *logo = sprite_load("rom:/sprites/logo.sprite");
+    T3DModel *model = kiln_asset_model(db, "models/cube.t3dm", strlen("models/cube.t3dm"));
+    assertf(model, "assets-demo: kiln_asset_model failed");
+
+    sprite_t *logo = kiln_asset_sprite(db, "sprites/logo.sprite", strlen("sprites/logo.sprite"));
+    assertf(logo, "assets-demo: kiln_asset_sprite failed");
 
     KilnScene scene;
     kiln_scene_init(&scene);

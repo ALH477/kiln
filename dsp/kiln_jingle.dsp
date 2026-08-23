@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_jingle.dsp — the Kiln boot jingle.
 //

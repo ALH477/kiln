@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * plat/host/include/t3d/t3dmodel.h — the host's <t3d/t3dmodel.h>.
  *

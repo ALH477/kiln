@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """models.py — the test-geometry set.
 
     blender --background --factory-startup -noaudio \

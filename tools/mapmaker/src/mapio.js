@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // mapio.js — parse + emit Quake .map text in the canonical form kiln_map.c
 // consumes. Pure, no three.js — the headless round-trip check imports this.
 //

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_projectile.h — projectile system. A lightweight pool of fast-moving
  * projectiles with ray-cast collision, separate from the actor system.

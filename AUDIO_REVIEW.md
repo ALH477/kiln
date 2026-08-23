@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: MIT -->
 
 # Kiln Audio Subsystem Review — Living Document
 

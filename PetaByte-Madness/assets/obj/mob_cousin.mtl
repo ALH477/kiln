@@ -1,5 +1,0 @@
-newmtl face
-map_Kd tex_cousin_face.png
-
-newmtl uniform
-map_Kd tex_cousin_body.png

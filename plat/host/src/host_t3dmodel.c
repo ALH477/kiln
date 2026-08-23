@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_t3dmodel.c — a .t3dm reader, and the drawing path over it.
  *

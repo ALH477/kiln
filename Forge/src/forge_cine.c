@@ -1,11 +1,11 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * forge_cine.c — M7: authoring a camera shot from inside it.
  *
  * Fly to a pose, press A, and that pose becomes a keyframe. Scrub the timeline
  * and the camera flies the curve those keys describe. Save and it comes out as a
  * `static const PMCamKey NAME[]` table in the exact literal syntax
- * PetaByte-Madness/src/pm_arrival.c already uses.
+ * PetaByte Madness's src/pm_arrival.c already uses.
  *
  * This replaces a loop that already worked and was entirely manual: pm_cine's
  * detached free-fly prints `KEY t ... eye ... look ...` continuously so that any
@@ -348,7 +348,7 @@ void forge_cine_draw(Forge *f)
 
 /* ── Export ────────────────────────────────────────────────────────────
  *
- * The exact literal syntax PetaByte-Madness/src/pm_arrival.c:84 uses, including
+ * The exact literal syntax PetaByte Madness's src/pm_arrival.c:84 uses, including
  * the DOUBLE BRACE — fm_vec3_t wraps a `float v[3]`, so each vector is
  * {{ x, y, z }} and a single brace does not compile. Emitting text the target
  * project can paste unchanged is the whole reason this is ASCII rather than a

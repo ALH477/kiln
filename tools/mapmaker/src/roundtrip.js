@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // roundtrip.js — headless entry for the nix round-trip check. Reads a .map,
 // parses it via mapio.js, re-emits canonical text, writes to the output path.
 // Run with: `node tools/mapmaker/src/roundtrip.js <in.map> <out.map>`.

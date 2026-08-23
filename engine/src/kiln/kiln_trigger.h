@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_trigger.h — trigger volumes. AABB regions in the world that fire
  * events when the player enters them. Modelled on Half-Life's

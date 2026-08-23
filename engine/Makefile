@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # The Kiln engine: a 3D layer on Tiny3D plus a 2D GUI layer on rdpq.
 #

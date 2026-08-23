@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Report Stage 1, end to end: a Faust instrument rendered offline at full
 // quality on the host, VADPCM-encoded by audioconv64, packed into DragonFS,

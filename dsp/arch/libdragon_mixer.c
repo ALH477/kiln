@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * dsp/arch/libdragon_mixer.c — Faust architecture file for live N64 voices.
  *

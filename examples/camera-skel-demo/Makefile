@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # The model and sound are staged into filesystem/ by mkN64Rom's `assets`
 # argument before this Makefile runs (nix/assets.nix) — same convention as

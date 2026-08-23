@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_context.h — context-sensitive action button. OoT's A-button: the
  * same button does different things depending on what the player is

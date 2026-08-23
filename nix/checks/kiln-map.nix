@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-map.nix — a real Quake .map, loaded off the host VFS by the
 # real kiln_map.c, installed into the real clip world, and rendered.

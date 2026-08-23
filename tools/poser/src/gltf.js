@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // gltf.js — just enough glTF to load one of this repo's rigged models.
 //

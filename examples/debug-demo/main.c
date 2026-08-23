@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // debug-demo: the on-screen retro console (engine/src/kiln/kiln_console.*).
 // A player cube and two orbiting enemies; the debug console is wired in

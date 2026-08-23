@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * dsp/arch/offline_ref.c — host-side Faust renderer, full quality.
  *

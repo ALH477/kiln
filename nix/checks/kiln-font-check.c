@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Invariants of the extracted builtin font that a diff of the generated
  * header cannot catch. tools/font_extract.py regenerating byte-identically

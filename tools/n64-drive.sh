@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # tools/n64-drive.sh — boot a ROM in Ares with a virtual controller and
 # run an input script against it, capturing screenshots along the way.

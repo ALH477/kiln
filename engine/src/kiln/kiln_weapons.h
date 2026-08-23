@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_weapons.h — multi-weapon system. An array of KilnWeapon instances
  * with switching, wrapping the single-weapon kiln_weapon.h state machine.

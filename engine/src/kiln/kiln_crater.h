@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_crater.h — destruction and reconstruction for static terrain, by
  * direct vertex mutation of a model's own resident buffer.
@@ -16,7 +16,7 @@
  * have several (a terrain object sharing a .t3dm with gate and landmark
  * objects, say). Paying for a whole-model segment redirect and
  * multi-buffering for that is the wrong cost. This module instead
- * generalises the pattern PetaByte-Madness's own sea-swell code
+ * generalises the pattern PetaByte Madness's own sea-swell code
  * (pm_env.c's g_sea_rest/xforms_init/pm_env_update) already ships: snapshot
  * a model's own vertex buffer positions once via t3d_vertbuffer_get_pos,
  * then write straight back into that SAME buffer in place, every frame,

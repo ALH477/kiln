@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * forge_cam.c — the editing camera: free-fly, no gravity, no collision.
  *

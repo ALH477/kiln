@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_camera.c — see kiln_camera.h for the model.
  */
@@ -154,7 +154,7 @@ static void update_cutscene(KilnCamera *cam, float dt)
      * uses, which is wrong in three compounding ways:
      *
      *   - It double-smooths. A scripted shot already interpolates between
-     *     its own keyframes (smoothstepped, in PetaByte-Madness' case), so
+     *     its own keyframes (smoothstepped, in PetaByte Madness' case), so
      *     damping that motion again only adds lag. At 60 fps and speed 10
      *     the camera closes 17% of the gap per frame, so it trails a
      *     moving shot by several frames and never arrives.

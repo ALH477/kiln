@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """interceptor.py — a low-poly starfighter, the hero-prop reference.
 
     blender --background --factory-startup -noaudio \

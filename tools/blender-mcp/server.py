@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """tools/blender-mcp/server.py — MCP server for authoring Kiln level geometry
 from Quake .map files and Godot .tscn scenes.
 

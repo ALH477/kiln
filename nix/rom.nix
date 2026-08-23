@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/rom.nix — mkN64Rom: build a libdragon project into a bootable .z64.
 #
@@ -173,7 +173,7 @@ ${lib.optionalString (assets != [ ]) ''
     else
       echo "mkN64Rom: ${name} declares ${toString (builtins.length assets)} asset(s)"            "but the build produced no .dfs, so NONE of them are in the ROM." >&2
       echo "  Add these two lines to the project's Makefile (see" >&2
-      echo "  PetaByte-Madness/Makefile's 'THE FILESYSTEM' comment):" >&2
+      echo "  Forge/Makefile's 'THE FILESYSTEM' comment):" >&2
       echo "" >&2
       # The ROM's own basename, taken from what make actually emitted rather
       # than from the flake attribute — those differ whenever one project builds

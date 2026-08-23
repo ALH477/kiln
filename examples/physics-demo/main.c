@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase E integration proof: the kiln_physics module + kiln_room brush
 // auto-install + kiln_clip broadphase toggle, in one frame.

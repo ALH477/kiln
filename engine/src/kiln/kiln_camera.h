@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_camera.h — the OoT-style third-person follow camera. See CLAUDE.md's
  * Phase B notes for what was and wasn't carried over from Ocarina of Time's

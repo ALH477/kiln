@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """objkit.py — a Wavefront OBJ reader for the PetaByte Madness asset drop.
 
     python3 tools/blender/objkit.py <file.obj>     # parse and report
@@ -244,7 +244,7 @@ def split_double_sided(obj):
 
     (Exactly-duplicated faces — same winding — are a different defect and are
     handled where they occur, by dropping one. See
-    PetaByte-Madness/tools/mc_rig_export.py, which found one in the centaur.)
+    PetaByte Madness's tools/mc_rig_export.py, which found one in the centaur.)
 
     Returns the number of faces cloned.
     """

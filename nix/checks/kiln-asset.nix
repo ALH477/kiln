@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-asset.nix — host round-trip of the kiln_asset layer against a
 # database packed by the upstream C writer.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // brush.js — AABB brush three.js mesh creation + sync. Each brush is a
 // BoxGeometry mesh sized to (maxs - mins) and positioned at the centre; a
 // CSS2DObject label is attached for readability at high brush counts.

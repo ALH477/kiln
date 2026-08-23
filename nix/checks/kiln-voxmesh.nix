@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/kiln-voxmesh.nix — Forge's atlas never reaches the screen, and
 # this is the proof.

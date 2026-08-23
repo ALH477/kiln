@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """kiln_logo.py — the Kiln boot logo, as a 3D model.
 
     blender --background --factory-startup -noaudio --python kiln_logo.py \

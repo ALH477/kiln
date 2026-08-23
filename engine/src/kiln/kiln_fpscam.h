@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_fpscam.h — first-person camera. A Quake/Doom-style eye camera with
  * yaw + pitch, not the OoT spring-arm follow that kiln_camera implements.

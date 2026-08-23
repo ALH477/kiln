@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_audio.c — the mixer's bookkeeping, on the host. No samples.
  *

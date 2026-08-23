@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_voxmesh.c — see kiln_voxmesh.h. Packing, batching, drawing, and the
  * runtime CI4 atlas. No decisions about what geometry exists are made here.

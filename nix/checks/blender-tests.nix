@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/checks/blender-tests.nix — run the bpy-free builder tests.
 #
@@ -15,7 +15,9 @@
 # python3 — it imports bpy at module scope where its five siblings stub it —
 # and nothing noticed, because nothing ran it. That test does legitimately need
 # a live Blender (it evaluates a posed armature), so it is now named
-# `blender_test_rider.py`; see the naming contract below.
+# `blender_test_rider.py`; see the naming contract below. (It has since moved
+# to Ganja Goblin's own repo along with rider.py and vehicles.py — the rider
+# station it tests is that game's content, not the engine's.)
 #
 # ── Two globs, deliberately ────────────────────────────────────────────
 #   test_*.py           bpy-free. Runs under a bare python3. GATED HERE, and
@@ -33,13 +35,6 @@
 #     blender --background --factory-startup -noaudio --python "$t" || break
 #   done
 #
-# ── Why the assets come along ──────────────────────────────────────────
-# test_props.py measures PetaByte Madness' real OBJ/glTF sources against the
-# sizes the drop's own specs state, which is the check that catches a `scale`
-# typo — the defect pm_props.py's header is entirely about and that nothing
-# else in the build can see. So the assets directory is an input, and the test
-# is pointed at the store copy with --assets.
-#
 # ── Why `ls` is asserted against ───────────────────────────────────────
 # A glob that matches nothing makes a `for` loop a no-op and this derivation
 # succeed having tested exactly nothing. That is the same silent-pass failure
@@ -50,7 +45,6 @@ pkgs.runCommand "check-blender-tests"
 {
   nativeBuildInputs = [ pkgs.python3 ];
   blenderDir = ../../tools/blender;
-  pmAssets = ../../PetaByte-Madness/assets;
   meta.description = "tools/blender's bpy-free builder tests all pass";
 }
   ''
@@ -78,17 +72,16 @@ pkgs.runCommand "check-blender-tests"
     for t in ./blender/test_*.py; do
       name="$(basename "$t")"
       echo "── $name ──"
-      # --assets is only read by test_props.py; kilnlib.arg() ignores unknown
-      # flags, so passing it to all of them costs nothing and keeps the loop
-      # from needing a per-test special case.
-      python3 "$t" --assets "$pmAssets" 2>&1 | tee "$out/$name.log"
+      python3 "$t" 2>&1 | tee "$out/$name.log"
       n=$((n + 1))
     done
 
-    if [ "$n" -lt 6 ]; then
+    if [ "$n" -lt 3 ]; then
       echo "FAIL: only $n bpy-free test(s) ran; tools/blender should have at" \
-           "least six (env, goblins, objkit, prims, props, vehicles, world)." \
-           "A glob that matches nothing makes the loop above a no-op and this" \
+           "least three (goblins, objkit, prims) now that the PetaByte" \
+           "Madness- and Ganja-Goblin-specific ones (env, props, world," \
+           "vehicles, rider) have moved to those games' own repos. A glob" \
+           "that matches nothing makes the loop above a no-op and this" \
            "derivation succeed having tested nothing — the same silent pass" \
            "this check exists to stop." >&2
       exit 1

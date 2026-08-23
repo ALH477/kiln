@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_physics.c — see kiln_physics.h for the model. Built on kiln_clip for
  * world collision; body-vs-body is overlap + positional correction + a

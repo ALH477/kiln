@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """frg.py — read and write Forge's .FRG working format on the host.
 
 The console writes two things: a `.FRG` (its own lossless state) and a `.MAP`

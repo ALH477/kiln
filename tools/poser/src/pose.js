@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // pose.js — the Blender pose-bone convention, in the browser, checked.
 //

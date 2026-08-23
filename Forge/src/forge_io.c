@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * forge_io.c — the .FRG working format, and the Quake .map the repo consumes.
  *

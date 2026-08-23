@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_camkey.h — one camera keyframe, and the curve through a table of them.
 //
-// Was PetaByte-Madness/src/pm_camkey.h, and moved into the engine when a FOURTH
+// Was PetaByte Madness's src/pm_camkey.h, and moved into the engine when a FOURTH
 // consumer appeared: Forge's CAM mode authors these tables, and an editor that
 // previews a curve merely resembling the one the game flies is the same failure
 // as a validator measuring one — worse, because the author then tunes against
-// the wrong shape. PetaByte-Madness/src/pm_camkey.h is now a shim so
+// the wrong shape. PetaByte Madness's src/pm_camkey.h is now a shim so
 // KilnCamKey/kiln_camkey_sample keep working unchanged.
 //
 // Split out of pm_demo.h so that consumers can share one implementation of the
@@ -33,7 +33,7 @@
 // It is one small function called once a frame by the runtime and a few hundred
 // times by the validator, and inlining it removes every question about which
 // object file each consumer links. The alternative — a kiln_camkey.c — would
-// have to be added to PetaByte-Madness/Makefile's OBJS, Forge/Makefile's OBJS
+// have to be added to PetaByte Madness's Makefile's OBJS, Forge/Makefile's OBJS
 // *and* two native check compile lines, i.e. four more places to forget.
 //
 // That is also why engine/Makefile grew a HEADER_ONLY list rather than putting

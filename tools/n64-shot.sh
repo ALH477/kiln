@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # tools/n64-shot.sh — boot a ROM in Ares on Hyprland and capture its window.
 #

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk

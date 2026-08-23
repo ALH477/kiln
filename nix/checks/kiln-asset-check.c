@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Host driver for the kiln-asset check. Opens a StreamDB packed by the
 // upstream C writer (via the stdio backend), exercises every kiln_asset

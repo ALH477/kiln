@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: MIT -->
 # Kiln
 
 A Nix build system for Nintendo 64 / ModRetro M64 software, with a Faust DSP
@@ -114,14 +114,17 @@ emulators get subtly wrong.
 
 ## Design notes
 
-See `CLAUDE.md` for orientation and `compass_artifact_*.md` for the feasibility
-report that specifies this work. Each file under `nix/` documents why it is
+See `CLAUDE.md` for orientation. Each file under `nix/` documents why it is
 shaped the way it is; `nix/toolchain.nix` in particular records why GCC 14 is
 pinned and why libgloss is excluded.
 
 ## Licence
 
-MPL-2.0 for the flake and `./dev`. libdragon is Unlicense and SummerCart64 is
-GPLv3 — both are packaged as separate programs, not linked into anything here.
-Faust `.dsp` sources imported from TERMINUS are PolyForm Shield 1.0.0
-(non-commercial) and do not get relicensed by being referenced.
+MIT, engine-wide — see `LICENSE`. The one exception is `streamdb-embedded/`
+(LGPL-2.1-or-later, DeMoD's own library, source vendored unmodified under its
+own headers). libdragon is Unlicense and SummerCart64 is GPLv3 — both are
+pulled in only as Nix flake inputs, never vendored, and neither is linked
+into anything here. Faust `.dsp` sources imported from TERMINUS are PolyForm
+Shield 1.0.0 (non-commercial) and are referenced by path, never vendored, so
+they do not get relicensed by being mentioned. See `THIRD_PARTY_LICENSES.md`
+for the full breakdown.

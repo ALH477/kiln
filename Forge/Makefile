@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Forge — the on-console voxel level/cinematic editor.
 #
@@ -17,8 +17,9 @@ N64_CFLAGS += -std=gnu2x -Wno-error
 # Boot straight into one mode. `FORGE_MODE=WALK` becomes -DFORGE_BOOT_MODE=
 # FORGE_MODE_WALK, which forge_main.c reads once at startup.
 #
-# This is the pm-jump idiom (PetaByte-Madness/Makefile:19) and it exists for the
-# same reason: `./dev shot` has no input path at all by design, and `./dev
+# This is the jump-ROM idiom (a downstream game's Makefile pioneered it) and
+# it exists for the same reason: `./dev shot` has no input path at all by
+# design, and `./dev
 # drive`'s uinput->SDL->ares chain is fragile enough that a capture which needs a
 # chord is a capture you cannot trust. WALK is reached by pressing L+R, so
 # without this flag the one mode whose whole purpose is standing in the level
@@ -47,7 +48,7 @@ all: forge.z64
 
 # THE FILESYSTEM. Without these two lines n64.mk never builds or attaches a
 # DragonFS and a mkN64Rom `assets` list is SILENTLY IGNORED — the ROM comes out
-# byte-for-byte the size of the assetless one. PetaByte-Madness/Makefile:129
+# byte-for-byte the size of the assetless one. PetaByte Madness's Makefile:129
 # records this trap in full because that game shipped without a filesystem for a
 # while; Forge walked into it anyway, and the symptom was `.#forge-dfs` booting
 # with `store none` and the seeded starter room instead of the baked level.

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * host_tex.c — TMEM, the TLUT, and texture sampling on the host.
  *

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_voxel.c — see kiln_voxel.h for what this module is for and what it is
  * deliberately not.

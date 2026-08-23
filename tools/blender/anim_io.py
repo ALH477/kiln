@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """anim_io.py — the interchange format between Blender and tools/poser.
 
     python3 tools/blender/anim_io.py dump goblin dank tools/poser/data
@@ -71,7 +71,7 @@ def capture_rig(rig_path):
 
     centaur.py and horner.py do not hold their clips in code the way goblin.py
     does — the clips arrive in assets/rig/<name>.json, produced by
-    PetaByte-Madness/tools/{mc,ph}_rig_export.py, and the Blender script's job is
+    PetaByte Madness's tools/{mc,ph}_rig_export.py, and the Blender script's job is
     only to build an armature and replay them. So for those characters the JSON
     IS the source-keyframe form this module exists to expose, and running the
     builder to recover it would be recovering it from itself.

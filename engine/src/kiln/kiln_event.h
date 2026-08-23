@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_event.h — timed event dispatch. A clean-room analogue of id Tech 4's
  * idEvent, reduced to what an N64 game can afford.

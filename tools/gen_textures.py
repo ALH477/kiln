@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """gen_textures.py — the procedural texture set, written with the stdlib only.
 
 Why not Pillow: this runs inside a Nix build, and a PNG encoder is ~60 lines of

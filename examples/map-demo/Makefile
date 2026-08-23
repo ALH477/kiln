@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
@@ -15,7 +15,7 @@ all: map-demo.z64
 # comes out byte-for-byte the size of the assetless build and every rom:/ path
 # fails at runtime. That is what was happening here: the assets have never been
 # in this ROM. Found by nix/rom.nix's gate, which now fails the build instead.
-# See PetaByte-Madness/Makefile's "THE FILESYSTEM" comment for the same story.
+# See Forge/Makefile's "THE FILESYSTEM" comment for the same story.
 $(BUILD_DIR)/map-demo.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
 map-demo.z64: $(BUILD_DIR)/map-demo.dfs
 

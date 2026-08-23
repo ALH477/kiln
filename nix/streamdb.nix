@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/streamdb.nix — StreamDB embedded reader, built for the N64.
 #

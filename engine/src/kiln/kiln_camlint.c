@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // kiln_camlint.c — see kiln_camlint.h.
 //
 // NOTHING in this file may include libdragon or Tiny3D. It is compiled twice:
-// once into the ROM by PetaByte-Madness/Makefile, and once natively by
+// once into the ROM by PetaByte Madness's Makefile, and once natively by
 // nix/checks/pm-cine.nix against nix/checks/stub/. The second build is what
 // proves the detector fires in both directions, and it stops working the moment
 // this file grows a dependency on the console.

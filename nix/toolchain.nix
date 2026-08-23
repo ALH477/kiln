@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/toolchain.nix — the mips64-elf cross toolchain for N64 targets.
 #

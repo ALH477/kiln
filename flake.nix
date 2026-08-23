@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 {
   description = "Kiln — a Nix build system for Nintendo 64 / ModRetro M64 software";
 
@@ -263,6 +263,17 @@
           ];
         };
 
+        # assets-demo's StreamDB pak: reuses sdModel/sdSprite (the same
+        # compress=0 twins demoStreamdb already packs) via mkAssetPak instead
+        # of mkStreamdb's hand-typed `entries` — demonstrating the auto-keyed
+        # helper on real, already-defined assets rather than new content.
+        # demoSound stays loose DFS: see CLAUDE.md's "Datafiles: StreamDB vs
+        # loose DFS" for why audio can't go through StreamDB at all today.
+        assetsDemoPak = assetLib.mkAssetPak {
+          name = "assets-demo";
+          assets = [ sdModel sdSprite ];
+        };
+
         # openworld-demo's tile mesh, StreamDB-packed so kiln_streamio can
         # load it through kiln_asset_model + kiln_cache instead of the
         # hand-built 2-vert stub the demo used before it had a real streaming
@@ -276,11 +287,9 @@
           baseScale = 24;
           compress = 0;
         };
-        owStreamdb = assetLib.mkStreamdb {
+        owStreamdb = assetLib.mkAssetPak {
           name = "openworld";
-          entries = [
-            { key = "models/tile.t3dm"; asset = owTileModel; }
-          ];
+          assets = [ owTileModel ];
         };
 
         # Geometry authoring. Owns the whole Blender strategy; see the file for
@@ -342,26 +351,6 @@
           animated = true;
         };
 
-        # Ganja Goblin's four playable characters, from the same script and
-        # the same skeleton — see tools/blender/goblin.py on why the rig is
-        # byte-identical across all four. That is what lets one set of
-        # animations (Idle/Walk/Wave/Taunt plus the five Ride* actions) play
-        # on whichever character a player picked, instead of four copies of
-        # the animation data in the ROM.
-        #
-        # They are separate derivations rather than one model with four
-        # palettes because the geometry genuinely differs — Moss is a wider
-        # mass with clumps growing on him, Sparky is thinner with goggles —
-        # and a runtime palette swap cannot do that.
-        goblinCast = pkgs.lib.genAttrs
-          [ "dank" "sparky" "moss" "glimmer" ]
-          (character: blenderLib.mkBlenderModel {
-            name = character;
-            script = "goblin.py";
-            model = character;
-            animated = true;
-          });
-
         # The hero prop: not a test shape, but a piece of content authored the
         # way a game's content is — one silhouette from six interpenetrating
         # parts, shaded entirely by COLOR_0 through the same `shade` combiner
@@ -371,28 +360,6 @@
         interceptorModel = blenderLib.mkBlenderModel {
           name = "interceptor";
           script = "interceptor.py";
-        };
-
-        # The goblins' rides. Same authoring path as interceptorModel — one
-        # silhouette from interpenetrating solids, COLOR_0 only, no TMEM —
-        # but built with kilnlib's sweep()/rotated(), which exist because a
-        # vehicle is mostly swept tube (exhaust, roll bars, fenders, forks)
-        # and hand-rolling that frame per part is where inside-out geometry
-        # comes from. tools/blender/test_vehicles.py checks every part's
-        # signed volume on the host before Blender is ever started.
-        #
-        # `--accent RRGGBB` retints the bodywork only, so four karts that
-        # match gg_player_tint's four seat colours are four derivations over
-        # one script and no runtime support — cheaper than four textures.
-        # Only the default green is built here; add a variant when the game
-        # actually places per-player vehicles on the board.
-        gokartModel = blenderLib.mkBlenderModel {
-          name = "gokart";
-          script = "vehicles.py";
-        };
-        bikeModel = blenderLib.mkBlenderModel {
-          name = "bike";
-          script = "vehicles.py";
         };
 
         # Cinematic-demo extras: a service droid (rigged+animated, two bones
@@ -613,7 +580,7 @@
           name = "assets-demo";
           src = ./examples/assets-demo;
           romTitle = "Kiln Assets";
-          assets = [ demoModel demoSprite demoSound ];
+          assets = [ assetsDemoPak demoSound ];
           audioRate = 32000;
         };
 
@@ -817,27 +784,6 @@
           audioRate = 32000;
         };
 
-        # ── Ganja Goblin ─────────────────────────────────────────────────
-        # A standalone top-level game (not an examples/ entry). Standalone
-        # because it's a real product target, not a worked example: its own
-        # package namespace, its own game/src/, its own game/assets/, sized
-        # for a releaseable ROM rather than a single-file demo. Phase 0 wires
-        # up the skeleton; engine primitives (RNG, dice, board, turn) land
-        # in Phase 1, the game-side board loop in Phase 2, the 4 goblins in
-        # Phase 3, menus/HUD in Phase 4, items/status in Phase 5, audio in
-        # Phase 6, particle VFX + polish in Phase 7. Mini-games are deferred
-        # (Phase 8, future work).
-        #
-        # See /home/asher/.claude/plans/ganja-goblin-is-a-buzzing-rabbit.md
-        # for the full roadmap. No assets yet — they arrive in Phase 3+
-        # (goblin models) and Phase 6 (audio).
-        ganja-goblin = mkN64Rom {
-          name = "ganja-goblin";
-          src = ./game;
-          romTitle = "Ganja Goblin";
-          saveType = "eeprom4k"; # match-progress + per-goblin unlock flags
-        };
-
         # ── Forge ────────────────────────────────────────────────────────
         # A standalone tool ROM: a voxel level/cinematic editor that runs on the
         # console, so a level is judged where it will be played rather than two
@@ -886,8 +832,7 @@
         # drive`'s uinput chain is fragile, so a mode reached only by a chord is
         # a mode that can only be verified by hand — which for WALK (the one
         # whose entire purpose is standing in the level) and CAM (whose whole
-        # output is a curve you have to SEE) is most of the value. Same idiom and
-        # the same reasoning as the pm-jump ROMs.
+        # output is a curve you have to SEE) is most of the value.
         # No `assets`, deliberately: with nothing to load these fall through to
         # forge_io_seed's demo content, which is a room WITH a spawn and a
         # three-key shot. The baked level is geometry only — frg.py imports a
@@ -935,71 +880,6 @@
           romTitle = "Kiln Board";
         };
 
-        # ── PetaByte Madness ─────────────────────────────────────────────
-        # The second standalone game target, same shape as ganja-goblin
-        # above: its own top-level directory, its own package namespace, its
-        # own assets. A first-person horror game in an underwater lab, built
-        # around one mechanic — the scarlet veil, a filter the player raises
-        # to see the demons, which raises their ability to see the player
-        # too. PetaByte-Madness/docs/VEIL_DESIGN.md is the spec for that
-        # mechanic in the same way the compass report is the spec for the
-        # build system; read it before changing PetaByte-Madness/src/pm_veil.*.
-        #
-        # Unlike ganja-goblin, this one arrived with its art: an asset drop
-        # of rigged demons, a work submarine, guards, and the lab itself
-        # lives in PetaByte-Madness/archives/. PetaByte-Madness/README.md
-        # says what came from where and what is not yet on a hermetic path.
-        #
-        # The four demon models are the only glTF in the drop and so the
-        # only meshes mkModel can eat today; --ignore-materials is required
-        # because they carry no fast64 material block (see CLAUDE.md's
-        # "gltf_to_t3d aborts on a glTF material with no fast64 data").
-        # The machine centaur — Dr. Horner after the MRI, and the player
-        # character. Not on the mkModel path the demons use, because the
-        # demons arrive as .glb NODE animations on an unskinned hierarchy and
-        # gltf_to_t3d drops every one of those channels ("Channel target not
-        # found"). The centaur is one bone per limb across 23 bones, which is
-        # one bone per vertex — exactly the rigid binding the importer wants —
-        # so it is rebuilt as a real armature and the 13 animations survive.
-        #
-        # Two conversions stand between the original F3DEX2 rig and this, and
-        # each carries its own numerical self-test rather than an argument:
-        #   PetaByte-Madness/tools/mc_rig_export.py  ->  .json  (--verify)
-        #   tools/blender/centaur.py                 ->  .gltf  (--selftest)
-        # See both files' headers; the second one is why the coordinate
-        # change is (x,-z,y) and not the reflection (x,z,y).
-        # The ambience bed: a 55 Hz pressure drone with the design's
-        # gameplay pulse baked into it (docs/VEIL_DESIGN.md §7). Baked
-        # rather than live for the reason report Stage 1 gives — it never
-        # has to respond to anything, so every cycle it would cost on the
-        # VR4300 is a cycle the demons get to keep.
-        #
-        # 8 seconds and looping: long enough that the detune beats between
-        # the three partials do not audibly repeat, short enough to sit in
-        # RAM without a streamed read. mkBakedInstrument's silence,
-        # over-quiet and clipping gates all apply.
-        pmDrone = faust.mkBakedInstrument {
-          name = "pmdrone";
-          src = ./PetaByte-Madness/dsp/pm_drone.dsp;
-          sampleRate = 32000;
-          duration = 8.0;
-          params = { f0 = 55; gain = 0.35; };
-          loop = true;
-          # MONO, and this is load-bearing. pm_drone.dsp ends
-          # `process = mono <: _, (_ : de.delay(...))` — two channels — and
-          # libdragon's mixer plays a STEREO waveform across two ADJACENT
-          # mixer channels. So a stereo bed started on channel 0 silently
-          # occupies 0 AND 1, and anything else placed on 1 collides with
-          # it: one of the two ends up with a sample buffer and no reader,
-          # and mixer_poll asserts "samplebuffer_get: no reader to extend"
-          # a few seconds into the boot.
-          #
-          # The stereo widening was a few milliseconds of delay on one side
-          # that collapses to mono on a console speaker anyway, so this
-          # costs nothing audible and halves the ROM cost.
-          mono = true;
-        };
-
         # ── The Kiln boot splash ──────────────────────────────────────────
         # A parody of the Nintendo 64's boot, and a publisher mark rather
         # than any one game's title screen — which is why the runtime half
@@ -1044,181 +924,6 @@
           loop = true;
         };
 
-        pmCentaurRig = ./PetaByte-Madness/assets/rig/machine_centaur.json;
-        # ── The veil's first textured model: WIRED BUT NOT ENABLED ───────
-        # machine_centaur.json already carries UVs and ten named material
-        # groups, and three of the drop's textures are already indexed PNGs
-        # named for them, which is why docs/ASSET_PIPELINE.md calls these "the
-        # natural first real customer for pm_veil_bind_palette".
-        #
-        # Everything around them is built and verified: tools/veil_palette.py
-        # bakes the cold/veiled pairs, assetLib.mkVeilTexture ships the CI4
-        # sprite beside its .pal, pm_veil_load_palette loads all three (the debug
-        # overlay reports `veil-pal 3/3`), and pm_veil_draw_model binds them per
-        # material through Tiny3D's filterCb/tileCb.
-        #
-        # What does NOT work yet is the last link: giving these four groups
-        # `tex0_decal` specs made the model render with NO TEXTURE SAMPLED. The
-        # evidence is direct — a diagnostic build with a pure-GREEN cold palette
-        # produced zero green pixels, so the TLUT never reaches the RDP — and it
-        # was a visible REGRESSION, replacing the groups' vertex colours (3.84%
-        # of frame pixels changed, max channel delta 248). Ruled out along the
-        # way: the bake (veiled mean RGB is 11.1/0.9/0.6, correctly red), the
-        # palette load, the combiner's TEX0 slot (moved from D to A for exactly
-        # this reason — see f3d_inject's tex0_decal comment), and the UV range
-        # (0..1 is one tile, which is what the working `checker` model uses).
-        #
-        # So the specs are left OUT rather than shipped broken. Turning the veil
-        # on for the centaur is these four lines, once Tiny3D's handling of a
-        # CI4 sprite in a material is settled:
-        #
-        #   "face=tex0_decal,tex=textures/mc_face.png,size=64,prim=1:1:1:1"
-        #   "gore=tex0_decal,tex=textures/mc_gore.png,size=32,prim=1:1:1:1"
-        #   "hull=tex0_decal,tex=textures/mc_plate.png,size=32,prim=1:1:1:1"
-        #   "ribs=tex0_decal,tex=textures/mc_plate.png,size=32,prim=1:1:1:1"
-        #
-        # prim=1:1:1:1 is load-bearing, not decoration: RGB_MUL has no ONE
-        # operand, so tex0_decal spells "multiply by one" as PRIM.
-        pmCentaurModel = blenderLib.mkBlenderModel {
-          name = "centaur";
-          script = "centaur.py";
-          scriptArgs = [ "--rig" "${pmCentaurRig}" ];
-          materials = [
-            "*=shade"
-          ];
-          textures = pmVeilTextureSet;
-          animated = true;
-          # No gameplay code calls t3d_model_bvh_query_frustum (same
-          # reasoning as pmStorm's bvh=false below) — and a BVH computed
-          # against this model's rest pose is dubious value anyway for a
-          # skinned mesh whose bones move it away from that pose at runtime.
-          bvh = false;
-        };
-
-        # Horner, rebuilt as a skinned, six-clip rig — same move as the
-        # centaur above, for the same reason (pm_intake.c needs him to act,
-        # not just stand there rigid). tools/blender/horner.py builds the
-        # armature; PetaByte-Madness/tools/ph_rig_export.py produced the
-        # committed JSON from ph_rig.py + ph_anim_clips.py (rig + mesh +
-        # clips, self-tested), so this is a static file path exactly like
-        # pmCentaurRig above, not a build-time derivation.
-        pmHornerRig = ./PetaByte-Madness/assets/rig/horner.json;
-        pmHornerModel = blenderLib.mkBlenderModel {
-          name = "horner";
-          script = "horner.py";
-          scriptArgs = [ "--rig" "${pmHornerRig}" ];
-          animated = true;
-          bvh = false; # same reasoning as pmCentaurModel's bvh=false
-        };
-
-        # The MRI bay's pair of idle-animated robotic arms — hand-authored
-        # (no external rig JSON; see tools/blender/lab_arms.py), same shape
-        # droid.py's two-bone arms use.
-        pmLabArmsModel = blenderLib.mkBlenderModel {
-          name = "lab_arms";
-          script = "lab_arms.py";
-          animated = true;
-          bvh = false; # always on screen in the lab, same reasoning as above
-        };
-
-        # The OBJ/glTF-sourced props: the island, its palms, the work
-        # submarine, the guard mobs, the drone. One script with a --model
-        # table (tools/blender/pm_props.py), the same shape goblin.py uses,
-        # because each is the same three steps — read, colour, decimate.
-        # Parsing lives in tools/blender/objkit.py, which imports no bpy and
-        # is testable with a bare python3.
-        #
-        # See PetaByte-Madness/docs/ASSET_PIPELINE.md for why these do NOT go
-        # through mkModel the way the demons do, and for the three mesh
-        # defects in this drop that fail silently if unhandled.
-        pmProp = name: blenderLib.mkBlenderModel {
-          inherit name;
-          script = "pm_props.py";
-          # The whole assets directory, not one file: loach.obj resolves
-          # loach.mtl as a sibling, and a store path for a single file has no
-          # siblings.
-          scriptArgs = [ "--model" name "--assets" "${./PetaByte-Madness/assets}" ];
-          # No gameplay code calls t3d_model_bvh_query_frustum — see
-          # pmStorm's bvh=false below for the precedent this reuses.
-          bvh = false;
-        };
-
-        pmDemonModel = name: assetLib.mkModel {
-          inherit name;
-          src = ./PetaByte-Madness/assets/models/${name}.glb;
-          dest = "models";
-          ignoreMaterials = true;
-          # Same reasoning as pmProp above: nothing queries it.
-          bvh = false;
-        };
-        # The title skull. pm_screens.c has always looked for this and the
-        # ROM never shipped it, so the title screen has been drawing its
-        # text fallback — the branch was written to survive a missing asset
-        # and did its job silently for the whole project.
-        #
-        # CI4, which pm_screens.c's own comment already specified: 64x64 at
-        # 4bpp is 2 KB against a 4 KB TMEM budget, where RGBA16 would be
-        # 8 KB and could not be loaded at all. A 16-entry palette is also
-        # the veil's TLUT format, so this can later ride
-        # pm_veil_bind_palette and bleed red as the filter rises.
-        pmSkull = assetLib.mkSprite {
-          name = "skull";
-          src = ./PetaByte-Madness/assets/images/PetaByte_Madness64.png;
-          dest = "sprites";
-          format = "CI4";
-        };
-
-        # ── The veil's first real CI4 materials ──────────────────────────
-        # docs/VEIL_DESIGN.md §1's palette swap is the game's headline
-        # mechanic, and its TLUT half had never run: pm_veil_bind_palette,
-        # _material_pass, _prim_alpha and _ramp_build all existed with zero call
-        # sites because §8's "convert every material to CI4… this is the real
-        # work" had no builder behind it. tools/veil_palette.py and
-        # assetLib.mkVeilTexture are that builder.
-        #
-        # The centaur's three textures are the first customers because they are
-        # already genuine CI4 source — indexed PNGs with 15, 7 and 5 colours,
-        # which docs/ASSET_PIPELINE.md already calls "the natural first real
-        # customer for pm_veil_bind_palette". Nothing had to be requantised.
-        #
-        # `veilClass = "demon"` on all three. The class name is about the VALUE
-        # RATION, not about being an enemy: it means "owns true black and true
-        # white", and the centaur is the subject of every shot he is in. The
-        # environment gets "world" (a mid band) so that contrast stays his.
-        # `phantom` — cold alpha 0 on every entry, i.e. not drawn at all with
-        # the veil down — belongs to the four demons' bodies, and waits on them
-        # growing UVs (see below).
-        pmVeilTextures = map (t: assetLib.mkVeilTexture {
-          name = t;
-          src = ./PetaByte-Madness/assets/textures + "/${t}.png";
-          veilClass = "demon";
-        }) [ "mc_face" "mc_plate" "mc_gore" ];
-
-        # mkBlenderModel's `textures` takes ONE derivation and copies
-        # `$out/png/*.png` out of it, so the three are joined. symlinkJoin
-        # rather than a fourth builder: they are already built, and merging
-        # store paths is what it is for.
-        pmVeilTextureSet = pkgs.symlinkJoin {
-          name = "pm-veil-textures";
-          paths = pmVeilTextures;
-        };
-
-        # `name` is the FILENAME, so it must match what main.c opens:
-        # rom:/maps/pm_lab.map. It used to be "pm-lab-map", which shipped
-        # maps/pm-lab-map.map — so kiln_map_load failed on every boot,
-        # g_lab.brush_count stayed 0, and PM_SCREEN_PLAY had NO COLLISION WORLD
-        # AT ALL. The player fell forever (measured: eye Y -24,193 six seconds
-        # in) and PLAY rendered as a black screen with a working HUD over it.
-        #
-        # Nothing caught it because every layer degraded politely: kiln_map_load
-        # returns non-zero rather than asserting, main.c's install is guarded on
-        # that, and an empty clip world makes every trace report fraction 1
-        # instead of failing. Three correct "survive a missing asset" decisions
-        # composing into a silent one.
-        #
-        # Underscores, not hyphens, and not a decorative name: mkRawAsset has no
-        # way to know what path the ROM will ask for, so the name IS the
-        # contract. See pm_sfx.h for the same class of trap on the sfx path.
         # A Forge level baked into a ROM, so the LOAD path can be verified under
         # an emulator — which has no SD card, so `.#forge`'s normal storage
         # backend is unreachable there and its read path would otherwise only
@@ -1245,290 +950,6 @@
           compress = 0;
         };
 
-        pmLabMap = assetLib.mkRawAsset {
-          name = "pm_lab";
-          src = ./PetaByte-Madness/assets/pm_lab.map;
-          dest = "maps";
-          extension = "map";
-          compress = 0;
-        };
-
-        # ── The night exterior ───────────────────────────────────────────
-        # The sky and the sea, from tools/blender/pm_env.py. See
-        # PetaByte-Madness/src/pm_env.h for what the game does with them and
-        # why the horizon colour appears in three places.
-        # The island hub and the lab, authored FOR the engine rather than
-        # imported: flat walkable surfaces the AABB collision can match,
-        # named sub-objects for the six dungeon gates, and metres as the
-        # authoring unit. tools/blender/pm_world.py explains what the
-        # OBJ-derived originals could not give the runtime.
-        pmWorld = { name, materials ? [ "*=shade" ], textures ? null, bvh ? true }:
-          blenderLib.mkBlenderModel {
-            inherit name materials textures bvh;
-            script = "pm_world.py";
-          };
-
-        # Named once, used both by mkPetabyteMadness's `assets` list below and
-        # by the standalone `model-island` output — so a spot-check build and
-        # the actual ROM can never independently drift on the terrain's
-        # texture wiring the way `model-island = pmProp "island"` (the
-        # retired OBJ-sourced island) used to silently point at the wrong
-        # model entirely once pmWorld replaced it as the ROM's real source.
-        pmIslandModel = pmWorld {
-          name = "island";
-          # The terrain object gets a real UV-blended texture (the band
-          # atlas from tools/gen_textures.py); gates/tower fall through to
-          # the untextured "*" wildcard, unchanged.
-          materials = [
-            "terrain=tex0_shade,tex=textures/terrain_bands.i8.png,size=32"
-            "*=shade"
-          ];
-          inherit textures;
-          # No BVH: nothing in PetaByte-Madness ever calls
-          # t3d_model_bvh_query_frustum (see pmStorm's own bvh=false for the
-          # precedent this reuses).
-          bvh = false;
-        };
-
-        pmSkydome = blenderLib.mkBlenderModel {
-          name = "skydome";
-          script = "pm_env.py";
-          # No BVH: the dome is drawn camera-centred with depth off, so it is
-          # always entirely in frame and frustum-culling it can only cost.
-          bvh = false;
-        };
-        pmStorm = blenderLib.mkBlenderModel {
-          name = "storm";
-          script = "pm_env.py";
-          # Bolts are drawn unlit and are on screen for a handful of frames;
-          # frustum-culling 66 triangles would cost more than it saves.
-          bvh = false;
-        };
-        pmSea = blenderLib.mkBlenderModel {
-          name = "sea";
-          script = "pm_env.py";
-          # tex0_shade is texel * shade, which is exactly the contract
-          # pm_env.py's sea palette is authored against: the vertex colour is
-          # a crest ceiling and the foam texture carves the troughs out of it.
-          materials = [
-            "water=tex0_shade,tex=textures/foam.i8.png,size=32"
-          ];
-          # gltf_to_t3d decodes the PNG at conversion time to learn its pixel
-          # size, so the image has to be here even though the ROM ships the
-          # .sprite (which rides in via `textures` in the assets list below).
-          inherit textures;
-          # Not just "nothing queries it" (pmStorm's reasoning) — a BVH
-          # computed once at build time against the sea's rest pose would be
-          # actively WRONG here, since pm_env.c's swell rewrites every
-          # vertex's Y every frame and the bounds would no longer describe
-          # where the mesh actually is.
-          bvh = false;
-        };
-
-        # ── The theme ────────────────────────────────────────────────────
-        # The game's main theme, authored as a string quartet, shipped TWICE
-        # on purpose — see pm_music.h for what the game does with the pair.
-        #
-        # `pmTheme` is the score: MIDI -> XM (tools/midi_to_xm.py) -> XM64,
-        # sequenced live by the RSP mixer. 4.7 KB, loops exactly, costs
-        # almost nothing per frame.
-        #
-        # `pmThemeStream` is the recording: the mastered MP3 -> VADPCM
-        # wav64, streamed from ROM. About 1.2 MB, and it is the arrangement
-        # as it actually sounds rather than four synthesised waveforms.
-        pmTheme = assetLib.mkMidiMusic {
-          name = "petabyte";
-          src = ./PetaByte-Madness/assets/music/petabyte.mid;
-          converter = ./tools/midi_to_xm.py;
-          songName = "PetaByte Madness";
-        };
-        # Mono and resampled to the ROM's own 32 kHz: the mixer would resample
-        # anyway, and doing it at build time spends the cycles on the host.
-        pmThemeStream = assetLib.mkSound {
-          name = "petabyte_stream";
-          src = ./PetaByte-Madness/assets/music/petabyte_theme.mp3;
-          dest = "music";
-          mono = true;
-          resample = 32000;
-          compress = 1; # vadpcm — the RSP-accelerated one
-        };
-
-        # ── The two new story-beat cues + the title-card FMV ────────────────
-        # ostafterstart.mp3 and assets/mp4/audio.wav are the clean individual
-        # sources; assets/music/intro-after-start.mp3 (not baked — reference
-        # only) is the two of them concatenated, and ffprobe confirms their
-        # durations sum to its exactly. See pm_narration.c / pm_lab.c for
-        # where each actually plays.
-        pmNarrationMusic = assetLib.mkSound {
-          name = "narration_stream";
-          src = ./PetaByte-Madness/assets/music/ostafterstart.mp3;
-          dest = "music";
-          mono = true;
-          resample = 32000;
-          compress = 1;
-        };
-        pmSurgeryOst = assetLib.mkSound {
-          name = "surgery_ost";
-          src = ./PetaByte-Madness/assets/mp4/audio.wav;
-          dest = "music";
-          mono = true;
-          resample = 32000;
-          compress = 1;
-        };
-        # intro.m1v has no audio track of its own (see pm_credits.h) — its
-        # originally-intended companion is audio.wav above, now the surgery
-        # OST instead. Plays silent until real matched audio exists.
-        pmIntroVideo = assetLib.mkVideo {
-          name = "intro";
-          src = ./PetaByte-Madness/assets/mp4/intro.m1v;
-        };
-        # `debug` compiles pm_debug's overlay in; `jump` (null, or a PMScreen
-        # name without the PM_SCREEN_ prefix) makes the ROM boot straight into
-        # that screen.
-        #
-        # The jump exists because the interactive route to a screen needs a
-        # working controller and there are two common situations without one:
-        # `./dev shot`, which takes a single screenshot and has no input path
-        # at all, and `./dev drive` on a machine where the uinput -> SDL -> ares
-        # binding chain does not take (tools/n64-drive.sh's header is largely
-        # about how fragile that chain is). A jump ROM plus `./dev shot` needs
-        # neither, which makes it the reliable path for capturing a cutscene.
-        mkPetabyteMadness = { debug, jump ? null, dd ? null, veilForce ? false,
-                              cine ? false, shotAt ? null, ladder ? null,
-                              cineLint ? false }:
-          mkN64Rom {
-          # Deliberately the same `name` in both variants: `name` is what
-          # rom.nix's passthru.romFile is built from, and the Makefile emits
-          # petabyte-madness.z64 either way. The two are separate store
-          # paths because their makeFlags differ.
-          name = "petabyte-madness";
-          # Translated to -DPM_JUMP_SCREEN=PM_SCREEN_<jump> by
-          # PetaByte-Madness/Makefile, which also errors out if it is asked for
-          # without KILN_DEBUG rather than silently ignoring it.
-          makeFlags = pkgs.lib.optional (jump != null) "PM_JUMP=${jump}"
-                   ++ pkgs.lib.optional (dd != null) "PM_DD=${toString dd}"
-                   ++ pkgs.lib.optional veilForce "PM_VEIL_FORCE=1"
-                   # The cinematic debugger (PetaByte-Madness/src/pm_cine.h).
-                   # `shotAt` and `ladder` each imply `cine` in the Makefile, so
-                   # they do not have to be passed together here.
-                   ++ pkgs.lib.optional cine "PM_CINE=1"
-                   ++ pkgs.lib.optional (shotAt != null)
-                        "PM_SHOT_AT=${toString shotAt}"
-                   ++ pkgs.lib.optional (ladder != null)
-                        "PM_SHOT_LADDER=${toString ladder}"
-                   ++ pkgs.lib.optional cineLint "PM_CINE_LINT=1";
-          src = ./PetaByte-Madness;
-          romTitle = "PetaByte Madness";
-          saveType = "eeprom4k"; # three profiles; see kiln_save.h's budget
-          audioRate = 32000;     # cross-checked against pmDrone's bake rate
-          debugConsole = debug;
-          # `textures` ships the .sprite the sea's foam material names; the
-          # model only carries the rom:/ path to it.
-          assets = [ pmLabMap pmCentaurModel pmHornerModel pmLabArmsModel
-                     pmDrone kilnLogo kilnJingle
-                     pmTheme pmThemeStream
-                     pmNarrationMusic pmSurgeryOst pmIntroVideo
-                     pmSkydome pmSea pmStorm pmSkull textures ]
-            ++ pmVeilTextures
-            # The lab room ships as dank_lab.obj (via pmProp), not
-            # pmWorld's procedural box — pm_lab.c's collision brushes,
-            # player start pose, and note/MRI positions were all authored
-            # against the OBJ's real bounding box from the start (see
-            # pm_lab.h's LAB_X0..Z1), so this is the model that was always
-            # meant to ship here. bvh=false and vertex-colour materials
-            # both come from pmProp's existing defaults.
-            ++ [ pmIslandModel (pmProp "dank_lab") ]
-            ++ map pmProp [ "palms" "loach" "guard_cousin" ]
-            ++ map pmDemonModel [ "imp" "hellhound" "gargoyle" "overlord" ];
-        };
-        petabyte-madness = mkPetabyteMadness { debug = false; };
-        # The same ROM with pm_debug's state readout compiled in: screen,
-        # the camera the scene was actually built from, near/far, and which
-        # models resolved versus returned NULL. Every one of the four
-        # defects behind the black-screen hunt would have been one glance
-        # at this — see PetaByte-Madness/src/pm_debug.h. Kept out of the
-        # shipping ROM so it pays nothing there.
-        petabyte-madness-debug = mkPetabyteMadness { debug = true; };
-
-        # One ROM per jumpable screen: `nix build .#pm-jump-intake` then
-        # `./dev shot pm-jump-intake out.png 4` captures INTAKE four seconds in
-        # with no controller involved. Names match PM_SCREEN_LIST
-        # (PetaByte-Madness/src/pm_screens.h) lowercased, and the list here is
-        # JUMPS[] in pm_screens.c — keep the two in step.
-        # Each entry also picks the spatial overlay that screen is most worth
-        # inspecting with (pm_debug.c's DD_SETS: 1 cam, 2 clip, 3 actors). A jump
-        # ROM exists to be looked at, so having the relevant layer already on is
-        # the useful default — and it is the only way an automated capture can
-        # see it at all, since the cycle chord needs a controller.
-        pmJumpScreens = [
-          { s = "TITLE";     dd = 0; }   # a menu; lines would only obscure it
-          { s = "FILE";      dd = 0; }
-          { s = "NARRATION"; dd = 0; }   # 2D only, nothing spatial to draw
-          { s = "LAB_CINE";  dd = 1; }   # keyframed camera -> the `cam` set
-          { s = "LAB";       dd = 2; }   # hand-authored brushes -> `clip`
-          { s = "INTAKE";    dd = 1; }
-          { s = "CREDITS";   dd = 0; }
-          { s = "SUB";       dd = 1; }
-          { s = "BEACH";     dd = 1; }
-          { s = "PLAY";      dd = 3; }   # who is actually spawned -> `actors`
-        ];
-        pmJumpRoms = pkgs.lib.listToAttrs (map (e: {
-          name = "pm-jump-${pkgs.lib.toLower
-                            (pkgs.lib.replaceStrings [ "_" ] [ "-" ] e.s)}";
-          value = mkPetabyteMadness { debug = true; jump = e.s; inherit (e) dd; };
-        }) pmJumpScreens);
-
-        # The same jumps with the veil pinned on, for the A/B that shows the
-        # palette swap. Only the screens with the centaur in them are worth it —
-        # he is the only CI4-textured model, so he is the only place the TLUT
-        # half of the effect can currently be seen at all.
-        pmVeilRoms = pkgs.lib.listToAttrs (map (sc: {
-          name = "pm-veil-${pkgs.lib.toLower sc}";
-          value = mkPetabyteMadness {
-            debug = true; jump = sc; dd = 0; veilForce = true;
-          };
-        }) [ "BEACH" "ATTRACT" "PLAY" ]);
-
-        # ── The cinematic debugger's ROMs ──────────────────────────────────
-        # Only the screens that ARE a keyframed shot. TITLE and FILE are menus
-        # over one, PLAY is not a cutscene at all, and a transport with nothing
-        # to transport is a timeline of a shot that is not playing.
-        pmCineScreens = [ "NARRATION" "LAB_CINE" "INTAKE" "CREDITS" "SUB"
-                          "BEACH" ];
-        pmCineName = sc:
-          pkgs.lib.toLower (pkgs.lib.replaceStrings [ "_" ] [ "-" ] sc);
-
-        # `nix build .#pm-cine-intake` — boots into the shot with the transport
-        # armed, the timeline drawn and the `cam` overlay on. This is the one to
-        # reach for with a controller: L+R arms, START pauses, D-left/right
-        # seeks, D-up/down walks the keys, Z detaches the free-fly and starts
-        # printing a PMCamKey pose you can read straight off a screenshot.
-        pmCineRoms = pkgs.lib.listToAttrs (map (sc: {
-          name = "pm-cine-${pmCineName sc}";
-          value = mkPetabyteMadness {
-            debug = true; jump = sc; dd = 1; cine = true;
-          };
-        }) pmCineScreens);
-
-        # `nix build .#pm-ladder-intake` — the same shot walked in eight
-        # evenly-spaced rungs, each held for a fixed number of FRAMES, with the
-        # shot time stamped on every frame. One boot yields the whole contact
-        # sheet, and because the frames are self-labelling, extraction timing
-        # drifting does not make the sheet ambiguous. `./dev cine` drives these.
-        pmLadderRoms = pkgs.lib.listToAttrs (map (sc: {
-          name = "pm-ladder-${pmCineName sc}";
-          value = mkPetabyteMadness {
-            debug = true; jump = sc; dd = 0; cine = true; ladder = 8;
-          };
-        }) pmCineScreens);
-
-        # `nix build .#pm-cine-lint` — runs the camera validator over every shot
-        # in PM_SHOT_LIST and draws the report, instead of running the game.
-        # One `./dev shot pm-cine-lint out.png 8` reads the whole game's camera
-        # health. The settle is long because the run plays each shot's setup(),
-        # which preloads that shot's models.
-        pm-cine-lint = mkPetabyteMadness { debug = true; cineLint = true; };
-
         # A NixOS-in-Docker image for collaborators: real Nix (so `nix
         # build`/`nix develop`/`./dev` work inside it against a cloned
         # checkout of this repo) plus the Claude Code CLI and Tailscale, for
@@ -1543,22 +964,14 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo ganja-goblin board-demo petabyte-madness petabyte-madness-debug forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
           inherit textures;
           inherit dev-image;
         }
-        # `nix build .#pm-jump-<screen>` — a debug ROM that boots straight into
-        # one screen, for capture without a controller. `.#pm-veil-<screen>` is
-        # the same with the veil pinned on. See mkPetabyteMadness.
         // forgeModeRoms
-        // pmJumpRoms // pmVeilRoms
-        # `.#pm-cine-<screen>` is the interactive transport, `.#pm-ladder-<screen>`
-        # the deterministic contact sheet, `.#pm-cine-lint` the static camera
-        # report. See PetaByte-Madness/src/pm_cine.h.
-        // pmCineRoms // pmLadderRoms // { inherit pm-cine-lint; }
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
@@ -1575,22 +988,7 @@
           model-droid = droidModel;
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
-          model-centaur = pmCentaurModel;
           model-kiln-logo = kilnLogo;
-          model-island = pmIslandModel;
-          model-palms = pmProp "palms";
-          model-loach = pmProp "loach";
-          model-drone = pmProp "drone";
-          model-guard-cousin = pmProp "guard_cousin";
-          model-dank-lab = pmProp "dank_lab";
-          model-horner = pmHornerModel;
-          model-lab-arms = pmLabArmsModel;
-          model-gokart = gokartModel;
-          model-bike = bikeModel;
-          model-dank = goblinCast.dank;
-          model-sparky = goblinCast.sparky;
-          model-moss = goblinCast.moss;
-          model-glimmer = goblinCast.glimmer;
           default = hello;
         };
 
@@ -1599,7 +997,7 @@
         lib = {
           inherit mkN64Rom;
           inherit (faust) mkFaustVoice mkBakedInstrument mkOfflineRenderer;
-          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset mkStreamdb;
+          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset mkStreamdb mkAssetPak;
         };
 
         checks = {
@@ -1709,11 +1107,6 @@
             rom = bass-synth;
             name = "bass-synth";
           };
-          rom-ganja-goblin = import ./nix/checks/rom.nix {
-            inherit pkgs;
-            rom = ganja-goblin;
-            name = "ganja-goblin";
-          };
           rom-board-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = board-demo;
@@ -1731,21 +1124,6 @@
             inherit pkgs;
             rom = forge-selftest;
             name = "forge-selftest";
-          };
-          rom-petabyte-madness = import ./nix/checks/rom.nix {
-            inherit pkgs;
-            rom = petabyte-madness;
-            name = "petabyte-madness";
-            # 16 MB stopped being enough the moment this ROM started
-            # shipping a full-motion video (pmIntroVideo, a raw MPEG1
-            # elementary stream — video.h's video_open makes no attempt
-            # to compress it) alongside two multi-minute VADPCM tracks
-            # (pmNarrationMusic, pmSurgeryOst). Real N64 carts shipped up to
-            # 64 MB (Conker's Bad Fur Day among them) and SC64 supports the
-            # same; 64 MB here is headroom for the FMV once its final cut
-            # replaces the current placeholder, not a number picked to
-            # exactly clear today's size.
-            maxSize = 64 * 1024 * 1024;
           };
           kiln-asset = import ./nix/checks/kiln-asset.nix {
             inherit pkgs;
@@ -1863,30 +1241,7 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          # The generated dimension headers must be current, and the generators
-          # must still agree with the geometry the ROM actually ships.
-          pm-gen-headers = import ./nix/checks/pm-gen-headers.nix {
-            inherit pkgs;
-          };
-          # The cinematic camera validator, compiled natively and asserted on
-          # in both directions, plus the guard that PM_SHOT_LIST names every
-          # shot that exists.
-          pm-cine = import ./nix/checks/pm-cine.nix {
-            inherit pkgs hostMath;
-            platHost = ./plat/host;
-            pmSrc = ./PetaByte-Madness;
-            # pm_camkey.h is a shim over the engine's kiln_camkey.h since Forge
-            # became a fourth consumer of the curve.
-            engineSrc = ./engine;
-          };
-          # The rig JSONs are generated too, and had no regeneration gate at
-          # all — plus the clip lengths pm_intake.c restates as seconds, which
-          # a diff cannot check because a consistently-regenerated file can
-          # still be wrong for the game.
-          pm-rigs = import ./nix/checks/pm-rigs.nix {
-            inherit pkgs;
-          };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth ganja-goblin board-demo petabyte-madness petabyte-madness-debug forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a

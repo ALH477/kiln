@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/assets.nix — the asset pipeline.
 #
@@ -363,7 +363,7 @@ rec {
   # which then takes mkMusic's ordinary path to .xm64.
   #
   # This is the cheap half of the "how do I get this song into the ROM"
-  # question: PetaByte-Madness' 64-second string quartet is 4.7 KB as an XM
+  # question: PetaByte Madness' 64-second string quartet is 4.7 KB as an XM
   # and loops exactly, where the same piece as a streamed wav64 is ~1.2 MB
   # and has to be cross-faded by hand to loop at all. Use mkSound for the
   # latter when a recording's exact timbre is the point.
@@ -425,7 +425,7 @@ rec {
     };
 
   # ── The scarlet veil's CI4 textures ──────────────────────────────────
-  # PetaByte-Madness/docs/VEIL_DESIGN.md §1 calls the palette swap "the one
+  # PetaByte Madness's docs/VEIL_DESIGN.md §1 calls the palette swap "the one
   # idea": author both states offline, and at runtime change only which 16-entry
   # TLUT a material points at. 32 bytes of DMA and zero extra pixels shaded,
   # against the 76,800 blended read-modify-writes a full-screen tinted quad
@@ -661,6 +661,110 @@ rec {
       passthru = { assetName = "${name}.streamdb"; inherit dest; };
 
       meta.description = "StreamDB container '${name}' (${toString (builtins.length entries)} assets)";
+    };
+
+  # ── One StreamDB per ROM, keys derived rather than hand-typed ───────────
+  # mkStreamdb's `entries` require the caller to state each key AND rely on
+  # it matching the asset's own dest/name output path — exactly the
+  # "asset builder's name IS the filename, and nothing checks it" gap
+  # CLAUDE.md's hard-won facts documents (a mismatched key here fails the
+  # same way: a build that succeeds and a ROM that gets nothing at that
+  # path). mkAssetPak instead takes a plain list of already-built asset
+  # derivations and packs EVERY file each one actually produced under its
+  # own `filesystem/`, keyed by that file's own relative path — the key can
+  # no longer drift from the file, because it IS the file's own path.
+  #
+  # Not "exactly one file per asset": an ANIMATED mkModel ships its .t3dm
+  # plus one or more `.N.sdata` clip-streaming sidecars, discovered here the
+  # same as a single-file mkSprite/mkRawAsset/mkSound/mkMusic output would
+  # be. Whether packing those sidecars into StreamDB actually WORKS at
+  # runtime is a separate question this helper does not answer — Tiny3D's
+  # t3danim.c opens them via `asset_fopen(animDef->filePath, ...)`, a
+  # hardcoded DFS-path open with no buffer variant, so an animated model's
+  # sidecars need to stay reachable as loose DFS regardless of where the
+  # `.t3dm` itself came from. See CLAUDE.md's "Datafiles: StreamDB vs loose
+  # DFS" — this is why examples/camera-skel-demo (an animated rig) stays on
+  # loose DFS entirely rather than using this helper.
+  mkAssetPak =
+    { name
+    , assets
+    , dest ? ""
+    }:
+    pkgs.stdenv.mkDerivation {
+      pname = "assetpak-${name}";
+      version = "0.1.0";
+      nativeBuildInputs = [ pkgs.gcc pkgs.python3 ];
+      dontUnpack = true;
+
+      buildPhase = ''
+        runHook preBuild
+        set -euo pipefail
+
+        # Same upstream pack tool as mkStreamdb — one writer, reviewed once.
+        gcc -O2 -std=gnu11 -I${streamdbSrc}/C/include -o pack \
+            ${./../streamdb-embedded/test/pack.c} \
+            ${streamdbSrc}/C/src/streamdb.c -lpthread
+
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        mkdir -p "$outdir"
+
+        args=()
+        nfiles=0
+        ${lib.concatMapStrings (a: ''
+          n=$(find ${a}/filesystem -type f | wc -l)
+          if [ "$n" -eq 0 ]; then
+            echo "mkAssetPak: no files found under ${a}/filesystem" >&2
+            exit 1
+          fi
+          while IFS= read -r f; do
+            key="''${f#${a}/filesystem/}"
+            args+=("$key" "$f")
+            nfiles=$((nfiles + 1))
+          done < <(find ${a}/filesystem -type f)
+        '') assets}
+
+        ./pack "$outdir/${name}.streamdb" "''${args[@]}" > /dev/null
+
+        if [ ! -s "$outdir/${name}.streamdb" ]; then
+          echo "mkAssetPak: $outdir/${name}.streamdb was not produced" >&2
+          exit 1
+        fi
+        echo "  ${name}.streamdb: $(stat -c%s "$outdir/${name}.streamdb") bytes, $nfiles file(s) from ${toString (builtins.length assets)} asset(s)"
+        runHook postBuild
+      '';
+
+      doCheck = true;
+      checkPhase = ''
+        runHook preCheck
+        outdir="filesystem${lib.optionalString (dest != "") "/${dest}"}"
+        python3 - "$outdir/${name}.streamdb" <<'PY'
+        import struct, sys
+        with open(sys.argv[1], "rb") as f:
+            slot = f.read(128)
+        assert slot[:4] == b"STDB", "bad magic"
+        assert struct.unpack_from("<I", slot, 4)[0] == 3, "bad version"
+        idx_off, idx_len = struct.unpack_from("<QQ", slot, 40)
+        f = open(sys.argv[1], "rb"); f.seek(idx_off)
+        idx = f.read(idx_len)
+        n = struct.unpack_from("<Q", idx, 0)[0]
+        print(f"  index: {n} documents")
+        PY
+        runHook postCheck
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out
+        cp -r filesystem $out/
+        runHook postInstall
+      '';
+
+      dontStrip = true;
+      dontPatchELF = true;
+
+      passthru = { assetName = "${name}.streamdb"; inherit dest; };
+
+      meta.description = "StreamDB container '${name}' (${toString (builtins.length assets)} assets, auto-keyed)";
     };
 
   # ── Texture atlas (flipbook frames) ─────────────────────────────────

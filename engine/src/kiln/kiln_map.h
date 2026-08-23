@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_map.h — a clean-room idMapFile analogue: load a Quake-format `.map`
  * and turn it into `KilnBrush` collision + `KilnRoomSpawn` templates with

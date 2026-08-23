@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # stage.sh — put everything the poser needs into tools/poser/data/.
 #
@@ -9,21 +9,19 @@
 # at what the ROM will contain. The source keyframes come out of the model
 # script itself via anim_io.py. Neither is authored twice.
 #
-# ── Two kinds of character ─────────────────────────────────────────────
-# This used to stage the goblin family and nothing else, and the reason was not
-# a decision: anim_io.capture() ran the model script with kilnlib stubbed, which
-# works for goblin.py (its clips are code) and returns an EMPTY LIST for
-# centaur.py and horner.py (their clips arrive in assets/rig/*.json and their
-# build_armature does real bpy work the stubs cannot fake). So the two
-# characters PetaByte Madness actually animates had no editor, and their timing
-# got tuned by editing C literals and rebuilding.
-#
-# anim_io now reads the rig JSON directly for those — it IS the source-keyframe
-# form, so nothing is recovered from itself. The table below is the only thing
-# that differs per character.
+# ── Rig-JSON characters moved out with PetaByte Madness ────────────────
+# This used to also stage two rig-JSON characters (Horner, the machine
+# centaur) whose clips arrive in assets/rig/*.json rather than as code —
+# anim_io.capture() can't recover those from a stubbed model script the way
+# it does for the goblin family, so anim_io reads the rig JSON directly for
+# them instead. Both characters, their rigs, and the `model-horner`/
+# `model-centaur` flake packages this script built them from have since
+# moved to PetaByte Madness's own repo along with the game; the rig-JSON
+# path in anim_io.py (`--rig <path>`) is still there for a game with its own
+# such characters to point at its own rig JSON.
 #
 #   ./tools/poser/stage.sh                # everything
-#   ./tools/poser/stage.sh horner         # one
+#   ./tools/poser/stage.sh dank           # one
 set -euo pipefail
 cd "${KILN_REPO:-$PWD}"
 mkdir -p tools/poser/data
@@ -35,11 +33,9 @@ declare -A SPEC=(
   [moss]="goblin -"
   [glimmer]="goblin -"
   [goblin]="goblin -"
-  [horner]="horner PetaByte-Madness/assets/rig/horner.json"
-  [centaur]="centaur PetaByte-Madness/assets/rig/machine_centaur.json"
 )
 
-DEFAULT_MODELS="dank sparky moss glimmer goblin horner centaur"
+DEFAULT_MODELS="dank sparky moss glimmer goblin"
 read -ra MODELS <<< "${*:-$DEFAULT_MODELS}"
 
 # Only the code-clip characters can be checked by verify.py — it compares the

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase C step 2: kiln_dict + kiln_map. Loads the Quake-format
 // `assets/quake_test.map` (already in the ROM via the asset pipeline), parses

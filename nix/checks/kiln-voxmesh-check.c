@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Renders a real voxel mesh — kiln_voxel's greedy quads through
  * kiln_voxmesh's packer through the host 3D pass — twice, with two different

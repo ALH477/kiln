@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """f3d_inject.py — write `extras.f3d_mat` into a glTF's materials.
 
 ── Why this exists ────────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ PRESETS = {
     # ── The veil's combiner ────────────────────────────────────────────
     # The texture STRAIGHT THROUGH — no shade multiply. This is fast64's
     # G_CC_DECALRGBA, and for the scarlet veil it is a requirement rather
-    # than a style: PetaByte-Madness/docs/VEIL_DESIGN.md section 9 measured it.
+    # than a style: PetaByte Madness's docs/VEIL_DESIGN.md section 9 measured it.
     #
     #   "Demons must draw near-DECAL, not modulated. Run enemies through the
     #    same modulate combiner as the room and they come out DARKER than the

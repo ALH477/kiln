@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Open-world streaming demo: all five Phase E primitives, plus Phase F's
 // kiln_stream + kiln_streamio pacer:

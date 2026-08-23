@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Included by a ROM's Makefile after n64.mk and t3d.mk. Order matters at link
 # time: libkiln calls into Tiny3D, so -lkiln has to come before -lt3d, which

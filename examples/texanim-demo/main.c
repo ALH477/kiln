@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // texanim-demo: exercises kiln_texanim and kiln_vanim in one frame.
 //

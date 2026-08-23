@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """test_prims.py — winding checks for kilnlib's primitive builders.
 
     python3 tools/blender/test_prims.py        # no Blender needed

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * forge_hud.c — the numbers, and specifically the ones that are red when wrong.
  *

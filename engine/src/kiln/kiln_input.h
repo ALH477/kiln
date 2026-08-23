@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_input.h — the engine's joypad wrapper. See CLAUDE.md's Phase C notes.
  *

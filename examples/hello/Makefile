@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # The canonical libdragon project shape: set BUILD_DIR, include n64.mk, declare
 # your objects, and name the .z64. Everything else (ROM header, ELF compression,

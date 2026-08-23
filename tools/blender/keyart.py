@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """keyart.py — the box art: four goblins, their names, and the logo.
 
     blender --background --factory-startup -noaudio \

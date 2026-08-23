@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_video.h — frame-by-frame FMV decode, for shots that need a video clip
  * composited into their own per-frame draw rather than owning the whole

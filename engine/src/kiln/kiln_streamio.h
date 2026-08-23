@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_streamio.h — binds kiln_stream's admission policy to real
  * kiln_asset + kiln_cache loads, and adapts it to kiln_room / kiln_tile's

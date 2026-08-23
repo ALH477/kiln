@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Include order matters: n64.mk, then t3d.mk, then streamdb.mk, then
 # kiln.mk. Each prepends its own -l to N64_LDFLAGS, so the last one included

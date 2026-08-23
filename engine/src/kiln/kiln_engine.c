@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_engine.c — 3D pass implementation. See kiln_engine.h for the model.
  */

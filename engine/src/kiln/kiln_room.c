@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_room.c — see kiln_room.h for the model. The implementation follows the
  * same module-private-globals + caller-owned-pool convention as kiln_actor.

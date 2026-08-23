@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 // snap.js — grid snapping + int16 clamp. Pure, no three.js dependency, so the
 // headless round-trip check can pull in mapio.js without a DOM.
 

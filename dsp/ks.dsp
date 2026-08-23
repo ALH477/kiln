@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // A Karplus-Strong plucked string — the worked example for the live
 // on-console path, and the regression test for nix/faust.nix's gates.

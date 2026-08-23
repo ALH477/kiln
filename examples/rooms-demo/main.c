@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // Phase B verification: the room streaming system (kiln_room.h) with a 2×2
 // grid of rooms A/B/C/D, each 80×80, sharing borders. The camera starts in

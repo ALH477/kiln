@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: MPL-2.0 -->
+<!-- SPDX-License-Identifier: MIT -->
 # Reference captures
 
 Committed output of the host 2D pass, compared byte-for-byte by

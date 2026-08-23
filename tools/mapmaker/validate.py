@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 """validate.py — round-trip a .map through tools/blender/quake_map.py's pure
 Python core (the same parser the engine uses structurally, and the same one
 the Blender import path uses). Reports counts vs. the engine's limits,

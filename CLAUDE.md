@@ -18,20 +18,25 @@ four (NUS-001, the M64, the ED64 Plus, and now the host). Everything is
 `kiln.mk`, and `nix/checks/kiln-names.nix` fails the build if the old name
 comes back. The ModRetro console is still called the M64 and keeps a small
 allowlist in `nix/checks/kiln-names-allow.txt` — read its header before adding
-to it. It exists to implement `compass_artifact_wf-…_text_markdown.md` — a
-feasibility report on running Faust DSP on the N64 and porting the SSHitunneller!
-game to it. **That report is the spec.** Read it before proposing anything; it
-carries its own caveats section about what is unverified.
+to it. The engine's audio layer originated from a feasibility investigation
+into running Faust DSP on the N64 for a specific game (SSHitunneller!, ported
+as PetaByte Madness) — that game and its design report now live in their own
+repository, but the numeric constraints that investigation surfaced (no libm,
+no double-precision on the VR4300, per-voice cycle budgets) are still exactly
+what the gates below enforce.
 
-The central design idea: the report is a set of numeric constraints that are
-easy to violate silently and expensive to discover on hardware, so the build
-system enforces them rather than documenting them. A `.dsp` that calls libm, or
-a voice that emits a double-precision instruction, fails `nix build`.
+The central design idea: those constraints are easy to violate silently and
+expensive to discover on hardware, so the build system enforces them rather
+than documenting them. A `.dsp` that calls libm, or a voice that emits a
+double-precision instruction, fails `nix build`.
 
 Sibling repos under `~/Documents/`, all separate checkouts (not submodules):
 `DeMoD` (the Faust corpus, Quanta, `dm.dcf`), `ssh-dungeon-rpg` (SSHitunneller!
 itself — Lua game + Rust `russh` transport), `HydraMesh` (the certified
-`DeModFrame`/DCF-Audio/SuperPack wire).
+`DeModFrame`/DCF-Audio/SuperPack wire), `PetaByte-Madness` (the flagship game
+this engine was built for) and `ganja-goblin` (a second, unrelated game) —
+both split out of this repo so the engine here could be published and
+MIT-licensed independently of either game's content.
 
 ## Commands
 
@@ -59,19 +64,15 @@ nix flake check        # the pre-push gate — see "The gates" below
 ./dev mapmaker                            # three.js .map editor on :8000
 ./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001
 ./dev map-validate <file.map>              # round-trip through quake_map.py
-./dev cine <screen> [n]                    # contact sheet of one PetaByte
-                                           #   Madness cutscene, from ONE boot
-./dev cine-lint                            # the camera validator's report over
-                                           #   every registered shot
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into
                                            #   assets/ + run the validator
 ```
 
-**To look at one screen of a game, build a jump ROM rather than driving to it.**
-`nix build .#pm-jump-intake` boots straight into PetaByte Madness' INTAKE
-cutscene; `./dev shot pm-jump-intake out.png 6` then captures it with **no
+**To look at one screen or mode of a game, build a jump ROM rather than
+driving to it.** `nix build .#forge-cam` boots Forge straight into CAM mode,
+for example; `./dev shot forge-cam out.png 6` then captures it with **no
 controller involved**, which matters because `./dev drive`'s uinput→SDL→ares
 binding chain is fragile (see `tools/n64-drive.sh`'s header) and `./dev shot` has
 no input path at all by design. See the **`n64-verify`** skill for the whole
@@ -436,10 +437,53 @@ patch stop applying.
 
 **`kiln_asset_wav64` is deliberately NOT provided** — see "Not yet built".
 
-Verified by `examples/streamdb-demo`: one `.streamdb` packing a model, a
-sprite, and a raw level-layout blob, exercising `kiln_asset_model` (the
-patched load-from-buffer path), `kiln_asset_sprite`, `kiln_asset_load` on the
-raw blob, and `kiln_asset_find_suffix`.
+### Datafiles: StreamDB vs loose DFS — the actual decision framework
+
+Kiln's answer to "the engine consumes data files, the way id Tech 4 does" is
+StreamDB — it is this platform's closest analogue to a `.pk4` pak, and it is
+what `kiln_stream`/`kiln_streamio` (Phase F, below) pace loads through. But
+"always use StreamDB" is false today, for a concrete, structural reason, not
+a style preference:
+
+- **Use StreamDB** for anything indexed/keyed, suffix-searchable, or where
+  bundling many small records (models, sprites, level layouts, dialogue,
+  actor params) into one CRC-checked container beats N loose DFS entries.
+  `nix/assets.nix`'s `mkAssetPak` makes this the *easy* default for a new
+  ROM: hand it a list of already-built asset derivations and it packs every
+  file each one produced under its own `filesystem/`, keyed by that file's
+  own relative path — the key can't drift from the file the way
+  `mkStreamdb`'s hand-typed `entries` can (see the hard-won fact on an asset
+  builder's `name` being the filename).
+- **Use loose DFS** for anything an engine loader only knows how to open by
+  hardcoded path with no in-memory variant. Audio is the standing example —
+  `wav64_open` has no buffer form, so `kiln_asset_wav64` cannot exist until
+  libdragon grows `wav64_open_buf` — but it is not the only one: an
+  **animated** model isn't actually single-file either. Tiny3D's
+  `t3danim.c` streams clip data from sidecar `.N.sdata` files via
+  `asset_fopen(animDef->filePath, ...)`, a hardcoded DFS-path open, same as
+  `wav64_open`. `examples/camera-skel-demo`'s rig stays on loose DFS
+  entirely for exactly this reason — packing its `.sdata` sidecars into a
+  StreamDB would build fine and fail at runtime, because Tiny3D would still
+  try to open them by DFS path regardless of where the `.t3dm` itself came
+  from.
+- **Realistic scope on a fixed ROM cartridge:** there is no writable general
+  filesystem at runtime (SD via `kiln_store` is real, but it is Forge's
+  editor-save path, not a game-content mod directory) — so "id-Tech-4-style"
+  here means "one build-time-baked pak instead of scattered hardcoded DFS
+  paths," not runtime `fs_game`-style directory swapping.
+
+The realistic shape of most real content is therefore a **mix**: model and
+sprite through StreamDB, audio (and any animated model) through loose DFS in
+the same ROM — not an all-StreamDB or all-loose-DFS choice.
+
+Verified by `examples/streamdb-demo` (one `.streamdb` packing a model, a
+sprite, and a raw level-layout blob — `kiln_asset_model`'s patched
+load-from-buffer path, `kiln_asset_sprite`, `kiln_asset_load` on the raw
+blob, and `kiln_asset_find_suffix`), `examples/assets-demo` and
+`examples/openworld-demo` (the realistic mixed pattern: `mkAssetPak`-built
+StreamDB for models/sprites, loose DFS for the `.wav64`), and
+`examples/camera-skel-demo` (the animated-model case that stays loose DFS
+entirely, and why).
 
 ## Phase D — OoT + id Tech 4 feel (input, clip, dict, map, surface, sound, event, target, player)
 
@@ -699,80 +743,6 @@ accumulation mode: `_render(out, n, accumulate)` saturating-adds to the
 buffer when `accumulate != 0`, enabling multiple voices to be summed into
 one AI buffer. Per-voice gain is set via `_set_gain`.
 
-## PetaByte Madness (PetaByte-Madness/) — the game this engine is for
-
-The largest consumer of everything above, and until recently absent from this
-file entirely. **`nix build .#petabyte-madness`** / **`.#petabyte-madness-debug`**.
-
-Dr. Patrick Horner, replaced at MedCorp by "deterministic systems", has his
-daughter taken; he climbs onto his flooded lab's MRI and comes off it as a
-machine centaur able to raise **the scarlet veil** — a red filter that shows
-what is actually down there, and while it is up, they can see you too.
-
-**Read `PetaByte-Madness/docs/VEIL_DESIGN.md` before touching the veil** and
-`docs/ASSET_PIPELINE.md` before touching its art. Its `README.md` is the status
-doc.
-
-- **The intro is far ahead of the game.** Boot splash → title → attract reel →
-  file select → narration crawl → lab cinematic → **playable lab** → intake
-  transformation → credits/FMV → submarine ascent → beach reveal → PLAY, all
-  running, with two forms of the theme, a night island with storm and animated
-  sea, a HUD, and a debug overlay.
-- **PLAY is Slice 0 and thin**: one corridor from `assets/pm_lab.map`, six
-  demons, air draining, the veil on Z. No combat.
-- **The veil's palette-swap layer is now bakeable but not yet bound.**
-  `pm_veil_update`/`_apply_scene`/`_draw_vignette`/`_demon_submit` are live;
-  `tools/veil_palette.py` + `assetLib.mkVeilTexture` now produce the CI4
-  `.sprite` + 64-byte cold/veiled `.pal` pairs and `pm_veil_load_palette` loads
-  them (three, from the centaur's already-indexed textures). What is missing is a
-  **CI4-textured mesh** to bind them to — `centaur.py` and the demons need UVs.
-  That is the next real step on the game's headline mechanic.
-- **Geometry measures itself.** `tools/blender/pm_world.py --emit-header` →
-  `src/pm_world_gen.h` (island) and `PetaByte-Madness/tools/dank_lab_gen.py
-  --emit-header` → `src/pm_lab_gen.h` (lab extents, MRI, desk, light rig).
-  `pm_lab.h` and `pm_intake.c` derive from those rather than restating them, and
-  `nix/checks/pm-gen-headers.nix` fails if a header is stale or if the generator
-  and the shipped `dank_lab.obj` stop agreeing about the room's size.
-- **The lab's vertex colours are already lit.** `dank_lab_gen.py`'s `bake()`
-  multiplies its twelve-fixture rig into them before writing the OBJ. So the
-  runtime must light it close to unity or it double-darkens — which is exactly
-  what "the lab reads as unlit" was. `pm_env_interior_from_rig` takes only the
-  key/fill *directions* from the authored fixtures. Do not install the rig's
-  brightness or tint.
-- **The cinematic debugger is `pm_cine`.** Nine keyframed shots run through one
-  director (`pm_demo.c`), whose clock only ever counted up at 1x — so looking at
-  second 22.7 of a 36-second shot meant booting and waiting 22.7 seconds of wall
-  clock. `pm_cine.h` owns that clock: pause, step, rate, and a **deterministic
-  seek** that restarts the shot and re-simulates to an exact time (you cannot
-  rewind an animation state machine, so it does not pretend to). On top of it: a
-  timeline strip with keyframe and cue ticks, a cue trace filled from funnels
-  (`pm_fx` ×4, `pm_sfx` ×1, each `play_once`) rather than per-cutscene edits, a
-  detached free-fly that draws the shot's own camera and **frustum**, and a
-  continuously-printed `PMCamKey` pose so a screenshot of free-fly mode carries
-  the numbers to paste back into the table. `PM_SHOT_AT=<sec>` makes a capture
-  reproducible; `PM_SHOT_LADDER=<n>` gives the whole shot from one boot. See the
-  **`n64-verify`** skill §6-7. Its validator earned itself on its first run over
-  the real tables: `INTAKE` carried two keys at the same instant, because
-  `INTRO_T` and `T2(45)` are the same number by construction. The bracketing
-  scan walks past a zero-span segment so that key was never flown *through*, but
-  Catmull-Rom takes its tangent from a key's two **neighbours**, so it bent the
-  curve either side of the seam while being unreachable itself — dead data that
-  is not inert, and invisible to any capture.
-- **The camera curve has exactly one implementation.** `pm_camkey.h`'s
-  `pm_camkey_sample` is flown by the runtime, drawn by the overlay and measured
-  by the validator. A validator measuring a curve that merely *resembles* the
-  rendered one is worse than none, because its numbers look authoritative.
-- **X-macro tables.** `PM_SCREEN_LIST` (`pm_screens.h`), `PM_MODEL_LIST`
-  (`pm_models.h`) and `PM_SHOT_LIST` (`pm_cine.h`) generate their enums, name
-  tables and DFS path tables from one list each. They are X-macros because the hand-kept versions drifted twice, and
-  one drift was a NULL format string at boot on every debug build.
-- **An asset's `name` IS its filename.** `mkRawAsset { name = "pm-lab-map"; }`
-  shipped `maps/pm-lab-map.map` while `main.c` opened `rom:/maps/pm_lab.map`, so
-  `kiln_map_load` failed on every boot and **PLAY had no collision world for its
-  entire life** — the player fell forever behind a working HUD. Every layer
-  degraded politely and the composition was silent. The debug overlay's
-  `clip <n>` field (red at zero) exists so it cannot recur.
-
 ## Forge (Forge/) — the level editor that runs on the console
 
 **`nix build .#forge`**, and **`nix build .#forge-selftest` first, on an
@@ -868,12 +838,13 @@ mode reached only by a chord can only be verified by hand.
 - **PAINT and LIGHT do not move the camera.** The D-pad is a texel cursor or a
   light aim, and holding the view still is what makes the judgement possible.
 
-### `kiln_camkey` and `kiln_camlint` moved out of PetaByte Madness
+### `kiln_camkey` and `kiln_camlint` moved into the engine when a second consumer arrived
 
-Both were PM-local (`pm_camkey.h`, `pm_cine_lint.*`) and both moved when Forge
-became another consumer. `PetaByte-Madness/src/pm_camkey.h` and `pm_cine_lint.h`
-are now shims — typedefs and defines, not second implementations — so every
-existing keyframe table and `nix/checks/pm-cine-check.c` compile untouched.
+Both were originally local to PetaByte Madness (`pm_camkey.h`, `pm_cine_lint.*`)
+and were promoted into the engine proper once Forge needed the same curve
+authored, drawn and validated on-console. PetaByte Madness (now its own repo)
+keeps thin shim headers over the engine versions — typedefs and defines, not a
+second implementation — so its existing keyframe tables compile untouched.
 
 The invariant is the reason: **the curve has exactly one implementation**, flown
 by the runtime, drawn by the overlay, measured by the validator and now authored
@@ -881,9 +852,9 @@ by the editor. An author tuning against a curve that merely resembles the shippe
 one is the same defect as a validator measuring one, and worse, because the
 numbers look authoritative.
 
-The move was a rename rather than a rewrite because `PMCineShot` deliberately
-*mirrored* a `PMDemoShot`'s fields instead of taking one — a coupling refused
-once, years before there was a second consumer.
+The move was a rename rather than a rewrite because PetaByte Madness's original
+shot struct deliberately *mirrored* its demo-runner's fields instead of taking
+one — a coupling refused once, years before there was a second consumer.
 
 ### The ED64 Plus loop, which is the point
 
@@ -1000,13 +971,13 @@ now matches by the PID it just launched, which is unambiguous, with an exact
 which window it actually is before trusting the numbers.
 
 **A capture is only reproducible cropped.** Two `./dev shot` runs of the same
-deterministic ROM (`PM_SHOT_AT`) differ in ~37 pixels on the outer rows of the
-window — compositor chrome, not emulator output. Crop 12 px on every side and
-the diff is exactly zero. A raw `md5sum` of two perfectly good captures will
-differ and tell you nothing. The other half of that lesson is on the ROM side:
-anything the overlay prints that cannot be the same twice — an uptime, a
-smoothed frame rate — has to be suppressed in a build meant to be diffed, which
-is what `pm_cine_repro()` is for.
+deterministic ROM differ in ~37 pixels on the outer rows of the window —
+compositor chrome, not emulator output. Crop 12 px on every side and the diff
+is exactly zero. A raw `md5sum` of two perfectly good captures will differ and
+tell you nothing. The other half of that lesson is on the ROM side: anything
+the overlay prints that cannot be the same twice — an uptime, a smoothed frame
+rate — has to be suppressed in a build meant to be diffed, if a capture of it
+is ever going into a golden-image test.
 
 ## Hard-won facts (do not re-derive these)
 
@@ -1129,39 +1100,37 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   a legacy layout for `__mips__` (scalar `st_mtime`, no `st_mtim` timespec) and
   `src/fat.c` assumes modern POSIX. No feature-test macro reaches the timespec
   branch; two lines are patched in `nix/libdragon.nix`.
-- **A model's ORIGIN is a convention, and nothing checks it.** Horner's rig
-  exported with the origin between his feet (`ph_rig.py` measures from the
-  ground), while every consumer placed him by the hip — inherited from the
-  rigid model the skinned one replaced, whose origin was the root bone.
-  `pm_intake.c` drew him at `POS_STAND_Y`, commented "standing hip height", so
-  his feet sat 61.44 world units (96 cm) above the floor and his head passed 14
-  units through the ceiling, for the whole intake sequence. Two call sites
-  disagreed by exactly that constant (`pm_demo.c` used `0.0f`) and neither was
-  wrong on its face. **The only symptom was cameras aimed at him photographing
-  empty room** — which reads as a framing problem, and cost a full pass of
-  camera retuning that was treating a symptom. The fix is in the exporter
-  (rebase the mesh onto the root pivot, once) rather than an offset at each
-  call site, the height is PUBLISHED by the generator (`origin_height` in the
-  rig JSON), and `nix/checks/pm-rigs.nix` asserts `PM_HORNER_HIP_Y` still
-  agrees with it. Note `kiln_transform_push` rotates about the model origin with
-  no pivot offset, so an origin at the feet also *fells* a body that pitches to
-  lie down instead of laying it flat — the origin is not only an offset.
+- **A model's ORIGIN is a convention, and nothing checks it.** A downstream
+  game's rig once exported with the origin between the character's feet while
+  every consumer placed it by the hip — inherited from the rigid model the
+  skinned one replaced, whose origin was the root bone. One draw call used a
+  "standing hip height" constant, another used `0.0f`, and neither was wrong
+  on its face: the character's feet floated most of a body-height above the
+  floor and its head passed through the ceiling. **The only symptom was
+  cameras aimed at it photographing empty room** — which reads as a framing
+  problem, and cost a full pass of camera retuning that was treating a
+  symptom. The fix belongs in the exporter (rebase the mesh onto the root
+  pivot, once), with the origin height published by the generator and a check
+  asserting a call site still agrees with it — not an offset re-derived at
+  each call site. Note `kiln_transform_push` rotates about the model origin
+  with no pivot offset, so an origin at the feet also *fells* a body that
+  pitches to lie down instead of laying it flat — the origin is not only an
+  offset.
 - **An asset builder's `name` is the FILENAME the ROM must open.** It is not a
-  label. `mkRawAsset { name = "pm-lab-map"; dest = "maps"; }` produces
-  `maps/pm-lab-map.map`, and a ROM asking for `rom:/maps/pm_lab.map` gets
-  nothing. Every layer below is written to survive a missing asset —
-  `kiln_map_load` returns non-zero instead of asserting, an empty clip world makes
-  every trace report "nothing in the way" — so the composition is silent. This
-  cost PetaByte Madness its entire PLAY screen. Grep the C for the path before
-  choosing a `name`.
-- **Two generators must not publish the same macro name.** `pm_world.py` emitted
-  `PM_LAB_X0..Z1` for its own procedural lab (a room nothing draws, and its own
-  comment said so) and `dank_lab_gen.py` emits the same six names for the room
-  that ships — with different numbers (-329.6 against -451.8). Five files include
-  both headers, so which room `PM_LAB_REAL_X0` described came down to **include
-  order**, silently, behind a `-Wmacro-redefined` warning invisible in a build
-  that ships `-Wno-error`. The unused one is now `PM_WORLD_LAB_*`. A generated
-  header is a namespace, not just a file.
+  label. `mkRawAsset { name = "foo"; dest = "maps"; }` produces
+  `maps/foo.map`, and a ROM asking for `rom:/maps/foo_bar.map` gets nothing.
+  Every layer below is written to survive a missing asset — `kiln_map_load`
+  returns non-zero instead of asserting, an empty clip world makes every
+  trace report "nothing in the way" — so the composition is silent instead of
+  a build failure. This has cost a downstream game an entire screen once
+  already. Grep the C for the path before choosing a `name`.
+- **Two generators must not publish the same macro name.** Two independent
+  header generators in one downstream game once emitted the same six macro
+  names for two DIFFERENT rooms — one procedural and unused, one the real
+  shipping geometry — with different numbers. Which room a shared name
+  described came down to **include order**, silently, behind a
+  `-Wmacro-redefined` warning invisible in a build that ships `-Wno-error`.
+  A generated header is a namespace, not just a file — name it like one.
 - **A module compiled out under `KILN_DEBUG` breaks every debug ROM's link.**
   `nix/engine.nix` builds `libkiln.a` exactly ONCE, without `KILN_DEBUG`, so a
   `.c` wrapped in `#ifdef KILN_DEBUG` contributes no symbols — and a ROM built
@@ -1246,9 +1215,9 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (83 checks, 22 implementations)
+### The full check list (75 checks, 19 implementations)
 
-`rom.nix` ×22 (magic / title / size), plus `toolchain`, `streamdb`,
+`rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
 worth knowing by name:
 
@@ -1338,29 +1307,16 @@ worth knowing by name:
   failure) and `kiln_clip`'s broadphase populating grid cells with the wrong
   brushes (so a player walked through two of four walls). Compiling natively at
   `-Werror` is also a free second opinion on the engine's own `-Wno-error`.
-- **`pm-gen-headers`** re-runs the dimension emitters and diffs, then checks the
-  generator still agrees with the geometry the ROM ships. A generated header
-  checked into the tree is only as good as its regeneration discipline.
-- **`pm-cine`** compiles PetaByte Madness' camera validator (`pm_cine_lint.c`,
-  deliberately free of libdragon) natively at `-Werror` with one deliberately
-  broken keyframe table per hard-failure rule, and greps that `PM_SHOT_LIST`
-  names every `PMDemoShot` that exists. The real key tables are linted on
-  console instead (`./dev cine-lint`) because they cannot leave the ROM build —
-  see "The cinematic debugger" below.
-- **`pm-rigs`** regenerates `assets/rig/{horner,machine_centaur}.json` and diffs
-  them, runs both exporters' `--verify` convention proofs (9,108 bone-poses,
-  the `n64-animation` skill's first layer, which ran in no gate at all before),
-  and asserts the clip invariants **a diff cannot catch** — `sit_down` and
-  `stand_up` are 45 frames because `pm_intake.c` restates them as `0.75f`,
-  which feeds `INTRO_T`, which sets the intake camera's key times; `climb_in`
-  ends on its last frame because a one-shot freezes there and the MOTOR/IN
-  beats expect that pose; and a looping clip opens and closes on the same pose.
-  All three arms verified to fire.
-
-**A gate should be verified to fire in both directions.** The no-libm gate, the
-cycle budget, `pm-gen-headers`, both halves of `pm-cine` (the validator and
-the registry guard) and all three arms of `pm-rigs` have been; a check that has
-only ever been seen to pass is a check that might not be checking anything.
+**A gate should be verified to fire in both directions.** The no-libm gate and
+the cycle budget both have been (a clean voice passes, a voice using `ma.tanh`
+or emitting a double-precision instruction fails with an actionable message);
+a check that has only ever been seen to pass is a check that might not be
+checking anything. `kiln_camlint` and `kiln_camkey` (the generated-header/
+generator-agreement pattern, and the camera-curve invariant checks) were
+proved out this way against a downstream game's content before either module
+moved into the engine proper — the pattern is reusable by any game shipping
+generated headers or authored camera curves, via the same `nix/checks/`
+convention `kiln-map`/`kiln-voxmesh`/`kiln-logic` already show below.
 
 ## Constraints that shape everything
 
@@ -1412,15 +1368,6 @@ fixed point.
   models and sprites — but nothing in `libkiln` auto-loads assets. A ROM
   that wants a model loads it by hand with `t3d_model_load` or
   `kiln_asset_model`, as `examples/assets-demo/main.c` does.
-- **The demons' and centaur's meshes have no UVs**, so the veil's baked CI4
-  palettes have nothing to bind to. This is the next real step on the game's
-  headline mechanic: the bake exists (`tools/veil_palette.py`,
-  `assetLib.mkVeilTexture`), the loader exists (`pm_veil_load_palette`, three
-  palettes resident and reported by the overlay), and the runtime's
-  `pm_veil_bind_palette` / `_material_pass` / `_prim_alpha` still have no call
-  sites purely for want of a CI4-textured material. `docs/ASSET_PIPELINE.md`
-  already names the fix — rebuild them through Blender as skinned meshes with
-  UVs, which is also what makes their animations survive.
 - **No collision system of any kind.** *(Phase D built one — `kiln_clip.h`'s
   slab-method swept-AABB + SlideMove, plus `kiln_player`'s locomotion state
   machine and `kiln_camera`'s collision-aware boom that raycasts against it.
@@ -1454,12 +1401,16 @@ fixed point.
 
 ## Conventions
 
-Every file carries an `SPDX-License-Identifier`. Flake glue and `./dev` are
-MPL-2.0, matching DeMoD's framework tier. libdragon (Unlicense) and SummerCart64
-(GPLv3) are packaged as separate programs. Faust `.dsp` sources from
-`~/Documents/DeMoD/apps/terminus/patches/` are **PolyForm Shield 1.0.0,
-non-commercial** — reference them, do not vendor them into an MPL tree.
+Every file carries an `SPDX-License-Identifier`. The engine is **MIT**,
+engine-wide — see `LICENSE`. The one exception is `streamdb-embedded/`
+(LGPL-2.1-or-later, DeMoD's own library, source vendored unmodified under its
+own headers, unaffected by the relicense). libdragon (Unlicense) and
+SummerCart64 (GPLv3) are pulled in only as Nix flake inputs, never vendored,
+and packaged as separate programs — neither is linked into a ROM. Faust
+`.dsp` sources from `~/Documents/DeMoD/apps/terminus/patches/` are
+**PolyForm Shield 1.0.0, non-commercial** — reference them, do not vendor
+them into this tree. See `THIRD_PARTY_LICENSES.md` for the full breakdown.
 
-When the report and a sibling repo's docs disagree, the sibling repo wins for
-what the code does today; the report wins for N64 targeting. The report's M64
-facts are as of the July 2026 launch window and ModRetro ships OTA updates.
+M64 (ModRetro's console) facts are as of the July 2026 launch window and
+ModRetro ships OTA updates, so anything stated here about ITS behaviour is a
+snapshot, not a guarantee.

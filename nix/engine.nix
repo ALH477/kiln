@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # nix/engine.nix — the Kiln engine: 3D on Tiny3D, 2D GUI on rdpq.
 #

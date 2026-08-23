@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_surface.h — surface properties table. A clean-room analogue of id Tech
  * 4's material/surface-prop system, reduced to what an N64 game can afford.

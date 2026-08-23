@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln-logic-check.c — host assertions over the engine's pure-logic modules.
  *

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * plat/host/include/t3d/t3dskeleton.h — the host's <t3d/t3dskeleton.h>.
  *
@@ -15,7 +15,7 @@
  * problem. A skeleton that silently did nothing would look exactly like that.
  *
  * The engine reads no member of either type — verified across engine/src/kiln
- * and PetaByte-Madness/src — so the layouts are the host's own.
+ * and PetaByte Madness's src — so the layouts are the host's own.
  */
 #ifndef KILN_HOST_T3DSKELETON_H
 #define KILN_HOST_T3DSKELETON_H

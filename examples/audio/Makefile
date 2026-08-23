@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # Plays a VADPCM-baked instrument through libdragon's RSP mixer.
 #

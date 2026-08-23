@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 #
 # board-demo: kiln_rng + kiln_dice + kiln_board + kiln_turn end-to-end proof.
 # Four tokens advance around a branching graph by die rolls, taking turns

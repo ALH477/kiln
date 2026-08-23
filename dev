@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: MIT
 # ./dev — the Kiln developer CLI. One command for the whole loop:
 #   ./dev build [rom]        build a ROM (default: hello)
 #   ./dev run   <rom>        boot it in Ares

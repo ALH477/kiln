@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: MIT
 //
 // uipreview — render kiln_widget's screens on the host, to a PNG-able PPM.
 //

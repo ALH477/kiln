@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * Stub t3d/t3dmodel.h for the kiln-asset host check. Defines the minimum
  * surface kiln_asset.c references (T3DModel, t3d_model_load_buf). The stub

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MPL-2.0
+/* SPDX-License-Identifier: MIT
  *
  * kiln_dict.h — the idDict analogue: small key/value stores for actor and map
  * entity spawn arguments. See CLAUDE.md's Phase C notes for what was and
