@@ -663,6 +663,16 @@
           assets = [ quakeMap ];
         };
 
+        # The engine's own boot splash (kiln_splash.h), booted straight into.
+        # kilnLogo is the same model kiln_splash_apply's camera comment is
+        # tuned for — see tools/blender/kiln_logo.py.
+        splash-demo = mkN64Rom {
+          name = "splash-demo";
+          src = ./examples/splash-demo;
+          romTitle = "Kiln Splash";
+          assets = [ kilnLogo ];
+        };
+
         # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
         # the queued-event count so the 500 ms gap is visible.
@@ -965,7 +975,7 @@
       in
       {
         packages = {
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
@@ -1062,6 +1072,11 @@
             inherit pkgs;
             rom = map-demo;
             name = "map-demo";
+          };
+          rom-splash-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = splash-demo;
+            name = "splash-demo";
           };
           rom-event-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
@@ -1222,6 +1237,15 @@
             n64Inst = n64Inst;
             cubeGltf = ./assets/cube.gltf;
           };
+          # The engine's real boot splash — kiln + flame + lit publisher
+          # line — rendered by the actual kiln_splash.c, not a stand-in.
+          kiln-splash = import ./nix/checks/kiln-splash.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+            n64Inst = n64Inst;
+            kilnLogo = kilnLogo;
+          };
           # A real Quake .map, loaded off the host VFS and rendered. Found
           # two defects in kiln_map and pins both — see the check's header.
           kiln-map = import ./nix/checks/kiln-map.nix {
@@ -1242,7 +1266,7 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a

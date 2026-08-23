@@ -981,6 +981,26 @@ is ever going into a golden-image test.
 
 ## Hard-won facts (do not re-derive these)
 
+- **`gltf_to_t3d`'s `--base-scale` defaults to 64, so a model built "at scale
+  64" twice renders as a giant clipped edge, not an oversized model.**
+  `nix/blender.nix`'s `mkBlenderModel` passes `--base-scale=64` by default —
+  Tiny3D stores vertex positions as integers, so a 1-Blender-unit model needs
+  this to survive quantisation at all — and `kiln_splash.c`'s runtime
+  `KilnTransform.scale` is unrelated: it stays near 1.0 (0.55→1.0 during the
+  assemble), because the 64× is already baked into the model's own vertex
+  data by the time the ROM sees it. Setting a runtime transform's scale to 64
+  "to match baseScale" applies it a second time, and the result is not a
+  bigger model — it is a model so large the camera is effectively inside it,
+  rendering as one giant diagonal edge across the whole frame. Caught by
+  rendering through the host backend and looking, not by calculating: the
+  numbers alone give no hint that anything is wrong until you see the frame.
+- **A model's authored FRONT, at `kiln_splash.c`'s rest pose, faces −Y, not
+  +Y.** The rest pose applies zero extra spin (`ease_out(1.0)` closes the
+  turn to nothing), so whichever way a model's detail faces in Blender is the
+  way it faces the camera at rest — and it is easy to guess the wrong sign
+  when nothing before `tools/blender/kiln_logo.py` had a front/back to get
+  backwards. Settled by rendering all four quarter-turns through the host
+  backend and looking, not by reasoning about axis conventions.
 - **`kiln_map_draw` does not render the brush's faces, and never has.** A Quake
   `.map` gives three points per face, and those points define a **plane** —
   conventionally one unit apart, which is exactly what `assets/quake_test.map`
@@ -1215,7 +1235,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (75 checks, 19 implementations)
+### The full check list (78 checks, 20 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1246,6 +1266,16 @@ worth knowing by name:
 - **`kiln-voxmesh`** renders a real voxel mesh with two different combiners and
   keeps both captures, which is how "Forge's atlas is never sampled" stopped
   being an inference and became a picture. See the Forge section above.
+- **`kiln-splash`** runs the real `kiln_splash_init/update/apply/draw3d/draw2d`
+  sequence — the engine's actual boot splash, not a stand-in — against a
+  `.t3dm` converted from `tools/blender/kiln_logo.py`'s own generated glTF,
+  and holds the settled frame (kiln, flame, and the flame-lit publisher line
+  all on screen at once) to a reference. Asserts the three named objects
+  (`"kiln"`, `"flame"`, `"plate"`) are found *before* diffing pixels: a
+  lookup miss makes `kiln_splash_draw3d` fall back to drawing the model as
+  one rigid piece, which is correct for a foreign model and silently wrong
+  for this one, and a bare pixel diff could only ever report "the frame
+  changed" for that failure, not why.
 - **`kiln-scene`** is the whole-frame gate: `kiln_frame_begin` →
   `kiln_scene_begin` → geometry → `kiln_gui_begin` → HUD → `kiln_frame_end`,
   run by the real `kiln_engine.c`. Before it, nothing outside a ROM on hardware
