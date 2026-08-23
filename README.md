@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Kiln
 
-A Nix build system for Nintendo 64 / ModRetro M64 software, with a Faust DSP
+A Nix build system for Nintendo 64 / Analogue 3D / ModRetro M64 software, with a Faust DSP
 bridge that enforces the console's numeric limits at build time.
 
 Everything is pinned and hermetic: one `nix develop` gives you a `mips64-elf`
