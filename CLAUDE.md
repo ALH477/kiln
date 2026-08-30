@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Agents: read `AGENTS.md` first. This file is the long form.
+
 ## What this is
 
 **Kiln** — a Nix build system for Nintendo 64 / ModRetro M64 software, with a
