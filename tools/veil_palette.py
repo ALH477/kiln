@@ -69,15 +69,49 @@ CLASSES = ("world", "demon", "phantom", "eyes")
 # giving the environment enough range to read as geometry rather than as fog.
 WORLD_LO, WORLD_HI = 0.28, 0.72
 
+# Gamma applied to the veiled value, < 1 so it LIFTS. Without it the veil is a
+# dimmer: the transform is monotonic in the source's value, and this game's art
+# is mostly dark, so most of a veiled palette landed in the bottom of the range
+# and the frame got darker when the filter came up. 0.6 lifts the midtones and
+# darks hard while pinning both ends — 0 stays 0 and 1 stays 1, so `demon` still
+# owns true black and true white and the class ration is untouched.
+VEIL_LIFT = 0.6
+
 # How many of the brightest entries an `eyes` material keeps visible with the
 # veil DOWN — few enough to read as pinpricks in the dark, not a lit face.
 EYES_KEEP = 4
 
 
 def luma(rgb):
-    """Rec. 601 luma, 0..1. Ordering sixteen palette entries by value."""
+    """Rec. 601 luma, 0..1. How BRIGHT an entry looks with the veil DOWN.
+
+    Used only to rank entries for the `eyes` class, where the question really
+    is perceptual: which few colours of the authored art still read as lit
+    pinpricks to someone looking at the cold palette. It is deliberately NOT
+    what drives the veiled transform — see value() for why.
+    """
     r, g, b = rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
     return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def value(rgb):
+    """HSV value — the largest channel, 0..1. What drives the VEILED palette.
+
+    This used to be luma, and that was wrong in a way that took a capture to
+    see: Rec. 601 weights red at 0.299, so a red source has LOW luma, and
+    driving the veiled red channel from it made every red thing in the art
+    come out darker under the veil than it went in. Blood and flesh — the
+    things the scarlet veil exists to show you — dimmed when it was raised.
+    The docstring already said this must not happen ("the veil reads as
+    seeing MORE rather than as a dimmer"); the arithmetic said otherwise.
+
+    Value has no such bias: a saturated red, green and blue all have value
+    1.0 and all land in the same place. That is also what section 4 asks for
+    in the first place — "under the veil hue carries no information" — which
+    luma cannot deliver, because ordering by luma IS ordering by hue for
+    equally-bright colours.
+    """
+    return max(rgb[0], rgb[1], rgb[2]) / 255.0
 
 
 def to_rgba5551(rgb, opaque):
@@ -102,12 +136,13 @@ def veiled_rgb(rgb, cls):
     seeing MORE rather than as a dimmer; green and blue are crushed hard, which
     is what collapses hue.
     """
-    v = luma(rgb)
+    v = value(rgb)
 
     if cls == "world":
         # Compressed into the mid band. This is the ration: the environment
         # cannot reach the extremes, so anything that does is a creature.
         v = WORLD_LO + v * (WORLD_HI - WORLD_LO)
+        v = v ** VEIL_LIFT
         r = v * 255.0
         g = v * 46.0
         b = v * 34.0
@@ -117,10 +152,14 @@ def veiled_rgb(rgb, cls):
         # merely being allowed to.
         v = 0.5 + (v - 0.5) * 1.25
         v = min(1.0, max(0.0, v))
+        v = v ** VEIL_LIFT
         r = v * 255.0
         g = v * 30.0
         b = v * 24.0
 
+    # The lift is applied to the value, not to red alone, so the 255:30:24
+    # ratio that collapses hue is identical at every brightness. Red rises
+    # because the whole entry rises; the entry stays as red as it ever was.
     return (r, g, b)
 
 
@@ -237,16 +276,60 @@ def selftest():
           "demons own both ends of the range the world cannot reach")
 
     print("── hue collapses ──")
-    # A saturated blue and a saturated red must come out at nearly the same
-    # place: under the veil, hue carries no information (§4). If they did not,
-    # a palette distinguished only by hue would still read and the whole
+    # A saturated blue and a saturated red must come out at THE SAME place:
+    # under the veil, hue carries no information (§4). If they did not, a
+    # palette distinguished only by hue would still read and the whole
     # value-separation discipline would be unenforced.
+    #
+    # This assertion used to be `red5(red) > red5(blue)` — "value still orders
+    # them (red is brighter than blue in luma)" — which contradicted the
+    # comment directly above it and was the visible end of the luma bug. Two
+    # equally-saturated colours differing only in hue came out at different
+    # brightnesses, which is exactly the leak this section exists to close.
     _, blue = build_pair([(0, 0, 255)], "world")
     _, red = build_pair([(255, 0, 0)], "world")
+    _, green = build_pair([(0, 255, 0)], "world")
     check(all((x >> 6 & 0x1F) <= 4 and (x >> 1 & 0x1F) <= 4 for x in blue[:1]),
           "a saturated blue keeps almost no green or blue channel")
-    check(red5(red[0]) > red5(blue[0]),
-          "value still orders them (red is brighter than blue in luma)")
+    check(red5(red[0]) == red5(blue[0]) == red5(green[0]),
+          "three saturated hues land on ONE red (%d/%d/%d) — hue is gone"
+          % (red5(red[0]), red5(green[0]), red5(blue[0])))
+
+    print("── the veil is not a dimmer ──")
+    # The whole point of the filter is that raising it shows you MORE. Every
+    # entry the veil actually renders must therefore come back at least as
+    # red as it went in — otherwise blood and flesh, the things it exists to
+    # reveal, go DARKER when it comes up. Red art has low luma, so the old
+    # luma-driven transform failed this badly and nothing caught it: a
+    # capture showed FEWER red-leaning pixels with the veil raised than with
+    # it down.
+    #
+    # Checked from the midpoint up. Below it the `demon` expansion
+    # deliberately crushes the bottom of the range to true black, which is
+    # the other half of the class contract and is not a dimming bug.
+    SWATCHES = [(255, 0, 0), (200, 30, 30), (128, 0, 0), (160, 90, 60),
+                (255, 255, 255), (180, 180, 180), (0, 255, 0), (0, 0, 255)]
+    dim = []
+    for rgb in SWATCHES:
+        cold_r = (rgb[0] >> 3) & 0x1F
+        c, v = build_pair([rgb], "demon")
+        if value(rgb) >= 0.5 and red5(v[0]) < cold_r:
+            dim.append((rgb, cold_r, red5(v[0])))
+    check(not dim,
+          "no swatch at or above mid value loses red under the veil" +
+          ("" if not dim else " — %r" % (dim,)))
+
+    # And what it renders must be unmistakably RED, not merely brighter.
+    # Strict dominance, not a margin. At 5 bits the green and blue channels
+    # floor at 0 for most of the range (30/255 and 24/255 of a dim value round
+    # to nothing), so demanding red exceed them by some absolute amount only
+    # tests how dim the entry is, not whether it is red.
+    _, vd = build_pair(RAMP, "demon")
+    lit = [x for x in vd if red5(x) > 0]
+    bad = [x for x in lit
+           if not (red5(x) > ((x >> 6) & 0x1F) and red5(x) > ((x >> 1) & 0x1F))]
+    check(lit and not bad,
+          "every entry the veil renders is red-dominant (%d checked)" % len(lit))
 
     print("── packing ──")
     cold, veiled = build_pair(RAMP, "demon")
