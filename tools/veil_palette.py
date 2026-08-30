@@ -30,8 +30,9 @@ to rdpq_tex_upload_tlut without swapping.
 Under the veil hue carries no information and only VALUE does, so value is
 rationed:
 
-  world    Environment. Collapses to a MID BAND — it may not own true black or
-           true white, because those are reserved. Hue collapses toward red.
+  world    Environment. Collapses to a BAND — it may not own true black or
+           true white, because those are reserved. Under night-vision gain
+           that band is bright and tight; it is a ration, not a dimming.
   demon    Full range: owns both ends. That contrast is what physiologically
            drags the player's eye onto the creature.
   phantom  A body meant to be invisible until the veil is up. Its VEILED
@@ -67,15 +68,28 @@ CLASSES = ("world", "demon", "phantom", "eyes")
 # The mid band `world` collapses into, as a fraction of full range. Demons own
 # everything outside it. 0.28..0.72 leaves each end genuinely theirs while still
 # giving the environment enough range to read as geometry rather than as fog.
-WORLD_LO, WORLD_HI = 0.28, 0.72
+WORLD_LO, WORLD_HI = 0.45, 0.88
 
-# Gamma applied to the veiled value, < 1 so it LIFTS. Without it the veil is a
-# dimmer: the transform is monotonic in the source's value, and this game's art
-# is mostly dark, so most of a veiled palette landed in the bottom of the range
-# and the frame got darker when the filter came up. 0.6 lifts the midtones and
-# darks hard while pinning both ends — 0 stays 0 and 1 stays 1, so `demon` still
-# owns true black and true white and the class ration is untouched.
-VEIL_LIFT = 0.6
+# ── The veil is red NIGHT VISION ───────────────────────────────────────────
+# Not a red tint over the picture: an intensifier. The fiction is that Horner
+# can see what is actually down there in the dark, so the veiled state has to
+# read as amplified darkness — bright, monochrome, grainy-looking because the
+# value range is stretched — and not as the same room with a filter on it.
+#
+# That is a gamma well below 1 and a gain above it. The gamma lifts the darks
+# (a night-vision tube's whole job) and the gain drives the midtones to the
+# top of the range; together, a source value of 0.5 comes back at 0.99. Both
+# still pin zero, so `demon` keeps true black.
+VEIL_LIFT = 0.45
+VEIL_GAIN = 1.35
+
+# Above this, the tube blooms toward white the way a real intensifier does
+# when it saturates. Green and blue come up together so the brightest entries
+# read as white-hot rather than merely as more red — but capped well under
+# red, because "every entry the veil renders is red-dominant" is asserted
+# below and losing it would mean hue had crept back in at the top.
+BLOOM_KNEE = 0.80
+BLOOM_G, BLOOM_B = 0.55, 0.45
 
 # How many of the brightest entries an `eyes` material keeps visible with the
 # veil DOWN — few enough to read as pinpricks in the dark, not a lit face.
@@ -136,30 +150,35 @@ def veiled_rgb(rgb, cls):
     seeing MORE rather than as a dimmer; green and blue are crushed hard, which
     is what collapses hue.
     """
-    v = value(rgb)
+    # Intensify FIRST, ration second. The other order cannot work: a band that
+    # tops out at WORLD_HI and is then gained by 1.35 clips straight through
+    # its own ceiling, and `world` reaches the true white the whole class
+    # contract reserves for creatures.
+    v = min(1.0, (value(rgb) ** VEIL_LIFT) * VEIL_GAIN)
 
     if cls == "world":
-        # Compressed into the mid band. This is the ration: the environment
-        # cannot reach the extremes, so anything that does is a creature.
+        # The ration, and it is much TIGHTER than it was — 0.45..0.88 rather
+        # than 0.28..0.72 — because everything is brighter now and the band
+        # has to stay clear of both ends anyway. The environment cannot reach
+        # true black or true white, so anything that does is a creature, and
+        # that is what drags the eye onto it.
         v = WORLD_LO + v * (WORLD_HI - WORLD_LO)
-        v = v ** VEIL_LIFT
-        r = v * 255.0
-        g = v * 46.0
-        b = v * 34.0
-    else:
-        # Demons (and their eyes) get the full range, and a slight expansion
-        # about the midpoint so they actually reach both ends rather than
-        # merely being allowed to.
-        v = 0.5 + (v - 0.5) * 1.25
-        v = min(1.0, max(0.0, v))
-        v = v ** VEIL_LIFT
-        r = v * 255.0
-        g = v * 30.0
-        b = v * 24.0
+    # else: demons and their eyes get the full range, unrationed. No
+    # expansion about the midpoint any more — that crushed the bottom of the
+    # range to black, which is right for a stylised filter and wrong for an
+    # intensifier, whose entire purpose is that dark things become visible.
 
-    # The lift is applied to the value, not to red alone, so the 255:30:24
-    # ratio that collapses hue is identical at every brightness. Red rises
-    # because the whole entry rises; the entry stays as red as it ever was.
+    # Monochrome red, with a white-hot bloom at the top. The 255:30:24 base
+    # ratio is what collapses hue; the bloom is a VALUE cue, not a hue one —
+    # it says "this is saturating the tube", and it says it identically
+    # whatever colour the source was.
+    bloom = 0.0
+    if v > BLOOM_KNEE:
+        bloom = (v - BLOOM_KNEE) / (1.0 - BLOOM_KNEE)
+
+    r = v * 255.0
+    g = v * (30.0 + bloom * BLOOM_G * 255.0)
+    b = v * (24.0 + bloom * BLOOM_B * 255.0)
     return (r, g, b)
 
 
@@ -289,11 +308,29 @@ def selftest():
     _, blue = build_pair([(0, 0, 255)], "world")
     _, red = build_pair([(255, 0, 0)], "world")
     _, green = build_pair([(0, 255, 0)], "world")
-    check(all((x >> 6 & 0x1F) <= 4 and (x >> 1 & 0x1F) <= 4 for x in blue[:1]),
-          "a saturated blue keeps almost no green or blue channel")
     check(red5(red[0]) == red5(blue[0]) == red5(green[0]),
           "three saturated hues land on ONE red (%d/%d/%d) — hue is gone"
           % (red5(red[0]), red5(green[0]), red5(blue[0])))
+
+    # Below the bloom knee the picture is red and nothing else. This used to
+    # be asserted on a SATURATED blue, which no longer works and should not:
+    # under night-vision gain a saturated anything drives the tube to
+    # saturation, and a saturating tube blooms white. So the sample is a dim
+    # one, where the intensifier is not clipping and the only channel doing
+    # any work is red.
+    _, dim = build_pair([(0, 0, 60)], "world")
+    check((dim[0] >> 6 & 0x1F) <= 4 and (dim[0] >> 1 & 0x1F) <= 4,
+          "below the bloom knee, green and blue are ~0 (%d, %d)"
+          % (dim[0] >> 6 & 0x1F, dim[0] >> 1 & 0x1F))
+
+    # And the bloom itself: the brightest entries must actually go white-hot,
+    # or the "intensifier saturating" reading is just a claim in a comment.
+    # Still red-dominant — that is asserted separately below — but visibly
+    # lifted off zero, which is what separates a bloom from a tint.
+    _, hot = build_pair([(255, 255, 255)], "demon")
+    check((hot[0] >> 6 & 0x1F) >= 8 and (hot[0] >> 1 & 0x1F) >= 6,
+          "a saturating entry blooms toward white (g %d, b %d of 31)"
+          % (hot[0] >> 6 & 0x1F, hot[0] >> 1 & 0x1F))
 
     print("── the veil is not a dimmer ──")
     # The whole point of the filter is that raising it shows you MORE. Every
