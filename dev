@@ -33,7 +33,12 @@ usage() {
   faust [target]           show a voice's gate output + cycle budget
   bake  [target]           show baked VADPCM assets + reference render
   check                    nix flake check (the pre-push gate)
+  cheap                    blender-tests + kiln-logic + kiln-gui (no ROMs)
   doctor                   toolchain, libdragon, cart presence, versions
+  mapmaker                 three.js .map editor on :8000
+  map-validate <file.map>  round-trip through quake_map.py
+  poser / poser-stage / poser-verify
+                           three.js animation editor on :8001
 
   Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
   is the transport in BOTH directions, because an ED64 Plus has no USB:
@@ -275,6 +280,16 @@ PY
     ls -l "$out/filesystem/"
     echo "── full-quality reference render (golden A/B source) ──"
     ls -l "$out/share/"
+    ;;
+
+  cheap)
+    # The fast loops. Not `flake check`: that builds every demo ROM.
+    # Host/gui/logic/python only — safe on the laptop.
+    SYS="$(nix eval --raw --impure --expr builtins.currentSystem)"
+    nix build --print-out-paths \
+      ".#checks.${SYS}.blender-tests" \
+      ".#checks.${SYS}.kiln-logic" \
+      ".#checks.${SYS}.kiln-gui"
     ;;
 
   check)
