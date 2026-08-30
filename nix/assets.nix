@@ -512,6 +512,15 @@ rec {
       # which would otherwise be uploaded over the ramp the game binds. See
       # the script's own header for the whole sequence.
     , paletteStripper ? ../tools/veil_strip_palette.py
+      # Whether to run it. Off is a DIAGNOSTIC state, not a supported one: with
+      # the embedded palette left in place the sprite's own colours are
+      # uploaded over whatever the game bound, so the veil cannot swap
+      # anything — but the material renders in SOME palette rather than
+      # sampling a zero one and coming out pure black. That difference is how
+      # you tell "the game's TLUT upload never landed" apart from "nothing in
+      # this pipeline uploads a TLUT at all", which no other observation
+      # distinguishes.
+    , stripPalette ? true
     }:
     pkgs.stdenv.mkDerivation {
       pname = "veil-${name}";
@@ -581,7 +590,9 @@ rec {
         # This is done to the FILE rather than by patching libdragon or Tiny3D
         # because it changes nothing for any other sprite in any other ROM —
         # a patch to either would.
-        python3 ${paletteStripper} "$outdir/${name}.sprite"
+        ${if stripPalette
+          then ''python3 ${paletteStripper} "$outdir/${name}.sprite"''
+          else ''echo "  veil: ${name}.sprite KEEPS its embedded palette (diagnostic build)"''}
 
         ${lib.optionalString (compress != 0) ''
           # Re-apply the compression mksprite was not allowed to do above.
@@ -616,7 +627,7 @@ rec {
         # silently does nothing, which is a whole mechanic quietly absent.
         # That defect cost this project a diagnostic green-palette bake and a
         # capture to find the first time, so it gets a gate.
-        ${lib.optionalString (compress == 0) ''
+        ${lib.optionalString (stripPalette && compress == 0) ''
           python3 -c '
 import struct, sys
 b = open(sys.argv[1], "rb").read()
