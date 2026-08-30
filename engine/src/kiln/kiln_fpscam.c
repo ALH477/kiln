@@ -24,6 +24,11 @@ void kiln_fpscam_init(KilnFpsCam *cam)
     cam->last_surf   = 0;
     cam->mins       = (fm_vec3_t){ { -8, -8, -24 } };
     cam->maxs       = (fm_vec3_t){ {  8,  8,  24 } };
+    /* The bindings this module used to hardcode. Defaulted here so every
+     * existing caller is byte-for-byte unchanged, and overridable so a game
+     * that needs R and B for something else can say so. */
+    cam->btn_run    = KILN_BTN_R;
+    cam->btn_jump   = KILN_BTN_B;
 }
 
 void kiln_fpscam_snap(KilnFpsCam *cam, fm_vec3_t pos, float yaw, float pitch)
@@ -75,7 +80,10 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     float rgt_z = -fm_sinf(cam->yaw);
 
     /* Run: hold R for sprint speed. */
-    float speed = (in->buttons & KILN_BTN_R) ? cam->run_speed : cam->move_speed;
+    /* A zero mask disables the action: `x & 0` is never true, so a game that
+     * sets btn_run = 0 simply has no sprint, with no branch of its own. */
+    float speed = (cam->btn_run && (in->buttons & cam->btn_run))
+                      ? cam->run_speed : cam->move_speed;
 
     float dx = (fwd_x * in->stick_y + rgt_x * in->stick_x) * speed * dt;
     float dz = (fwd_z * in->stick_y + rgt_z * in->stick_x) * speed * dt;
@@ -85,7 +93,7 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     cam->pos = kiln_clip_slide(cam->pos, hvel, cam->mins, cam->maxs, 4);
 
     /* Jump: B button edge, only if on ground. */
-    if ((in->edges & KILN_BTN_B) && cam->on_ground) {
+    if (cam->btn_jump && (in->edges & cam->btn_jump) && cam->on_ground) {
         cam->vy = cam->jump_speed;
         cam->on_ground = 0;
     }
