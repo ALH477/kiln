@@ -1000,15 +1000,37 @@
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
           model-kiln-logo = kilnLogo;
+          # The splash's two assets, exposed as a pair. kiln_splash is
+          # engine-level — a PUBLISHER mark, not any one game's — so a
+          # downstream game adopts it by putting these two in its own ROM's
+          # `assets` list, not by rebuilding them. Both are optional and the
+          # splash's timing is identical without them; see kiln_splash.h.
+          audio-kiln-jingle = kilnJingle;
           default = hello;
         };
 
-        # Exposed so downstream flakes (the SSHitunneller! N64 port) can build
-        # ROMs and voices against this pinned toolchain without vendoring it.
+        # Exposed so downstream flakes (the SSHitunneller! N64 port, and the
+        # two games split out of this tree — PetaByte Madness and Ganja
+        # Goblin) can build ROMs and voices against this pinned toolchain
+        # without vendoring it.
+        #
+        # The rule for what belongs here: a builder a DOWNSTREAM repo needs to
+        # ship its own content. Splitting the games out is what turned that
+        # from a hypothetical into a hard requirement — PetaByte Madness
+        # authors geometry with mkBlenderModel, ships a CI4 veil palette pair
+        # with mkVeilTexture, an XM64 score with mkMidiMusic, an MPEG1 title
+        # card with mkVideo and the sea's foam sprite with mkTextures, and
+        # none of the five were reachable from outside this file. A builder
+        # that exists but is not exposed is a builder a game has to
+        # reimplement, which is the drift the single-source-of-truth rule in
+        # engine/modules.mk exists to prevent, one level up.
         lib = {
           inherit mkN64Rom;
           inherit (faust) mkFaustVoice mkBakedInstrument mkOfflineRenderer;
-          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset mkStreamdb mkAssetPak;
+          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset
+                             mkStreamdb mkAssetPak mkTextures mkVideo
+                             mkMidiMusic mkVeilTexture;
+          inherit (blenderLib) mkBlenderModel mkQuakeMapModel mkGodotSceneModel;
         };
 
         checks = {
