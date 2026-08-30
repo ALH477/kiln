@@ -31,33 +31,23 @@ written and immediately overwritten, every frame, on every material.
 The symptom is not a crash or a missing texture. The texture arrives, in the
 palette it was authored with, which looks like a correct picture.
 
-── What this does and does not fix ────────────────────────────────────────
+── What this does, and why it is now redundant ────────────────────────────
 The clobber above is real and provable without running anything: mksprite
 writes a 512-byte palette into the sprite, sprite_ext_t.pal_file_pos points at
-it, and rdpq_sprite.c uploads it to the block the veil just wrote. Removing it
-is correct on its own terms.
+it, and rdpq_sprite.c uploads it to the block a veil material's TLUT wants.
 
-It is also, as of this writing, NOT SUFFICIENT to make the palette swap
-visible. PetaByte Madness' `.#pm-veil-ab-diag` versus `.#pm-veil-ab-real` —
-two ROMs differing only in the bytes of three .pal files, both seeked to the
-same frame with the veil forced on and the textured model on screen — still
-diff to zero pixels. So a second cause remains somewhere between the ramp the
-game has loaded and the TLUT the RDP looks through. This step stays because it
-removes a defect that would otherwise have to be found again later, behind
-whatever the remaining one turns out to be.
+It only bites if the game binds its TLUT BEFORE that upload, which is what a
+Tiny3D `tileCb` does — the callback fires at t3dmodel.c:147 and the upload is
+at :158. PetaByte Madness now binds from an explicit t3d_model_iter_* loop
+instead, between t3d_model_draw_material and t3d_model_draw_object, so its
+LOAD_TLUT lands AFTER the sprite's and wins. Measured: a build with this step
+disabled renders pixel-identically to one with it enabled.
 
-── Why this is the right layer to fix it ──────────────────────────────────
-rdpq_sprite.c's own comment, three lines above the clobber, names this case:
-
-    "We account for sprites being CI4 but without embedded palette: mksprite
-     doesn't create sprites like this today, but it could in the future
-     (eg: sharing a palette across [sprites])."
-
-A veil material is exactly that — its palette lives in the .pal sidecar,
-loaded once at boot and expanded into a nine-step ramp. With
-sprite_ext_t.pal_file_pos zeroed, sprite_get_palette returns NULL
-(sprite.c:221-226), sprite_upload_palette still sets rdpq_mode_tlut correctly
-and skips the upload, and whatever the tile callback bound survives.
+So this is belt-and-braces under the current ordering, and it is kept rather
+than deleted because the ordering is the fragile half. Anyone who moves a
+palette bind back into a tile callback — which is where the documentation
+points you, and where this project put it first — gets a silently wrong
+picture without it.
 
 Patching the file rather than libdragon or Tiny3D is deliberate: this changes
 nothing for any other sprite in any other ROM, and a patch to either library
