@@ -49,6 +49,9 @@ nix run .#ares -- result/hello.z64
 nix build .#engine-demo  # 3D + 2D GUI worked example
 nix flake check        # the pre-push gate — see "The gates" below
 ./dev shot engine-demo out.png   # boot in Ares on Hyprland, capture + pixel stats
+./dev pc               # RUN a game natively — window, pad, sound, no emulator
+./dev web --serve      # the same game in a browser (wasm32), on :8080
+./dev arch riscv64     # the host gates on another architecture, under qemu
 ./dev doctor           # toolchain / libdragon / cart status
 ./dev deploy hello     # sc64deployer upload to a SummerCart64
 ./dev debug            # debugf() stdio over USB
@@ -181,6 +184,29 @@ plat/host/include/  the host's <libdragon.h> and <t3d/t3dmath.h>. The shim sits
                     engine-internal HAL, so no engine .c changes and no #ifdef
                     is added anywhere. Read the headers before adding to them:
                     the rule is copy the real definition, never approximate it.
+plat/host/src/      host_wav64.c is .wav64 → PCM: the 28-byte header, the
+                    codebook, the block-planar stereo layout, and the Huffman
+                    layer audioconv64 wraps VADPCM in by default. The ADPCM
+                    itself is decoded by libdragon's OWN vendored codec
+                    (MPL-2.0, compiled by nix/host.nix from the pinned input,
+                    never copied into this tree) — the host decodes with the
+                    decoder that belongs to the encoder that made the files.
+nix/host.nix        the host tier, built ONCE, for any toolchain. Owns the
+                    compile recipe seven checks used to each carry a copy of,
+                    and the four targets: native, wasm32 (emcc/node),
+                    aarch64 and riscv64 (musl, static, qemu-user). Each
+                    target carries its own hostMath, zlib and VADPCM build,
+                    a libkilnhost.a and a libkiln.a driven off
+                    engine/modules.mk's HOST_MODULES, and mkCheck/mkProgram/
+                    mkGame. -ffp-contract=off lives here and is load-bearing:
+                    see "One renderer, four architectures" below.
+plat/shell/         the launcher. shell_sdl.c is the native window,
+                    shell_web.c is the browser (canvas + Gamepad API + Web
+                    Audio via EM_JS), kiln_shell_common.c is everything they
+                    must agree about — argv, the key map, the stick shape,
+                    the frame deadline. It does NOT rasterise: plat/host
+                    draws the frame and the shell blits it, so the window
+                    shows the pixels the gates compare.
 tools/n64-shot.sh   boot a ROM in Ares on Hyprland and grim its window.
 ```
 
@@ -940,6 +966,94 @@ the source under `assets/`, putting it on the same hermetic path as
 everything else. `assets/quake_test.map` + the `quakeTestModel` package
 are the regression check that path stays working.
 
+## One renderer, four architectures — the host target (`nix/host.nix`, `plat/shell/`)
+
+`plat/host/` was a verification harness: it rendered a frame to a PNG inside a
+Nix check and had no window, no clock, no speaker and no architecture other
+than the build machine's. It is now also a **playable target**, on
+**x86_64, wasm32, aarch64 and riscv64**, and the two facts are the same fact.
+
+**The renderer is the same software rasteriser everywhere, and the window is a
+blit.** There is no GL backend and no browser backend. `plat/host/src` draws
+the frame; `plat/shell` hands the finished RGBA8888 buffer to an SDL streaming
+texture or a canvas `ImageData`. That is a deliberate refusal of the obvious
+speed win, and the reason is `nix/checks/kiln-widget.nix`: `tools/uipreview`
+once drew its own rectangles and disagreed with the console about panel edge
+order, bar inset, and whether `kiln_gui_rect` blends alpha. A launcher that
+rasterises is a second implementation of the thing the gates check, and what
+is on screen stops being evidence about the ROM.
+
+**Because there is one renderer, there is one set of reference images.** The
+same committed PNGs and text manifests are produced byte-identically by all
+four architectures — not four blessed references, which would only prove each
+architecture agrees with itself. `nix flake check` holds x86_64 and wasm32 to
+them; `./dev arch aarch64` / `riscv64` runs three of the same bodies
+cross-compiled against musl under qemu-user, and is out of the gate set only
+because a cross toolchain is a ~170 MB fetch.
+
+**`-ffp-contract=off` is what makes that true, and it is one flag.** GCC and
+Clang both default to `=fast` in GNU C modes, so `a*b + c*d` fuses into an FMA
+wherever the target has one. Baseline x86-64 has none, so the references were
+stable *by accident*. `host_t3d.c`'s edge function is exactly that shape and
+its sign decides whether a pixel is inside a triangle — one fused multiply-add
+moves the edge of every triangle on screen. This is the single most likely
+thing to silently break the multi-architecture claim, and it lives in
+`nix/host.nix` because seven checks each carrying their own compile line is
+seven places to forget it and an eighth that never had it.
+
+**musl for the cross pair, not glibc.** Partly because it links static
+cleanly for `qemu-user`, but mainly because musl has no `<execinfo.h>`:
+`host_panic.c` included it unconditionally, and those two targets are the only
+thing in the tree that notices if the guard comes back off.
+
+**No example was edited to make any of this run.** A game is compiled with
+`-Dmain=kiln_game_main`, so `examples/<x>/main.c` stays a ROM's `int
+main(void)` with its own blocking `for(;;)`. In the browser that loop is legal
+because of **ASYNCIFY**, not because control was inverted: the yield goes in
+the `vsync` hook, which is called from `display_get` — the exact function the
+console blocks in waiting for the VI to release a buffer. The browser yields
+where the console waits. `emscripten_set_main_loop` would have meant editing
+22 example files into a host-only shape, because `kiln_engine.c` deliberately
+owns the frame bracket and not the loop.
+
+**The seam is five function pointers.** `kiln_host.h`'s `KilnHostHooks` —
+`present`, `vsync`, `audio_free`, `audio_submit`, `ctx` — all NULL by default,
+so a check's pixels and buffer counts are unchanged *by construction* rather
+than by remembering to switch something off. `plat/shell` may set those five
+and call `kiln_host_pad_set`, and that is its entire licence.
+
+**One thing found by running a game loop that no gate had ever run:**
+`audio_can_write()` returned `1`, forever. `kiln_audio_update` is
+`while (audio_can_write())`, draining until the device says full, so a device
+that is never full never lets the frame end — every host build of a real game
+hung on frame one. The host now models a real device's occupancy and credits
+it on **presented frames** rather than wall time, because that is the only
+clock a deterministic check may have. `nix/checks/kiln-shell.nix` runs the
+real `examples/engine/main.c` loop for ninety frames under SDL's dummy drivers
+for exactly this reason: one frame proves the linker found everything, ninety
+proves the loop comes back round.
+
+**Audio is real now, and one layer of it is a transcription.** `.wav64`
+decodes through libdragon's own vendored VADPCM codec (MPL-2.0), compiled from
+the pinned flake input by `nix/host.nix` and never copied into this tree — the
+host decodes with the decoder belonging to `audioconv64`, which made the
+files. The Huffman layer `audioconv64` wraps them in by default is
+CPU-side on console, inside a `static` function in a translation unit that
+cannot compile natively, so `host_wav64.c` transcribes it and says so at the
+point of use. `nix/checks/kiln-wav64.nix` measures **RMS**, not sample count:
+a decoder can return the right number of samples full of zeroes and pass every
+structural assertion, and silence is the least attributable failure in the
+whole audio path.
+
+**What the host still cannot do**, on any architecture: see fill rate (the
+console's binding constraint, no host analogue — a PC run is never evidence
+that content is affordable); skinned or animated characters (`t3d_skeleton_*`
+and `t3d_anim_*` all abort); near-plane clipping (`host_t3d.c` drops a
+triangle straddling the eye); `rdpq_sprite_upload` / `rdpq_texture_rectangle`;
+and XM/YM tracker playback, which stays bookkeeping. Those are gaps in
+`plat/host`, not in the launcher, and each one fails loudly rather than
+quietly.
+
 ## Screenshots — how ROMs actually get verified
 
 `./dev shot <rom> [out.png] [settle]` boots the ROM in Ares **on the live
@@ -1415,6 +1529,10 @@ fixed point.
 - **`kiln_asset_wav64` is not provided** — libdragon's `wav64_open` is
   path-only with no in-memory variant, so audio assets must use DFS
   (`rom:/` paths), not StreamDB. Lands when `wav64_open_buf` lands upstream.
+- **XM64 / YM64 tracker playback is bookkeeping on the host.** `kiln_music_*`
+  reserves and reports channels correctly and produces no notes: libdragon's
+  XM player is not separable from the RSP mixer the way the VADPCM codec is.
+  SFX are real (see "One renderer, four architectures").
 - **EMULATOR screenshot verification is not part of `nix flake check`** — it
   needs a live Wayland session, which the build sandbox does not have, so
   `./dev shot` stays a desktop command. **Host-render verification now is**:
