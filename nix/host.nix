@@ -36,7 +36,8 @@
 # any engine .c and no second renderer: every target compiles the identical
 # sources through plat/host/include's <libdragon.h>. A target is a compiler
 # and a way to run a binary, nothing more.
-{ pkgs, lib ? pkgs.lib, libdragonSrc, engineSrc, platHost, streamdbSrc }:
+{ pkgs, lib ? pkgs.lib, libdragonSrc, engineSrc, platHost, platShell
+, streamdbSrc, webShellHtml }:
 
 let
   # ── the flags, in one place ────────────────────────────────────────
@@ -98,10 +99,21 @@ let
     , buildInputs ? [ ]
     , cflags  ? [ ]             # target-specific compile flags
     , ldflags ? [ ]             # target-specific link flags
+      # Link flags for CHECK binaries only. Emscripten's NODERAWFS gives a
+      # check the real filesystem and the real argv, which is exactly what a
+      # harness that writes out.png needs and exactly what a browser build
+      # must not have — it is mutually exclusive with --preload-file.
+    , checkLdflags ? [ ]
     , preBuild ? ""             # anything the compiler needs before first use
     , run ? ""                  # how to execute a built binary ("" = directly)
     , exe ? ""                  # executable suffix (".js" for Emscripten)
     , description ? name
+      # A launcher, if this target has one. null means the target builds and
+      # gates but cannot show a window — which is the honest answer for the
+      # cross pair: they exist to prove the renderer agrees under qemu, and
+      # SDL2 cross-compiled against musl for that purpose would be a large
+      # dependency bought for nothing.
+    , shell ? null
     }:
     let
       cflagsStr = lib.concatStringsSep " " (baseCFlags ++ cflags);
@@ -184,7 +196,7 @@ let
       # first (it calls the backend), backend next (it calls the math), math
       # last.
       mkProgram = { pname, sources, extraCFlags ? [ ], extraLDFlags ? [ ]
-                  , extraBuildInputs ? [ ], meta ? { } }:
+                  , extraBuildInputs ? [ ], suffix ? exe, meta ? { } }:
         pkgs.runCommand "${pname}-${name}"
           { nativeBuildInputs = nativeBuildInputs;
             buildInputs = buildInputs ++ extraBuildInputs;
@@ -194,7 +206,7 @@ let
             ${preBuild}
             mkdir -p $out/bin
             ${cc} ${cflagsStr} ${lib.concatStringsSep " " extraCFlags} ${incs} \
-                  -o $out/bin/${pname}${exe} \
+                  -o $out/bin/${pname}${suffix} \
                   ${lib.concatStringsSep " " sources} \
                   ${libsLine} \
                   ${ldflagsStr} ${lib.concatStringsSep " " extraLDFlags}
@@ -210,7 +222,8 @@ let
                 , extraNativeBuildInputs ? [ ], extraBuildInputs ? [ ]
                 , meta ? { } }:
         let prog = mkProgram {
-              inherit pname sources extraCFlags extraLDFlags extraBuildInputs;
+              inherit pname sources extraCFlags extraBuildInputs;
+              extraLDFlags = extraLDFlags ++ checkLdflags;
             };
         in pkgs.runCommand "check-${pname}-${name}"
           { nativeBuildInputs = nativeBuildInputs ++ extraNativeBuildInputs
@@ -226,11 +239,51 @@ let
             ${script}
             mkdir -p $out && cp -r . $out/ 2>/dev/null || true
           '';
+      # ── a playable build of a game ─────────────────────────────────
+      # The game's own main.c is compiled unedited, with -Dmain=kiln_game_main
+      # so that a ROM's `int main(void)` stays exactly that and the launcher
+      # owns the process entry point. No example has a host branch in it and
+      # none was touched to make this work.
+      #
+      # `assets` is the SAME list of asset derivations mkN64Rom takes, merged
+      # the same way and for the same reason (nix/rom.nix's comment on store
+      # directory modes) — so a PC or browser build reads the identical
+      # filesystem the ROM bakes, rather than a second copy that can drift.
+      mkGame = { pname, sources, assets ? [ ], extraCFlags ? [ ], meta ? { } }:
+        assert lib.assertMsg (shell != null)
+          "nix/host.nix: target ${name} has no launcher; it is a gate target only";
+        let
+          fs = pkgs.runCommand "${pname}-filesystem" { } (''
+            mkdir -p $out/filesystem
+          '' + lib.concatMapStrings (a: ''
+            if [ ! -d "${a}/filesystem" ]; then
+              echo "mkGame: asset ${a} has no filesystem/ directory" >&2; exit 1
+            fi
+            cp -rL --no-preserve=mode "${a}"/filesystem/. $out/filesystem/
+            chmod -R u+w $out/filesystem
+          '') assets);
+        in
+        mkProgram {
+          inherit pname meta;
+          suffix = shell.exe or exe;
+          sources = sources ++ [
+            "${platShell}/kiln_shell_common.c"
+            "${platShell}/${shell.source}"
+          ];
+          extraCFlags = [ "-Dmain=kiln_game_main" "-I${platShell}" ]
+                        ++ shell.cflags ++ extraCFlags;
+          # A game with no assets gets no filesystem: emcc's file_packager
+          # fails outright on an empty preload, and a native build has nothing
+          # to point KILN_HOST_DFS at either.
+          extraLDFlags = shell.ldflags
+                         ++ (if assets == [ ] then [ ] else shell.assetFlags fs);
+          extraBuildInputs = shell.buildInputs;
+        };
     in
     {
-      inherit name cc ar cflagsStr ldflagsStr incs preBuild run exe
+      inherit name cc ar cflagsStr ldflagsStr incs preBuild run exe shell
               nativeBuildInputs buildInputs hostMath backend engine libsLine zlib
-              mkProgram mkCheck description;
+              mkProgram mkCheck mkGame description;
     };
 
   # ── the targets ────────────────────────────────────────────────────
@@ -265,8 +318,20 @@ let
       description = "the build machine (${pkgs.stdenv.hostPlatform.system})";
       cc = "gcc";
       ar = "ar";
-      nativeBuildInputs = [ pkgs.gcc pkgs.binutils ];
+      nativeBuildInputs = [ pkgs.gcc pkgs.binutils pkgs.pkg-config ];
       ldflags = [ "-lm" ];
+      shell = {
+        source = "shell_sdl.c";
+        cflags = [ "-I${pkgs.SDL2.dev}/include" "-I${pkgs.SDL2.dev}/include/SDL2" ];
+        ldflags = [ "-L${lib.getLib pkgs.SDL2}/lib" "-lSDL2" ];
+        buildInputs = [ pkgs.SDL2 ];
+        # Native reads the asset directory at run time, so the path is baked
+        # into the binary as a default rather than into the executable image.
+        # Single quotes around the double quotes: these flags are pasted into
+        # a shell command line, so an unquoted string literal loses its quotes
+        # to word splitting and the define becomes a division by a path.
+        assetFlags = fs: [ "-DKILN_SHELL_DEFAULT_DFS='\"${fs}/filesystem\"'" ];
+      };
     };
 
     # Emscripten. NODERAWFS gives the program the real filesystem and the real
@@ -286,14 +351,39 @@ let
         chmod -R u+w "$EM_CACHE"
       '';
       ldflags = [
-        "-sNODERAWFS=1"
         "-sALLOW_MEMORY_GROWTH=1"
         "-sINITIAL_MEMORY=64MB"
         "-sSTACK_SIZE=4MB"
         "-lm"
       ];
+      checkLdflags = [ "-sNODERAWFS=1" ];
       exe = ".js";
       run = "node";
+      shell = {
+        source = "shell_web.c";
+        # .html and not .js: emcc only emits the page — and only accepts
+        # --shell-file — when the output is html. The check binaries stay .js
+        # and run under node; a game is a page.
+        exe = ".html";
+        cflags = [ ];
+        # ASYNCIFY is what makes the ROM's own blocking for(;;) legal in a
+        # browser — see shell_web.c's header for why inverting the loop was
+        # the worse option. MODULARIZE keeps the page in control of when the
+        # thing starts, which matters because audio may not begin before a
+        # user gesture.
+        ldflags = [
+          "-sASYNCIFY=1"
+          "-sASYNCIFY_STACK_SIZE=65536"
+          "-sEXPORTED_RUNTIME_METHODS=['callMain','UTF8ToString','HEAPU8','HEAP16']"
+          "-sFORCE_FILESYSTEM=1"
+          "--shell-file" "${webShellHtml}"
+        ];
+        buildInputs = [ ];
+        # The browser gets the filesystem baked in, because there is nowhere
+        # to point --dfs at. It lands on /assets, which shell_web.c defaults
+        # KILN_HOST_DFS to.
+        assetFlags = fs: [ "--preload-file" "${fs}/filesystem@/assets" ];
+      };
     };
   } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
     aarch64 = crossTarget {

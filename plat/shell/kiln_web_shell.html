@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT
+     The page emcc wraps a Kiln game in. Deliberately plain: the canvas is the
+     product, and anything else on the page is competing with a 320x240 frame
+     for the reader's attention. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kiln</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #14110f; color: #d8cfc6;
+         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         display: flex; flex-direction: column; min-height: 100vh; }
+  header, footer { padding: .6rem 1rem; }
+  header { border-bottom: 1px solid #2a2420; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; background: #000; }
+  #status { color: #a8998c; }
+  kbd { background: #241f1b; border: 1px solid #3a322c; border-radius: 3px;
+        padding: 0 .3em; }
+  footer { border-top: 1px solid #2a2420; color: #a8998c; }
+</style>
+</head>
+<body>
+<header><strong>kiln</strong> <span id="status">loading…</span></header>
+<main><canvas id="canvas" tabindex="-1"></canvas></main>
+<footer>
+  <kbd>WASD</kbd> stick ·
+  <kbd>arrows</kbd> D-pad ·
+  <kbd>space</kbd> A ·
+  <kbd>,</kbd> B ·
+  <kbd>shift</kbd> Z ·
+  <kbd>Q</kbd>/<kbd>E</kbd> L/R ·
+  <kbd>IJKL</kbd> C ·
+  <kbd>enter</kbd> start.
+  A gamepad is used when connected. Click once to allow audio.
+</footer>
+<script>
+  var statusEl = document.getElementById('status');
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    print: function (t) { console.log(t); },
+    printErr: function (t) { console.warn(t); },
+    setStatus: function (t) { statusEl.textContent = t || 'running'; },
+    onRuntimeInitialized: function () { statusEl.textContent = 'running'; }
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

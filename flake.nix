@@ -95,7 +95,9 @@
           libdragonSrc = libdragon;
           engineSrc = ./engine;
           platHost = ./plat/host;
+          platShell = ./plat/shell;
           streamdbSrc = ./streamdb-embedded;
+          webShellHtml = ./plat/shell/kiln_web_shell.html;
         };
         hostNative = hostTargets.targets.native;
         hostWasm   = hostTargets.targets.wasm32;
@@ -1008,6 +1010,23 @@
       in
       {
         packages = {
+          # ── playable host builds ───────────────────────────────────
+          # The same examples/<x>/main.c the ROM builds, compiled with
+          # -Dmain=kiln_game_main and linked against plat/shell. engine-demo
+          # first because it is the report's own benchmark for a working port
+          # — a lit spinning cube plus a HUD, which on hardware runs at 59.8
+          # fps and here exercises the 3D pass, the seam and the 2D pass.
+          pc-engine-demo = hostNative.mkGame {
+            pname = "kiln-engine-demo";
+            sources = [ ./examples/engine/main.c ];
+            meta.description = "engine-demo, playable on this machine";
+          };
+          web-engine-demo = hostWasm.mkGame {
+            pname = "kiln-engine-demo";
+            sources = [ ./examples/engine/main.c ];
+            meta.description = "engine-demo, playable in a browser";
+          };
+
           # The host tier's own artefacts, per architecture.
           host-arch-native  = archProof hostNative;
           host-arch-wasm32  = archProof hostWasm;
@@ -1333,6 +1352,13 @@
           kiln-map = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
+          };
+          # The launcher runs the real examples/engine/main.c game loop for
+          # ninety frames under SDL's dummy drivers. See the check's header
+          # for why it is statistics and not a golden image.
+          kiln-shell = import ./nix/checks/kiln-shell.nix {
+            inherit pkgs;
+            game = self.packages.${system}.pc-engine-demo;
           };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
