@@ -15,22 +15,32 @@
 # "which compiler, which flags, how do I run the result". The checks say what
 # to build and what to compare; they no longer say how to build it.
 #
-# ── Why -ffp-contract=off is load-bearing ──────────────────────────────
-# Six checks compare a rendered PNG byte for byte. GCC and Clang both default
-# to -ffp-contract=fast in GNU C modes, which lets `a*b + c*d` fuse into an
-# FMA wherever the target has one. Baseline x86-64 does not, so nothing
-# contracted and the references were stable by accident. aarch64, riscv64 with
-# D, and wasm with relaxed-simd all do — and host_t3d.c's edge function is
-# exactly `(px-ax)*(by-ay) - (py-ay)*(bx-ax)`, whose sign decides whether a
-# pixel is inside the triangle. One fused multiply-add there moves the edge of
-# every triangle on the screen, and the check reports "the PNG changed".
+# ── Why -ffp-contract=off, and what it does NOT currently do ───────────
+# Six checks compare a rendered PNG byte for byte, and GCC and Clang both
+# default to -ffp-contract=fast in GNU C modes, which lets `a*b + c*d` fuse
+# into an FMA wherever the target has one. host_t3d.c's edge function is
+# exactly `(px-ax)*(by-ay) - (py-ay)*(bx-ax)`, and its sign decides whether a
+# pixel is inside a triangle, so a fused multiply-add there can move the edge
+# of every triangle on the screen.
 #
-# Turning contraction off costs a little speed in a rasteriser that is already
-# the slow-but-correct half of this project, and buys the thing the whole host
-# tier is for: the same arithmetic answer on every machine. It is the reason
-# nix/checks/kiln-wasm.nix can hold wasm32 to the SAME reference PNG that
-# x86_64 produces rather than to a second, blessed-separately one.
+# MEASURED, because the first version of this comment asserted the flag was
+# what made the multi-architecture claim work and that was not true:
 #
+#   aarch64, -O1, default          0 FMA instructions in host_t3d.s
+#   aarch64, -O1, -ffp-contract=off  0
+#   aarch64, -O2, default         74
+#   aarch64, -O2, -ffp-contract=off  0
+#
+# The gates compile at -O1, where GCC contracts nothing on its own, and
+# aarch64 and riscv64 reproduce the x86_64 reference PNGs with the flag
+# REMOVED. So today this flag changes no output on any target. It is kept
+# because the mechanism is real and one -O away: raise the optimisation level
+# for speed, or take a compiler that contracts more eagerly at -O1, and every
+# triangle edge moves against a committed reference for a reason nobody would
+# look for in a build flag.
+#
+# It still belongs here rather than in seven checks, for the reason above:
+# a flag that must be identical everywhere cannot live in seven places.
 # ── What a target is not ───────────────────────────────────────────────
 # Not a platform abstraction inside the engine. There is still no #ifdef in
 # any engine .c and no second renderer: every target compiles the identical

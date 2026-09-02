@@ -991,15 +991,19 @@ them; `./dev arch aarch64` / `riscv64` runs three of the same bodies
 cross-compiled against musl under qemu-user, and is out of the gate set only
 because a cross toolchain is a ~170 MB fetch.
 
-**`-ffp-contract=off` is what makes that true, and it is one flag.** GCC and
-Clang both default to `=fast` in GNU C modes, so `a*b + c*d` fuses into an FMA
-wherever the target has one. Baseline x86-64 has none, so the references were
-stable *by accident*. `host_t3d.c`'s edge function is exactly that shape and
-its sign decides whether a pixel is inside a triangle — one fused multiply-add
-moves the edge of every triangle on screen. This is the single most likely
-thing to silently break the multi-architecture claim, and it lives in
-`nix/host.nix` because seven checks each carrying their own compile line is
-seven places to forget it and an eighth that never had it.
+**`-ffp-contract=off` is a guard against a real mechanism that is not
+currently firing, and the distinction is worth stating because the first
+version of this section got it wrong.** GCC and Clang default to `=fast` in
+GNU C modes, so `a*b + c*d` fuses into an FMA wherever the target has one, and
+`host_t3d.c`'s edge function is exactly that shape — its sign decides whether
+a pixel is inside a triangle, so one fusion moves every triangle edge on
+screen. Measured on aarch64: **0 FMA instructions at `-O1` with or without the
+flag, 74 at `-O2` without it, 0 at `-O2` with it.** The gates compile at
+`-O1`, and all four architectures reproduce the references with the flag
+*removed*. So it changes no output today; it is one `-O` away from mattering,
+and the failure it prevents would present as "every triangle moved" with
+nothing in the diff to explain it. It lives in `nix/host.nix` because a flag
+that must be identical everywhere cannot live in seven separate compile lines.
 
 **musl for the cross pair, not glibc.** Partly because it links static
 cleanly for `qemu-user`, but mainly because musl has no `<execinfo.h>`:
