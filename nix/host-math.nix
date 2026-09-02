@@ -94,7 +94,16 @@ pkgs.stdenv.mkDerivation {
     # -include assert.h: libdragon's debug.h uses assert() without including
     # it, which is fine in its own tree and not here.
     for f in stage/math/fmath.c stage/math/fgeom.c; do
-      ${cc} -c -O2 -std=gnu11 -include assert.h \
+      # -ffp-contract=off for the reason nix/host.nix sets it on everything
+      # else, and this file needs it stated because it is the one compilation
+      # unit in the host tier that nix/host.nix's flags do NOT reach: it is
+      # built here, at -O2, which is exactly the optimisation level where that
+      # file's own measurement table shows GCC emitting 74 fused
+      # multiply-adds on aarch64. kiln_engine.c calls fm_mat4_from_axis_angle,
+      # fm_sinf and fm_cosf out of this archive on the path every byte-for-byte
+      # render gate exercises, so leaving it out would put the one library the
+      # guard does not cover underneath the claim the guard exists to protect.
+      ${cc} -c -O2 -std=gnu11 -ffp-contract=off -include assert.h \
           -Istage/include -Istage -o "$f.o" "$f"
     done
     ${ar} rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o

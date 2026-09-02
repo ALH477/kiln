@@ -14,6 +14,8 @@
 #include <libdragon.h>
 #include <kiln/kiln_audio.h>
 
+#include "host_internal.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,17 +48,22 @@ int main(int argc, char **argv)
     if (w.wave.len <= 0)     { fprintf(stderr, "FAILED: no samples\n"); return 1; }
     if (w.wave.frequency <= 0) { fprintf(stderr, "FAILED: no sample rate\n"); return 1; }
 
-    /* The decoded PCM, straight from the waveform, before any mixing. */
-    const int16_t *pcm = NULL;
-    int nsamp = 0;
-    {
-        /* wave.ctx is host_wav64.c's KilnHostWave. The check reaches into it
-         * on purpose: the point is to measure what the DECODER produced, not
-         * what survived the mixer's volume. */
-        struct { int16_t *pcm; int samples, channels, rate, loop_len; } *hw = w.wave.ctx;
-        if (!hw) { fprintf(stderr, "FAILED: no decoded PCM attached\n"); return 1; }
-        pcm = hw->pcm; nsamp = hw->samples * hw->channels;
-    }
+    /* The decoded PCM, straight from the waveform, before any mixing.
+     *
+     * wave.ctx is host_wav64.c's KilnHostWave, and the check reaches into it
+     * on purpose: the point is to measure what the DECODER produced, not what
+     * survived the mixer's volume. Through the real "host_internal.h" —
+     * nix/host.nix already puts plat/host/src on the include path — and not
+     * through a re-declaration of the layout, which is what this was. A
+     * second copy of a struct definition inside the check whose whole job is
+     * to catch a decoder lying about its output is the wrong place of all
+     * places to put one: add a field to KilnHostWave and the copy reads a
+     * garbage pointer and reports a plausible RMS instead of failing to
+     * compile. */
+    const KilnHostWave *hw = w.wave.ctx;
+    if (!hw) { fprintf(stderr, "FAILED: no decoded PCM attached\n"); return 1; }
+    const int16_t *pcm = hw->pcm;
+    const int nsamp = hw->samples * hw->channels;
     const double src_rms = rms_of(pcm, nsamp);
     printf("decoded rms: %.4f full-scale over %d samples\n", src_rms, nsamp);
     if (src_rms < 0.001) {

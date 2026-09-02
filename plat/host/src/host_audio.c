@@ -1,15 +1,28 @@
 /* SPDX-License-Identifier: MIT
  *
- * host_audio.c — the mixer's bookkeeping, on the host. No samples.
+ * host_audio.c — the RSP mixer's channel arithmetic, and now its samples.
  *
- * See plat/host/include/libdragon.h for the reasoning. Short version: nearly
- * all of kiln_audio is channel arithmetic — a 32-channel budget partitioned
- * into SFX and music ranges, priority-based voice stealing, room crossfades —
- * and that arithmetic is either right or produces a silence nobody can
- * explain. It needs no PCM to be checkable, and pretending to produce PCM
- * would be the politely-degrading failure this project keeps meeting.
+ * Nearly all of kiln_audio is bookkeeping: a 32-channel budget partitioned
+ * into SFX and music ranges, priority-based voice stealing, room crossfades.
+ * That arithmetic is either right or produces a silence nobody can explain,
+ * and it needs no PCM to be checkable — which is why this file tracked
+ * channel state exactly and output silence for as long as the host tier was
+ * only a gate.
  *
- * So the channel state is exact and the output is silence, said out loud once.
+ * It is no longer only a gate. mixer_poll now mixes for real: nearest-
+ * neighbour resampling, per-channel volume and pan, loop_len counted back
+ * from the END of the waveform (libdragon's convention, not the obvious one),
+ * summed and clamped. host_wav64.c turns a .wav64 into the PCM it reads.
+ *
+ * Nearest and not linear interpolation on purpose: the RSP steps a
+ * fixed-point cursor and takes the sample it lands on, and a host that
+ * interpolated would sound BETTER than the console — the same mistake as a
+ * host that rendered more precisely than it. See host_t3d.c honouring the
+ * s16.16 matrix quantisation for the visual half of that argument.
+ *
+ * What is still bookkeeping, and says so at the point of use: XM64 and YM64
+ * tracker playback. libdragon's player is not separable from the RSP mixer
+ * the way the VADPCM codec is.
  */
 #include <libdragon.h>
 #include <kiln_host.h>
@@ -121,10 +134,24 @@ static void check_ch(int ch, const char *who)
 void mixer_ch_play(int ch, waveform_t *wave)
 {
     check_ch(ch, "mixer_ch_play");
+    /* Reset the playback frequency whenever the WAVEFORM changes, which is
+     * what libdragon does — mixer.c calls mixer_ch_set_freq(ch,
+     * wave->frequency) unconditionally inside its "configure the waveform"
+     * branch, and skips it only when the same waveform is replayed on the
+     * same channel.
+     *
+     * The first version of this only seeded a frequency that was still zero,
+     * which made pitch STICKY: a game that pitch-shifts with
+     * kiln_sfx_play_ex and then lets kiln_sfx_play steal that channel plays
+     * the next sound at the previous sound's pitch, and two assets with
+     * different sample rates sharing an SFX channel both resample at
+     * whichever landed first. That is the pitch-and-time-drift class
+     * mkN64Rom's audioRate cross-check exists to catch, arriving silently
+     * through the back door. */
+    if (g_ch[ch].wave != wave && wave) g_ch[ch].freq = (float)wave->frequency;
     g_ch[ch].playing = 1;
     g_ch[ch].wave = wave;
     g_ch[ch].pos = 0.0;
-    if (g_ch[ch].freq <= 0.0f && wave) g_ch[ch].freq = (float)wave->frequency;
     g_c.ch_plays++;
 }
 void mixer_ch_set_vol(int ch, float lvol, float rvol)
