@@ -92,6 +92,38 @@ let
         cp zlib.h zconf.h $out/include/
       '';
 
+  # ── VADPCM, decoded by the decoder that belongs to the encoder ─────
+  # Every .wav64 in this repo was produced by audioconv64, which libdragon
+  # builds from Dietrich Epp's vendored VADPCM codec (MPL-2.0). On console the
+  # decode is RSP microcode with no C fallback, so the obvious host move is to
+  # write a decoder from the format description — and nix/host-math.nix's
+  # header is a long argument against exactly that: a reimplementation that
+  # differs in the last bit makes the host disagree with the console for
+  # reasons that have nothing to do with the code under test.
+  #
+  # decode.c and error.c are 100 lines between them and depend on nothing.
+  # Compiled from the pinned libdragon input, not vendored into this tree, so
+  # the MPL files stay where they are. See THIRD_PARTY_LICENSES.md.
+  #
+  # No -Werror: this is third-party source and engine/Makefile already sets
+  # the precedent for not holding it to the engine's own bar.
+  vadpcmFor = { name, cc, ar, nativeBuildInputs, preBuild, cflags }:
+    pkgs.runCommand "kiln-host-vadpcm-${name}"
+      { inherit nativeBuildInputs;
+        meta.description = "libdragon's VADPCM decoder for ${name}"; }
+      (let dir = "${libdragonSrc}/tools/audioconv64/vadpcm"; in ''
+        set -euo pipefail
+        ${preBuild}
+        mkdir -p obj && cd obj
+        for f in decode error; do
+          ${cc} -O2 -std=gnu11 ${cflags} -I${dir} -c "${dir}/codec/$f.c" -o "$f.o"
+        done
+        ${ar} rcs libvadpcm.a decode.o error.o
+        mkdir -p $out/lib $out/include/codec
+        cp libvadpcm.a $out/lib/
+        cp ${dir}/codec/vadpcm.h $out/include/codec/
+      '');
+
   mkTarget =
     { name                      # target id, e.g. "native", "wasm32"
     , cc, ar                    # the compiler and archiver commands
@@ -124,6 +156,11 @@ let
         cflags = lib.concatStringsSep " " cflags;
       };
 
+      vadpcm = vadpcmFor {
+        inherit name cc ar nativeBuildInputs preBuild;
+        cflags = lib.concatStringsSep " " cflags;
+      };
+
       hostMath = import ./host-math.nix {
         inherit pkgs cc ar nativeBuildInputs preBuild;
         src = libdragonSrc;
@@ -138,6 +175,7 @@ let
         "-I${platHost}/src"
         "-I${hostMath}/include"
         "-I${zlib}/include"
+        "-I${vadpcm}/include"
         "-I${streamdbInc}/include"
         "-I${streamdbSrc}/include"
         "-I${engineSrc}/src"
@@ -188,7 +226,8 @@ let
         '';
 
       libsLine = "${engine}/lib/libkiln.a ${backend}/lib/libkilnhost.a "
-               + "${hostMath}/lib/libkilnmath.a ${zlib}/lib/libz.a";
+               + "${hostMath}/lib/libkilnmath.a ${zlib}/lib/libz.a "
+               + "${vadpcm}/lib/libvadpcm.a";
 
       # ── a host program: check harness, launcher, anything ──────────
       # `sources` are compiled and linked against all three archives. Archive
@@ -282,7 +321,7 @@ let
     in
     {
       inherit name cc ar cflagsStr ldflagsStr incs preBuild run exe shell
-              nativeBuildInputs buildInputs hostMath backend engine libsLine zlib
+              nativeBuildInputs buildInputs hostMath backend engine libsLine zlib vadpcm
               mkProgram mkCheck mkGame description;
     };
 

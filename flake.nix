@@ -1360,6 +1360,15 @@
             inherit pkgs;
             game = self.packages.${system}.pc-engine-demo;
           };
+          # A real audioconv64 .wav64 decodes to PCM with energy in it, mixes,
+          # and pans the right way round. See the check's header on why RMS
+          # and not sample count.
+          kiln-wav64 = import ./nix/checks/kiln-wav64.nix {
+            inherit pkgs; target = hostNative; sound = demoSound;
+          };
+          kiln-wav64-wasm32 = import ./nix/checks/kiln-wav64.nix {
+            inherit pkgs; target = hostWasm; sound = demoSound;
+          };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;
