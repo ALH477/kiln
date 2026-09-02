@@ -96,8 +96,12 @@ static const char *fmt_name(int f)
  * that only the long files would ever exercise. */
 static uint8_t *slurp(const char *path, int *out_size)
 {
+    /* <= 0, not < 0: dfs_open reserves handle 0 and returns DFS_ENOFILE for a
+     * miss, so a `< 0` test would let 0 through and hand it to dfs_size — the
+     * same off-by-one kiln_cache's handle packing already cost this project
+     * once. */
     const int fd = dfs_open(path);
-    if (fd < 0) return NULL;
+    if (fd <= 0) return NULL;
     const int sz = dfs_size(fd);
     if (sz <= 0) { dfs_close(fd); return NULL; }
     uint8_t *buf = malloc((size_t)sz);

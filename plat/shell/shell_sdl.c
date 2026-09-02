@@ -75,6 +75,12 @@ static void window_open(int w, int h)
         }
     }
 
+    /* Before SDL_CreateRenderer, not after: SDL reads this hint when the
+     * renderer is created, and setting it later silently leaves the scaler on
+     * linear — which blurs a 320x240 frame into something that is no longer
+     * the frame the gates compare. */
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");   /* nearest */
+
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI;
     if (g.opt.fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
@@ -88,7 +94,6 @@ static void window_open(int w, int h)
     if (!g.ren) { fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError()); exit(1); }
 
     SDL_RenderSetLogicalSize(g.ren, w, h);
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");   /* nearest */
 
     g.tex = SDL_CreateTexture(g.ren, SDL_PIXELFORMAT_ABGR8888,
                               SDL_TEXTUREACCESS_STREAMING, w, h);
