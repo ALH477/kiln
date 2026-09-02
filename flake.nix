@@ -76,20 +76,14 @@
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
 
         # libdragon, installed into a store path used as $N64_INST.
-        # libdragon's own fast-math library, built for the host. The first
-        # brick of the PC target: the engine's fm_vec3_t and 17 fm_* calls are
-        # now the REAL ones natively, not a hand-copy. See nix/host-math.nix.
-        hostMath = import ./nix/host-math.nix {
-          inherit pkgs;
-          src = libdragon;
-        };
-
         # The host tier, once, for any toolchain. `hostTargets.targets` names
-        # the compilers: native, wasm32, and (Linux only, not gated) aarch64
-        # and riscv64 under qemu-user. Each target carries its own hostMath,
-        # its own libkilnhost.a and libkiln.a, and the mkCheck/mkProgram that
-        # build against them. See nix/host.nix for why the recipe moved out of
-        # the seven checks that used to each carry a copy.
+        # the compilers: native, wasm32, wasm32-node, and (Linux only, not
+        # gated) aarch64 and riscv64 under qemu-user. Each target carries its
+        # own hostMath, zlib and VADPCM build, a libkilnhost.a and a
+        # libkiln.a driven off engine/modules.mk's HOST_MODULES, and the
+        # mkCheck/mkProgram/mkGame that build against them. See nix/host.nix
+        # for why the recipe moved out of the seven checks that used to each
+        # carry a copy.
         hostTargets = import ./nix/host.nix {
           inherit pkgs;
           libdragonSrc = libdragon;
@@ -101,6 +95,18 @@
         };
         hostNative = hostTargets.targets.native;
         hostWasm   = hostTargets.targets.wasm32;
+
+        # libdragon's own fast-math library, built natively: the engine's
+        # fm_vec3_t and 17 fm_* calls are the REAL ones, not a hand-copy.
+        #
+        # Taken FROM the native target rather than imported separately. There
+        # were briefly two of these — one exposed as .#host-math and validated
+        # by kiln-hostmath, one inside nix/host.nix that every render gate
+        # actually linked. Same source, so they agreed, but the gate asserting
+        # the host fm_* matches the VR4300 (ties-to-even included) was not
+        # covering the copy under test, which is the one property that gate
+        # exists to provide.
+        hostMath = hostNative.hostMath;
 
         # aarch64 and riscv64 are real targets and are deliberately NOT in the
         # gate set: a cross toolchain plus qemu-user is a ~170 MB fetch, and a
