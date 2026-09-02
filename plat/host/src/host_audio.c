@@ -12,6 +12,8 @@
  * So the channel state is exact and the output is silence, said out loud once.
  */
 #include <libdragon.h>
+#include <kiln_host.h>
+#include "host_internal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -36,19 +38,59 @@ const KilnHostAudioCounters *kiln_host_audio_counters(void)
     return &g_c;
 }
 
+/* ── the output device, which does not exist ───────────────────────────
+ * audio_can_write used to `return 1`, and that is not a stub, it is a hang:
+ * kiln_audio_update is `while (audio_can_write()) { ... }`, draining until the
+ * device says full. A device that is never full never lets the frame end, so
+ * any host build of a real game loop — as opposed to a check, which never
+ * calls it — spins forever on the first frame. Nothing caught this because
+ * nothing had run a game loop on the host.
+ *
+ * So the host models a real device's occupancy, and credits it on PRESENTED
+ * FRAMES rather than on wall time. That is the only clock a deterministic
+ * check is allowed: two runs of the same ROM push the same number of buffers
+ * in the same order, on any machine, at any speed. A launcher that has an
+ * actual speaker installs audio_free/audio_submit and the credit model steps
+ * aside for the device's real occupancy. */
+#define BUFLEN 512
+#define NBUF   4
+
+static int g_credit;   /* samples the device could still accept */
+
 void audio_init(const int frequency, float latency)
 {
     (void)latency;
     assertf(frequency > 0, "audio_init: frequency %d", frequency);
     g_freq = frequency;
+    g_credit = NBUF * BUFLEN;   /* an empty device: prefill it */
     memset(&g_c, 0, sizeof g_c);
 }
-void audio_close(void) { g_freq = 0; }
-int  audio_can_write(void) { return 1; }
+void audio_close(void) { g_freq = 0; g_credit = 0; }
+
+void kiln_host_audio_frame(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_free) return;          /* a real device keeps its own count */
+    if (g_freq <= 0) return;
+    g_credit += g_freq / 60;            /* one frame of samples consumed */
+    if (g_credit > NBUF * BUFLEN) g_credit = NBUF * BUFLEN;
+}
+
+int audio_can_write(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_free) return h->audio_free(h->ctx) > 0;
+    return g_credit >= BUFLEN;
+}
 int  audio_get_frequency(void) { return g_freq; }
-int  audio_get_buffer_length(void) { return 512; }
+int  audio_get_buffer_length(void) { return BUFLEN; }
 short *audio_write_begin(void) { return g_buf; }
-void  audio_write_end(void) { }
+void  audio_write_end(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_submit) h->audio_submit(h->ctx, g_buf, BUFLEN);
+    else                 g_credit -= BUFLEN;
+}
 
 void mixer_init(int num_channels)
 {

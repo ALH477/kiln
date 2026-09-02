@@ -55,4 +55,44 @@ typedef struct {
 
 const KilnHostCounters *kiln_host_counters(void);
 
+/* ── the launcher seam ─────────────────────────────────────────────────
+ * plat/host is a renderer with no window, no clock and no speaker, and that
+ * is deliberate: a gate has to produce the same PNG on every machine, so
+ * nothing in here may depend on wall time or on a compositor. A launcher
+ * supplies the three things a gate must not have, through this struct.
+ *
+ * With no hooks installed every function below is exactly what it was — one
+ * framebuffer, a frame counter, and audio credited per presented frame — so
+ * every check keeps its determinism by construction rather than by remembering
+ * to switch something off.
+ *
+ * `present`  is called from rdpq_detach_show with the finished RGBA8888
+ *            framebuffer. w*4 bytes per row, alpha always 255.
+ * `vsync`    is called from display_get, which is where the console blocks
+ *            until a buffer frees. A launcher paces the frame and pumps its
+ *            event queue here, so the blocking point is the same one on both
+ *            targets rather than a new concept the console does not have.
+ * `audio_free`/`audio_submit` replace the frame-credited buffer model with a
+ *            real device's occupancy. Returning 0 from audio_free is what
+ *            ends kiln_audio_update's drain loop.
+ * Any member may be NULL; the default for that member is used. */
+typedef struct {
+    void  (*present)(void *ctx, const void *rgba8, int w, int h);
+    void  (*vsync)(void *ctx);
+    int   (*audio_free)(void *ctx);
+    void  (*audio_submit)(void *ctx, const short *stereo, int nsamples);
+    void   *ctx;
+} KilnHostHooks;
+
+/** Install the launcher hooks. NULL restores the headless defaults. The
+ *  pointer is copied, not retained. */
+void kiln_host_set_hooks(const KilnHostHooks *hooks);
+
+/** The installed hooks. Never NULL — an all-NULL struct when none are set. */
+const KilnHostHooks *kiln_host_hooks(void);
+
+/** Feed the pad. A test calls this directly; a launcher calls it once per
+ *  frame from its vsync hook, before the engine's joypad_poll latches. */
+/* (declared in <libdragon.h> as kiln_host_pad_set) */
+
 #endif /* KILN_HOST_H */

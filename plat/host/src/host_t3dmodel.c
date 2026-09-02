@@ -95,6 +95,14 @@ typedef struct {
  * blanket-swapping 16-bit words is what keeps rgba correct. */
 static void swap_vert_struct(uint8_t *d, const uint8_t *s)
 {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    /* The file is big-endian because the console is. A big-endian host wants a
+     * copy, not a swap — swapping here would corrupt exactly the targets that
+     * agree with the console's byte order. Every other reader in this file
+     * goes through rd16/rd32, which assemble byte-by-byte and are already
+     * neutral; this is the one place that moves whole structs. */
+    memcpy(d, s, 32);
+#else
     for (int i = 0; i < 8; i++) {
         d[i*2 + 0] = s[i*2 + 1];
         d[i*2 + 1] = s[i*2 + 0];
@@ -107,6 +115,7 @@ static void swap_vert_struct(uint8_t *d, const uint8_t *s)
         const size_t o = 24 + (size_t)i * 2;
         d[o+0] = s[o+1]; d[o+1] = s[o+0];
     }
+#endif
 }
 
 typedef struct {

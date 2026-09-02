@@ -18,6 +18,11 @@
 #include <libdragon.h>
 #include <stdint.h>
 
+/** One presented frame's worth of audio credit. host_gfx.c's
+ *  rdpq_detach_show calls it so the headless buffer model advances on frames
+ *  rather than on wall time — the only clock a deterministic check has. */
+void kiln_host_audio_frame(void);
+
 int  kiln_hostfb_w(void);
 int  kiln_hostfb_h(void);
 int  kiln_hostfb_attached(void);

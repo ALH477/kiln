@@ -136,7 +136,17 @@ void display_init(resolution_t res, int bitdepth, uint32_t num_buffers,
 }
 
 void display_close(void) { g_inited = 0; }
-surface_t *display_get(void)      { assertf(g_inited, "display_get before display_init"); return &g_color; }
+surface_t *display_get(void)
+{
+    assertf(g_inited, "display_get before display_init");
+    /* The console blocks here until the VI releases a buffer, and that is the
+     * whole of its frame pacing. A launcher paces and pumps its event queue in
+     * the same place, so real time enters the host build at exactly the point
+     * it enters the console build rather than at a new one. */
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->vsync) h->vsync(h->ctx);
+    return &g_color;
+}
 surface_t *display_get_zbuf(void) { assertf(g_inited, "display_get_zbuf before display_init"); return &g_depth; }
 int display_get_width(void)  { return g_w; }
 int display_get_height(void) { return g_h; }
@@ -158,7 +168,14 @@ void rdpq_attach_clear(surface_t *color, surface_t *z)
     clear_opaque();
 }
 void rdpq_detach(void) { g_attached = 0; }
-void rdpq_detach_show(void) { g_attached = 0; g_frame++; }
+void rdpq_detach_show(void)
+{
+    g_attached = 0;
+    g_frame++;
+    kiln_host_audio_frame();
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->present) h->present(h->ctx, g_fb, g_w, g_h);
+}
 
 void rdpq_sync_pipe(void) { }
 void rdpq_sync_tile(void) { }
