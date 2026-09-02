@@ -365,7 +365,19 @@ KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn)
     const int len      = (int32_t)be32(f + 12);
     const int loop_len = (int32_t)be32(f + 16);
 
-    if (channels < 1 || channels > 2 || len <= 0) {
+    /* `len` is a signed 32-bit field read straight out of the file, and every
+     * length derived from it is arithmetic on that value: decode_vadpcm's
+     * `((nsamples + 31) / 32) * 2` overflows signed int well before INT_MAX,
+     * which is undefined behaviour rather than a failed allocation. So it is
+     * bounded here, once, at a figure no real asset approaches — half an hour
+     * of stereo at 48 kHz — and everything downstream can do plain int
+     * arithmetic on it.
+     *
+     * This matters more than the usual defensive-parsing argument: a .wav64
+     * on a flashcart's SD card has been through a filesystem this project
+     * does not control, and kiln_store's own history is of a backend that
+     * read zeroes back and parsed them as valid. */
+    if (channels < 1 || channels > 2 || len <= 0 || len > 100 * 1000 * 1000) {
         free(f);
         snprintf(err, errn, "%d channels, %d samples", channels, len);
         return NULL;
