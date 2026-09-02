@@ -56,16 +56,23 @@ def need(pat, what):
         sys.exit("FAILED: the launcher printed no " + what + ":\n" + txt)
     return float(m.group(1))
 
+presented = need(r"shell: presented (\d+) of \d+ frames", "present count")
 nonblack = need(r"non-black\s+\d+/\d+\s+\(([0-9.]+)%\)", "non-black percentage")
 colours  = need(r"colours\s+(\d+)",        "colour count")
 written  = need(r"pixels-written\s+(\d+)", "pixels-written counter")
-print("non-black %.1f%%  colours %d  pixels-written %d" % (nonblack, colours, written))
+print("presented %d frames; non-black %.1f%%  colours %d  pixels-written %d"
+      % (presented, nonblack, colours, written))
 
 # A Gouraud-shaded cube over a cleared field produces thousands of distinct
 # colours; a frame that never got drawn produces about three. That is the
 # discriminating number here, not the non-black percentage — engine-demo
 # clears to #0a0a18, so "non-black" is ~98% even when nothing is rendered.
+# Two independent numbers. The pixel figures come from the backend and say
+# the frame was DRAWN; this one comes from the launcher and says it was
+# PRESENTED. A dead present hook leaves a perfect framebuffer, so without
+# this the gate could only report it by hanging — which it used to do.
 fail = []
+if presented < 90:  fail.append("only %d of 90 frames reached the present hook" % presented)
 if nonblack < 50:  fail.append("only %.1f%% non-black: the clear never happened" % nonblack)
 if colours < 500:  fail.append("only %d distinct colours: nothing was shaded" % colours)
 if written < 5000: fail.append("only %d pixels written in the last frame" % written)

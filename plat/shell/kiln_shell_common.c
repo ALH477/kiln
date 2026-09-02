@@ -75,27 +75,40 @@ int kiln_shell_args(int argc, char **argv, KilnShellOpts *o)
 #endif
 
 static KilnShellOpts g_opts;
-static int g_frames;
+static int g_frames_seen;      /* vsyncs, i.e. frames STARTED  */
+static int g_presents;         /* present hook calls actually made */
 
-void kiln_shell_presented(void)
+void kiln_shell_presented(void) { g_presents++; }
+
+void kiln_shell_tick(void)
 {
-    g_frames++;
+    /* On the vsync path on purpose. The frame limit used to live in the
+     * present hook, which meant that breaking the present hook removed the
+     * run's only exit — the launcher gate did not fail, it hung, and a gate
+     * that hangs reports nothing at all. Counting here and presenting there
+     * also gives the gate two numbers to compare instead of one to trust. */
     const int limit = g_opts.frames ? g_opts.frames : (g_opts.shot ? 1 : 0);
-    if (!limit || g_frames < limit) return;
+    if (!limit) return;
 
-    /* The same colour histogram and non-black percentage tools/n64-shot.sh
-     * prints for an emulator capture, so a launcher run and a console capture
-     * are read the same way. CLAUDE.md: trust the pixel statistics, not your
-     * eyes — a mostly-black 320x240 frame scaled into a screenshot reads as
-     * "black" when the text is right there. */
-    if (g_opts.stats) kiln_host_stats(stdout, 6);
+    /* Frame N's pixels are complete once frame N+1 starts, so the limit is
+     * reached one vsync AFTER the last frame we want. */
+    if (g_frames_seen++ < limit) return;
+
+    if (g_opts.stats) {
+        /* The launcher's own count first, then the backend's pixel figures.
+         * Two independent numbers: a present hook that never fires shows up
+         * here as "presented 0" over a perfectly good framebuffer, which is
+         * exactly the failure the old arrangement could not report. */
+        fprintf(stdout, "shell: presented %d of %d frames\n", g_presents, limit);
+        kiln_host_stats(stdout, 6);
+    }
 
     if (g_opts.shot) {
         if (kiln_host_capture(g_opts.shot) != 0) {
             fprintf(stderr, "kiln: could not write %s\n", g_opts.shot);
             exit(1);
         }
-        fprintf(stderr, "kiln: wrote %s after %d frames\n", g_opts.shot, g_frames);
+        fprintf(stderr, "kiln: wrote %s after %d frames\n", g_opts.shot, limit);
     }
     exit(0);
 }
@@ -203,22 +216,38 @@ const char *kiln_shell_keymap_text(void)
  * window resize then runs sixty frames flat out to "make up time", which on a
  * fixed-step simulation is a second of fast-forward. Slipping is the correct
  * response to being late. */
-static uint32_t g_next_ms;
+static uint32_t g_base_ms;    /* when the pacer was last reset      */
+static uint64_t g_frame;      /* frames issued since that reset     */
 static int      g_paced;
 
-void kiln_shell_pace_reset(uint32_t now_ms) { g_next_ms = now_ms; g_paced = 1; }
+void kiln_shell_pace_reset(uint32_t now_ms)
+{
+    g_base_ms = now_ms;
+    g_frame   = 0;
+    g_paced   = 1;
+}
 
 uint32_t kiln_shell_pace(uint32_t now_ms, int fps)
 {
     if (fps <= 0) fps = 60;
     if (!g_paced) kiln_shell_pace_reset(now_ms);
 
-    const uint32_t step = (uint32_t)(1000 / fps);
-    g_next_ms += step ? step : 16;
+    /* The deadline is computed from the frame INDEX, not accumulated a step
+     * at a time. `1000 / 60` is 16 in integer arithmetic, so a per-frame step
+     * paces to 62.5 Hz — a 4% fast-forward on a fixed-timestep simulation,
+     * which is both wrong and just subtle enough to be blamed on the
+     * emulator. Multiplying first keeps the error bounded by one millisecond
+     * for the life of the run instead of compounding once per frame. */
+    g_frame++;
+    const uint32_t due = g_base_ms + (uint32_t)((g_frame * 1000u) / (uint32_t)fps);
 
-    const int32_t slack = (int32_t)(g_next_ms - now_ms);
-    if (slack < -250) {          /* a quarter second behind: stop chasing */
-        g_next_ms = now_ms;
+    const int32_t slack = (int32_t)(due - now_ms);
+    if (slack < -250) {
+        /* A quarter second behind. Slipping is the correct response to being
+         * late: without this, a launcher that loses a second to a window
+         * resize then runs sixty frames flat out to "make up time", which on
+         * a fixed-step simulation is a second of fast-forward. */
+        kiln_shell_pace_reset(now_ms);
         return 0;
     }
     return slack > 0 ? (uint32_t)slack : 0;

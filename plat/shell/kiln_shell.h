@@ -75,12 +75,23 @@ int  kiln_shell_args(int argc, char **argv, KilnShellOpts *o);
  *  remember the options for kiln_shell_presented. */
 void kiln_shell_env(const KilnShellOpts *o);
 
-/** Call from a backend's present hook, after the blit. Honours --frames and
- *  --shot, which is what makes a launcher testable: a windowed build that
- *  renders N frames and writes a PNG can be held to the same reference image
- *  the headless gates use, so "it builds" and "it draws the right thing" stop
- *  being separate questions. Does not return if the run is over. */
+/** Call from a backend's present hook, after the blit. Counts only.
+ *
+ *  It used to also honour --frames and --shot, and that made the launcher
+ *  gate hang rather than fail when the present hook was broken: the only
+ *  thing terminating the run lived inside the thing under test. Now the run
+ *  ends from kiln_shell_tick, which is on the vsync path and always runs, and
+ *  this counter is what the gate compares against the frames it asked for —
+ *  the native equivalent of the browser gate counting putImageData calls in
+ *  its DOM stub rather than believing the program's own report. */
 void kiln_shell_presented(void);
+
+/** Call from a backend's vsync hook, before pacing. Honours --frames and
+ *  --shot, which is what makes a launcher testable: a windowed build that
+ *  renders N frames and writes a PNG can be checked without a display, so
+ *  "it builds" and "it draws the right thing" stop being separate questions.
+ *  Does not return if the run is over. */
+void kiln_shell_tick(void);
 
 /** Pack and hand a pad to the host backend. NULL clears it. */
 void kiln_shell_pad(const KilnShellPad *p);

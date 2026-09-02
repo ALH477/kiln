@@ -54,6 +54,13 @@ if not m:
              "reached the canvas:\n" + txt)
 
 calls, w, h, nonblack, colours = (int(g) for g in m.groups())
+
+# The launcher's own count, cross-checked against the DOM's. They are
+# measured on opposite sides of the EM_JS boundary, so a disagreement means
+# the blit is being dropped between C and the canvas.
+p = re.search(r"shell: presented (\d+) of \d+ frames", txt)
+presented = int(p.group(1)) if p else -1
+
 print("canvas: %d frames, %dx%d, non-black %d, colours %d"
       % (calls, w, h, nonblack, colours))
 
@@ -62,6 +69,7 @@ fail = []
 # resume the loop, which is the one thing about this backend that has no
 # analogue anywhere else in the project.
 if calls < 12:              fail.append("only %d of 12 frames reached the canvas" % calls)
+if presented != calls:      fail.append("launcher presented %d, canvas got %d" % (presented, calls))
 if (w, h) != (320, 240):    fail.append("canvas is %dx%d, not 320x240" % (w, h))
 if nonblack < 1000:         fail.append("only %d non-black pixels: nothing was drawn" % nonblack)
 if colours < 500:           fail.append("only %d distinct colours: nothing was shaded" % colours)

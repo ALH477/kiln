@@ -224,6 +224,7 @@ static void vsync(void *ctx)
         if (sy) p.stick_y = sy;
     }
     kiln_shell_pad(&p);
+    kiln_shell_tick();
 
     /* The yield. emscripten_sleep returns control to the browser's event loop
      * — which is what lets the key listeners above ever run — and comes back

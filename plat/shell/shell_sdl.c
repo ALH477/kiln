@@ -221,6 +221,7 @@ static void vsync(void *ctx)
 {
     (void)ctx;
     pump();
+    kiln_shell_tick();
     if (g.quit) {
         /* The game loop is a for(;;) in the ROM's own main and has no exit —
          * correctly, because on console there is nothing to exit to. So the
