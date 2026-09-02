@@ -15,3 +15,6 @@ __pycache__/
 
 # Agent scratch state, not project content.
 .hermes/
+
+# ./dev web --verify writes its screenshots and report here.
+.webverify/

@@ -27,9 +27,11 @@ usage() {
   pc    [example] [args]   build and RUN the game natively — a real window,
                            keyboard and gamepad, sound. No emulator, no ROM.
                            --frames N / --shot out.png make it scriptable.
-  web   [example] [--serve]
+  web   [example] [--serve|--verify]
                            build the browser version (wasm32 + canvas + Web
-                           Audio); --serve hosts it on :8080 and prints the URL
+                           Audio). --serve hosts it on :8080; --verify drives
+                           it in headless Chromium and asserts it renders,
+                           loops and answers the keyboard
   arch  [target]           build and run the host gates for one architecture:
                            native | wasm32 | aarch64 | riscv64 (the last two
                            cross-compile against musl and run under qemu-user)
@@ -213,6 +215,64 @@ case "$cmd" in
       echo "dev: http://localhost:8080/  (Ctrl-C to stop)"
       python3 -m http.server 8080 --directory "$dir"
       exit 0
+    fi
+    if [ "${1:-}" = "--verify" ] || [ "${2:-}" = "--verify" ]; then
+      # Headless Chromium over the DevTools protocol. nix/checks/kiln-web.nix
+      # already runs the browser launcher under node against a DOM stub, which
+      # is what a sandbox with no display can do; this is the part that needs
+      # a real browser engine — a real 2D context, real wasm in V8, the actual
+      # page, and a keypress that starts in the compositor's event queue.
+      #
+      # A dev command and not a gate, for the same reason ./dev shot is one:
+      # Chromium is a 150 MB dependency, and a pre-push gate has no business
+      # pulling it.
+      dir="$(mktemp -d)"
+      # Kill the children BEFORE removing the directory: chromium is still
+      # writing into its profile, so an rm that runs first fails with
+      # "Directory not empty" and leaves the profile behind.
+      cleanup() {
+        [ -n "${chr_pid:-}" ] && kill "$chr_pid" 2>/dev/null
+        [ -n "${srv_pid:-}" ] && kill "$srv_pid" 2>/dev/null
+        wait 2>/dev/null
+        rm -rf "$dir"
+      }
+      trap cleanup EXIT INT TERM
+
+      cp -L "$out"/bin/* "$dir/"
+      mv "$dir/$(basename "$page")" "$dir/index.html"
+
+      # pc/web/arch deliberately skip the nix develop auto-entry, so neither
+      # node nor chromium is on PATH. Both are resolved from the PINNED
+      # nixpkgs rather than from the host: a verifier that quietly used
+      # whatever browser happened to be installed would be reporting about
+      # something other than what the flake builds.
+      nixpkg() {
+        nix build --no-link --print-out-paths --impure \
+          --expr "let f = builtins.getFlake (toString \"$REPO\"); \
+                  in f.inputs.nixpkgs.legacyPackages.\${builtins.currentSystem}.$1"
+      }
+      chromium="$(nixpkg chromium)/bin/chromium" || die "could not build chromium"
+      node="$(nixpkg nodejs)/bin/node"           || die "could not build nodejs"
+
+      python3 -m http.server 8123 --directory "$dir" >/dev/null 2>&1 &
+      srv_pid=$!
+      "$chromium" --headless=new --no-sandbox --disable-gpu \
+        --remote-debugging-port=9222 --user-data-dir="$dir/profile" \
+        --crash-dumps-dir="$dir" about:blank >"$dir/chrome.log" 2>&1 &
+      chr_pid=$!
+      sleep 3
+
+      "$node" "$REPO/tools/webverify/verify.mjs" http://localhost:8123/ "$dir"
+      rc=$?
+
+      # Keep the evidence. A verifier whose screenshots evaporate is one
+      # nobody can second-guess, and CLAUDE.md is emphatic that a reference
+      # image is only as good as somebody having looked at it.
+      shots="$REPO/.webverify"
+      rm -rf "$shots" && mkdir -p "$shots"
+      cp "$dir"/*.png "$dir"/report.json "$shots/" 2>/dev/null || true
+      echo "dev: screenshots and report in $shots"
+      exit $rc
     fi
     echo "dev: .wasm will not load over file:// — use ./dev web $ex --serve"
     ;;

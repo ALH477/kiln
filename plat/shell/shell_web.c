@@ -184,6 +184,22 @@ EM_JS(void, web_audio_push, (const short *pcm, int frames, int freq), {
   k.cursor += frames / freq;
 });
 
+/* Publish the pad the launcher just pushed, where the page can see it.
+ *
+ * This is the browser's version of kiln_host_counters() and
+ * kiln_host_audio_counters(): a build with no stdout anybody reads still has
+ * to be able to say what it thinks is happening. It is also the only honest
+ * way to check the input path from outside — the obvious observable, "the
+ * picture changed", is a poor one here, because engine-demo's stick orbits a
+ * camera that keeps looking at the origin, so the thing on screen stays
+ * exactly where it was and merely changes angle. tools/webverify asserts on
+ * this and on the pixels; asserting only on the pixels reports a dead input
+ * path for a live one. */
+EM_JS(void, web_publish_pad, (int sx, int sy, int buttons), {
+  var k = Module.kiln = Module.kiln || {};
+  k.pad = { stick_x: sx, stick_y: sy, buttons: buttons, frame: (k.pad ? k.pad.frame + 1 : 1) };
+});
+
 /* ── hooks ─────────────────────────────────────────────────────────── */
 
 static KilnShellOpts g_opt;
@@ -224,6 +240,11 @@ static void vsync(void *ctx)
         if (sy) p.stick_y = sy;
     }
     kiln_shell_pad(&p);
+    web_publish_pad(p.stick_x, p.stick_y,
+                    (p.a) | (p.b << 1) | (p.z << 2) | (p.l << 3) | (p.r << 4) |
+                    (p.start << 5) | (p.c_up << 6) | (p.c_down << 7) |
+                    (p.c_left << 8) | (p.c_right << 9) | (p.d_up << 10) |
+                    (p.d_down << 11) | (p.d_left << 12) | (p.d_right << 13));
     kiln_shell_tick();
 
     /* The yield. emscripten_sleep returns control to the browser's event loop
