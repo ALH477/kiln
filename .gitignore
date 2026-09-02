@@ -12,3 +12,6 @@ __pycache__/
 # inherit from the repo, and not covered by this project's own gitignore
 # until now (only excluded for existing checkouts via a global gitignore).
 .claude/settings.local.json
+
+# Agent scratch state, not project content.
+.hermes/
