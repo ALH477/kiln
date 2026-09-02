@@ -179,8 +179,25 @@ void mixer_poll(int16_t *out, int nsamples)
     if (!out || nsamples <= 0) return;
 
     const int rate = g_freq > 0 ? g_freq : 32000;
-    int32_t *acc = calloc((size_t)nsamples * 2, sizeof(int32_t));
-    if (!acc) { memset(out, 0, (size_t)nsamples * 2 * sizeof(int16_t)); return; }
+
+    /* Grow-only, not per-call. This runs several times per frame for the life
+     * of the process, so an allocator in the audio path is a needless
+     * recurring cost — the console's mixer allocates nothing per poll either.
+     *
+     * Grow-ONLY and not a fixed BUFLEN array, which is what this was for
+     * about ten minutes: mixer_poll's contract is libdragon's, and libdragon
+     * takes any length. nix/checks/kiln-wav64-check.c polls 4096 against a
+     * BUFLEN of 512 precisely because a mix is worth measuring over more than
+     * one device buffer, and the fixed array asserted on its own check. */
+    static int32_t *acc;
+    static int      acc_cap;
+    if (nsamples > acc_cap) {
+        int32_t *grown = realloc(acc, (size_t)nsamples * 2 * sizeof(int32_t));
+        if (!grown) { memset(out, 0, (size_t)nsamples * 2 * sizeof(int16_t)); return; }
+        acc = grown;
+        acc_cap = nsamples;
+    }
+    memset(acc, 0, (size_t)nsamples * 2 * sizeof(int32_t));
 
     int audible = 0;
     for (int c = 0; c < g_nch; c++) {
@@ -228,7 +245,6 @@ void mixer_poll(int16_t *out, int nsamples)
         if (v < -32768) v = -32768;
         out[i] = (int16_t)v;
     }
-    free(acc);
 
     if (!audible && !g_said_silent) {
         g_said_silent = 1;

@@ -137,7 +137,20 @@ static int huff_build(const uint8_t *ctx, HuffTable tbl[3], char *err, size_t er
             const int shift = 8 - len;
             const int code = values[j] << shift;
             const uint8_t v = (uint8_t)((j << 4) | len);
-            for (int k = 0; k < (1 << shift); k++) tbl[i].codes[code + k] = v;
+            for (int k = 0; k < (1 << shift); k++) {
+                /* Upstream asserts this slot is still free. Kept, because a
+                 * table whose symbols OVERLAP can still cover all 256
+                 * prefixes — so the coverage check below would pass it, and
+                 * it would decode to plausible-looking wrong audio rather
+                 * than to an error. */
+                if (tbl[i].codes[code + k] != 0) {
+                    snprintf(err, errn,
+                             "huffman context %d: symbol %d overlaps prefix 0x%02x",
+                             i, j, code + k);
+                    return -1;
+                }
+                tbl[i].codes[code + k] = v;
+            }
         }
         for (int j = 0; j < 256; j++) {
             if (tbl[i].codes[j] == 0) {
@@ -159,6 +172,13 @@ static int huff_expand(const uint8_t *src, size_t avail, uint8_t *dst, size_t le
     uint64_t buffer = 0;
     int      bits   = 0;
     size_t   at     = 0;
+
+    /* Upstream opens with a `if (bitpos & 7)` partial-byte prologue, because
+     * on console this runs per samplebuffer fill and resumes mid-stream at a
+     * saved bit position. Here the whole body is expanded once from bit zero,
+     * so there is no partial byte to resume from and the prologue has nothing
+     * to do. That also means none of upstream's skip-point machinery is
+     * needed: seeking is a streaming concern, and nothing streams here. */
 
     for (size_t i = 0; i < len; i += 9) {
         int t = 0;
