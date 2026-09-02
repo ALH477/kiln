@@ -1038,6 +1038,7 @@
 
           host-libs         = hostNative.engine;
           host-backend      = hostNative.backend;
+          host-vadpcm       = hostNative.vadpcm;
 
           inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
@@ -1534,6 +1535,14 @@
 
           N64_INST = n64Inst;
           N64_GCCPREFIX = toolchain;
+
+          # tools/uipreview/Makefile has always said "inside `nix develop` it
+          # is already exported", and it was not — the shell set N64_INST and
+          # N64_GCCPREFIX and nothing else, so the by-hand path failed with an
+          # unset-variable message that told you to do what you had done. Now
+          # the claim is true, for both host prefixes it needs.
+          KILN_HOST_MATH = hostNative.hostMath;
+          KILN_HOST_VADPCM = hostNative.vadpcm;
 
           shellHook = ''
             echo "═══════════════════════════════════════════"
