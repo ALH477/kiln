@@ -186,6 +186,20 @@ rec {
   mkTextures =
     { name
     , generator ? ../tools/gen_textures.py
+      # Additional generator scripts, run into the same output directory after
+      # `generator`, with it importable as `gen_textures`. This exists because
+      # a downstream GAME's terrain is not the engine's business: PetaByte
+      # Madness' island band atlas lived in gen_textures.py until the split
+      # genericized it out, and it has to land somewhere that is neither a
+      # second copy of the engine's noise functions nor a permanent
+      # game-specific entry in TEXTURES.
+      #
+      # Sharing `fbm` matters more than it looks. Its docstring is explicit
+      # that the hash is written out longhand rather than using random.Random
+      # "so the output cannot drift with a CPython release" — a second
+      # implementation would be a second thing to keep from drifting, against
+      # committed reference captures.
+    , extraGenerators ? [ ]
     , dest ? "textures"
     , compress ? 1
     }:
@@ -199,7 +213,13 @@ rec {
       buildPhase = ''
         runHook preBuild
         mkdir -p png filesystem/${dest}
-        python3 ${generator} png
+        # Copied to a plain name first so `import gen_textures` resolves for
+        # the extra generators below — a Nix store path is
+        # `<hash>-gen_textures.py`, which is not an importable module name.
+        cp ${generator} ./gen_textures.py
+        python3 ./gen_textures.py png
+        ${lib.concatMapStringsSep "\n        "
+            (g: ''PYTHONPATH=. python3 ${g} png'') extraGenerators}
         for f in png/*.png; do
           mksprite -v --compress ${toString compress} -o filesystem/${dest} "$f"
         done
@@ -370,7 +390,11 @@ rec {
   mkMidiMusic =
     { name
     , src # .mid / .midi
-    , converter # path to tools/midi_to_xm.py
+      # Defaults to this repo's own converter, the way mkVeilTexture defaults
+      # `generator`. A downstream flake consuming this builder through
+      # `kiln.lib` has no sensible way to name a script that lives in the
+      # engine's tools/ directory, and every caller so far passes the same one.
+    , converter ? ../tools/midi_to_xm.py
     , dest ? "music"
     , songName ? name
     , rowsPerBeat ? 4
@@ -484,6 +508,19 @@ rec {
     , dest ? "textures"
     , compress ? 1
     , generator ? ../tools/veil_palette.py
+      # The companion to `generator`: it removes the palette mksprite embeds,
+      # which would otherwise be uploaded over the ramp the game binds. See
+      # the script's own header for the whole sequence.
+    , paletteStripper ? ../tools/veil_strip_palette.py
+      # Whether to run it. Off is a DIAGNOSTIC state, not a supported one: with
+      # the embedded palette left in place the sprite's own colours are
+      # uploaded over whatever the game bound, so the veil cannot swap
+      # anything — but the material renders in SOME palette rather than
+      # sampling a zero one and coming out pure black. That difference is how
+      # you tell "the game's TLUT upload never landed" apart from "nothing in
+      # this pipeline uploads a TLUT at all", which no other observation
+      # distinguishes.
+    , stripPalette ? true
     }:
     pkgs.stdenv.mkDerivation {
       pname = "veil-${name}";
@@ -506,8 +543,62 @@ rec {
         python3 ${generator} "${name}.png" "$outdir/${name}.pal" \
             --class ${veilClass}
 
-        mksprite -v --format CI4 --compress ${toString compress} \
-            -o "$outdir" "${name}.png"
+        # UNCOMPRESSED here even when `compress` is set — the palette-stripping
+        # step below has to read the sprite's headers, and mkasset re-applies
+        # the requested compression afterwards.
+        mksprite -v --format CI4 --compress 0 -o "$outdir" "${name}.png"
+
+        # ── Strip the embedded palette ───────────────────────────────────
+        # This is the fix for "the veil renders but the palette swap does
+        # not", and it is worth spelling out because the symptom pointed
+        # somewhere else entirely: with the veil's material specs enabled, the
+        # model rendered a texture, but a diagnostic pure-GREEN cold palette
+        # produced ZERO green pixels. That reads as "the TLUT never reaches
+        # the RDP", and the search went looking at combiners.
+        #
+        # The actual sequence, in Tiny3D's set_texture():
+        #
+        #   t3dmodel.c:147   conf->tileCb(...)        <- pm_veil_bind_palette
+        #                                                uploads the ramp here
+        #   t3dmodel.c:158   rdpq_sprite_upload(...)  <- eleven lines later
+        #
+        # and rdpq_sprite_upload calls sprite_upload_palette
+        # (rdpq_sprite.c:17-35), which uploads THE SPRITE'S OWN palette. Both
+        # write the same 16-entry block: the veil binds at
+        # `tmem_tile * 16` with tmem_tile 0 for every material (see
+        # pm_veil_palettes_init's comment on why), and sprite_upload_palette
+        # writes at `palidx * 16` with palidx 0. So the ramp was uploaded and
+        # immediately overwritten, every frame, on every material — and what
+        # reached the screen was the texture in its own authored palette,
+        # which looks like a plausible picture rather than a failure.
+        #
+        # tileCb is documented as the hook for tile settings and it is; it is
+        # just not after the upload, and there is no callback that is. The
+        # escape hatch is named in rdpq_sprite.c's own comment three lines
+        # above the clobber: "We account for sprites being CI4 but without
+        # embedded palette: mksprite doesn't create sprites like this today,
+        # but it could in the future (eg: sharing a palette across [sprites])."
+        # A veil material is exactly that case — its palette is the .pal
+        # sidecar beside it, loaded once at boot into a nine-step ramp, and
+        # the copy inside the sprite is dead weight that only does harm.
+        #
+        # So: zero sprite_ext_t.pal_file_pos. sprite_get_palette then returns
+        # NULL (sprite.c:221-226), sprite_upload_palette still sets
+        # rdpq_mode_tlut correctly and skips the upload, and whatever the tile
+        # callback bound survives to the RDP.
+        #
+        # This is done to the FILE rather than by patching libdragon or Tiny3D
+        # because it changes nothing for any other sprite in any other ROM —
+        # a patch to either would.
+        ${if stripPalette
+          then ''python3 ${paletteStripper} "$outdir/${name}.sprite"''
+          else ''echo "  veil: ${name}.sprite KEEPS its embedded palette (diagnostic build)"''}
+
+        ${lib.optionalString (compress != 0) ''
+          # Re-apply the compression mksprite was not allowed to do above.
+          # mkasset rewrites in place via -o pointing at the same directory.
+          mkasset -c ${toString compress} -w 256 -o "$outdir"               "$outdir/${name}.sprite"
+        ''}
         runHook postBuild
       '';
 
@@ -525,6 +616,40 @@ rec {
         [ "$sz" = 64 ] || {
           echo "mkVeilTexture: ${name}.pal is $sz bytes, expected 64" >&2
           exit 1; }
+
+        # ── The strip landed ────────────────────────────────────────────
+        # veil_strip_palette.py exits non-zero on every case it can detect,
+        # so this is not re-checking its work — it is checking that the step
+        # ran at all against the file that ends up in the store, which is a
+        # different claim once mkasset has rewritten it. A veil sprite that
+        # keeps its embedded palette does not fail, warn, or look wrong: it
+        # renders the texture in its authored colours and the palette swap
+        # silently does nothing, which is a whole mechanic quietly absent.
+        # That defect cost this project a diagnostic green-palette bake and a
+        # capture to find the first time, so it gets a gate.
+        ${lib.optionalString (stripPalette && compress == 0) ''
+          python3 -c '
+import struct, sys
+b = open(sys.argv[1], "rb").read()
+w, h, _bd, fl = struct.unpack_from(">HHBB", b, 0)
+ext = 8 if fl & 0x40 else 8 + (w * h + 1) // 2
+pal = struct.unpack_from(">I", b, ext + 4)[0]
+if pal != 0:
+    sys.exit("mkVeilTexture: %s still carries an embedded palette at %d. It "
+             "will be uploaded over the veil ramp and the swap will do "
+             "nothing." % (sys.argv[1], pal))
+' "$outdir/${name}.sprite"
+        ''}
+        ${lib.optionalString (compress != 0) ''
+          # Compressed: the headers are behind mkasset's container, so the
+          # readable claim is that the file went through both tools. mkasset
+          # writes the "DCA" magic; its absence means the compress step was
+          # skipped and the sprite in the store is not the one measured above.
+          head -c 3 "$outdir/${name}.sprite" | grep -q DCA || {
+            echo "mkVeilTexture: ${name}.sprite is not mkasset-compressed;" \
+                 "the palette-strip and compress steps disagree." >&2
+            exit 1; }
+        ''}
         runHook postCheck
       '';
 

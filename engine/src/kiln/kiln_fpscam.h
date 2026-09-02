@@ -70,6 +70,23 @@ typedef struct {
     uint8_t   last_surf;   /**< hitsurface underfoot                          */
     fm_vec3_t mins;        /**< player AABB mins (relative to center)        */
     fm_vec3_t maxs;        /**< player AABB maxs (relative to center)        */
+
+    /** Which buttons sprint and jump. KILN_BTN_* masks, or 0 to disable that
+     *  action entirely.
+     *
+     *  These were hardcoded to R and B, which is fine until a game wants
+     *  those buttons for something else — and on this controller a game that
+     *  wants an Ocarina-of-Time layout wants BOTH of them (R an arm weapon, B
+     *  melee). A camera module has no business owning two of the four face
+     *  buttons on everyone's behalf.
+     *
+     *  kiln_fpscam_init sets them to R and B, so a caller that ignores these
+     *  fields behaves exactly as before; overriding them after init is the
+     *  whole interface. Two masks rather than a full binding table because
+     *  these are the only two buttons this module reads — anything else a
+     *  game binds, it binds itself, where it can see its own context. */
+    uint32_t  btn_run;
+    uint32_t  btn_jump;
 } KilnFpsCam;
 
 /** Sane FPS defaults: 80 u/s walk, 140 u/s run, 0.05 rad/look,

@@ -39,44 +39,33 @@
 # Neither is fixed here. Real brush CSG is a geometry change that wants console
 # verification, and the reference capture is what makes the fix visible when it
 # lands: the check asserts today's behaviour and says so when it stops holding.
-{ pkgs, engineSrc, platHost, hostMath, streamdbInc, mapAsset }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`: it supplies the compiler, the flags and
+# the three archives, so this file says what to render and what to compare
+# and nothing about how to compile it. The same body runs under wasm32
+# against the SAME reference files — flake.nix declares that variant as
+# `<name>-wasm32`; `./dev arch <target>` runs it on the others.
+{ pkgs, target, mapAsset }:
 
-pkgs.runCommand "check-kiln-map"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "mapcheck";
+  sources = [ ./kiln-map-check.c ];
+  args = "rom:/quake_test.map out.png";
+  env = "KILN_HOST_DFS=fs";
   meta.description = "a real .map loads off the host VFS, collides, and renders";
-}
-  ''
-    set -euo pipefail
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra -Werror \
-        -I${platHost}/include -I${platHost}/src -I${hostMath}/include \
-        -I${streamdbInc} -I${engineSrc}/src/kiln \
-        -o mapcheck \
-        ${./kiln-map-check.c} \
-        ${engineSrc}/src/kiln/kiln_map.c \
-        ${engineSrc}/src/kiln/kiln_clip.c \
-        ${engineSrc}/src/kiln/kiln_dict.c \
-        ${engineSrc}/src/kiln/kiln_engine.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        ${engineSrc}/src/kiln/kiln_debugdraw.c \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
+  preRun = ''
     mkdir -p fs && cp ${mapAsset} fs/quake_test.map
-    KILN_HOST_DFS=fs ./mapcheck rom:/quake_test.map out.png
-
+  '';
+  script = ''
     if ! cmp -s out.png ${./refs/kiln-map.png}; then
       echo ""
       echo "FAILED: the rendered map changed."
-      echo "  reference $(stat -c%s ${./refs/kiln-map.png}) bytes, "\
-           "rendered $(stat -c%s out.png) bytes"
+      echo "  reference $(stat -c%s ${./refs/kiln-map.png}) bytes, rendered $(stat -c%s out.png) bytes"
       echo "If kiln_map now does real brush CSG, this reference is obsolete and"
       echo "that is the good news — regenerate it and look at the result."
       exit 1
     fi
-
-    echo "the map matches its reference capture"
-    mkdir -p $out && cp out.png $out/
-  ''
+    echo "the map matches its reference capture (${target.description})"
+  '';
+}

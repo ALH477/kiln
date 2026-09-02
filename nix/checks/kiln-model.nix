@@ -34,44 +34,37 @@
 #    unpack is self-consistent — a hand-built cube lights perfectly — and then
 #    a real model's normals come out as nonsense. The cube's +Z face carries
 #    0x000f, which only means (0,0,+1) under the signed reading.
-{ pkgs, engineSrc, platHost, hostMath, n64Inst, cubeGltf }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`: it supplies the compiler, the flags and
+# the three archives, so this file says what to render and what to compare
+# and nothing about how to compile it. The same body runs under wasm32
+# against the SAME reference files — flake.nix declares that variant as
+# `<name>-wasm32`; `./dev arch <target>` runs it on the others.
+{ pkgs, target, n64Inst, cubeGltf }:
 
-pkgs.runCommand "check-kiln-model"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "modelcheck";
+  sources = [ ./kiln-model-check.c ];
+  args = "cube.t3dm out.png";
   meta.description = "a real .t3dm parses and renders on the host";
-}
-  ''
-    set -euo pipefail
-
-    # The same converter the ROM build uses, on the same source asset.
+  # The same converter the ROM build uses, on the same source asset. It is a
+  # build-machine tool, so it runs natively whatever the target is — which is
+  # the point: one .t3dm, parsed by four architectures.
+  preRun = ''
     ${n64Inst}/bin/gltf_to_t3d --ignore-materials ${cubeGltf} cube.t3dm
     echo "converted $(stat -c%s cube.t3dm) bytes of .t3dm"
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra -Werror \
-        -I${platHost}/include -I${platHost}/src -I${hostMath}/include \
-        -I${engineSrc}/src/kiln \
-        -o modelcheck \
-        ${./kiln-model-check.c} \
-        ${engineSrc}/src/kiln/kiln_engine.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./modelcheck cube.t3dm out.png
-
+  '';
+  script = ''
     if ! cmp -s out.png ${./refs/kiln-model.png}; then
       echo ""
       echo "FAILED: the rendered model changed."
-      echo "  reference $(stat -c%s ${./refs/kiln-model.png}) bytes, "\
-           "rendered $(stat -c%s out.png) bytes"
+      echo "  reference $(stat -c%s ${./refs/kiln-model.png}) bytes, rendered $(stat -c%s out.png) bytes"
       echo "The structural assertions above passed, so the file parsed the same"
       echo "way — this is shading, projection or the strip winding. Magnify"
       echo "before accepting a new reference."
       exit 1
     fi
-
-    echo "the model matches its reference capture"
-    mkdir -p $out && cp out.png cube.t3dm $out/
-  ''
+    echo "the model matches its reference capture (${target.description})"
+  '';
+}

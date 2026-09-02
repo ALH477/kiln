@@ -40,8 +40,50 @@ let
   lib = pkgs.lib;
   blender = pkgs.blender;
 
-  scripts = ../tools/blender;
+  engineScripts = ../tools/blender;
   f3dInject = ../tools/f3d_inject.py;
+
+  # ── Why a downstream script directory MERGES rather than replaces ──────
+  # Every generator here — this repo's and a game's — opens with
+  #
+  #     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+  #     import kilnlib as m
+  #     import objkit
+  #
+  # so it resolves its shared helpers out of its OWN directory. kilnlib.py
+  # (the primitive builders) and objkit.py (the bpy-free OBJ/glTF parsers)
+  # live in this repo and stayed here when the games were split out, while
+  # PetaByte Madness' six generators went with the game. A `scripts`
+  # parameter that swapped one directory for the other would therefore
+  # produce `ModuleNotFoundError: kilnlib` on the first headless Blender run.
+  #
+  # So both directories are merged into ONE, and `__file__`'s directory then
+  # holds the game's script AND the engine's helpers, so the existing sys.path
+  # line keeps working unchanged in both trees. No script has to know whether
+  # it is being built from the engine repo or from a game's.
+  #
+  # ── Copied, not symlinked ─────────────────────────────────────────────
+  # symlinkJoin is the obvious tool and it does not work here. Two of the six
+  # spellings of that sys.path line in this project use
+  # `Path(__file__).resolve().parent` rather than
+  # `os.path.dirname(os.path.abspath(__file__))`, and `.resolve()` follows
+  # symlinks: it walks straight back out of the merged directory to the
+  # original store path the script came from, whose parent holds no kilnlib.
+  # The failure is `ModuleNotFoundError: No module named 'kilnlib'` from
+  # inside a directory that visibly contains kilnlib.py.
+  #
+  # Fixing the two scripts would work until someone wrote a seventh. A real
+  # directory cannot be defeated by either spelling, so the merge is a copy.
+  scriptsFor = extraScripts:
+    if extraScripts == null then engineScripts
+    else pkgs.runCommand "kiln-blender-scripts" { } ''
+      mkdir -p "$out"
+      cp -rL ${engineScripts}/. "$out"/
+      chmod -R u+w "$out"
+      cp -rL ${extraScripts}/. "$out"/
+      chmod -R u+w "$out"
+      rm -rf "$out"/__pycache__
+    '';
 in
 rec {
   inherit blender;
@@ -57,6 +99,10 @@ rec {
   mkBlenderModel =
     { name
     , script # file in tools/blender/, e.g. "models.py"
+      # A downstream repo's own tools/blender directory, MERGED with this
+      # one rather than replacing it — see scriptsFor above for why the
+      # distinction is load-bearing. Leave null to build an engine script.
+    , extraScripts ? null
     , model ? name # --model argument that script dispatches on
       # Overrides the `--model ${model}` argument entirely when set — for
       # scripts like quake_map.py/godot_scene.py that dispatch on an external
@@ -125,7 +171,7 @@ rec {
 
         echo "── authoring ${name} (blender ${blender.version}) ──"
         blender --background --factory-startup -noaudio \
-          --python ${scripts}/${script} \
+          --python ${scriptsFor extraScripts}/${script} \
           -- ${scriptArgsStr} --out "$PWD/work/${name}.gltf"
 
         # Blender writes <name>.gltf next to <name>.bin and refers to it by a

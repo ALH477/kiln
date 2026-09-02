@@ -17,6 +17,29 @@
 
 #include <libdragon.h>
 #include <stdint.h>
+#include <stddef.h>
+
+/** A .wav64, decoded to interleaved 16-bit PCM by host_wav64.c. The mixer
+ *  reads this; nothing else does. `loop_len` is the console's convention —
+ *  samples from the END of the waveform, not from the start. */
+typedef struct {
+    int16_t *pcm;
+    int      samples;      /* per channel */
+    int      channels;     /* 1 or 2 */
+    int      rate;
+    int      loop_len;
+} KilnHostWave;
+
+/** Load and decode. Returns NULL and fills `err` on any failure — including
+ *  the formats that legitimately cannot be decoded here, because "no sound"
+ *  with no reason attached is the failure this project keeps meeting. */
+KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn);
+void kiln_host_wave_free(KilnHostWave *w);
+
+/** One presented frame's worth of audio credit. host_gfx.c's
+ *  rdpq_detach_show calls it so the headless buffer model advances on frames
+ *  rather than on wall time — the only clock a deterministic check has. */
+void kiln_host_audio_frame(void);
 
 int  kiln_hostfb_w(void);
 int  kiln_hostfb_h(void);

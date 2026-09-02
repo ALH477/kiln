@@ -18,6 +18,28 @@ void kiln_input_init(void)
 
 void kiln_input_update(void)
 {
+    /* ── The poll this module is named for ──────────────────────────────
+     * libdragon reads the joypads asynchronously under interrupt, and
+     * `joypad_poll` is what synchronises that background state into what
+     * `joypad_get_inputs` / `joypad_get_buttons` return (joypad.h:34, :468-470).
+     * Without it those two report whatever was last synchronised, which for a
+     * ROM that never polls is the zeroed initial state — forever.
+     *
+     * This call was missing, and the symptom is total: every button reads as
+     * unheld, both sticks read centred, and no edge ever fires, so a ROM
+     * builds and boots and runs at full frame rate and simply cannot be
+     * played. It survived because nothing here can press a button —
+     * `./dev shot` has no input path by design, `./dev drive`'s
+     * uinput -> SDL -> ares chain is fragile enough that a dead pad reads as
+     * the harness failing again, and every ROM that predates this module
+     * called joypad_poll itself at the top of its own frame loop, so the
+     * examples that were being watched kept working while everything built on
+     * the wrapper did not.
+     *
+     * This header has claimed "kiln_input_update() polls once at the top of
+     * the frame" since the module was written. It is now true. */
+    joypad_poll();
+
     for (int p = 0; p < JOYPAD_PORT_COUNT; p++) {
         joypad_port_t port = (joypad_port_t)p;
         joypad_inputs_t in = joypad_get_inputs(port);

@@ -39,10 +39,18 @@
 # is held to. (A silent miss would in fact still fail, because the surviving
 # asm cannot assemble for x86 — but "fails for the right reason" is worth the
 # one flag.)
-{ pkgs, src }:
+#
+# ── One derivation, any toolchain ──────────────────────────────────────
+# cc/ar default to stdenv's, which is what a native build wants. A cross or
+# Emscripten target passes its own, plus whatever nativeBuildInputs and
+# preBuild that compiler needs. Nothing else here is architecture-aware: the
+# patch names MIPS mnemonics and substitutes ISO C, and the sources are plain
+# portable C. See nix/host.nix, which is the only caller that passes them.
+{ pkgs, src, pname ? "kiln-host-math", cc ? "$CC", ar ? "$AR"
+, nativeBuildInputs ? [], preBuild ? "" }:
 
 pkgs.stdenv.mkDerivation {
-  pname = "kiln-host-math";
+  inherit pname nativeBuildInputs;
   version = "unstable-${builtins.substring 0 7 (src.rev or "dirty")}";
   inherit src;
 
@@ -50,6 +58,7 @@ pkgs.stdenv.mkDerivation {
 
   buildPhase = ''
     runHook preBuild
+    ${preBuild}
 
     mkdir -p stage/include stage/math
     cp include/fmath.h include/fgeom.h include/fgeom2d.h stage/include/
@@ -85,10 +94,19 @@ pkgs.stdenv.mkDerivation {
     # -include assert.h: libdragon's debug.h uses assert() without including
     # it, which is fine in its own tree and not here.
     for f in stage/math/fmath.c stage/math/fgeom.c; do
-      $CC -c -O2 -std=gnu11 -fPIC -include assert.h \
+      # -ffp-contract=off for the reason nix/host.nix sets it on everything
+      # else, and this file needs it stated because it is the one compilation
+      # unit in the host tier that nix/host.nix's flags do NOT reach: it is
+      # built here, at -O2, which is exactly the optimisation level where that
+      # file's own measurement table shows GCC emitting 74 fused
+      # multiply-adds on aarch64. kiln_engine.c calls fm_mat4_from_axis_angle,
+      # fm_sinf and fm_cosf out of this archive on the path every byte-for-byte
+      # render gate exercises, so leaving it out would put the one library the
+      # guard does not cover underneath the claim the guard exists to protect.
+      ${cc} -c -O2 -std=gnu11 -ffp-contract=off -include assert.h \
           -Istage/include -Istage -o "$f.o" "$f"
     done
-    $AR rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o
+    ${ar} rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o
 
     runHook postBuild
   '';

@@ -76,13 +76,54 @@
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
 
         # libdragon, installed into a store path used as $N64_INST.
-        # libdragon's own fast-math library, built for the host. The first
-        # brick of the PC target: the engine's fm_vec3_t and 17 fm_* calls are
-        # now the REAL ones natively, not a hand-copy. See nix/host-math.nix.
-        hostMath = import ./nix/host-math.nix {
+        # The host tier, once, for any toolchain. `hostTargets.targets` names
+        # the compilers: native, wasm32, wasm32-node, and (Linux only, not
+        # gated) aarch64 and riscv64 under qemu-user. Each target carries its
+        # own hostMath, zlib and VADPCM build, a libkilnhost.a and a
+        # libkiln.a driven off engine/modules.mk's HOST_MODULES, and the
+        # mkCheck/mkProgram/mkGame that build against them. See nix/host.nix
+        # for why the recipe moved out of the seven checks that used to each
+        # carry a copy.
+        hostTargets = import ./nix/host.nix {
           inherit pkgs;
-          src = libdragon;
+          libdragonSrc = libdragon;
+          engineSrc = ./engine;
+          platHost = ./plat/host;
+          platShell = ./plat/shell;
+          streamdbSrc = ./streamdb-embedded;
+          webShellHtml = ./plat/shell/kiln_web_shell.html;
         };
+        hostNative = hostTargets.targets.native;
+        hostWasm   = hostTargets.targets.wasm32;
+
+        # libdragon's own fast-math library, built natively: the engine's
+        # fm_vec3_t and 17 fm_* calls are the REAL ones, not a hand-copy.
+        #
+        # Taken FROM the native target rather than imported separately. There
+        # were briefly two of these — one exposed as .#host-math and validated
+        # by kiln-hostmath, one inside nix/host.nix that every render gate
+        # actually linked. Same source, so they agreed, but the gate asserting
+        # the host fm_* matches the VR4300 (ties-to-even included) was not
+        # covering the copy under test, which is the one property that gate
+        # exists to provide.
+        hostMath = hostNative.hostMath;
+
+        # aarch64 and riscv64 are real targets and are deliberately NOT in the
+        # gate set: a cross toolchain plus qemu-user is a ~170 MB fetch, and a
+        # pre-push gate has no business pulling that. They are one command —
+        # `nix build .#host-arch-aarch64` — and they run the SAME check bodies
+        # against the SAME reference files as x86_64 and wasm32 do, under
+        # qemu-user. Three renders is enough to catch an architecture
+        # disagreeing: the 2D pass, the whole frame bracket, and a real .t3dm.
+        archProof = t: pkgs.linkFarm "host-arch-${t.name}" [
+          { name = "gui";
+            path = import ./nix/checks/kiln-gui.nix { inherit pkgs; target = t; }; }
+          { name = "scene";
+            path = import ./nix/checks/kiln-scene.nix { inherit pkgs; target = t; }; }
+          { name = "model";
+            path = import ./nix/checks/kiln-model.nix {
+              inherit pkgs n64Inst; target = t; cubeGltf = ./assets/cube.gltf; }; }
+        ];
 
         libdragon-sdk = import ./nix/libdragon.nix {
           inherit pkgs toolchain;
@@ -975,6 +1016,36 @@
       in
       {
         packages = {
+          # ── playable host builds ───────────────────────────────────
+          # The same examples/<x>/main.c the ROM builds, compiled with
+          # -Dmain=kiln_game_main and linked against plat/shell. engine-demo
+          # first because it is the report's own benchmark for a working port
+          # — a lit spinning cube plus a HUD, which on hardware runs at 59.8
+          # fps and here exercises the 3D pass, the seam and the 2D pass.
+          pc-engine-demo = hostNative.mkGame {
+            pname = "kiln-engine-demo";
+            sources = [ ./examples/engine/main.c ];
+            meta.description = "engine-demo, playable on this machine";
+          };
+          web-engine-demo = hostWasm.mkGame {
+            pname = "kiln-engine-demo";
+            sources = [ ./examples/engine/main.c ];
+            meta.description = "engine-demo, playable in a browser";
+          };
+
+          # The host tier's own artefacts, per architecture. The cross pair
+          # is Linux-only — nix/host.nix declares those two targets only where
+          # pkgsCross can reach them, so they are added conditionally rather
+          # than referenced unconditionally and made to fail evaluation on a
+          # darwin builder. Which would be a portability bug in the flake
+          # that adds portability, so: guarded.
+          host-arch-native  = archProof hostNative;
+          host-arch-wasm32  = archProof hostWasm;
+
+          host-libs         = hostNative.engine;
+          host-backend      = hostNative.backend;
+          host-vadpcm       = hostNative.vadpcm;
+
           inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
@@ -1000,15 +1071,46 @@
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
           model-kiln-logo = kilnLogo;
+          # The splash's two assets, exposed as a pair. kiln_splash is
+          # engine-level — a PUBLISHER mark, not any one game's — so a
+          # downstream game adopts it by putting these two in its own ROM's
+          # `assets` list, not by rebuilding them. Both are optional and the
+          # splash's timing is identical without them; see kiln_splash.h.
+          audio-kiln-jingle = kilnJingle;
           default = hello;
+        }
+        # The cross architectures, where pkgsCross can reach them. Guarded and
+        # not referenced unconditionally: an eval error on a darwin builder
+        # would be a portability bug in the flake that adds portability.
+        // pkgs.lib.optionalAttrs (hostTargets.targets ? aarch64) {
+          host-arch-aarch64 = archProof hostTargets.targets.aarch64;
+        }
+        // pkgs.lib.optionalAttrs (hostTargets.targets ? riscv64) {
+          host-arch-riscv64 = archProof hostTargets.targets.riscv64;
         };
 
-        # Exposed so downstream flakes (the SSHitunneller! N64 port) can build
-        # ROMs and voices against this pinned toolchain without vendoring it.
+        # Exposed so downstream flakes (the SSHitunneller! N64 port, and the
+        # two games split out of this tree — PetaByte Madness and Ganja
+        # Goblin) can build ROMs and voices against this pinned toolchain
+        # without vendoring it.
+        #
+        # The rule for what belongs here: a builder a DOWNSTREAM repo needs to
+        # ship its own content. Splitting the games out is what turned that
+        # from a hypothetical into a hard requirement — PetaByte Madness
+        # authors geometry with mkBlenderModel, ships a CI4 veil palette pair
+        # with mkVeilTexture, an XM64 score with mkMidiMusic, an MPEG1 title
+        # card with mkVideo and the sea's foam sprite with mkTextures, and
+        # none of the five were reachable from outside this file. A builder
+        # that exists but is not exposed is a builder a game has to
+        # reimplement, which is the drift the single-source-of-truth rule in
+        # engine/modules.mk exists to prevent, one level up.
         lib = {
           inherit mkN64Rom;
           inherit (faust) mkFaustVoice mkBakedInstrument mkOfflineRenderer;
-          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset mkStreamdb mkAssetPak;
+          inherit (assetLib) mkModel mkSprite mkFont mkSound mkMusic mkRawAsset
+                             mkStreamdb mkAssetPak mkTextures mkVideo
+                             mkMidiMusic mkVeilTexture;
+          inherit (blenderLib) mkBlenderModel mkQuakeMapModel mkGodotSceneModel;
         };
 
         checks = {
@@ -1202,58 +1304,99 @@
           # frame gate CLAUDE.md says needs a Wayland session — it does not,
           # once the renderer is software.
           kiln-gui = import ./nix/checks/kiln-gui.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
+            inherit pkgs;
+            target = hostNative;
+          };
+          # The same check body, the same two reference files, compiled to
+          # wasm32 and run under node. Byte-identical output from a 32-bit
+          # pointer target with a different libm is the actual claim that the
+          # host tier is architecture-independent — a per-architecture
+          # reference would only prove each one agrees with itself.
+          kiln-gui-wasm32 = import ./nix/checks/kiln-gui.nix {
+            inherit pkgs;
+            target = hostWasm;
+          };
+          # The 3D pass is where an architecture actually gets to disagree:
+          # every one of these renders through host_t3d.c's float edge
+          # functions, and -ffp-contract=off (nix/host.nix) is what stops a
+          # target with an FMA from fusing them and moving every triangle
+          # edge by a ULP. These four hold wasm32 to the x86_64 references.
+          kiln-scene-wasm32 = import ./nix/checks/kiln-scene.nix {
+            inherit pkgs; target = hostWasm;
+          };
+          kiln-model-wasm32 = import ./nix/checks/kiln-model.nix {
+            inherit pkgs n64Inst; target = hostWasm;
+            cubeGltf = ./assets/cube.gltf;
+          };
+          kiln-map-wasm32 = import ./nix/checks/kiln-map.nix {
+            inherit pkgs; target = hostWasm;
+            mapAsset = ./assets/quake_test.map;
+          };
+          kiln-splash-wasm32 = import ./nix/checks/kiln-splash.nix {
+            inherit pkgs n64Inst kilnLogo; target = hostWasm;
+          };
+          kiln-voxmesh-wasm32 = import ./nix/checks/kiln-voxmesh.nix {
+            inherit pkgs; target = hostWasm;
           };
           # kiln_widget's screens, rendered through the same host backend and
           # diffed against their committed captures.
           kiln-widget = import ./nix/checks/kiln-widget.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
+            inherit pkgs; target = hostNative;
             uipreviewSrc = ./tools/uipreview;
           };
           # The whole frame bracket — 3D pass, the seam, 2D pass — rendered
           # by the real kiln_engine.c and kiln_gui.c on the host.
           kiln-scene = import ./nix/checks/kiln-scene.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
+            inherit pkgs; target = hostNative;
           };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable.
           kiln-voxmesh = import ./nix/checks/kiln-voxmesh.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
+            inherit pkgs; target = hostNative;
           };
           # A real .t3dm, converted by the same gltf_to_t3d the ROM uses,
           # parsed and rendered by the host reader.
           kiln-model = import ./nix/checks/kiln-model.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
-            n64Inst = n64Inst;
+            inherit pkgs n64Inst; target = hostNative;
             cubeGltf = ./assets/cube.gltf;
           };
           # The engine's real boot splash — kiln + flame + lit publisher
           # line — rendered by the actual kiln_splash.c, not a stand-in.
           kiln-splash = import ./nix/checks/kiln-splash.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
-            n64Inst = n64Inst;
-            kilnLogo = kilnLogo;
+            inherit pkgs n64Inst kilnLogo; target = hostNative;
           };
           # A real Quake .map, loaded off the host VFS and rendered. Found
           # two defects in kiln_map and pins both — see the check's header.
           kiln-map = import ./nix/checks/kiln-map.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
-            streamdbInc = "${streamdb-emb}/mips64-elf/include";
+            inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
+          };
+          # The launcher runs the real examples/engine/main.c game loop for
+          # ninety frames under SDL's dummy drivers. See the check's header
+          # for why it is statistics and not a golden image.
+          kiln-shell = import ./nix/checks/kiln-shell.nix {
+            inherit pkgs;
+            game = self.packages.${system}.pc-engine-demo;
+          };
+          # A real audioconv64 .wav64 decodes to PCM with energy in it, mixes,
+          # and pans the right way round. See the check's header on why RMS
+          # and not sample count.
+          kiln-wav64 = import ./nix/checks/kiln-wav64.nix {
+            inherit pkgs; target = hostNative; sound = demoSound;
+          };
+          kiln-wav64-wasm32 = import ./nix/checks/kiln-wav64.nix {
+            inherit pkgs; target = hostWasm; sound = demoSound;
+          };
+          # The browser launcher itself — the canvas blit and the ASYNCIFY
+          # game loop — run under node against a recording DOM stub. See the
+          # check's header for what this can and cannot prove.
+          kiln-web = import ./nix/checks/kiln-web.nix {
+            inherit pkgs;
+            target = hostTargets.targets.wasm32-node.mkGame {
+              pname = "kiln-engine-demo";
+              sources = [ ./examples/engine/main.c ];
+            };
+            domStub = ./nix/checks/kiln-web-dom.js;
           };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
@@ -1398,6 +1541,14 @@
 
           N64_INST = n64Inst;
           N64_GCCPREFIX = toolchain;
+
+          # tools/uipreview/Makefile has always said "inside `nix develop` it
+          # is already exported", and it was not — the shell set N64_INST and
+          # N64_GCCPREFIX and nothing else, so the by-hand path failed with an
+          # unset-variable message that told you to do what you had done. Now
+          # the claim is true, for both host prefixes it needs.
+          KILN_HOST_MATH = hostNative.hostMath;
+          KILN_HOST_VADPCM = hostNative.vadpcm;
 
           shellHook = ''
             echo "═══════════════════════════════════════════"

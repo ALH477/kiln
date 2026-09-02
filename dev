@@ -24,6 +24,15 @@ usage() {
   drive <rom> <script> [outdir]
                            boot in Ares with a uinput virtual pad and run an
                            input script (wait/press/hold/stick/shot)
+  pc    [example] [args]   build and RUN the game natively — a real window,
+                           keyboard and gamepad, sound. No emulator, no ROM.
+                           --frames N / --shot out.png make it scriptable.
+  web   [example] [--serve]
+                           build the browser version (wasm32 + canvas + Web
+                           Audio); --serve hosts it on :8080 and prints the URL
+  arch  [target]           build and run the host gates for one architecture:
+                           native | wasm32 | aarch64 | riscv64 (the last two
+                           cross-compile against musl and run under qemu-user)
   run   <rom>              boot the ROM in Ares (never trust an emulator for
                            audio work — the AI clock and RDRAM contention are
                            reconstructed inexactly)
@@ -33,7 +42,12 @@ usage() {
   faust [target]           show a voice's gate output + cycle budget
   bake  [target]           show baked VADPCM assets + reference render
   check                    nix flake check (the pre-push gate)
+  cheap                    blender-tests + kiln-logic + kiln-gui (no ROMs)
   doctor                   toolchain, libdragon, cart presence, versions
+  mapmaker                 three.js .map editor on :8000
+  map-validate <file.map>  round-trip through quake_map.py
+  poser / poser-stage / poser-verify
+                           three.js animation editor on :8001
 
   Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
   is the transport in BOTH directions, because an ED64 Plus has no USB:
@@ -48,6 +62,10 @@ usage() {
                            strict validator over the map
 Examples:
   ./dev build hello        ./dev run hello        ./dev deploy hello
+  ./dev pc                 the engine demo, in a window, right now
+  ./dev pc engine-demo --shot f.png --frames 90    scriptable, no window needed
+  ./dev web --serve        the same demo in a browser
+  ./dev arch riscv64       prove the renderer agrees on another architecture
   ./dev inspect hello      ./dev debug
   ./dev mapmaker                        three.js .map maker on http://localhost:8000
   ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
@@ -59,6 +77,11 @@ H
 case "${1:-help}" in help | -h | --help) usage; exit 0 ;; esac
 
 # ── auto-enter nix develop if the cross toolchain isn't available ────────────
+# pc, web and arch are host-tier commands: they build nothing for the N64 and
+# have no business pulling in a mips64-elf toolchain to run a program on this
+# machine. Everything they need is inside the derivation nix builds for them.
+case "${1:-}" in pc | web | arch) DEV_IN_NIX=1 ;; esac
+
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
 if [ "${DEV_IN_NIX:-}" != 1 ] && ! have_toolchain; then
   export DEV_IN_NIX=1
@@ -112,6 +135,64 @@ cmd="$1"; shift
 case "$cmd" in
   build)
     nix build --print-out-paths ".#${1:-hello}"
+    ;;
+
+  pc)
+    # A host build, not a ROM: plat/host's software rasteriser drawing into an
+    # SDL window. The pixels are the ones nix/checks/ compares against a
+    # reference, so this window is evidence about the gated renderer rather
+    # than a second one that looks similar.
+    # The same --* guard the web case has. usage() advertises
+    # `pc [example] [args]` and names --frames/--shot, so `./dev pc --frames 90`
+    # is the natural thing to type — and without this it built `.#pc---frames`
+    # and reported "add it in flake.nix", which points at the wrong problem.
+    ex="engine-demo"
+    case "${1:-}" in ""|--*) ;; *) ex="$1"; shift ;; esac
+    out="$(nix build --no-link --print-out-paths ".#pc-$ex")" || {
+      echo "dev: no .#pc-$ex — add it in flake.nix with hostNative.mkGame" >&2
+      exit 1
+    }
+    bin="$(find "$out/bin" -maxdepth 1 -type f | head -1)"
+    echo "dev: $bin"
+    exec "$bin" "$@"
+    ;;
+
+  web)
+    ex="${1:-engine-demo}"
+    case "$ex" in --*) ex="engine-demo" ;; *) shift || true ;; esac
+    out="$(nix build --no-link --print-out-paths ".#web-$ex")" || {
+      echo "dev: no .#web-$ex — add it in flake.nix with hostWasm.mkGame" >&2
+      exit 1
+    }
+    page="$(find "$out/bin" -name '*.html' | head -1)"
+    echo "dev: $page"
+    ls -lh "$out/bin"
+    if [ "${1:-}" = "--serve" ] || [ "${2:-}" = "--serve" ]; then
+      # A .wasm cannot be fetched over file://, so a local server is not a
+      # convenience here — it is the only way to open the page at all.
+      dir="$(mktemp -d)"
+      # No exec: exec replaces the shell, so the EXIT trap would never fire
+      # and every --serve would leave a copy of the wasm behind in /tmp.
+      trap 'rm -rf "$dir"' EXIT INT TERM
+      cp -L "$out"/bin/* "$dir/"
+      mv "$dir/$(basename "$page")" "$dir/index.html"
+      echo "dev: http://localhost:8080/  (Ctrl-C to stop)"
+      python3 -m http.server 8080 --directory "$dir"
+      exit 0
+    fi
+    echo "dev: .wasm will not load over file:// — use ./dev web $ex --serve"
+    ;;
+
+  arch)
+    t="${1:-native}"
+    case "$t" in
+      native|wasm32|aarch64|riscv64) ;;
+      *) echo "dev: arch must be native, wasm32, aarch64 or riscv64" >&2; exit 1 ;;
+    esac
+    echo "dev: building and running the host gates for $t"
+    echo "dev: the SAME reference images every other architecture is held to —"
+    echo "dev: a per-architecture reference would only prove self-consistency."
+    nix build --print-out-paths ".#host-arch-$t"
     ;;
 
   run)
@@ -275,6 +356,16 @@ PY
     ls -l "$out/filesystem/"
     echo "── full-quality reference render (golden A/B source) ──"
     ls -l "$out/share/"
+    ;;
+
+  cheap)
+    # The fast loops. Not `flake check`: that builds every demo ROM.
+    # Host/gui/logic/python only — safe on the laptop.
+    SYS="$(nix eval --raw --impure --expr builtins.currentSystem)"
+    nix build --print-out-paths \
+      ".#checks.${SYS}.blender-tests" \
+      ".#checks.${SYS}.kiln-logic" \
+      ".#checks.${SYS}.kiln-gui"
     ;;
 
   check)

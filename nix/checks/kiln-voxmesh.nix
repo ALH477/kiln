@@ -43,32 +43,21 @@
 # answer, on hardware. So this pins the current behaviour and makes the change
 # fail loudly when someone makes it, with the two references as the before and
 # after.
-{ pkgs, engineSrc, platHost, hostMath }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`: it supplies the compiler, the flags and
+# the three archives, so this file says what to render and what to compare
+# and nothing about how to compile it. The same body runs under wasm32
+# against the SAME reference files — flake.nix declares that variant as
+# `<name>-wasm32`; `./dev arch <target>` runs it on the others.
+{ pkgs, target }:
 
-pkgs.runCommand "check-kiln-voxmesh"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "voxcheck";
+  sources = [ ./kiln-voxmesh-check.c ];
+  args = "shade.png texshade.png";
   meta.description = "the voxel atlas is discarded by the combiner Forge leaves set";
-}
-  ''
-    set -euo pipefail
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra \
-        -I${platHost}/include -I${platHost}/src -I${hostMath}/include \
-        -I${engineSrc}/src/kiln \
-        -o voxcheck \
-        ${./kiln-voxmesh-check.c} \
-        ${engineSrc}/src/kiln/kiln_voxel.c \
-        ${engineSrc}/src/kiln/kiln_voxmesh.c \
-        ${engineSrc}/src/kiln/kiln_engine.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./voxcheck shade.png texshade.png
-
+  script = ''
     fail=0
     for pair in "shade.png ${./refs/kiln-voxmesh-shade.png}" \
                 "texshade.png ${./refs/kiln-voxmesh-texshade.png}"; do
@@ -85,7 +74,6 @@ pkgs.runCommand "check-kiln-voxmesh"
       echo "and that is the good news — regenerate both and look at them."
       exit 1
     fi
-
-    echo "both voxel renders match their references"
-    mkdir -p $out && cp shade.png texshade.png $out/
-  ''
+    echo "both voxel renders match their references (${target.description})"
+  '';
+}

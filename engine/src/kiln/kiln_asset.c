@@ -59,7 +59,12 @@ size_t kiln_asset_probe_size(const char *dfs_path)
     if (!dfs_path) return 0;
     /* The DFS backend's storage is small (a fd + a length); stack-allocate
      * it for the probe, then close. */
-    char storage[64];
+    /* _Alignas because the backend casts this to a struct holding a uint64_t
+     * and a char[] has alignment 1. The VR4300 faults on an unaligned 64-bit
+     * load; so does aarch64 under -mstrict-align and every wasm engine's
+     * bounds-checked view. It has worked so far because the stack happened to
+     * be aligned, which is not a guarantee. */
+    _Alignas(8) char storage[64];
     streamdb_emb_io_t io = io_make_dfs(dfs_path, storage);
     if (!io.ctx) return 0;
 
@@ -75,7 +80,7 @@ KilnAsset *kiln_asset_open(const char *dfs_path, void *arena, size_t arena_size)
 
     /* The DFS backend's storage lives inside the reader handle so the io
      * struct's lifetime matches the DB's. Sized by streamdb_io_dfs_size. */
-    static char io_storage[64];
+    _Alignas(8) static char io_storage[64];
     size_t need = streamdb_emb_io_dfs_size();
     if (need > sizeof(io_storage)) return NULL;
 

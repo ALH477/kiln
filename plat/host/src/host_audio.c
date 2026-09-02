@@ -1,25 +1,46 @@
 /* SPDX-License-Identifier: MIT
  *
- * host_audio.c — the mixer's bookkeeping, on the host. No samples.
+ * host_audio.c — the RSP mixer's channel arithmetic, and now its samples.
  *
- * See plat/host/include/libdragon.h for the reasoning. Short version: nearly
- * all of kiln_audio is channel arithmetic — a 32-channel budget partitioned
- * into SFX and music ranges, priority-based voice stealing, room crossfades —
- * and that arithmetic is either right or produces a silence nobody can
- * explain. It needs no PCM to be checkable, and pretending to produce PCM
- * would be the politely-degrading failure this project keeps meeting.
+ * Nearly all of kiln_audio is bookkeeping: a 32-channel budget partitioned
+ * into SFX and music ranges, priority-based voice stealing, room crossfades.
+ * That arithmetic is either right or produces a silence nobody can explain,
+ * and it needs no PCM to be checkable — which is why this file tracked
+ * channel state exactly and output silence for as long as the host tier was
+ * only a gate.
  *
- * So the channel state is exact and the output is silence, said out loud once.
+ * It is no longer only a gate. mixer_poll now mixes for real: nearest-
+ * neighbour resampling, per-channel volume and pan, loop_len counted back
+ * from the END of the waveform (libdragon's convention, not the obvious one),
+ * summed and clamped. host_wav64.c turns a .wav64 into the PCM it reads.
+ *
+ * Nearest and not linear interpolation on purpose: the RSP steps a
+ * fixed-point cursor and takes the sample it lands on, and a host that
+ * interpolated would sound BETTER than the console — the same mistake as a
+ * host that rendered more precisely than it. See host_t3d.c honouring the
+ * s16.16 matrix quantisation for the visual half of that argument.
+ *
+ * What is still bookkeeping, and says so at the point of use: XM64 and YM64
+ * tracker playback. libdragon's player is not separable from the RSP mixer
+ * the way the VADPCM codec is.
  */
 #include <libdragon.h>
+#include <kiln_host.h>
+#include "host_internal.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include <stdlib.h>
 
 #define MAX_CH 32
 
-static struct { int playing; float lvol, rvol, freq; const waveform_t *wave; }
-    g_ch[MAX_CH];
+static struct {
+    int   playing;
+    float lvol, rvol, freq;
+    const waveform_t *wave;
+    double pos;            /* play cursor, in source samples */
+} g_ch[MAX_CH];
 static int g_nch;
 static int g_freq;
 static float g_master = 1.0f;
@@ -36,19 +57,59 @@ const KilnHostAudioCounters *kiln_host_audio_counters(void)
     return &g_c;
 }
 
+/* ── the output device, which does not exist ───────────────────────────
+ * audio_can_write used to `return 1`, and that is not a stub, it is a hang:
+ * kiln_audio_update is `while (audio_can_write()) { ... }`, draining until the
+ * device says full. A device that is never full never lets the frame end, so
+ * any host build of a real game loop — as opposed to a check, which never
+ * calls it — spins forever on the first frame. Nothing caught this because
+ * nothing had run a game loop on the host.
+ *
+ * So the host models a real device's occupancy, and credits it on PRESENTED
+ * FRAMES rather than on wall time. That is the only clock a deterministic
+ * check is allowed: two runs of the same ROM push the same number of buffers
+ * in the same order, on any machine, at any speed. A launcher that has an
+ * actual speaker installs audio_free/audio_submit and the credit model steps
+ * aside for the device's real occupancy. */
+#define BUFLEN 512
+#define NBUF   4
+
+static int g_credit;   /* samples the device could still accept */
+
 void audio_init(const int frequency, float latency)
 {
     (void)latency;
     assertf(frequency > 0, "audio_init: frequency %d", frequency);
     g_freq = frequency;
+    g_credit = NBUF * BUFLEN;   /* an empty device: prefill it */
     memset(&g_c, 0, sizeof g_c);
 }
-void audio_close(void) { g_freq = 0; }
-int  audio_can_write(void) { return 1; }
+void audio_close(void) { g_freq = 0; g_credit = 0; }
+
+void kiln_host_audio_frame(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_free) return;          /* a real device keeps its own count */
+    if (g_freq <= 0) return;
+    g_credit += g_freq / 60;            /* one frame of samples consumed */
+    if (g_credit > NBUF * BUFLEN) g_credit = NBUF * BUFLEN;
+}
+
+int audio_can_write(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_free) return h->audio_free(h->ctx) > 0;
+    return g_credit >= BUFLEN;
+}
 int  audio_get_frequency(void) { return g_freq; }
-int  audio_get_buffer_length(void) { return 512; }
+int  audio_get_buffer_length(void) { return BUFLEN; }
 short *audio_write_begin(void) { return g_buf; }
-void  audio_write_end(void) { }
+void  audio_write_end(void)
+{
+    const KilnHostHooks *h = kiln_host_hooks();
+    if (h->audio_submit) h->audio_submit(h->ctx, g_buf, BUFLEN);
+    else                 g_credit -= BUFLEN;
+}
 
 void mixer_init(int num_channels)
 {
@@ -73,8 +134,24 @@ static void check_ch(int ch, const char *who)
 void mixer_ch_play(int ch, waveform_t *wave)
 {
     check_ch(ch, "mixer_ch_play");
+    /* Reset the playback frequency whenever the WAVEFORM changes, which is
+     * what libdragon does — mixer.c calls mixer_ch_set_freq(ch,
+     * wave->frequency) unconditionally inside its "configure the waveform"
+     * branch, and skips it only when the same waveform is replayed on the
+     * same channel.
+     *
+     * The first version of this only seeded a frequency that was still zero,
+     * which made pitch STICKY: a game that pitch-shifts with
+     * kiln_sfx_play_ex and then lets kiln_sfx_play steal that channel plays
+     * the next sound at the previous sound's pitch, and two assets with
+     * different sample rates sharing an SFX channel both resample at
+     * whichever landed first. That is the pitch-and-time-drift class
+     * mkN64Rom's audioRate cross-check exists to catch, arriving silently
+     * through the back door. */
+    if (g_ch[ch].wave != wave && wave) g_ch[ch].freq = (float)wave->frequency;
     g_ch[ch].playing = 1;
     g_ch[ch].wave = wave;
+    g_ch[ch].pos = 0.0;
     g_c.ch_plays++;
 }
 void mixer_ch_set_vol(int ch, float lvol, float rvol)
@@ -109,17 +186,99 @@ bool mixer_ch_playing(int ch)
     return g_ch[ch].playing != 0;
 }
 
+/* ── the mix ───────────────────────────────────────────────────────────
+ * Nearest-neighbour resampling, not linear interpolation, and that is a
+ * deliberate choice rather than a shortcut: the RSP mixer resamples by
+ * stepping a fixed-point cursor and taking the sample it lands on, and a host
+ * that interpolated would sound better than the console. Everything else in
+ * plat/host is built to predict what the console does — host_t3d.c honours
+ * the s16.16 matrix quantisation for exactly this reason — and a nicer
+ * host mixer would make the host stop being evidence about the ROM.
+ *
+ * Channels whose waveform never decoded (a Huffman VADPCM, an Opus file) have
+ * wave->ctx == NULL and contribute nothing. They still occupy their channel
+ * and still report as playing, because that is what kiln_audio's partition
+ * and voice-stealing arithmetic is entitled to see. */
 void mixer_poll(int16_t *out, int nsamples)
 {
     g_c.polls++;
     g_c.samples_requested += (uint32_t)(nsamples > 0 ? nsamples : 0);
-    if (!g_said_silent) {
-        g_said_silent = 1;
-        debugf("host audio: mixer_poll produces SILENCE. Channel state is "
-               "tracked exactly (see kiln_host_audio_counters) but no VADPCM "
-               "decoding or output device is implemented.\n");
+    if (!out || nsamples <= 0) return;
+
+    const int rate = g_freq > 0 ? g_freq : 32000;
+
+    /* Grow-only, not per-call. This runs several times per frame for the life
+     * of the process, so an allocator in the audio path is a needless
+     * recurring cost — the console's mixer allocates nothing per poll either.
+     *
+     * Grow-ONLY and not a fixed BUFLEN array, which is what this was for
+     * about ten minutes: mixer_poll's contract is libdragon's, and libdragon
+     * takes any length. nix/checks/kiln-wav64-check.c polls 4096 against a
+     * BUFLEN of 512 precisely because a mix is worth measuring over more than
+     * one device buffer, and the fixed array asserted on its own check. */
+    static int32_t *acc;
+    static int      acc_cap;
+    if (nsamples > acc_cap) {
+        int32_t *grown = realloc(acc, (size_t)nsamples * 2 * sizeof(int32_t));
+        if (!grown) { memset(out, 0, (size_t)nsamples * 2 * sizeof(int16_t)); return; }
+        acc = grown;
+        acc_cap = nsamples;
     }
-    if (out && nsamples > 0) memset(out, 0, (size_t)nsamples * 2 * sizeof(int16_t));
+    memset(acc, 0, (size_t)nsamples * 2 * sizeof(int32_t));
+
+    int audible = 0;
+    for (int c = 0; c < g_nch; c++) {
+        if (!g_ch[c].playing || !g_ch[c].wave) continue;
+        const KilnHostWave *w = (const KilnHostWave *)g_ch[c].wave->ctx;
+        if (!w || !w->pcm) continue;
+        audible++;
+
+        const double step = (g_ch[c].freq > 0.0f ? (double)g_ch[c].freq : (double)w->rate)
+                          / (double)rate;
+        const float lv = g_ch[c].lvol * g_master;
+        const float rv = g_ch[c].rvol * g_master;
+
+        for (int i = 0; i < nsamples; i++) {
+            long idx = (long)g_ch[c].pos;
+            if (idx >= w->samples) {
+                /* loop_len counts back from the END of the waveform, which is
+                 * libdragon's convention and not the obvious one. */
+                if (w->loop_len > 0 && w->loop_len <= w->samples) {
+                    const long start = w->samples - w->loop_len;
+                    g_ch[c].pos = start + fmod(g_ch[c].pos - w->samples, (double)w->loop_len);
+                    idx = (long)g_ch[c].pos;
+                } else {
+                    g_ch[c].playing = 0;
+                    g_ch[c].wave = NULL;
+                    break;
+                }
+            }
+            const int16_t *src = w->pcm + (size_t)idx * w->channels;
+            const int32_t l = src[0];
+            const int32_t r = w->channels == 2 ? src[1] : l;
+            acc[i * 2 + 0] += (int32_t)(l * lv);
+            acc[i * 2 + 1] += (int32_t)(r * rv);
+            g_ch[c].pos += step;
+        }
+    }
+
+    /* Clamp rather than wrap. A wrapped sum is a loud click and sounds like a
+     * synthesis fault; a clamped one sounds like what it is, too many voices
+     * at once — and mkBakedInstrument already gates for a render that runs
+     * hot, so a game that clips here is telling you something true. */
+    for (int i = 0; i < nsamples * 2; i++) {
+        int32_t v = acc[i];
+        if (v >  32767) v =  32767;
+        if (v < -32768) v = -32768;
+        out[i] = (int16_t)v;
+    }
+
+    if (!audible && !g_said_silent) {
+        g_said_silent = 1;
+        debugf("host audio: nothing decodable is playing, so mixer_poll is "
+               "producing silence. Channel state is still exact — see "
+               "kiln_host_audio_counters.\n");
+    }
 }
 void mixer_try_play(void) { }
 
@@ -128,24 +287,26 @@ void wav64_open(wav64_t *wav, const char *fn)
     assertf(wav != NULL, "wav64_open: NULL wav64_t");
     memset(wav, 0, sizeof *wav);
     g_c.wav_opens++;
+
     /* Through the host VFS, so a missing sound is a missing file rather than a
-     * silence. This is the failure PetaByte Madness actually has — twelve
-     * twelve sfx paths that flake.nix never builds — and it is exactly the
-     * class the DFS gate was added for. */
-    const int h = dfs_open(fn);
-    if (h <= 0) {
+     * silence. This is the failure this project has actually had — twelve sfx
+     * paths a game's flake never built — and it is exactly the class the DFS
+     * gate was added for. */
+    char err[128];
+    KilnHostWave *w = kiln_host_wave_load(fn, err, sizeof err);
+    if (!w) {
         g_c.wav_missing++;
-        debugf("wav64_open: '%s' is missing\n", fn);
+        debugf("wav64_open: '%s': %s\n", fn, err);
         return;
     }
-    const int sz = dfs_size((uint32_t)h);
-    dfs_close((uint32_t)h);
-    /* Enough for the mixer bookkeeping to be meaningful; the header is not
-     * decoded because nothing here consumes samples. */
-    wav->wave.channels = 1;
-    wav->wave.bits = 16;
-    wav->wave.frequency = g_freq ? g_freq : 32000;
-    wav->wave.len = sz;
+
+    wav->wave.channels  = w->channels;
+    wav->wave.bits      = 16;
+    wav->wave.frequency = w->rate;
+    wav->wave.len       = w->samples;
+    wav->wave.loop_len  = w->loop_len;
+    wav->wave.ctx       = w;
+    wav->st             = w;
 }
 
 void wav64_play(wav64_t *wav, int ch)
@@ -153,7 +314,17 @@ void wav64_play(wav64_t *wav, int ch)
     assertf(wav != NULL, "wav64_play: NULL");
     mixer_ch_play(ch, &wav->wave);
 }
-void wav64_close(wav64_t *wav) { if (wav) memset(wav, 0, sizeof *wav); }
+void wav64_close(wav64_t *wav)
+{
+    if (!wav) return;
+    /* Stop anything still pointing at the waveform first: freeing samples out
+     * from under a playing channel is a use-after-free that presents as a
+     * burst of noise, which reads as a decoder bug. */
+    for (int i = 0; i < g_nch; i++)
+        if (g_ch[i].wave == &wav->wave) { g_ch[i].playing = 0; g_ch[i].wave = NULL; }
+    kiln_host_wave_free((KilnHostWave *)wav->st);
+    memset(wav, 0, sizeof *wav);
+}
 
 /* ── trackers ─────────────────────────────────────────────────────────
  * Channel counts matter: kiln_audio reserves a music range and asks the player

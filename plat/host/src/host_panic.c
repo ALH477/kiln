@@ -23,7 +23,20 @@
  */
 #include <kiln_panic.h>
 
-#include <execinfo.h>
+/* execinfo.h is a glibc extension. musl (aarch64/riscv64 static builds) and
+ * Emscripten do not have it, and its absence is a compile error rather than a
+ * link failure, so it has to be tested for. Losing the backtrace degrades the
+ * diagnostic to "which signal, at which address", which is still strictly more
+ * than the console gives you. */
+#if defined(__has_include)
+#  if __has_include(<execinfo.h>)
+#    define KILN_HAVE_EXECINFO 1
+#  endif
+#endif
+#ifdef KILN_HAVE_EXECINFO
+#  include <execinfo.h>
+#endif
+
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -72,12 +85,16 @@ static void handler(int sig, siginfo_t *info, void *ctx)
         write_all("\n");
     }
 
+#ifdef KILN_HAVE_EXECINFO
     /* backtrace_symbols_fd is the async-signal-safe half of the pair;
      * backtrace_symbols() allocates and must not be called here. */
     void *frames[MAX_FRAMES];
     const int n = backtrace(frames, MAX_FRAMES);
     write_all("  backtrace:\n");
     backtrace_symbols_fd(frames, n, STDERR_FILENO);
+#else
+    write_all("  backtrace: unavailable (no execinfo.h on this libc)\n");
+#endif
 
     /* Halt rather than return, matching the console: continuing from an
      * unhandled exception corrupts state in ways that produce a second,

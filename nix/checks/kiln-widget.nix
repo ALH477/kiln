@@ -18,34 +18,24 @@
 # kiln_widget is the only module in HOST_MODULES that compiles but has no
 # assertions in kiln-logic (it calls into kiln_gui, so it cannot be linked
 # standalone there). This is its coverage.
-{ pkgs, engineSrc, platHost, hostMath, uipreviewSrc }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`, like every other host check. This one was
+# the last to carry its own gcc line, which is fitting: it is the check that
+# exists because tools/uipreview used to carry its own RASTERISER.
+{ pkgs, target, uipreviewSrc }:
 
-pkgs.runCommand "check-kiln-widget"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "uipreview";
+  sources = [ "${uipreviewSrc}/uipreview.c" ];
+  args = "ui";
   meta.description = "kiln_widget's screens render byte-identically to their references";
-}
-  ''
-    set -euo pipefail
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra \
-        -I${platHost}/include -I${hostMath}/include -I${engineSrc}/src/kiln \
-        -o uipreview \
-        ${uipreviewSrc}/uipreview.c \
-        ${engineSrc}/src/kiln/kiln_widget.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./uipreview ui
-
+  script = ''
     fail=0
     for s in title select results hud title-plain; do
       if ! cmp -s "ui-$s.png" "${uipreviewSrc}/ui-$s.png"; then
         echo "  FAILED: ui-$s.png differs from its reference"
-        echo "    reference $(stat -c%s ${uipreviewSrc}/ui-$s.png) bytes, "\
-             "rendered $(stat -c%s ui-$s.png) bytes"
+        echo "    reference $(stat -c%s ${uipreviewSrc}/ui-$s.png) bytes, rendered $(stat -c%s ui-$s.png) bytes"
         fail=1
       fi
     done
@@ -56,7 +46,6 @@ pkgs.runCommand "check-kiln-widget"
       echo "A reference image is only as good as someone having looked at it."
       exit 1
     fi
-
-    echo "all five widget screens match their references"
-    mkdir -p $out && cp ui-*.png $out/
-  ''
+    echo "all five widget screens match their references (${target.description})"
+  '';
+}

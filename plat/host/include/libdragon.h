@@ -505,25 +505,29 @@ typedef struct eepfs_entry_t {
 #define EEPFS_ENOMEM       -4
 #define EEPFS_EBADHANDLE   -5
 
-/* ── audio: the mixer's BOOKKEEPING, not its samples ──────────────────
+/* ── audio: the channel arithmetic, and its samples ───────────────────
  * kiln_audio is a wrapper over libdragon's RSP mixer, and almost all of what
  * it does is bookkeeping: partition the 32 channels into an SFX range and a
  * music range, steal the lowest-priority voice when the SFX range is full,
  * crossfade room music. None of that needs a single PCM sample to be correct,
- * and all of it is the kind of arithmetic that is either right or produces a
- * silence nobody can explain.
+ * which is why the host implemented the channel state exactly and produced no
+ * audio for as long as this tier was only a gate.
  *
- * So the host implements the channel state exactly and produces NO AUDIO. That
- * is stated rather than hidden: mixer_poll writes silence and says so once,
- * kiln_host_audio_counters() reports what was actually asked for, and
- * wav64_open still fails loudly on a missing file — because a missing sound
- * asset is the failure this project has actually had (see CLAUDE.md on
- * PetaByte Madness' twelve sfx that were never built).
+ * It is not only a gate now. mixer_poll mixes for real and wav64_open decodes
+ * for real — see plat/host/src/host_wav64.c, which reads the container and
+ * hands the ADPCM to libdragon's OWN vendored VADPCM codec rather than to a
+ * decoder written here. wav64_open still fails loudly on a missing file,
+ * because a missing sound asset is the failure this project has actually had.
  *
- * VADPCM decoding and an output device are not here. When they arrive, the
- * reference render for them is already in the tree: mkBakedInstrument writes
- * share/<name>-reference.wav, the full-quality render the report's Stage 3
- * wants to A/B against. */
+ * Still bookkeeping, and each says so at the point of use: XM64 and YM64
+ * tracker playback (libdragon's player is not separable from the RSP mixer
+ * the way the codec is), and the ULC and Opus wav64 formats (both RSP-only,
+ * with no C fallback in libdragon's tree to compile). Each reports which
+ * format it declined rather than going quiet.
+ *
+ * The reference render for any of this is already in the tree:
+ * mkBakedInstrument writes share/<name>-reference.wav, the full-quality
+ * render the report's Stage 3 wants to A/B against. */
 typedef struct {
     int      channels;
     int      bits;
