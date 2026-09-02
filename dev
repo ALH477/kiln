@@ -142,7 +142,12 @@ case "$cmd" in
     # SDL window. The pixels are the ones nix/checks/ compares against a
     # reference, so this window is evidence about the gated renderer rather
     # than a second one that looks similar.
-    ex="${1:-engine-demo}"; shift || true
+    # The same --* guard the web case has. usage() advertises
+    # `pc [example] [args]` and names --frames/--shot, so `./dev pc --frames 90`
+    # is the natural thing to type — and without this it built `.#pc---frames`
+    # and reported "add it in flake.nix", which points at the wrong problem.
+    ex="engine-demo"
+    case "${1:-}" in ""|--*) ;; *) ex="$1"; shift ;; esac
     out="$(nix build --no-link --print-out-paths ".#pc-$ex")" || {
       echo "dev: no .#pc-$ex — add it in flake.nix with hostNative.mkGame" >&2
       exit 1
@@ -165,11 +170,15 @@ case "$cmd" in
     if [ "${1:-}" = "--serve" ] || [ "${2:-}" = "--serve" ]; then
       # A .wasm cannot be fetched over file://, so a local server is not a
       # convenience here — it is the only way to open the page at all.
-      dir="$(mktemp -d)"; trap 'rm -rf "$dir"' EXIT
+      dir="$(mktemp -d)"
+      # No exec: exec replaces the shell, so the EXIT trap would never fire
+      # and every --serve would leave a copy of the wasm behind in /tmp.
+      trap 'rm -rf "$dir"' EXIT INT TERM
       cp -L "$out"/bin/* "$dir/"
       mv "$dir/$(basename "$page")" "$dir/index.html"
       echo "dev: http://localhost:8080/  (Ctrl-C to stop)"
-      exec python3 -m http.server 8080 --directory "$dir"
+      python3 -m http.server 8080 --directory "$dir"
+      exit 0
     fi
     echo "dev: .wasm will not load over file:// — use ./dev web $ex --serve"
     ;;

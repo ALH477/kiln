@@ -34,10 +34,11 @@
 #
 # ── One body, every architecture ───────────────────────────────────────
 # This check is built by nix/host.nix's `target`, which supplies the compiler,
-# the flags and the three archives. That is what lets nix/checks/kiln-wasm.nix
-# run THIS check, unchanged, against the SAME two reference files under a
-# wasm32 build — a second blessed reference per architecture would only prove
-# each architecture agrees with itself.
+# the flags and the three archives. That is what lets flake.nix declare a
+# `<name>-wasm32` variant that runs THIS check, unchanged, against the SAME
+# reference files under emcc — and `./dev arch aarch64` / `riscv64` run it
+# under qemu-user. A blessed reference per architecture would only prove each
+# architecture agrees with itself.
 { pkgs, target }:
 
 target.mkCheck {

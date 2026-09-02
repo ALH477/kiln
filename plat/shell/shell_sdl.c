@@ -44,6 +44,7 @@ typedef struct {
      * device callback. Sized to a quarter second, which is well past any
      * frame hitch and still under the latency a player would notice. */
     SDL_AudioDeviceID dev;
+    int              audio_tried;   /* opened, or failed and given up */
     short           *ring;
     int              ring_frames;   /* capacity, in stereo frames */
     int              head, tail;    /* head writes, tail reads    */
@@ -95,7 +96,7 @@ static void window_open(int w, int h)
 
     SDL_RenderSetLogicalSize(g.ren, w, h);
 
-    g.tex = SDL_CreateTexture(g.ren, SDL_PIXELFORMAT_ABGR8888,
+    g.tex = SDL_CreateTexture(g.ren, SDL_PIXELFORMAT_RGBA32,
                               SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!g.tex) { fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError()); exit(1); }
     g.tw = w; g.th = h;
@@ -109,9 +110,13 @@ static void present(void *ctx, const void *rgba8, int w, int h)
         if (g.win) { SDL_DestroyRenderer(g.ren); SDL_DestroyWindow(g.win); g.win = NULL; }
         window_open(w, h);
     }
-    /* host_gfx.c's buffer is R,G,B,A in memory order. ABGR8888 is SDL's name
-     * for exactly that on a little-endian host, and its byte-order name
-     * SDL_PIXELFORMAT_RGBA32 resolves to the same thing on a big-endian one. */
+    /* host_gfx.c's buffer is R,G,B,A in MEMORY order, so the format has to be
+     * named in memory order too. SDL_PIXELFORMAT_RGBA32 is SDL's alias for
+     * exactly that, resolving to ABGR8888 on a little-endian host and
+     * RGBA8888 on a big-endian one. The code used to hardcode ABGR8888 while
+     * the comment claimed the portable spelling — and host_t3dmodel.c in this
+     * same tier now has a big-endian branch, so the tier does not get to
+     * assume. */
     SDL_UpdateTexture(g.tex, NULL, rgba8, w * 4);
     SDL_RenderClear(g.ren);
     SDL_RenderCopy(g.ren, g.tex, NULL, NULL);
@@ -256,7 +261,8 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
 static void audio_open(void)
 {
     const int freq = audio_get_frequency();
-    if (freq <= 0) return;
+    if (freq <= 0) return;          /* audio_init has not run yet: retry */
+    g.audio_tried = 1;
 
     SDL_AudioSpec want, got;
     memset(&want, 0, sizeof want);
@@ -282,12 +288,18 @@ static void audio_open(void)
 static int audio_free(void *ctx)
 {
     (void)ctx;
-    if (!g.dev && !g.opt.mute) audio_open();
+    /* Latched. audio_free is called once per iteration of kiln_audio_update's
+     * drain loop — three or more times a frame, forever — so retrying an open
+     * that failed meant calloc'ing a 64 KB ring, calling SDL_OpenAudioDevice
+     * and printing "running silent" several hundred times a second for the
+     * life of the process. */
+    if (!g.dev && !g.audio_tried && !g.opt.mute) audio_open();
     if (!g.dev) {
-        /* No device, and the game still has to make progress. One buffer per
-         * frame is what a 60 Hz device would take, and the mixer's channel
-         * bookkeeping — which is what kiln_audio is almost entirely made of —
-         * runs exactly as it would with a speaker attached. */
+        /* No device, and the game still has to make progress. Three buffers
+         * of 512 at 32 kHz is about a frame's worth of audio, which is what a
+         * real device would take — and the mixer's channel bookkeeping, which
+         * is what kiln_audio is almost entirely made of, runs exactly as it
+         * would with a speaker attached. */
         static int credit;
         if (++credit >= 4) { credit = 0; return 0; }
         return 1;

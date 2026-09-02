@@ -44,7 +44,8 @@
 # Built by nix/host.nix's `target`: it supplies the compiler, the flags and
 # the three archives, so this file says what to render and what to compare
 # and nothing about how to compile it. The same body runs under wasm32
-# against the SAME reference files — see nix/checks/kiln-wasm.nix.
+# against the SAME reference files — flake.nix declares that variant as
+# `<name>-wasm32`; `./dev arch <target>` runs it on the others.
 { pkgs, target, mapAsset }:
 
 target.mkCheck {
