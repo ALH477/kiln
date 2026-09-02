@@ -39,10 +39,18 @@
 # is held to. (A silent miss would in fact still fail, because the surviving
 # asm cannot assemble for x86 — but "fails for the right reason" is worth the
 # one flag.)
-{ pkgs, src }:
+#
+# ── One derivation, any toolchain ──────────────────────────────────────
+# cc/ar default to stdenv's, which is what a native build wants. A cross or
+# Emscripten target passes its own, plus whatever nativeBuildInputs and
+# preBuild that compiler needs. Nothing else here is architecture-aware: the
+# patch names MIPS mnemonics and substitutes ISO C, and the sources are plain
+# portable C. See nix/host.nix, which is the only caller that passes them.
+{ pkgs, src, pname ? "kiln-host-math", cc ? "$CC", ar ? "$AR"
+, nativeBuildInputs ? [], preBuild ? "" }:
 
 pkgs.stdenv.mkDerivation {
-  pname = "kiln-host-math";
+  inherit pname nativeBuildInputs;
   version = "unstable-${builtins.substring 0 7 (src.rev or "dirty")}";
   inherit src;
 
@@ -50,6 +58,7 @@ pkgs.stdenv.mkDerivation {
 
   buildPhase = ''
     runHook preBuild
+    ${preBuild}
 
     mkdir -p stage/include stage/math
     cp include/fmath.h include/fgeom.h include/fgeom2d.h stage/include/
@@ -85,10 +94,10 @@ pkgs.stdenv.mkDerivation {
     # -include assert.h: libdragon's debug.h uses assert() without including
     # it, which is fine in its own tree and not here.
     for f in stage/math/fmath.c stage/math/fgeom.c; do
-      $CC -c -O2 -std=gnu11 -fPIC -include assert.h \
+      ${cc} -c -O2 -std=gnu11 -include assert.h \
           -Istage/include -Istage -o "$f.o" "$f"
     done
-    $AR rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o
+    ${ar} rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o
 
     runHook postBuild
   '';

@@ -23,39 +23,29 @@
 # foreign model, wrong for this one, and a plain pixel diff downstream would
 # only be able to say "the frame changed" — not why. The check's structural
 # assertions catch the specific failure at the specific place it would occur.
-{ pkgs, engineSrc, platHost, hostMath, n64Inst, kilnLogo }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`: it supplies the compiler, the flags and
+# the three archives, so this file says what to render and what to compare
+# and nothing about how to compile it. The same body runs under wasm32
+# against the SAME reference files — see nix/checks/kiln-wasm.nix.
+{ pkgs, target, n64Inst, kilnLogo }:
 
-pkgs.runCommand "check-kiln-splash"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "splashcheck";
+  sources = [ ./kiln-splash-check.c ];
+  args = "kiln_logo.t3dm out.png";
   meta.description = "the real boot splash renders the kiln, its flame, and the lit publisher line";
-}
-  ''
-    set -euo pipefail
-
+  preRun = ''
     ${n64Inst}/bin/gltf_to_t3d --ignore-materials \
       ${kilnLogo}/share/gltf/kiln_logo.gltf kiln_logo.t3dm
     echo "converted $(stat -c%s kiln_logo.t3dm) bytes of .t3dm"
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra -Werror \
-        -I${platHost}/include -I${platHost}/src -I${hostMath}/include \
-        -I${engineSrc}/src/kiln \
-        -o splashcheck \
-        ${./kiln-splash-check.c} \
-        ${engineSrc}/src/kiln/kiln_engine.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        ${engineSrc}/src/kiln/kiln_splash.c \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./splashcheck kiln_logo.t3dm out.png
-
+  '';
+  script = ''
     if ! cmp -s out.png ${./refs/kiln-splash.png}; then
       echo ""
       echo "FAILED: the settled splash frame changed."
-      echo "  reference $(stat -c%s ${./refs/kiln-splash.png}) bytes, "\
-           "rendered $(stat -c%s out.png) bytes"
+      echo "  reference $(stat -c%s ${./refs/kiln-splash.png}) bytes, rendered $(stat -c%s out.png) bytes"
       echo "The structural assertions above passed, so the model still has"
       echo "its three named objects — this is geometry, shading, the"
       echo "flicker phase at this exact frame, or the text glow. Magnify"
@@ -63,7 +53,6 @@ pkgs.runCommand "check-kiln-splash"
       echo "freeze a wrong picture forever."
       exit 1
     fi
-
-    echo "the settled splash frame matches its reference capture"
-    mkdir -p $out && cp out.png $out/
-  ''
+    echo "the settled splash frame matches its reference capture (${target.description})"
+  '';
+}

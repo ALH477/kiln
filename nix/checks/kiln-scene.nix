@@ -39,30 +39,20 @@
 # console's actual binding constraint. `./dev shot` remains the arbiter of what
 # a frame looks like; this holds the geometry, lighting and layout arithmetic
 # still between changes.
-{ pkgs, engineSrc, platHost, hostMath }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# Built by nix/host.nix's `target`: it supplies the compiler, the flags and
+# the three archives, so this file says what to render and what to compare
+# and nothing about how to compile it. The same body runs under wasm32
+# against the SAME reference files — see nix/checks/kiln-wasm.nix.
+{ pkgs, target }:
 
-pkgs.runCommand "check-kiln-scene"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "scenecheck";
+  sources = [ ./kiln-scene-check.c ];
+  args = "out.png out.txt";
   meta.description = "the full 3D + seam + 2D frame bracket renders byte-identically";
-}
-  ''
-    set -euo pipefail
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra -Werror \
-        -I${platHost}/include -I${platHost}/src -I${hostMath}/include \
-        -I${engineSrc}/src/kiln \
-        -o scenecheck \
-        ${./kiln-scene-check.c} \
-        ${engineSrc}/src/kiln/kiln_engine.c \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./scenecheck out.png out.txt
-
+  script = ''
     fail=0
     if ! cmp -s out.txt ${./refs/kiln-scene.txt}; then
       echo ""; echo "FAILED: the HUD text manifest changed."
@@ -71,15 +61,13 @@ pkgs.runCommand "check-kiln-scene"
     fi
     if ! cmp -s out.png ${./refs/kiln-scene.png}; then
       echo ""; echo "FAILED: the rendered frame changed."
-      echo "  reference $(stat -c%s ${./refs/kiln-scene.png}) bytes, "\
-           "rendered $(stat -c%s out.png) bytes"
+      echo "  reference $(stat -c%s ${./refs/kiln-scene.png}) bytes, rendered $(stat -c%s out.png) bytes"
       echo "The counters printed above say whether geometry or shading moved."
       echo "Magnify both before accepting a new reference — a gate is perfectly"
       echo "happy to freeze a wrong picture forever."
       fail=1
     fi
     [ $fail -eq 0 ] || exit 1
-
-    echo "the frame bracket matches its reference capture"
-    mkdir -p $out && cp out.png out.txt $out/
-  ''
+    echo "the frame bracket matches its reference capture (${target.description})"
+  '';
+}

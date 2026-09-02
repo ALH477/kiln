@@ -31,28 +31,21 @@
 # what a human looked at once and approved. The console remains the arbiter of
 # appearance; ./dev shot is still how you find out what a frame really looks
 # like.
-{ pkgs, engineSrc, platHost, hostMath }:
+#
+# ── One body, every architecture ───────────────────────────────────────
+# This check is built by nix/host.nix's `target`, which supplies the compiler,
+# the flags and the three archives. That is what lets nix/checks/kiln-wasm.nix
+# run THIS check, unchanged, against the SAME two reference files under a
+# wasm32 build — a second blessed reference per architecture would only prove
+# each architecture agrees with itself.
+{ pkgs, target }:
 
-pkgs.runCommand "check-kiln-gui"
-{
-  nativeBuildInputs = [ pkgs.gcc ];
-  buildInputs = [ pkgs.zlib ];
+target.mkCheck {
+  pname = "guicheck";
+  sources = [ ./kiln-gui-check.c ];
+  args = "out.png out.txt";
   meta.description = "the host 2D pass renders a HUD, byte-identically";
-}
-  ''
-    set -euo pipefail
-
-    gcc -O1 -g -std=gnu2x -Wall -Wextra -Werror \
-        -I${platHost}/include -I${hostMath}/include -I${engineSrc}/src/kiln \
-        -o guicheck \
-        ${./kiln-gui-check.c} \
-        ${engineSrc}/src/kiln/kiln_gui.c \
-        \
-        $(echo ${platHost}/src/*.c) \
-        ${hostMath}/lib/libkilnmath.a -lz -lm
-
-    ./guicheck out.png out.txt
-
+  script = ''
     fail=0
     if ! cmp -s out.txt ${./refs/kiln-gui-hud.txt}; then
       echo ""
@@ -72,6 +65,6 @@ pkgs.runCommand "check-kiln-gui"
     fi
     [ $fail -eq 0 ] || exit 1
 
-    echo "host 2D pass matches its reference capture and manifest"
-    mkdir -p $out && cp out.png out.txt $out/
-  ''
+    echo "host 2D pass matches its reference capture and manifest (${target.description})"
+  '';
+}
