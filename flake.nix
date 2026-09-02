@@ -1027,11 +1027,15 @@
             meta.description = "engine-demo, playable in a browser";
           };
 
-          # The host tier's own artefacts, per architecture.
+          # The host tier's own artefacts, per architecture. The cross pair
+          # is Linux-only — nix/host.nix declares those two targets only where
+          # pkgsCross can reach them, so they are added conditionally rather
+          # than referenced unconditionally and made to fail evaluation on a
+          # darwin builder. Which would be a portability bug in the flake
+          # that adds portability, so: guarded.
           host-arch-native  = archProof hostNative;
           host-arch-wasm32  = archProof hostWasm;
-          host-arch-aarch64 = archProof hostTargets.targets.aarch64;
-          host-arch-riscv64 = archProof hostTargets.targets.riscv64;
+
           host-libs         = hostNative.engine;
           host-backend      = hostNative.backend;
 
@@ -1067,6 +1071,15 @@
           # splash's timing is identical without them; see kiln_splash.h.
           audio-kiln-jingle = kilnJingle;
           default = hello;
+        }
+        # The cross architectures, where pkgsCross can reach them. Guarded and
+        # not referenced unconditionally: an eval error on a darwin builder
+        # would be a portability bug in the flake that adds portability.
+        // pkgs.lib.optionalAttrs (hostTargets.targets ? aarch64) {
+          host-arch-aarch64 = archProof hostTargets.targets.aarch64;
+        }
+        // pkgs.lib.optionalAttrs (hostTargets.targets ? riscv64) {
+          host-arch-riscv64 = archProof hostTargets.targets.riscv64;
         };
 
         # Exposed so downstream flakes (the SSHitunneller! N64 port, and the
