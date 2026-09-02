@@ -351,6 +351,35 @@ let
       run = "${pkgs.qemu-user}/bin/${qemuBin}";
     };
 
+  # The browser launcher, linked for node instead of for a page. Same C, same
+  # EM_JS, same ASYNCIFY loop — the only difference is that emcc emits a .js
+  # rather than an .html, so a check can run it. nix/checks/kiln-web.nix pairs
+  # it with a DOM stub, which is how the canvas path gets exercised in a
+  # sandbox with no display and no browser.
+  # emcc writes to its cache on first use, and the store copy is read-only.
+  emPreBuild = ''
+    export EM_CACHE="$TMPDIR/emcache"
+    mkdir -p "$EM_CACHE"
+    cp -r ${pkgs.emscripten}/share/emscripten/cache/* "$EM_CACHE"/ 2>/dev/null || true
+    chmod -R u+w "$EM_CACHE"
+  '';
+
+  webShellFor = ldflags: {
+    source = "shell_web.c";
+    exe = ".js";
+    cflags = [ ];
+    inherit ldflags;
+    buildInputs = [ ];
+    assetFlags = fs: [ "--preload-file" "${fs}/filesystem@/assets" ];
+  };
+
+  webShellLdflags = [
+    "-sASYNCIFY=1"
+    "-sASYNCIFY_STACK_SIZE=65536"
+    "-sEXPORTED_RUNTIME_METHODS=['callMain','UTF8ToString','HEAPU8','HEAP16']"
+    "-sFORCE_FILESYSTEM=1"
+  ];
+
   targets = {
     native = mkTarget {
       name = "native";
@@ -383,12 +412,7 @@ let
       cc = "emcc";
       ar = "emar";
       nativeBuildInputs = [ pkgs.emscripten pkgs.nodejs ];
-      preBuild = ''
-        export EM_CACHE="$TMPDIR/emcache"
-        mkdir -p "$EM_CACHE"
-        cp -r ${pkgs.emscripten}/share/emscripten/cache/* "$EM_CACHE"/ 2>/dev/null || true
-        chmod -R u+w "$EM_CACHE"
-      '';
+      preBuild = emPreBuild;
       ldflags = [
         "-sALLOW_MEMORY_GROWTH=1"
         "-sINITIAL_MEMORY=64MB"
@@ -398,31 +422,33 @@ let
       checkLdflags = [ "-sNODERAWFS=1" ];
       exe = ".js";
       run = "node";
-      shell = {
-        source = "shell_web.c";
-        # .html and not .js: emcc only emits the page — and only accepts
-        # --shell-file — when the output is html. The check binaries stay .js
-        # and run under node; a game is a page.
-        exe = ".html";
-        cflags = [ ];
-        # ASYNCIFY is what makes the ROM's own blocking for(;;) legal in a
-        # browser — see shell_web.c's header for why inverting the loop was
-        # the worse option. MODULARIZE keeps the page in control of when the
-        # thing starts, which matters because audio may not begin before a
-        # user gesture.
-        ldflags = [
-          "-sASYNCIFY=1"
-          "-sASYNCIFY_STACK_SIZE=65536"
-          "-sEXPORTED_RUNTIME_METHODS=['callMain','UTF8ToString','HEAPU8','HEAP16']"
-          "-sFORCE_FILESYSTEM=1"
-          "--shell-file" "${webShellHtml}"
-        ];
-        buildInputs = [ ];
-        # The browser gets the filesystem baked in, because there is nowhere
-        # to point --dfs at. It lands on /assets, which shell_web.c defaults
-        # KILN_HOST_DFS to.
-        assetFlags = fs: [ "--preload-file" "${fs}/filesystem@/assets" ];
-      };
+      # ASYNCIFY is what makes the ROM's own blocking for(;;) legal in a
+      # browser — see shell_web.c's header for why inverting the loop was the
+      # worse option. .html and not .js because emcc only emits the page, and
+      # only accepts --shell-file, when the output is html; the check binaries
+      # stay .js and run under node.
+      shell = webShellFor (webShellLdflags ++ [ "--shell-file" "${webShellHtml}" ])
+              // { exe = ".html"; };
+    };
+  } // {
+    # Identical to wasm32 except that the launcher links as a .js and gets
+    # NODERAWFS, so --shot writes a real file. It exists for one gate.
+    wasm32-node = mkTarget {
+      name = "wasm32-node";
+      description = "wasm32 launcher under node";
+      cc = "emcc";
+      ar = "emar";
+      nativeBuildInputs = [ pkgs.emscripten pkgs.nodejs ];
+      preBuild = emPreBuild;
+      ldflags = [
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sINITIAL_MEMORY=64MB"
+        "-sSTACK_SIZE=4MB"
+        "-lm"
+      ];
+      exe = ".js";
+      run = "node";
+      shell = webShellFor (webShellLdflags ++ [ "-sNODERAWFS=1" ]);
     };
   } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
     aarch64 = crossTarget {

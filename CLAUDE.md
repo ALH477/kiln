@@ -1351,7 +1351,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (78 checks, 20 implementations)
+### The full check list (88 checks, 24 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1425,6 +1425,30 @@ worth knowing by name:
   carrying both fill and outline pixels — that last one is what proves the
   2bpp layer decode picked the right half, since the wrong half yields glyphs
   built out of their atlas slot-mate's pixels.
+- **`kiln-*-wasm32`** are the same six render gates (`gui`, `scene`, `model`,
+  `map`, `splash`, `voxmesh`) plus `wav64`, compiled by `emcc` and run under
+  node, held to the **same** committed reference files as the native ones. A
+  per-architecture reference would only prove each architecture agrees with
+  itself. `./dev arch aarch64` / `riscv64` runs three of the bodies
+  cross-compiled against musl under qemu-user and is out of the gate set
+  because a cross toolchain is a ~170 MB fetch.
+- **`kiln-shell`** runs the real `examples/engine/main.c` game loop under the
+  launcher for ninety frames on SDL's dummy drivers. Ninety and not one: one
+  frame proves the linker found everything, ninety proves the loop comes back
+  round, which is exactly what `audio_can_write`'s `return 1` prevented. It
+  checks statistics rather than a golden image because that ROM's HUD prints a
+  smoothed frame rate off a real clock, so two runs cannot match.
+- **`kiln-web`** runs the BROWSER launcher — the canvas blit and the ASYNCIFY
+  game loop — under node against a recording DOM stub, and asserts twelve
+  frames reached `putImageData` at 320x240 with content in them. It also
+  withholds `AudioContext`, because that is the state every browser tab is in
+  before the user's first gesture and a launcher that hard-required audio
+  would hang before the first frame.
+- **`kiln-wav64`** decodes a real `audioconv64` asset and measures **RMS**, not
+  sample count: a decoder can return the right number of samples full of
+  zeroes and pass every structural assertion, and silence is the least
+  attributable failure in the audio path. It also asserts pan 0.0 is hard
+  left, which backwards is audible, deniable and never reported.
 - **`kiln-hostmath`** asserts that the host build of libdragon's `fm_*` computes
   what the VR4300 computes. `nix/host-math.nix` substitutes four libm calls for
   four MIPS instructions; this sweeps 4,001 inputs against libm and pins the

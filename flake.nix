@@ -1321,9 +1321,7 @@
           # kiln_widget's screens, rendered through the same host backend and
           # diffed against their committed captures.
           kiln-widget = import ./nix/checks/kiln-widget.nix {
-            inherit pkgs hostMath;
-            engineSrc = ./engine;
-            platHost = ./plat/host;
+            inherit pkgs; target = hostNative;
             uipreviewSrc = ./tools/uipreview;
           };
           # The whole frame bracket — 3D pass, the seam, 2D pass — rendered
@@ -1368,6 +1366,17 @@
           };
           kiln-wav64-wasm32 = import ./nix/checks/kiln-wav64.nix {
             inherit pkgs; target = hostWasm; sound = demoSound;
+          };
+          # The browser launcher itself — the canvas blit and the ASYNCIFY
+          # game loop — run under node against a recording DOM stub. See the
+          # check's header for what this can and cannot prove.
+          kiln-web = import ./nix/checks/kiln-web.nix {
+            inherit pkgs;
+            target = hostTargets.targets.wasm32-node.mkGame {
+              pname = "kiln-engine-demo";
+              sources = [ ./examples/engine/main.c ];
+            };
+            domStub = ./nix/checks/kiln-web-dom.js;
           };
           kiln-parity = import ./nix/checks/kiln-parity.nix {
             inherit pkgs hostMath;
