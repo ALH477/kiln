@@ -1049,6 +1049,26 @@ a decoder can return the right number of samples full of zeroes and pass every
 structural assertion, and silence is the least attributable failure in the
 whole audio path.
 
+**The browser build is verified in a real browser, by `./dev web --verify`.**
+`nix/checks/kiln-web.nix` runs the browser launcher under node against a
+recording DOM stub, which is what a sandbox with no display can do. It cannot
+speak to a real 2D context, a real wasm engine, the actual page, or a keypress
+that starts in the compositor's event queue — so `./dev web --verify` drives
+headless Chromium over the DevTools protocol and asserts all four, keeping its
+screenshots and a JSON report in `.webverify/`. A dev command and not a gate,
+for the reason `./dev shot` is one: Chromium is a 150 MB dependency.
+
+It asserts on **two** observables, and the reason is a trap worth knowing.
+`Module.kiln.pad` — published by `shell_web.c` the way `kiln_host_counters()`
+is published by the renderer — says what the launcher pushed into the engine,
+which is the input path end to end. The pixels say the engine did something
+with it. The first version asserted only on the horizontal centre of mass of
+the lit pixels and reported *"the input path is dead"* for a perfectly live
+one: `engine-demo`'s stick orbits a camera that keeps looking at the origin,
+so the cube stays exactly where it is and only its angle changes. The lit-pixel
+count moves; the centroid does not. Measured: `stick_x` 0 → 90 → 0 across a
+keydown/keyup, 608 frames pushed in ~10 s, zero page errors.
+
 **What the host still cannot do**, on any architecture: see fill rate (the
 console's binding constraint, no host analogue — a PC run is never evidence
 that content is affordable); skinned or animated characters (`t3d_skeleton_*`

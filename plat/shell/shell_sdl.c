@@ -338,6 +338,25 @@ int main(int argc, char **argv)
     if (r) return r < 0 ? 2 : 0;
     kiln_shell_env(&g.opt);
 
+    /* A stable, predictable window identity, set before SDL_Init because SDL
+     * reads these when it connects to the display server.
+     *
+     * Without it the window arrives as whatever the executable happens to be
+     * called, which on a tiling compositor means it cannot be given a rule —
+     * and a 320x240 game tiling into half of somebody's terminal is not a
+     * window, it is an interruption. ./dev pc floats it by PID after it
+     * appears (the same approach tools/n64-shot.sh already uses for Ares,
+     * which avoids writing to the live Hyprland config); this is what makes
+     * a hand-written rule possible too:
+     *
+     *   windowrulev2 = float, class:^(kiln)$
+     */
+    setenv("SDL_VIDEO_WAYLAND_WMCLASS", "kiln", 0);
+    setenv("SDL_VIDEO_X11_WMCLASS", "kiln", 0);
+#ifdef SDL_HINT_APP_ID
+    SDL_SetHint(SDL_HINT_APP_ID, "kiln");
+#endif
+
     Uint32 sub = SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER;
     if (!g.opt.mute) sub |= SDL_INIT_AUDIO;
     if (SDL_Init(sub) != 0) {
