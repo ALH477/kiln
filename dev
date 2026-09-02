@@ -154,6 +154,40 @@ case "$cmd" in
     }
     bin="$(find "$out/bin" -maxdepth 1 -type f | head -1)"
     echo "dev: $bin"
+
+    # On Hyprland a new window TILES, so a 320x240 game opens by taking half
+    # the terminal it was launched from. Float it instead.
+    #
+    # By PID after the window appears, not by writing a windowrulev2 into the
+    # live config: tools/n64-shot.sh established that approach for Ares for
+    # the same reason, and a dev command has no business mutating somebody's
+    # compositor configuration for the rest of the session. A hand-written
+    # `windowrulev2 = float, class:^(kiln)$` also works — the launcher sets
+    # that class deliberately.
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null 2>&1; then
+      "$bin" "$@" &
+      pid=$!
+      # Poll rather than sleep: the window appears when SDL finishes its first
+      # frame, which is a different length of time on a cold Nix store.
+      for _ in $(seq 1 60); do
+        if hyprctl clients -j 2>/dev/null | grep -q "\"pid\": *$pid"; then
+          # focuswindow BEFORE centerwindow: centerwindow acts on the
+          # ACTIVE window, not on a pid, so without this it would happily
+          # centre the terminal you launched from. tools/n64-shot.sh focuses
+          # by pid for the same reason. No resize — SDL already picked an
+          # integer scale that fits the display, and forcing a size here just
+          # fights it and gives you a non-integer scale.
+          hyprctl dispatch focuswindow "pid:$pid" >/dev/null 2>&1 || true
+          hyprctl dispatch togglefloating "pid:$pid" >/dev/null 2>&1 || true
+          hyprctl dispatch centerwindow >/dev/null 2>&1 || true
+          break
+        fi
+        sleep 0.1
+      done
+      wait "$pid"
+      exit $?
+    fi
+
     exec "$bin" "$@"
     ;;
 
