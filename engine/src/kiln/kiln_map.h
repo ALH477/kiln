@@ -14,22 +14,39 @@
  * `KilnMap` = one room for the demo; multi-room games load several `.map`
  * files and connect them via entity `target_room` epairs later.
  *
- * ── Brush reduction to AABB ─────────────────────────────────────────────
+ * ── Brush CSG, and the AABB it produces ─────────────────────────────────
  * A Quake brush is a convex volume defined by the intersection of half-spaces,
- * each half-space described by three plane points. Doom 3 builds a full
- * collision model from those planes; here we only need the AABB for collision
- * and a quad per face for rendering, so we reduce each brush to:
- *   * componentwise min/max of all its plane points → AABB
- *   * one parallelogram per face using the three plane points
- * Non-axis-aligned faces render as parallelograms, not true polygons. That
- * is acceptable for rectangular OoT-style rooms and is flagged as a known
- * limit in the header comment.
+ * each half-space described by three points ON its plane. Those three points
+ * are NOT the face's corners — the file contains no vertices at all, and they
+ * have to be derived by intersecting the planes, exactly as qbsp does when it
+ * compiles a .map. kiln_map.c does that now (see its "Brush CSG" comment for
+ * the algorithm and for what it is a port of):
+ *   * every triple of planes meeting at a point that is inside every other
+ *     plane is a vertex; grouped by plane and wound into a ring, that is the
+ *     face — a real convex polygon of 3..MAX_FACE_VERTS (kiln_map.c's cap)
+ *     vertices, drawn as a
+ *     triangle fan
+ *   * the AABB is the min/max of those true vertices, so an authored -64..64
+ *     brush measures -64..64
+ * It did neither of those until 2026-09: it read the three plane points as
+ * three face corners and completed a parallelogram, so a 128-unit wall drew as
+ * a 1x2-unit patch at one corner, and the AABB — min/max of the plane points —
+ * came out a unit oversized because the second and third point of each plane
+ * are conventionally one unit along the surface.
+ *
+ * A brush wound inside-out yields no vertices at all (the reversed half-spaces
+ * intersect in nothing). That is the one case where the AABB still falls back
+ * to the plane-point box, with a debugf, rather than handing a consumer a
+ * brush with no collision; `./dev map-canon` repairs the file.
+ *
+ * Still NOT carried over: no texture or UV data is read, so a face's vertices
+ * carry no texture coordinates and every face is drawn white.
  *
  * ── What was NOT carried over from id Tech 4 ────────────────────────────
  * No patches (bezier surfaces). No mesh primitives. No BSP / PVS / portals.
  * No texture/UV parsing (we skip the texture/UV/scale fields after the third
  * plane point). No map compile step — the "compiled" form is the AABB + face
- * quad set produced here at load time. Real Doom 3 maps also need a CM model
+ * polygon set produced here at load time. Real Doom 3 maps also need a CM model
  * built offline; our collision is the AABB approximation.
  */
 #ifndef KILN_MAP_H
@@ -45,13 +62,21 @@
 extern "C" {
 #endif
 
-/** One face ready to be drawn as two triangles via `t3d_vert_load` +
- *  `t3d_tri_draw`. `verts` is an uncached buffer of 4 T3DVertPacked structs
- *  (8 vertices total, two packed per struct); `rgba` is the face colour.
- *  The caller owns the buffer and frees it with `free_uncached`. */
+/** One convex polygon, ready to be drawn as a triangle fan via `t3d_vert_load`
+ *  + `t3d_tri_draw`. `verts` is an uncached buffer of `(vert_count + 1) / 2`
+ *  T3DVertPacked structs — two vertices per struct, and an odd polygon's spare
+ *  slot repeats the last vertex because the RSP's DMA moves whole pairs.
+ *
+ *  `vert_count` is 3..MAX_FACE_VERTS (kiln_map.c's own cap) and is NOT fixed: a brush face has as
+ *  many vertices as the CSG gives it. Anything walking `verts` must read
+ *  `vert_count` rather than assuming the 8 this struct used to always hold.
+ *
+ *  `rgba` is the face colour. The caller owns the buffer and frees it with
+ *  `free_uncached`. */
 typedef struct {
     T3DVertPacked *verts;
     uint32_t       rgba;
+    uint8_t        vert_count;
 } KilnMapFace;
 
 /** A parsed .map room. `brushes` and `faces` are module-owned arrays allocated
@@ -86,8 +111,9 @@ void kiln_map_register_classname(const char *classname, uint16_t profile_id);
 int  kiln_map_load(KilnMap *out, const char *dfs_path);
 void kiln_map_free(KilnMap *m);
 
-/** Draw every face in the map. Intended to be called from a room's draw
- *  callback between kiln_scene_begin and kiln_actor_draw_all. */
+/** Draw every face in the map, one `t3d_vert_load` and one triangle fan per
+ *  face. Intended to be called from a room's draw callback between
+ *  kiln_scene_begin and kiln_actor_draw_all. */
 void kiln_map_draw(const KilnMap *m);
 
 #ifdef __cplusplus
