@@ -8,6 +8,14 @@
  * tools/forge/frg.py). Reordering silently reinterprets every level
  * already saved to an SD card. Append, or bump FRG_VERSION on both sides.
  *
+ * The EPAIR SLOT COUNT is a wire format too -- the same tail stores
+ * `u16 epair[FORGE_VOCAB_EPAIR_COUNT]` positionally. The KEY of a slot
+ * depends on the classname (that classname's own numeric epairs first,
+ * then the generic count/delay/speed), so the tables below are indexed
+ * by classname x slot rather than by slot alone. That
+ * is what makes info_key_door's required `key_id` reachable from a
+ * controller at all; it used to be three global keys for every class.
+ *
  * Tables live inside `static inline` accessors rather than at file scope:
  * a file-scope `static const` table in a header is unused in every TU that
  * does not touch it, and this tree compiles at -Werror under both gcc and
@@ -35,14 +43,66 @@ static inline const char *forge_vocab_classname(int i)
     return T[(i % FORGE_VOCAB_CLASSNAME_COUNT + FORGE_VOCAB_CLASSNAME_COUNT) % FORGE_VOCAB_CLASSNAME_COUNT];
 }
 
-static inline const char *forge_vocab_epair_key(int i)
+/* `c` is a classname index, `i` a slot 0..FORGE_VOCAB_EPAIR_COUNT-1.
+ * Both are wrapped rather than asserted: this header is included by
+ * forge_io.c's LOADER, which reads both out of a file on an SD card.
+ */
+static inline int forge_vocab_epair_slot(int c, int i)
 {
-    static const char *const T[FORGE_VOCAB_EPAIR_COUNT] = {
-        "count",
-        "delay",
-        "speed",
+    c = (c % FORGE_VOCAB_CLASSNAME_COUNT + FORGE_VOCAB_CLASSNAME_COUNT) % FORGE_VOCAB_CLASSNAME_COUNT;
+    i = (i % FORGE_VOCAB_EPAIR_COUNT + FORGE_VOCAB_EPAIR_COUNT) % FORGE_VOCAB_EPAIR_COUNT;
+    return c * FORGE_VOCAB_EPAIR_COUNT + i;
+}
+
+static inline const char *forge_vocab_epair_key(int c, int i)
+{
+    static const char *const T[FORGE_VOCAB_CLASSNAME_COUNT * FORGE_VOCAB_EPAIR_COUNT] = {
+        "count", "delay", "speed",  /* info_player_start */
+        "count", "delay", "speed",  /* info_enemy */
+        "count", "delay", "speed",  /* info_heavy */
+        "count", "delay", "speed",  /* info_health */
+        "count", "delay", "speed",  /* info_ammo */
+        "count", "delay", "speed",  /* info_armor */
+        "count", "delay", "speed",  /* info_npc */
+        "key_id", "count", "delay",  /* info_key_door */
     };
-    return T[(i % FORGE_VOCAB_EPAIR_COUNT + FORGE_VOCAB_EPAIR_COUNT) % FORGE_VOCAB_EPAIR_COUNT];
+    return T[forge_vocab_epair_slot(c, i)];
+}
+
+/* The value a freshly placed entity starts that slot at. A required
+ * epair seeded to 0 would be emitted as an authored 0 or omitted
+ * entirely -- both of which are the WARN this table exists to end. */
+static inline int forge_vocab_epair_default(int c, int i)
+{
+    static const short T[FORGE_VOCAB_CLASSNAME_COUNT * FORGE_VOCAB_EPAIR_COUNT] = {
+        0, 0, 0,  /* info_player_start */
+        0, 0, 0,  /* info_enemy */
+        0, 0, 0,  /* info_heavy */
+        0, 0, 0,  /* info_health */
+        0, 0, 0,  /* info_ammo */
+        0, 0, 0,  /* info_armor */
+        0, 0, 0,  /* info_npc */
+        1, 0, 0,  /* info_key_door */
+    };
+    return T[forge_vocab_epair_slot(c, i)];
+}
+
+/* Required epairs are written to the .map even at 0: the validator
+ * warns on ABSENCE, and an author who never touched the field is
+ * exactly the case that warning was firing on. */
+static inline int forge_vocab_epair_required(int c, int i)
+{
+    static const unsigned char T[FORGE_VOCAB_CLASSNAME_COUNT * FORGE_VOCAB_EPAIR_COUNT] = {
+        0, 0, 0,  /* info_player_start */
+        0, 0, 0,  /* info_enemy */
+        0, 0, 0,  /* info_heavy */
+        0, 0, 0,  /* info_health */
+        0, 0, 0,  /* info_ammo */
+        0, 0, 0,  /* info_armor */
+        0, 0, 0,  /* info_npc */
+        1, 0, 0,  /* info_key_door */
+    };
+    return T[forge_vocab_epair_slot(c, i)];
 }
 
 static inline const char *forge_vocab_face_name(int f)

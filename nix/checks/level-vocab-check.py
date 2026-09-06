@@ -117,18 +117,74 @@ for c in level_vocab.load()["classnames"]:
         check("default" in e, f"{c['name']}.{e['key']} has a default")
 
 # ── B6: Forge can author what the validator requires ───────────────────
+# The defect: ENT mode offered one GLOBAL count/delay/speed to every classname,
+# while mapfmt.analyse warns on a missing `key_id` for info_key_door. Neither
+# key was reachable from the console, so a level authored on hardware came back
+# through ./dev forge-pull carrying a warning nobody holding the controller
+# could act on.
+#
+# This used to filter the requirement down to `numeric` epairs, which quietly
+# excused every string one -- so the info_npc waiver could never fire and said
+# nothing. It now asks the honest question (is EVERY required epair of a
+# Forge-authorable classname reachable in ENT mode?) and a waiver has to carry
+# the real answer for the ones that are not.
 print("B6 Forge can author what the validator requires")
 waived = level_vocab.load().get("forge_waived", {})
-fkeys = set(level_vocab.forge_epair_keys())
 for name in level_vocab.forge_classnames():
-    reqs = [e for e in pal[name].get("epairs", [])
-            if e.get("required") and e.get("numeric")]
-    missing = [e["key"] for e in reqs if e["key"] not in fkeys]
+    slots = level_vocab.forge_epairs(name)
+    check(len(slots) == level_vocab.forge_epair_slots(),
+          f"{name} has {level_vocab.forge_epair_slots()} epair slots "
+          f"(the .FRG v2 tail stores exactly that many, positionally)")
+    keys = {s["key"] for s in slots}
+    missing = [e["key"] for e in pal[name].get("epairs", [])
+               if e.get("required") and e["key"] not in keys]
     if missing and name in waived:
         print(f"  waived {name}: {waived[name]}")
         continue
     check(not missing,
-          f"{name}'s required numeric epairs {missing} are authorable in ENT mode")
+          f"{name}'s required epairs {missing} are authorable in ENT mode")
+
+# Reachable is not enough. The warning fires on ABSENCE from the .map, so a
+# required slot an author never opened must still be WRITTEN -- which is why
+# forge_ent_emit's "omit a zero" rule has an exception and frg.py mirrors it.
+# Asserted end to end through the emitter rather than by reading the table,
+# because a correct table used incorrectly is the failure this whole phase is
+# for.
+print("   and reach the .map even when the author never opened the field")
+for i, name in enumerate(level_vocab.forge_classnames()):
+    req = [s["key"] for s in level_vocab.forge_epairs(name) if s["required"]]
+    if not req:
+        continue
+    text = frg.boxes_to_map([], ents=[{"pos": (0.0, 0.0, 0.0), "angle": 0,
+                                       "classname": i,
+                                       "epairs": [0] * level_vocab.forge_epair_slots()}],
+                            classnames=level_vocab.forge_classnames())
+    for k in req:
+        check(f'"{k}"' in text,
+              f"a freshly placed {name} emits {k} without being touched")
+    props = {kv[0]: kv[1] for kv in
+             re.findall(r'"([a-z_0-9]+)" "([^"]*)"', text)}
+    for k in req:
+        check(k in props, f"and mapfmt/validate.py sees {name}.{k} as present")
+
+# A waiver must name a classname that exists and actually needs one; a stale
+# one is worse than none, because it reads as a known limitation somebody is
+# tracking. info_key_door's waiver was deleted here when ENT mode grew per-
+# classname keys; info_npc's remains because `dialogue` is a string and a
+# u16 slot cannot carry one -- a numeric stand-in would satisfy the validator
+# and hand the game nothing to read, which is worse than the warning.
+print("   and no waiver outlives its defect")
+for wname, why in waived.items():
+    check(wname in pal, f"waived {wname} is a real classname")
+    check(bool(why and why.strip()), f"the {wname} waiver says why")
+    if wname in pal:
+        wkeys = ({s["key"] for s in level_vocab.forge_epairs(wname)}
+                 if wname in level_vocab.forge_classnames() else set())
+        still = [e["key"] for e in pal[wname].get("epairs", [])
+                 if e.get("required") and e["key"] not in wkeys]
+        check(bool(still),
+              f"the {wname} waiver is still load-bearing ({still}); a waiver "
+              f"for something already fixed should be deleted")
 
 print()
 if fails:

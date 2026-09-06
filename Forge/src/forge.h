@@ -85,7 +85,13 @@ typedef struct {
     int16_t   angle;                  /* degrees, as the .map "angle" epair */
     uint8_t   classname;              /* index into forge_ent_classname()   */
     uint8_t   _pad;
-    int32_t   epair[FORGE_EPAIRS];    /* 0 means "not set" and is omitted   */
+    /* Numeric epair slots. POSITIONAL on the wire (.FRG v2 stores
+     * u16 epair[FORGE_EPAIRS] per entity) but the KEY of a slot depends on
+     * the classname — forge_ent_epair_key(classname, slot). A slot whose key
+     * is `required` is written to the .map even at 0; an optional slot at 0
+     * is omitted, because kiln_dict_get_int's default and an explicit 0 are
+     * different intentions and only one of them was expressed. */
+    int32_t   epair[FORGE_EPAIRS];
 } ForgeEnt;
 
 /* ── LIGHT ─────────────────────────────────────────────────────────────*/
@@ -193,7 +199,10 @@ void forge_ent_draw(Forge *f);
 void forge_ent_draw3d(Forge *f);
 int  forge_ent_emit(const Forge *f, char *out, int cap);
 const char *forge_ent_classname(int i);
-const char *forge_ent_epair_key(int i);
+/* Slot `i` of classname index `cls`. Not a global list: info_key_door's
+ * required `key_id` is slot 0 for that classname and nowhere else. */
+const char *forge_ent_epair_key(int cls, int i);
+int         forge_ent_epair_required(int cls, int i);
 
 /* forge_light.c */
 void forge_light_update(Forge *f, const KilnInput *in);

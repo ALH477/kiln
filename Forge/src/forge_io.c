@@ -176,7 +176,19 @@ int forge_io_save(Forge *f)
 
     /* Entities. Positions as floats rather than block indices: an entity is a
      * point in the world, not a cell, and quantising it to the block grid on
-     * every save would walk it towards a corner one round trip at a time. */
+     * every save would walk it towards a corner one round trip at a time.
+     *
+     * The epair slots are POSITIONAL and their COUNT is the wire format; their
+     * KEYS are not stored, because they are a function of the classname that is
+     * stored one field earlier (forge_vocab_epair_key). That is why making the
+     * keys per-classname did NOT change the payload layout and FRG_VERSION
+     * stays 2 — a v2 file written before that change still decodes field for
+     * field. What it does change is what slot 0 MEANS for info_key_door: the
+     * byte that was an untouched `count` reads back as `key_id`. Nothing in
+     * this tree ever consumed `count`, the value is shown on the ENT panel
+     * under its new name, and the alternative — bumping the version — would
+     * make kiln_store_read refuse every level already on a card outright.
+     * Stated here rather than discovered: see forge_ent.c's header. */
     at = put_u16(g_frg, at, (uint16_t)f->ent_count);
     for (int i = 0; i < f->ent_count; i++) {
         const ForgeEnt *e = &f->ents[i];

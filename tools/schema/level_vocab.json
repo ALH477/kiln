@@ -7,14 +7,14 @@
     "entities": 64,
     "coord": 32767
   },
-  "forge_epair_keys": [
+  "forge_epair_slots": 3,
+  "forge_generic_epairs": [
     "count",
     "delay",
     "speed"
   ],
   "forge_waived": {
-    "info_npc": "ENT mode cannot author 'dialogue' (a string); its three epairs are numeric.",
-    "info_key_door": "ENT mode cannot author 'key_id' under that name; its keys are count/delay/speed."
+    "info_npc": "'dialogue' is a STRING and the console has no keyboard. A .FRG epair slot is a u16 and kiln_dict_set_auto types \"3\" as an int, so a numeric stand-in would satisfy the validator and still hand the game nothing to read. Author info_npc in tools/mapmaker or by hand."
   },
   "aabb_faces": [
     {
@@ -420,5 +420,6 @@
       ]
     }
   ],
-  "__epairs_note": "An epair with `required: true` is one the game cannot default; the validator warns when it is absent. info_droid/info_alien's are optional -- examples/cinematic-demo/main.c:182,215 supplies defaults -- so they are declared for the EDITOR's typed fields, not as a check."
+  "__epairs_note": "An epair with `required: true` is one the game cannot default; the validator warns when it is absent. info_droid/info_alien's are optional -- examples/cinematic-demo/main.c:182,215 supplies defaults -- so they are declared for the EDITOR's typed fields, not as a check.",
+  "__forge_epairs_note": "ENT mode gives every entity forge_epair_slots numeric slots. The KEY of a slot depends on the classname: that classname's own `numeric: true` epairs first, in declaration order, then forge_generic_epairs fills what is left. The slot COUNT is a wire format (.FRG v2 stores u16 epair[slots] positionally); the generator refuses a classname declaring more numeric epairs than there are slots, so growing one is a deliberate FRG_VERSION bump rather than an accident."
 }

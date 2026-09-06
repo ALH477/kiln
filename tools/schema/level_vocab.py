@@ -99,8 +99,57 @@ def forge_classnames():
     return [c["name"] for c in got]
 
 
-def forge_epair_keys():
-    return list(load()["forge_epair_keys"])
+def forge_epair_slots():
+    """How many numeric epair slots ENT mode gives an entity. A WIRE FORMAT:
+    the .FRG v2 tail stores `u16 epair[slots]` positionally, so changing this
+    number is an FRG_VERSION bump in Forge/src/forge_io.c and tools/forge/frg.py
+    together, not a schema tweak."""
+    return int(load()["forge_epair_slots"])
+
+
+def forge_generic_epairs():
+    """The untyped escape hatch -- count/delay/speed -- offered on any slot a
+    classname does not claim with a declared numeric epair of its own. Nothing
+    in the engine or the examples consumes them; they exist so a placement can
+    carry a number at all."""
+    return list(load()["forge_generic_epairs"])
+
+
+def forge_epairs(classname):
+    """The epair slots ENT mode offers for one classname, in slot order.
+
+    Exactly forge_epair_slots() entries of {key, default, required}. The
+    classname's own `numeric: true` epairs come FIRST, in declaration order --
+    that is the fix for the defect this function exists for: Forge used to offer
+    one global count/delay/speed to every classname, so info_key_door's required
+    `key_id` was unreachable from the console and a level authored on hardware
+    came back through ./dev forge-pull with a WARN nobody holding the controller
+    could act on.
+
+    A `numeric` epair is one a D-pad can author. `dialogue` (text), `mins`/`maxs`
+    (vec3) and the `select` forms are deliberately NOT here: see forge_waived.
+    """
+    slots = forge_epair_slots()
+    declared = [e for e in palette().get(classname, {}).get("epairs", [])
+                if e.get("numeric")]
+    if len(declared) > slots:
+        raise SystemExit(
+            f"level_vocab: {classname} declares {len(declared)} numeric epairs "
+            f"but Forge has {slots} slots. Widening forge_epair_slots changes "
+            f"the .FRG payload LAYOUT -- bump FRG_VERSION in "
+            f"Forge/src/forge_io.c and tools/forge/frg.py together, and keep a "
+            f"read path for the old one.")
+    out = [{"key": e["key"], "default": int(e.get("default") or 0),
+            "required": bool(e.get("required"))} for e in declared]
+    taken = {e["key"] for e in out}
+    for k in forge_generic_epairs():
+        if len(out) >= slots:
+            break
+        if k not in taken:
+            out.append({"key": k, "default": 0, "required": False})
+    while len(out) < slots:          # a short generic list is not a wire change
+        out.append({"key": "-", "default": 0, "required": False})
+    return out
 
 
 def aabb_face_table():
@@ -173,7 +222,8 @@ def emit_js():
 def emit_forge():
     d = load()
     cls = forge_classnames()
-    keys = forge_epair_keys()
+    slots = forge_epair_slots()
+    eps = [forge_epairs(c) for c in cls]
     out = ["/* SPDX-License-Identifier: MIT", " *"]
     out += [" * " + l for l in BANNER.split("\n")]
     out += [" *",
@@ -182,6 +232,14 @@ def emit_forge():
             " * tools/forge/frg.py). Reordering silently reinterprets every level",
             " * already saved to an SD card. Append, or bump FRG_VERSION on both sides.",
             " *",
+            " * The EPAIR SLOT COUNT is a wire format too -- the same tail stores",
+            " * `u16 epair[FORGE_VOCAB_EPAIR_COUNT]` positionally. The KEY of a slot",
+            " * depends on the classname (that classname's own numeric epairs first,",
+            " * then the generic count/delay/speed), so the tables below are indexed",
+            " * by classname x slot rather than by slot alone. That",
+            " * is what makes info_key_door's required `key_id` reachable from a",
+            " * controller at all; it used to be three global keys for every class.",
+            " *",
             " * Tables live inside `static inline` accessors rather than at file scope:",
             " * a file-scope `static const` table in a header is unused in every TU that",
             " * does not touch it, and this tree compiles at -Werror under both gcc and",
@@ -189,7 +247,7 @@ def emit_forge():
             " */",
             "#ifndef FORGE_VOCAB_GEN_H", "#define FORGE_VOCAB_GEN_H", "",
             f"#define FORGE_VOCAB_CLASSNAME_COUNT {len(cls)}",
-            f"#define FORGE_VOCAB_EPAIR_COUNT     {len(keys)}",
+            f"#define FORGE_VOCAB_EPAIR_COUNT     {slots}",
             f"#define FORGE_VOCAB_FACE_COUNT      {len(d['aabb_faces'])}", ""]
     out += ["static inline const char *forge_vocab_classname(int i)", "{",
             "    static const char *const T[FORGE_VOCAB_CLASSNAME_COUNT] = {"]
@@ -198,13 +256,45 @@ def emit_forge():
             "    return T[(i % FORGE_VOCAB_CLASSNAME_COUNT "
             "+ FORGE_VOCAB_CLASSNAME_COUNT) % FORGE_VOCAB_CLASSNAME_COUNT];",
             "}", ""]
-    out += ["static inline const char *forge_vocab_epair_key(int i)", "{",
-            "    static const char *const T[FORGE_VOCAB_EPAIR_COUNT] = {"]
-    out += [f'        "{k}",' for k in keys]
-    out += ["    };",
-            "    return T[(i % FORGE_VOCAB_EPAIR_COUNT "
-            "+ FORGE_VOCAB_EPAIR_COUNT) % FORGE_VOCAB_EPAIR_COUNT];",
-            "}", ""]
+    out += ["/* `c` is a classname index, `i` a slot 0..FORGE_VOCAB_EPAIR_COUNT-1.",
+            " * Both are wrapped rather than asserted: this header is included by",
+            " * forge_io.c's LOADER, which reads both out of a file on an SD card.",
+            " */",
+            "static inline int forge_vocab_epair_slot(int c, int i)", "{",
+            "    c = (c % FORGE_VOCAB_CLASSNAME_COUNT "
+            "+ FORGE_VOCAB_CLASSNAME_COUNT) % FORGE_VOCAB_CLASSNAME_COUNT;",
+            "    i = (i % FORGE_VOCAB_EPAIR_COUNT "
+            "+ FORGE_VOCAB_EPAIR_COUNT) % FORGE_VOCAB_EPAIR_COUNT;",
+            "    return c * FORGE_VOCAB_EPAIR_COUNT + i;", "}", ""]
+
+    def _flat(cfmt):
+        rows = []
+        for c, row in zip(cls, eps):
+            rows.append("        " + " ".join(cfmt(e) for e in row)
+                        + f"  /* {c} */")
+        return rows
+
+    out += ["static inline const char *forge_vocab_epair_key(int c, int i)", "{",
+            "    static const char *const T[FORGE_VOCAB_CLASSNAME_COUNT "
+            "* FORGE_VOCAB_EPAIR_COUNT] = {"]
+    out += _flat(lambda e: '"%s",' % e["key"])
+    out += ["    };", "    return T[forge_vocab_epair_slot(c, i)];", "}", "",
+            "/* The value a freshly placed entity starts that slot at. A required",
+            " * epair seeded to 0 would be emitted as an authored 0 or omitted",
+            " * entirely -- both of which are the WARN this table exists to end. */",
+            "static inline int forge_vocab_epair_default(int c, int i)", "{",
+            "    static const short T[FORGE_VOCAB_CLASSNAME_COUNT "
+            "* FORGE_VOCAB_EPAIR_COUNT] = {"]
+    out += _flat(lambda e: "%d," % e["default"])
+    out += ["    };", "    return T[forge_vocab_epair_slot(c, i)];", "}", "",
+            "/* Required epairs are written to the .map even at 0: the validator",
+            " * warns on ABSENCE, and an author who never touched the field is",
+            " * exactly the case that warning was firing on. */",
+            "static inline int forge_vocab_epair_required(int c, int i)", "{",
+            "    static const unsigned char T[FORGE_VOCAB_CLASSNAME_COUNT "
+            "* FORGE_VOCAB_EPAIR_COUNT] = {"]
+    out += _flat(lambda e: "%d," % int(e["required"]))
+    out += ["    };", "    return T[forge_vocab_epair_slot(c, i)];", "}", ""]
     out += ["static inline const char *forge_vocab_face_name(int f)", "{",
             "    static const char *const T[FORGE_VOCAB_FACE_COUNT] = {"]
     out += [f'        "{f["name"]}",' for f in d["aabb_faces"]]

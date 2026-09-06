@@ -37,7 +37,9 @@ says so rather than leaving it to be inferred from one sample):
                                --- v2 tail, all OPTIONAL ---
                                u16 ent_count, then per entity:
                                  f32 x,y,z | u16 angle | u8 classname
-                                 | 3 x u16 epair
+                                 | 3 x u16 epair   (POSITIONAL; the KEY of
+                                   each slot is a function of the classname
+                                   byte above it -- see forge_epairs())
                                light: f32 key_yaw, key_pitch, fill_yaw,
                                       fill_pitch | u8 key, fill, ambient,
                                       fog_on, clear_idx | f32 fog_near, fog_far
@@ -74,7 +76,26 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'schema'))
 import level_vocab  # noqa: E402
 
 FORGE_CLASSNAMES = level_vocab.forge_classnames()
-FORGE_EPAIR_KEYS = level_vocab.forge_epair_keys()
+FORGE_EPAIR_SLOTS = level_vocab.forge_epair_slots()
+
+
+def forge_epairs(cls_index):
+    """The epair slots for a classname INDEX, mirroring Forge's
+    forge_vocab_epair_key(cls, i). The keys are per-classname, not global:
+    info_key_door's slot 0 is `key_id` and everything else's is `count`. The
+    slot COUNT is what the wire format fixes; the keys are derived from the
+    classname byte stored beside them, which is why this was fixable without a
+    FRG_VERSION bump."""
+    if 0 <= cls_index < len(FORGE_CLASSNAMES):
+        return level_vocab.forge_epairs(FORGE_CLASSNAMES[cls_index])
+    return [{'key': k, 'default': 0, 'required': False}
+            for k in level_vocab.forge_generic_epairs()][:FORGE_EPAIR_SLOTS]
+
+
+def epair_dict(e):
+    """An entity's epairs as {key: value}, for `info` and `--json`."""
+    return {s['key']: v for s, v in zip(forge_epairs(e['classname']),
+                                        e['epairs'])}
 
 
 def _num(v):
@@ -130,10 +151,15 @@ def boxes_to_map(boxes, spawn=None, ents=None, classnames=None):
         out += ['{', f'"classname" "{name}"',
                 f'"origin" "{_num(x)} {_num(y)} {_num(z)}"',
                 f'"angle" "{e["angle"]}"']
-        # The three numeric epairs Forge ENT mode can author. Their KEYS live
-        # in Forge/src/forge_ent.c; see FORGE_EPAIR_KEYS below.
-        for k, v in zip(FORGE_EPAIR_KEYS, e['epairs']):
-            out.append(f'"{k}" "{v}"')
+        # The numeric epairs Forge ENT mode can author. Their keys come from
+        # tools/schema/level_vocab.json and depend on the classname. The
+        # emission rule mirrors Forge/src/forge_ent.c's forge_ent_emit exactly,
+        # because ./dev forge-pull compares the ROM's .MAP and this one byte
+        # for byte: a required epair is always written, an optional one only
+        # when non-zero.
+        for slot, v in zip(forge_epairs(cls), e['epairs']):
+            if v or slot['required']:
+                out.append(f'"{slot["key"]}" "{v}"')
         out.append('}')
     return '\n'.join(out) + '\n'
 
@@ -535,7 +561,7 @@ def _cmd_info(args):
                                if e['classname'] < len(FORGE_CLASSNAMES)
                                else e['classname']),
                  'pos': [round(v) for v in e['pos']], 'angle': e['angle'],
-                 'epairs': dict(zip(FORGE_EPAIR_KEYS, e['epairs']))}
+                 'epairs': epair_dict(e)}
                 for e in w.ents],
             'light': w.light is not None,
             'cam_keys': len(w.cam['keys']) if w.cam else 0,
@@ -555,7 +581,7 @@ def _cmd_info(args):
         name = (FORGE_CLASSNAMES[cls] if cls < len(FORGE_CLASSNAMES)
                 else f'#{cls}')
         print(f'  cls {name} at {tuple(round(v) for v in e["pos"])}'
-              f' ang {e["angle"]} epairs {dict(zip(FORGE_EPAIR_KEYS, e["epairs"]))}')
+              f' ang {e["angle"]} epairs {epair_dict(e)}')
     print(f'light       {"present" if w.light else "-"}')
     if w.cam:
         print(f'cam         {len(w.cam["keys"])} keys over '
@@ -725,6 +751,38 @@ def selftest():
     w5 = decode(encode(w4))
     ok(w5.ents == [] and w5.light is None and w5.cam is None,
        'a geometry-only file decodes with no tail, not a defaulted one')
+
+    # ── Per-classname epair keys ──────────────────────────────────────────
+    # The defect this replaced: ENT mode offered one global count/delay/speed,
+    # so info_key_door's REQUIRED `key_id` could not be authored on the console
+    # and every door pulled back off a card carried a warning nobody holding the
+    # controller could act on.
+    door = FORGE_CLASSNAMES.index('info_key_door')
+    ok(forge_epairs(door)[0]['key'] == 'key_id',
+       f"info_key_door's slot 0 is key_id (got {forge_epairs(door)[0]['key']})")
+    ok(forge_epairs(door)[0]['required'] and forge_epairs(door)[0]['default'] == 1,
+       'and it is required, defaulting to 1')
+    ok(forge_epairs(0)[0]['key'] == 'count',
+       'a classname with no numeric epairs keeps the generic escape hatch')
+    ok(all(len(forge_epairs(i)) == FORGE_EPAIR_SLOTS
+           for i in range(len(FORGE_CLASSNAMES))),
+       f'every classname has exactly {FORGE_EPAIR_SLOTS} slots -- the slot '
+       f'COUNT is the wire format, the keys are not')
+
+    # And the emission rule, which must match forge_ent_emit byte for byte: a
+    # required epair is written even at 0, an optional one only when non-zero.
+    dm = boxes_to_map([], ents=[{'pos': (0.0, 0.0, 0.0), 'angle': 0,
+                                'classname': door, 'epairs': [0, 0, 0]}],
+                      classnames=FORGE_CLASSNAMES)
+    ok('"key_id" "0"' in dm,
+       'a required epair is emitted even at 0 -- the validator warns on ABSENCE')
+    ok('"count"' not in dm,
+       'an untouched optional epair is still omitted')
+    dm2 = boxes_to_map([], ents=[{'pos': (0.0, 0.0, 0.0), 'angle': 0,
+                                  'classname': 0, 'epairs': [2, 0, 0]}],
+                       classnames=FORGE_CLASSNAMES)
+    ok('"count" "2"' in dm2 and 'key_id' not in dm2,
+       'and a non-door writes count, never key_id')
 
     # A brush off the block grid must WARN, not silently move.
     off = boxes_to_map([((5, 0, 0), (37, 32, 32), 1)])
