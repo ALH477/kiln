@@ -12,33 +12,36 @@
 # Madness its entire PLAY screen. Here the same mismatch prints the resolved
 # path.
 #
-# ── It found two defects in kiln_map, and pins both ───────────────────
-# 1. kiln_map_draw does not render the brush's FACES. A Quake .map gives three
+# ── It found three defects in kiln_map, and now pins their fix ────────
+# 1. kiln_map_draw did not render the brush's FACES. A Quake .map gives three
 #    points per face and those points define a PLANE — conventionally one unit
-#    apart, which is exactly what assets/quake_test.map uses. kiln_map.c:155
-#    treats them as face corners, so a 128-unit wall renders as a 1x2-unit
-#    patch at one corner. The check measures it: "face 0 spans 2 units on y;
-#    the brush spans 129".
+#    apart, which is exactly what assets/quake_test.map uses. kiln_map.c
+#    treated them as face corners, so a 128-unit wall rendered as a 1x2-unit
+#    patch at one corner. This check measured it: "face 0 spans 2 units on y;
+#    the brush spans 129". It now measures 128.
 #
-#    The correct algorithm is already in the repo, on the host side:
-#    tools/blender/quake_map.py intersects every triple of a brush's planes and
-#    keeps the candidates inside all the others. kiln_map.c does no
-#    intersection at all.
+# 2. t3d_vert_pack_normal's uint16_t was assigned into a uint8_t, discarding
+#    the x field and half of y. Three of six face normals came out zero.
 #
-# 2. kiln_map.c:164 assigns t3d_vert_pack_normal's uint16_t into a uint8_t,
-#    discarding the x field and half of y. Three of six face normals come out
-#    zero.
+# 3. Found only by fixing (1): the normal was INWARD. cross(p2-p1, p3-p1),
+#    where the Quake convention is cross(p3-p1, p2-p1) — quake_map.py's
+#    docstring settles the sign against the canonical axial cube. Every brush
+#    face in every level had its lighting negated, and nothing could report it
+#    while the faces were 1x2-unit patches nobody could see.
 #
-# What works is the AABB — componentwise min/max of the plane points — and that
-# is what every consumer actually uses: kiln_clip_set_world, kiln_room's brush
-# install, PLAY. Which is presumably why the rendering was never examined: the
-# geometry on screen comes from models, and the brushes are collision. Note the
-# AABB inherits the same off-by-one, so a -64..64 brush becomes a -64..65
-# collision box.
+# All three are fixed. kiln_map.c now ports tools/blender/quake_map.py's CSG:
+# intersect every triple of planes, keep the candidates inside all the others,
+# weld, order into a ring. The assertions below pin the CORRECT behaviour, and
+# include the one a "not zero" test would miss — exactly two faces carry a
+# non-zero x field in the packed 5.6.5 normal, which is the half-byte that
+# used to be discarded.
 #
-# Neither is fixed here. Real brush CSG is a geometry change that wants console
-# verification, and the reference capture is what makes the fix visible when it
-# lands: the check asserts today's behaviour and says so when it stops holding.
+# The AABB moved with it. It was the componentwise min/max of the plane POINTS,
+# so a -64..64 brush became a -64..65 collision box; it is now the true box
+# from the CSG vertices. An inside-out brush yields NO vertices, so kiln_map.c
+# keeps the plane-point box as a fallback and debugfs ./dev map-canon — without
+# that, a winding bug would become a brush with no collision, which reads as
+# "the player falls through the world".
 #
 # ── One body, every architecture ───────────────────────────────────────
 # Built by nix/host.nix's `target`: it supplies the compiler, the flags and

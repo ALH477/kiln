@@ -554,9 +554,11 @@ left out. Verified by `examples/clip-demo`, `examples/map-demo`,
 - **`kiln_map.h`** — idMapFile analogue. Parses the existing Quake `.map`
   text format (`assets/quake_test.map`, `assets/oot_test.map`). One-pass
   tokenizer: entity `{ "k" "v" ... <brushes> }`; brush blocks reduced to
-  AABB (componentwise min/max of plane points) + one parallelogram per
-  face. Non-axis-aligned faces render as parallelograms, not true polygons
-  — flagged as a known limit, fine for rectangular OoT-style rooms.
+  a real convex polygon per face, by intersecting every triple of the brush's
+  planes and keeping the candidates inside all the others — the same algorithm
+  `tools/blender/quake_map.py` uses. The AABB comes from those vertices, with
+  the old plane-point box as a fallback for a brush whose winding is inside-out
+  and which therefore yields no polygons at all.
   `classname` → `profile_id` via `kiln_map_register_classname`. One `.map`
   = one room for the demo; multi-room games load several `.map` files and
   connect them via `target_room` epairs later.
@@ -1153,29 +1155,40 @@ is ever going into a golden-image test.
   when nothing before `tools/blender/kiln_logo.py` had a front/back to get
   backwards. Settled by rendering all four quarter-turns through the host
   backend and looking, not by reasoning about axis conventions.
-- **`kiln_map_draw` does not render the brush's faces, and never has.** A Quake
-  `.map` gives three points per face, and those points define a **plane** —
-  conventionally one unit apart, which is exactly what `assets/quake_test.map`
-  uses. `kiln_map.c:155` treats them as face corners and builds the
-  parallelogram `p0,p1,p2,p0+p2-p1`, so a 128-unit wall renders as a **1×2-unit
-  patch at one corner**, six per brush. `nix/checks/kiln-map.nix` measures it:
-  *"face 0 spans 2 units on y; the brush spans 129"*.
-  The correct algorithm is already in this repo, on the host side —
-  `tools/blender/quake_map.py` intersects every triple of a brush's planes and
-  keeps the candidates inside all the others. `kiln_map.c` does no intersection
-  at all.
-  What DOES work is the AABB, componentwise min/max of the plane points, and
-  that is what every consumer actually uses: `kiln_clip_set_world`,
-  `kiln_room`'s brush install, PetaByte Madness' PLAY. Which is presumably why
-  the rendering was never examined — what you see on screen comes from models,
-  and the brushes are collision. The AABB inherits the same off-by-one, so a
-  −64..64 brush becomes a −64..**65** collision box.
-- **`kiln_map.c:165` truncates a packed normal to eight bits.**
-  `uint8_t np = t3d_vert_pack_normal(&n)` takes a `uint16_t` and discards the
-  whole x field plus half of y. Three of `quake_test.map`'s six faces come out
-  with `normA == 0`. The fix is one word; it is not applied yet because it
-  changes what the console shades and wants a look on hardware, and
-  `kiln-map`'s reference capture is what will make it visible when it lands.
+- **`kiln_map_draw` did not render the brush's faces, and for a long time
+  nobody could tell.** A Quake `.map` gives three points per face, and those
+  points define a **plane** — conventionally one unit apart, which is what
+  `assets/quake_test.map` uses. The old code treated them as face corners and
+  built the parallelogram `p0,p1,p2,p0+p2-p1`, so a 128-unit wall rendered as a
+  **1×2-unit patch at one corner**, six per brush. `nix/checks/kiln-map.nix`
+  measured it: *"face 0 spans 2 units on y; the brush spans 129"*.
+  **Fixed** — the algorithm was already in this repo on the host side, and
+  `kiln_map.c` now ports `tools/blender/quake_map.py` step for step: intersect
+  every triple of planes, keep candidates inside all the others, weld, order
+  into a ring. Two more defects fell out of doing it, and neither could have
+  been reported while the faces were invisible: the packed normal was assigned
+  into a `uint8_t` (discarding the x field and half of y), and the normal was
+  **inward** — `cross(p2-p1, p3-p1)` where the Quake convention, settled in
+  `quake_map.py`'s docstring against the canonical axial cube, is
+  `cross(p3-p1, p2-p1)`. Every brush face in every level had its lighting term
+  negated.
+  **The AABB changed too, and the fallback is the point.** It was the min/max
+  of the plane *points*, so every collision box was a unit oversized on
+  whichever axes the convention pushed outward — a −64..64 brush became
+  −64..**65**. It is now the true box from the CSG vertices. But an inside-out
+  brush yields **no** candidates (the reversed half-spaces intersect in the
+  empty set), so deriving it from CSG output alone would turn a rendering bug
+  into a brush with no collision, which reads as *"the player falls through the
+  world"*. `kiln_map.c` uses the true box when the CSG produced a solid, the
+  plane-point box when it did not, and `debugf`s `./dev map-canon` either way.
+  Two departures from the Python are deliberate and commented: the epsilons are
+  1/32 unit (the Python runs in double; a float carries ~1e-4 of slack at a
+  coordinate of 1024, so `1e-5` would reject a brush's own corners), and the
+  ring sort uses a diamond angle rather than `atan2f` — monotonic in `atan2`
+  and plain arithmetic, so the vertex ORDER is identical on every architecture
+  sharing one reference image.
+  Still true: the faces carry **no texture coordinates** and draw white.
+  `kiln_map` parses no UV data.
 
 - **`.t3dm` is three traps and a render will not find them all.** Writing the
   host reader turned up, in order of how quietly they fail:
@@ -1417,9 +1430,11 @@ from *a duplicated plane*, and `./dev map-canon` repairs each. `assets/hangar.ma
 was the third kind: five of its six brushes were not closed volumes at all,
 carrying a duplicated plane and no bounding pair on one axis.
 
-`assets/quake_test.map` is deliberately NOT canonicalised — it passes, and
-rewriting it would move its AABB from `-64..65` to `-64..64` and invalidate
-`refs/kiln-map.png` plus four pinned assertions.
+`assets/quake_test.map` is deliberately NOT canonicalised — it passes, and it
+is the file that still exercises the one-unit-apart plane-point convention, so
+it is the only place the parser's indifference to that convention is tested.
+(Its AABB *did* move from `-64..65` to `-64..64`, but by fixing `kiln_map.c`'s
+reduction rather than by rewriting the file — see the hard-won facts.)
 
 ## The headless level loop (tools/mapmaker/, tools/maprender/)
 
