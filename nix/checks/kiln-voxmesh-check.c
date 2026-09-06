@@ -5,32 +5,32 @@
  * colour combiners, and captures both.
  *
  * ── Why twice ─────────────────────────────────────────────────────────
- * Because the difference is a live defect in Forge, and this is what makes it
- * visible instead of arguable.
+ * Because the difference WAS a live defect in Forge, and this is what made it
+ * visible instead of arguable. The defect is fixed; the pair stays.
  *
  * kiln_voxmesh puts the BLOCK TYPE only into the atlas: type N takes tile N-1
  * and the UVs point at it (kiln_voxmesh.c:103-106). Vertex colour carries
  * nothing but per-face brightness — DIR_SHADE[dir], greyscale (:108). So the
  * atlas is the only thing that distinguishes one block type from another.
  *
- * Forge sets T3D_FLAG_TEXTURED (forge_geo.c:27), which makes the RSP emit
- * texture coordinates. But the COMBINER is whatever kiln_scene_begin left, and
- * that is RDPQ_COMBINER_SHADE (kiln_engine.c:126) — output = vertex colour,
- * texel discarded. Nothing in Forge/src sets a combiner at all, and Tiny3D's
- * t3d_state_set_drawflags does not either (it only encodes the RSP triangle
- * command, t3d.c:300).
+ * Forge sets T3D_FLAG_TEXTURED, which makes the RSP emit texture coordinates —
+ * but the COMBINER is what decides whether the texel survives, and Tiny3D's
+ * t3d_state_set_drawflags does not touch it (it only encodes the RSP triangle
+ * command, t3d.c:300). For a long time nothing in Forge/src set one either, so
+ * kiln_scene_begin's RDPQ_COMBINER_SHADE (kiln_engine.c:126) stood: output =
+ * vertex colour, texel discarded. Every one of Forge's fifteen block types
+ * drew the same grey, PAINT mode's atlas never reached the screen, and `Z`'s
+ * veiled-palette preview could not change the geometry it was previewing.
  *
- * So on console every one of Forge's fifteen block types draws the same grey,
- * PAINT mode's atlas never reaches the screen, and `Z`'s veiled-palette
- * preview cannot change the geometry. The two captures here are that claim,
- * rendered: `-shade` is what Forge draws today, `-texshade` is what it would
- * draw with one combiner call added.
+ * Forge's begin_voxel_state now sets RDPQ_COMBINER_TEX_SHADE, so `-texshade`
+ * is what the editor draws and `-shade` is kept as the counter-example.
  *
- * The fix belongs in Forge, not here: kiln_voxmesh_draw's own comment says
- * "Sets NO render state: the caller has already chosen the combiner", so the
- * engine is behaving as designed and the caller is the one omitting it. It
- * also wants looking at on hardware before being believed, which is why this
- * check demonstrates rather than changes.
+ * ── What this body can and cannot see ─────────────────────────────────
+ * It sets both combiners ITSELF and never compiles or reads Forge, so it pins
+ * what the two combiners DO and is blind to which one Forge picks. Removing
+ * the call from begin_voxel_state leaves every capture here matching while the
+ * editor goes back to grey. kiln-voxmesh.nix greps forge_geo.c for exactly
+ * that reason — the assertion the pixels cannot make.
  */
 #include <kiln_voxel.h>
 #include <kiln_voxmesh.h>

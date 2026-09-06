@@ -1359,6 +1359,7 @@
           };
           kiln-voxmesh-wasm32 = import ./nix/checks/kiln-voxmesh.nix {
             inherit pkgs; target = hostWasm;
+            forgeSrc = ./Forge/src;
           };
           # kiln_widget's screens, rendered through the same host backend and
           # diffed against their committed captures.
@@ -1372,9 +1373,13 @@
             inherit pkgs; target = hostNative;
           };
           # A real voxel mesh rendered with two combiners, which is how the
-          # atlas-never-sampled defect became visible instead of arguable.
+          # atlas-never-sampled defect became visible instead of arguable —
+          # and, since it is fixed, greps forge_geo.c so the caller's choice is
+          # asserted too. The captures alone cannot see which combiner Forge
+          # picks, because this check sets both of them itself.
           kiln-voxmesh = import ./nix/checks/kiln-voxmesh.nix {
             inherit pkgs; target = hostNative;
+            forgeSrc = ./Forge/src;
           };
           # A real .t3dm, converted by the same gltf_to_t3d the ROM uses,
           # parsed and rendered by the host reader.

@@ -814,24 +814,29 @@ a corridor.
   CI4 + TLUT is the format the veil is built on, so a Forge level is
   veil-capable by construction. The 16-colour palette is also why block types
   cap at 15.
-- **…but the atlas is not currently reaching the screen, and every block type
-  draws the same grey.** `kiln_voxmesh` puts the block TYPE only in the UVs
-  (`:103-106`); vertex colour is `DIR_SHADE[dir]`, greyscale per-face
-  brightness, carrying no type at all (`:108`). `forge_geo.c:27` sets
-  `T3D_FLAG_TEXTURED`, so the RSP emits texture coordinates — but the
-  **combiner** decides whether the texel survives, and it is
-  `RDPQ_COMBINER_SHADE` from `kiln_scene_begin` (`kiln_engine.c:126`), which
-  outputs vertex colour and discards the texel. Tiny3D's
-  `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`), and
-  nothing in `Forge/src` sets one. So PAINT mode's authored palette never
-  appears, and `Z`'s veiled preview cannot change the geometry it is previewing.
-  `nix/checks/kiln-voxmesh.nix` renders it both ways and its two committed
-  captures are the before and after: ~83,000 texels sampled and thrown away in
-  one frame. **The fix is one `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)` in
-  Forge**, not the engine — `kiln_voxmesh_draw`'s own comment says "Sets NO
-  render state: the caller has already chosen the combiner" — and whether the
-  palettes still read once it lands is a judgement about a CRT that only
-  hardware settles.
+- **The atlas reaches the screen now, and it took a combiner to get there.**
+  `kiln_voxmesh` puts the block TYPE only in the UVs (`:103-106`); vertex colour
+  is `DIR_SHADE[dir]`, greyscale per-face brightness carrying no type at all
+  (`:108`). `forge_geo.c` sets `T3D_FLAG_TEXTURED`, so the RSP emits texture
+  coordinates — but the **combiner** decides whether the texel survives, and for
+  a long time it was `RDPQ_COMBINER_SHADE` from `kiln_scene_begin`
+  (`kiln_engine.c:126`), which outputs vertex colour and discards the texel.
+  Tiny3D's `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`)
+  and nothing in `Forge/src` set one. So PAINT mode's authored palette never
+  appeared and `Z`'s veiled preview could not change the geometry it was
+  previewing — ~83,000 texels sampled and thrown away in one frame.
+  `begin_voxel_state` now sets `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)`,
+  **in Forge and not the engine**, because `kiln_voxmesh_draw`'s own comment
+  says "Sets NO render state: the caller has already chosen the combiner" and
+  `SHADE` is right as the engine's untextured default. The atlas bind follows
+  `Z` too, so the veiled preview finally previews something. Nothing restores
+  it: `kiln_gui_begin`'s `rdpq_set_mode_standard` resets combiner, SOM and TLUT
+  wholesale, and `kiln_scene_begin` re-arms `SHADE` next frame.
+  `nix/checks/kiln-voxmesh.nix` keeps both captures — `-shade` is now the
+  counter-example rather than the status quo — and **greps `forge_geo.c`**,
+  because it sets both combiners itself and so the pixels alone cannot tell
+  which one Forge picks. Whether the palettes still read once the veil discards
+  hue is still a judgement only hardware settles.
 - **WALK mode installs the greedy boxes and hands the pad to the real
   `kiln_fpscam`**, so a doorway's width is judged by walking through it. It
   leaves `kiln_clip`'s broadphase **off** on purpose: the grid is 16×16 in XZ with
