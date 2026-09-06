@@ -173,8 +173,11 @@ void forge_light_draw(Forge *f)
         kiln_gui_text(6, 84 + i * 10, i == f->light_field ? hot : dim,
                      "%c %-11s %s", i == f->light_field ? '>' : ' ',
                      NAMES[i], val[i]);
-    kiln_gui_text(6, 84 + FORGE_LIGHT_FIELDS * 10 + 4, dim,
-                 "C-ud field dpad edit A fog R clear");
+    /* No help line here: forge_hud.c prints the per-mode help for every mode
+     * at the bottom of the screen, and this printed the same six bindings a
+     * second time, higher up. Two copies of one string is two things to keep
+     * in step with Forge/src/forge_binds.def, and the panel is more useful
+     * showing the values than repeating the controls. */
 }
 
 void forge_light_draw3d(Forge *f)

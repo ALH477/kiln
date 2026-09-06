@@ -44,7 +44,11 @@
 pkgs.runCommand "check-blender-tests"
 {
   nativeBuildInputs = [ pkgs.python3 ];
-  blenderDir = ../../tools/blender;
+  # The whole tools/ tree, not just tools/blender: test_quake_map.py asserts
+  # that mapfmt.py, frg.py and the schema all state ONE face table, which it
+  # can only do by importing all three. Same wholesale-copy convention
+  # mapmaker-roundtrip.nix and forge-roundtrip.nix already use.
+  toolsDir = ../../tools;
   meta.description = "tools/blender's bpy-free builder tests all pass";
 }
   ''
@@ -53,8 +57,9 @@ pkgs.runCommand "check-blender-tests"
 
     # Copied out of the store because the tests write nothing but Python does
     # want to sit somewhere it can create __pycache__ without failing.
-    cp -rL "$blenderDir" ./blender
-    chmod -R u+w ./blender
+    cp -rL "$toolsDir" ./tools
+    chmod -R u+w ./tools
+    ln -s ./tools/blender ./blender
 
     # The naming contract, checked first so the diagnosis arrives before the
     # bare ModuleNotFoundError the run loop would otherwise produce.
@@ -76,9 +81,9 @@ pkgs.runCommand "check-blender-tests"
       n=$((n + 1))
     done
 
-    if [ "$n" -lt 3 ]; then
+    if [ "$n" -lt 4 ]; then
       echo "FAIL: only $n bpy-free test(s) ran; tools/blender should have at" \
-           "least three (goblins, objkit, prims) now that the PetaByte" \
+           "least four (goblins, objkit, prims, quake_map) now that the PetaByte" \
            "Madness- and Ganja-Goblin-specific ones (env, props, world," \
            "vehicles, rider) have moved to those games' own repos. A glob" \
            "that matches nothing makes the loop above a no-op and this" \

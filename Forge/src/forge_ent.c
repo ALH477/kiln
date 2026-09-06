@@ -23,34 +23,29 @@
  */
 #include <stdio.h>
 #include "forge.h"
+#include "forge_vocab.gen.h"
 
 /* Mirrors tools/mapmaker/src/entity.js's KNOWN_CLASSNAMES (ENTITY_PALETTE) and
  * the `info_*` vocabulary the engine's own examples register via
  * kiln_map_register_classname — examples/fps/main.c registers the widest set.
  * Kept short deliberately: a picker is only better than typing while it is
  * short enough to cycle. */
-static const char *const CLASSNAMES[FORGE_CLASSNAMES] = {
-    "info_player_start",
-    "info_enemy",
-    "info_heavy",
-    "info_health",
-    "info_ammo",
-    "info_armor",
-    "info_npc",
-    "info_key_door",
-};
-
-/* The numeric epairs an entity can carry. Names, not indices, because the .map
- * carries a name and kiln_dict interns it — an index would have to agree with a
- * table in the consuming game, which is the drift this avoids. */
-static const char *const EPAIR_KEYS[FORGE_EPAIRS] = { "count", "delay", "speed" };
+/* Both tables are GENERATED into forge_vocab.gen.h from
+ * tools/schema/level_vocab.json. They used to be written here, with a comment
+ * claiming to mirror tools/mapmaker/src/entity.js -- which held 13 classnames
+ * to this file's 8, and a completely different epair vocabulary. Nothing
+ * compared them.
+ *
+ * The classname ORDER is a wire format: the .FRG v2 tail stores `u8 classname`
+ * as an index into it. The schema's forge_index is explicit and append-only
+ * for exactly that reason. */
 
 const char *forge_ent_classname(int i)
 {
-    return CLASSNAMES[(i % FORGE_CLASSNAMES + FORGE_CLASSNAMES) % FORGE_CLASSNAMES];
+    return forge_vocab_classname(i);
 }
 
-const char *forge_ent_epair_key(int i) { return EPAIR_KEYS[i % FORGE_EPAIRS]; }
+const char *forge_ent_epair_key(int i) { return forge_vocab_epair_key(i); }
 
 /* Nearest entity to a world position, within one block. Used to select what the
  * reticle is over, because entities are points and a point cannot be raycast
@@ -123,13 +118,20 @@ void forge_ent_update(Forge *f, const KilnInput *in)
     if (in->edges & KILN_BTN_DL)
         f->ent_class = (f->ent_class + FORGE_CLASSNAMES - 1) % FORGE_CLASSNAMES;
 
-    /* Edit the selected entity's epairs. C-up/down picks the key, R/Z step the
-     * value — R up, Z down, because they are the two buttons not already spoken
-     * for in this mode and a value editor needs a pair. */
+    /* Edit the selected entity's epairs. D-pad up/down picks the key, R/Z step
+     * the value — R up, Z down, because they are the two buttons not already
+     * spoken for in this mode and a value editor needs a pair.
+     *
+     * The key used to be on C-up/down, which forge_cam_update reads on the
+     * SAME frame to pitch the camera (forge_cam.c:71-72, on `buttons` where
+     * this is on `edges`). Both run in ENT, so there was no way to look up
+     * without also changing the selected field. D-pad up/down is genuinely
+     * free here: forge_cam.c only binds it in GEO, where A/B are the edit
+     * buttons and vertical movement has nowhere else to go. */
     if (f->ent_sel >= 0 && f->ent_sel < f->ent_count) {
         ForgeEnt *e = &f->ents[f->ent_sel];
-        if (in->edges & KILN_BTN_CU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
-        if (in->edges & KILN_BTN_CD)
+        if (in->edges & KILN_BTN_DU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
+        if (in->edges & KILN_BTN_DD)
             f->ent_field = (f->ent_field + FORGE_EPAIRS - 1) % FORGE_EPAIRS;
         if (in->edges & KILN_BTN_R) e->epair[f->ent_field]++;
         if (in->edges & KILN_BTN_Z && e->epair[f->ent_field] > 0)

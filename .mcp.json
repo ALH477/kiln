@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kiln": {
+      "command": "nix",
+      "args": ["run", ".#blender-mcp"]
+    }
+  }
+}

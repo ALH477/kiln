@@ -7,16 +7,27 @@ You are in the **engine** repo (libkiln + Nix + `./dev`). Games are siblings, no
 1. `./dev help` — the CLI. Build/run/shot/drive/check/cheap/doctor/forge/poser live here.
 2. Prefer a **jump ROM** over `./dev drive` for one screen or mode. Drive's uinput→SDL→ares chain is fragile; `./dev shot` has no input path. See `.claude/skills/n64-verify/SKILL.md`.
 3. Visual/geometry/animation work: **read** `.claude/skills/n64-verify/SKILL.md`, `n64-modeling/SKILL.md`, `n64-animation/SKILL.md`, `n64-forge/SKILL.md` with the file tool. They are not Hermes-installed skills.
-4. Fast gates (no ROM): `./dev cheap`
-5. To just *play* it: `./dev pc` (native window) or `./dev web --serve`
+4. Fast gates (no ROM): `./dev cheap` — ~7 s, and it now covers the `.map` path.
+5. **Level work has a headless loop; use it rather than writing `.map` text.**
+   `./dev map-emit spec.json out.map` authors from JSON, `./dev map-dump` reads a
+   level back as JSON, `./dev map-validate --json` checks it, and
+   `./dev map-render <file.map> out.png` DRAWS it with the real engine — no ROM,
+   no emulator, no compositor. Hand-written `.map` text gets the brush winding
+   wrong, which loads fine on console and yields zero geometry through the CSG;
+   that is how six of this repo's seven `.map` files were broken.
+   `./dev map-canon` repairs one.
+6. To just *play* it: `./dev pc` (native window) or `./dev web --serve`
    (browser). Both run the real engine — no emulator, no ROM.
-5. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
+7. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
 
 ## Do not
 
 - `nix flake check` or a full ROM build unless asked.
 - Push to `origin` (`github.com/ALH477/kiln.git`) unless asked.
 - Reintroduce the name `M64` as an engine identifier (`nix/checks/kiln-names.nix`).
+- Hand-edit a `*.gen.*` file, or restate the level vocabulary. Classnames,
+  epairs, the engine's limits and the brush winding all come from
+  `tools/schema/level_vocab.json`; `nix/checks/level-vocab.nix` fails on drift.
 - Trust emulator audio. Validate audio on hardware.
 - Type a dimension into C that a generator already emits. See n64-modeling.
 - Give the host launcher its own renderer, or bless a per-architecture

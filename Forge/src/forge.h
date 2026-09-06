@@ -73,8 +73,12 @@ typedef enum {
  * than picking a round number means the editor cannot author a level the parser
  * will silently truncate — kiln_map.c drops spawns past its cap without a word. */
 #define FORGE_MAX_ENTS    64
-#define FORGE_CLASSNAMES   8
-#define FORGE_EPAIRS       3
+/* Both counts come from the generated vocabulary, so adding a classname to
+ * tools/schema/level_vocab.json is one edit rather than one edit plus
+ * remembering this file. */
+#include "forge_vocab.gen.h"
+#define FORGE_CLASSNAMES   FORGE_VOCAB_CLASSNAME_COUNT
+#define FORGE_EPAIRS       FORGE_VOCAB_EPAIR_COUNT
 
 typedef struct {
     fm_vec3_t pos;

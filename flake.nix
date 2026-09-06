@@ -434,15 +434,16 @@
         # a single 6-plane cube brush, the same content
         # tools/blender-mcp/server.py's own inspect/import tools were checked
         # against before this Nix wiring was written.
-        # FPS level: a larger Quake .map with multiple enemies, loaded at
-        # runtime via kiln_map (same raw-asset path as ootMap / hangarMap).
-        fpsMap = assetLib.mkRawAsset {
-          name = "fps-level-map";
-          src = ./assets/fps_level.map;
-          dest = "maps";
-          extension = "map";
-          compress = 0;
-        };
+        # assets/fps_level.map has NO builder here on purpose. It used to have
+        # one named "fps-level-map", which — because an asset builder's `name`
+        # IS the filename the ROM opens — would have shipped as
+        # rom:/maps/fps-level-map.map, a path nothing asks for.
+        # examples/fps/main.c only ever loads "rom:/maps/fps_room%d.map". The
+        # derivation was also referenced by no ROM's `assets` list, so it never
+        # shipped at all: a dead builder for an unreachable name.
+        # The .map itself is kept as standalone content — it validates, and
+        # `./dev map-render assets/fps_level.map` draws it. If a ROM ever wants
+        # it, add the builder back with name = "fps_level" and open that path.
         # Per-room maps for the multi-room streaming FPS.
         fpsRoom0 = assetLib.mkRawAsset {
           name = "fps_room0";
@@ -894,7 +895,11 @@
         # which would put content nobody authored into every level anyone
         # imported. So the demo content has exactly ONE author (forge_io_seed),
         # and `.#forge-dfs` still covers the load path it is there to cover.
-        forgeModes = [ "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
+        # GEO is Forge's default boot mode, so `.#forge` already IS the GEO ROM --
+        # but nothing said so, and CLAUDE.md claimed each of the six modes had a
+        # jump ROM. `.#forge-geo` now exists so the claim is true and so the set
+        # is uniform to anyone scripting over it.
+        forgeModes = [ "GEO" "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
         forgeModeRoms = pkgs.lib.listToAttrs (map
           (m: pkgs.lib.nameValuePair "forge-${pkgs.lib.toLower m}" (mkN64Rom {
             name = "forge-${pkgs.lib.toLower m}";
@@ -982,12 +987,17 @@
         # ever be exercised on hardware. Generated from a committed .map by the
         # same host tool `./dev forge-push` uses, so this is not a special export:
         # it is the file the card would hold.
+        # The whole tools/ tree, not just frg.py: it imports
+        # tools/schema/level_vocab.py for the classname table and the face
+        # winding, which it used to state itself. A lone ${./tools/forge/frg.py}
+        # lands in the store with no siblings and the import fails.
         forgeSeedFrg = pkgs.runCommand "forge-seed-frg"
           { nativeBuildInputs = [ pkgs.python3 ]; }
           ''
             mkdir -p $out
-            python3 ${./tools/forge/frg.py} frommap ${./assets/oot_test.map} \
-                    $out/LEVEL.frg
+            cp -r ${./tools} tools && chmod -R u+w tools
+            PYTHONDONTWRITEBYTECODE=1 python3 tools/forge/frg.py \
+                    frommap ${./assets/oot_test.map} $out/LEVEL.frg
           '';
 
         # compress = 0 because kiln_store reads this with a plain fopen, not
@@ -1031,6 +1041,17 @@
             pname = "kiln-engine-demo";
             sources = [ ./examples/engine/main.c ];
             meta.description = "engine-demo, playable in a browser";
+          };
+
+          # `./dev map-render` — a level, through the real kiln_map.c, drawn by
+          # the real engine, with no ROM and no compositor. Shares its whole
+          # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to
+          # the same reference image. See tools/maprender/map_render.h.
+          map-render = hostNative.mkProgram {
+            pname = "maprender";
+            sources = [ ./tools/maprender/main.c ./tools/maprender/map_render.c ];
+            extraCFlags = [ "-I${./tools/maprender}" ];
+            meta.description = "render a .map on the host, no ROM";
           };
 
           # The host tier's own artefacts, per architecture. The cross pair
@@ -1331,6 +1352,7 @@
           kiln-map-wasm32 = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostWasm;
             mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
           };
           kiln-splash-wasm32 = import ./nix/checks/kiln-splash.nix {
             inherit pkgs n64Inst kilnLogo; target = hostWasm;
@@ -1370,6 +1392,26 @@
           kiln-map = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
+          };
+          # The same body as kiln-map, run as the TOOL an author points at
+          # arbitrary content, held to the SAME reference image. If either
+          # main() starts drawing, this fails — which is the only thing making
+          # "one renderer, one framing" a fact rather than a convention.
+          # The level vocabulary has one statement, and it means what it says.
+          # Six hand-kept copies before this; see the check's header.
+          level-vocab = import ./nix/checks/level-vocab.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+            engineSrc = ./engine/src;
+            forgeSrc = ./Forge/src;
+            examplesDir = ./examples;
+            mapmakerSrc = ./tools/mapmaker/src;
+          };
+          kiln-maprender = import ./nix/checks/kiln-maprender.nix {
+            inherit pkgs; target = hostNative;
+            mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
           };
           # The launcher runs the real examples/engine/main.c game loop for
           # ninety frames under SDL's dummy drivers. See the check's header
@@ -1496,6 +1538,38 @@
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-map-validate" ''
               exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/validate.py" "$@"
+            '');
+          };
+          # mapgen — the headless half of tools/mapmaker/. The browser editor
+          # can only hand a file to a human through a download, so anything
+          # without a browser (a build script, a test, an agent) had no way to
+          # author a level at all and had to hand-write Quake text, which is
+          # how six of the seven committed .map files ended up inside-out.
+          # Same dialect as the editor: both go through tools/mapmaker/mapfmt.py.
+          mapgen = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-mapgen" ''
+              exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/mapgen.py" "$@"
+            '');
+          };
+          # map-render resolves its argument under $KILN_HOST_DFS, which is a
+          # DIRECTORY root (host_io.c's resolve() strips "rom:/" and any
+          # leading slash), so the file's own directory becomes the root and
+          # the basename is what gets opened. Pure parameter expansion, not
+          # dirname/basename: writeShellScript sets no PATH, so coreutils is
+          # whatever the caller happens to have. No `cd`, so a relative out.png
+          # lands where the user typed it rather than beside the map.
+          map-render = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-map-render" ''
+              map="''${1:?usage: map-render <file.map> [out.png]}"
+              png="''${2:-map.png}"
+              case "$map" in
+                */*) dir="''${map%/*}"; base="''${map##*/}" ;;
+                *)   dir="."; base="$map" ;;
+              esac
+              exec env KILN_HOST_DFS="$dir" \
+                ${self.packages.${system}.map-render}/bin/maprender "$base" "$png"
             '');
           };
           # tools/blender-mcp/'s MCP server. The `mcp` package comes from

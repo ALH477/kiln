@@ -46,11 +46,12 @@
 # and nothing about how to compile it. The same body runs under wasm32
 # against the SAME reference files — flake.nix declares that variant as
 # `<name>-wasm32`; `./dev arch <target>` runs it on the others.
-{ pkgs, target, mapAsset }:
+{ pkgs, target, mapAsset, mapRenderSrc }:
 
 target.mkCheck {
   pname = "mapcheck";
-  sources = [ ./kiln-map-check.c ];
+  sources = [ ./kiln-map-check.c "${mapRenderSrc}/map_render.c" ];
+  extraCFlags = [ "-I${mapRenderSrc}" ];
   args = "rom:/quake_test.map out.png";
   env = "KILN_HOST_DFS=fs";
   meta.description = "a real .map loads off the host VFS, collides, and renders";

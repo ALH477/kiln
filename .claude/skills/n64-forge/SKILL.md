@@ -66,7 +66,7 @@ probe must report *no writable backend* under an emulator.
 ## 2. The loop
 
 ```bash
-nix build .#forge && cp -L result/forge.z64 /run/media/$USER/ED64/   # once
+nix build .#forge && cp -L result/forge.z64 "$(./dev forge-card)/"   # once
 ./dev forge-push assets/oot_test.map          # seed a level onto the card
 #   ... boot on the N64, build, press START ...
 ./dev forge-pull                              # -> assets/ + the validator
@@ -93,22 +93,63 @@ worth investigating.
 ## 3. Six modes, and the controls
 
 `L+R` cycles, in the order you work in: block it out, walk it, texture it, dress
-it, light it, shoot it. Every mode has a jump ROM — `nix build .#forge-walk`,
-`.#forge-paint`, `.#forge-ent`, `.#forge-light`, `.#forge-cam` — because
-`./dev shot` has no input path at all and `./dev drive`'s chain is fragile, so a
-mode reached only by a chord is a mode verified only by hand.
+it, light it, shoot it. Every mode has a jump ROM — `nix build .#forge-geo`,
+`.#forge-walk`, `.#forge-paint`, `.#forge-ent`, `.#forge-light`, `.#forge-cam` —
+because `./dev shot` has no input path at all and `./dev drive`'s chain is
+fragile, so a mode reached only by a chord is a mode verified only by hand.
+(`.#forge-geo` is new; GEO is Forge's default boot mode, so `.#forge` is the
+same ROM, but the set is uniform now.)
 
-| | GEO | WALK | PAINT | ENT | LIGHT | CAM |
-|---|---|---|---|---|---|---|
-| stick | fly | walk | — | fly | — | fly |
-| C-stick / C-buttons | look | look | col / tile | look | field | look |
-| `A` | place | — | draw | place | fog on/off | drop a key |
-| `B` | dig | — | pick colour | remove | — | delete key |
-| `Z` | +`A` fill | — | preview **veiled** | value down | — | play (held) |
-| `R` | sprint | run | flood tile | value up | clear colour | +1 s duration |
-| `D-pad` | type / rise-fall | — | texel cursor | classname | edit the field | scrub / key step |
-| `L`+`R` | mode | mode | mode | mode | mode | mode |
-| `START` | save | save | save | save | save | save |
+**This table is GENERATED from `Forge/src/forge_binds.def`** —
+`python3 tools/forge/gen_binds.py`. It used to be written here by hand and was
+wrong in five ways, the worst being `Z`+`A` to fill: `forge_geo.c` anchors on Z
+**press** and fills on Z **release**, and suppresses `A` for the whole drag, so
+the documented button did nothing. `forge_hud.c`'s in-ROM help said the same
+thing, which is where it was copied from.
+
+| mode | control | does |
+|---|---|---|
+| GEO | `A` | put |
+|  | `B` | dig |
+|  | `Z` | drag-fill (press anchors, release fills) |
+|  | `L` | pick the aimed block type |
+|  | `dpad-lr` | block type |
+|  | `dpad-ud` | rise/fall |
+|  | `stick` | fly |
+|  | `C-stick` | look |
+|  | `R` | sprint |
+| WALK | `stick` | walk |
+|  | `C-stick` | look |
+|  | `R` | run |
+| PAINT | `dpad` | texel cursor |
+|  | `A` | draw (held) |
+|  | `B` | pick colour |
+|  | `C-lr` | colour |
+|  | `C-ud` | tile |
+|  | `R` | flood tile |
+|  | `Z` | veiled preview (held) |
+| ENT | `A` | place/move |
+|  | `B` | remove |
+|  | `dpad-lr` | classname |
+|  | `dpad-ud` | epair field |
+|  | `R` | epair + |
+|  | `Z` | epair - |
+|  | `stick` | fly |
+|  | `C-stick` | look |
+| LIGHT | `C-ud` | field |
+|  | `dpad` | edit |
+|  | `A` | fog on/off |
+|  | `R` | clear colour |
+| CAM | `A` | insert key |
+|  | `B` | delete key |
+|  | `Z` | play (held) |
+|  | `dpad-lr` | scrub |
+|  | `dpad-ud` | key step |
+|  | `R` | duration +1s |
+|  | `L` | duration -1s |
+|  | `stick` | fly (not while playing) |
+| every mode | `L+R` | next mode |
+|  | `START` | save |
 
 **PAINT and LIGHT deliberately do not move the camera.** The D-pad is a texel
 cursor or a light aim, and holding the view still is what makes the judgement

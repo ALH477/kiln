@@ -13,11 +13,18 @@
 #include <malloc.h>
 #include <float.h>
 
-#define MAX_CLASSNAMES 32
-#define MAX_BRUSHES    256
-#define MAX_FACES      (MAX_BRUSHES * 6)
-#define MAX_SPAWNS     64
-#define MAX_ENTITIES   64
+/* The capacities come from kiln_levelvocab.h, which is generated from
+ * tools/schema/level_vocab.json — the same numbers tools/mapmaker/validate.py
+ * reports a level against. They used to be typed here and typed again there,
+ * and nothing compared them. The short local names are kept so the rest of
+ * this file is untouched. */
+#include "kiln_levelvocab.h"
+
+#define MAX_CLASSNAMES KILN_LEVEL_MAX_CLASSNAMES
+#define MAX_BRUSHES    KILN_LEVEL_MAX_BRUSHES
+#define MAX_FACES      KILN_LEVEL_MAX_FACES
+#define MAX_SPAWNS     KILN_LEVEL_MAX_SPAWNS
+#define MAX_ENTITIES   KILN_LEVEL_MAX_ENTITIES
 
 typedef struct {
     const char *name;
@@ -26,6 +33,11 @@ typedef struct {
 
 static ClassnameReg g_classes[MAX_CLASSNAMES];
 static int          g_class_count;
+
+/* Brushes discarded because MAX_BRUSHES was reached. Reset by kiln_map_load,
+ * reported by it. kiln_map_load is not reentrant, so a file-static is the
+ * whole mechanism. */
+static int          g_dropped_brushes;
 
 void kiln_map_register_classname(const char *classname, uint16_t profile_id)
 {
@@ -48,6 +60,18 @@ static uint16_t profile_for_classname(const char *classname)
             return g_classes[i].profile_id;
     }
     return 0xFFFFu;
+}
+
+/* 1-based line number of `at` within `buf`. Only ever called on a failure
+ * path, so the linear scan costs nothing that matters — and a byte offset is
+ * not something a person can act on without opening the file in an editor
+ * that shows them. */
+static int line_of(const char *buf, const char *at)
+{
+    int line = 1;
+    for (const char *c = buf; c < at && *c; c++)
+        if (*c == '\n') line++;
+    return line;
 }
 
 static void skip_ws(const char **p)
@@ -152,7 +176,11 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
             if (!read_token(p, tok, sizeof(tok))) return -1;
         }
 
-        if (*face_idx >= max_faces) return -1;
+        if (*face_idx >= max_faces) {
+            debugf("kiln_map: MAX_FACES (%d) reached; the load is abandoned\n",
+                   max_faces);
+            return -1;
+        }
 
         /* Build a parallelogram face: p0, p1, p2, p0+p2-p1. */
         fm_vec3_t n;
@@ -216,6 +244,15 @@ static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
             if (brushes && *brush_idx < max_brushes) {
                 brushes[*brush_idx] = b;
                 (*brush_idx)++;
+            } else if (brushes) {
+                /* Same silent drop the spawn table had, but this one loses
+                 * GEOMETRY: the brush is gone from the render AND from the
+                 * clip world, so the wall is invisible and you walk through
+                 * it. Counted rather than logged per brush, and reported once
+                 * by kiln_map_load -- and NOT by advancing *brush_idx, which
+                 * would push brush_count past the array the world-AABB loop
+                 * then walks. */
+                g_dropped_brushes++;
             }
             continue;
         }
@@ -285,6 +322,8 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
     int face_count = 0;
     int spawn_count = 0;
 
+    g_dropped_brushes = 0;
+
     fm_vec3_t world_min = {{ FLT_MAX, FLT_MAX, FLT_MAX }};
     fm_vec3_t world_max = {{ -FLT_MAX, -FLT_MAX, -FLT_MAX }};
 
@@ -292,10 +331,12 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
         skip_ws_and_comments(&p);
         if (*p == '\0') break;
         if (*p != '{') {
-            debugf("kiln_map: expected '{' at offset %zu, got '%c'\n", (size_t)(p - buf), *p);
+            debugf("kiln_map: %s:%d: expected '{', got '%c'\n",
+                   dfs_path, line_of(buf, p), *p);
             break;
         }
 
+        const char *entity_start = p;
         int brush_count_before = brush_count;
         KilnDict epairs;
         KilnRoomSpawn spawn;
@@ -303,7 +344,8 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
         if (parse_entity(&p, &epairs, brushes, &brush_count, MAX_BRUSHES,
                          faces, &face_count, MAX_FACES,
                          &spawn, &has_spawn) < 0) {
-            debugf("kiln_map: failed to parse entity\n");
+            debugf("kiln_map: %s:%d: failed to parse entity\n",
+                   dfs_path, line_of(buf, entity_start));
             break;
         }
 
@@ -317,9 +359,21 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
         if (strcmp(cn, "worldspawn") != 0 && has_spawn) {
             if (spawn_count < MAX_SPAWNS) {
                 spawns[spawn_count++] = spawn;
+            } else {
+                /* Dropping this silently is how a level loses its 65th entity
+                 * and nobody finds out until someone notices a door that never
+                 * opens. Every other capacity in this file reports; this one
+                 * did not. */
+                debugf("kiln_map: %s: MAX_SPAWNS (%d) reached, dropping '%s'\n",
+                       dfs_path, MAX_SPAWNS, cn);
             }
         }
     }
+
+    if (g_dropped_brushes)
+        debugf("kiln_map: %s: MAX_BRUSHES (%d) reached; %d brush(es) dropped "
+               "from both the mesh and the clip world\n",
+               dfs_path, MAX_BRUSHES, g_dropped_brushes);
 
     free(buf);
 

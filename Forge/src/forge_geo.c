@@ -113,14 +113,17 @@ void forge_geo_update(Forge *f, const KilnInput *in)
         }
     }
 
-    /* Block palette on the shoulder-free D-pad axis. B-picks-the-aimed-type is
+    /* Block palette on the shoulder-free D-pad axis. L-picks-the-aimed-type is
      * the Minecraft middle-click and is worth having: it is how you match a
-     * material you placed twenty blocks ago without counting through 15 types. */
+     * material you placed twenty blocks ago without counting through 15 types.
+     * (The comment used to say B. B is dig — see above.) */
     if (in->edges & KILN_BTN_DR)
         f->block = (uint8_t)(f->block % KILN_VOXEL_TYPE_MAX + 1);
     if (in->edges & KILN_BTN_DL)
         f->block = (uint8_t)(f->block <= 1 ? KILN_VOXEL_TYPE_MAX : f->block - 1);
-    if ((in->edges & KILN_BTN_CU) == 0 && (in->edges & KILN_BTN_L) && f->aim.hit)
+    /* No C-up guard: C-up is camera pitch and has never had anything to do
+     * with picking a block. The test it replaced could only ever misfire. */
+    if ((in->edges & KILN_BTN_L) && f->aim.hit)
         f->block = f->aim.block;
 
     if (edited || any_dirty(f)) forge_geo_remesh(f);

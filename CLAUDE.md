@@ -68,7 +68,14 @@ nix flake check        # the pre-push gate — see "The gates" below
 ./dev inspect <rom>                       # Ares + GDB server, prints the attach line
 ./dev mapmaker                            # three.js .map editor on :8000
 ./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001
-./dev map-validate <file.map>              # round-trip through quake_map.py
+./dev map-validate <file.map> [--json]     # round-trip through quake_map.py
+./dev map-emit <spec.json> [out.map]      # author a level from JSON, no browser
+./dev map-dump <file.map> [out.json]      # read one back (round-trips with emit)
+./dev map-canon <file.map>                # repair inside-out brush winding
+./dev map-render <file.map> [out.png]     # DRAW it — no ROM, no emulator, no
+                                          #   compositor. The same body
+                                          #   nix/checks/kiln-map.nix compiles.
+./dev mcp [--build]                       # the blender-mcp server (.mcp.json)
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into
@@ -840,7 +847,7 @@ a corridor.
 ### Six modes, in authoring order
 
 `L+R` cycles, and the cycle order is the order you work in. Each has a
-`nix build .#forge-<mode>` jump ROM, because `./dev shot` has no input path and a
+`nix build .#forge-<mode>` jump ROM (GEO included, since 2026-09), because `./dev shot` has no input path and a
 mode reached only by a chord can only be verified by hand.
 
 | mode | what it authors | out |
@@ -1357,6 +1364,84 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   real `f3d_mat` block directly without the actual addon (see "Geometry
   authoring" above) — what everything under `nix/blender.nix` uses.
 
+## The level vocabulary has one statement (tools/schema/)
+
+`tools/schema/level_vocab.json` holds the entity classnames, their epairs, the
+engine's capacities and the canonical AABB face winding. It is the `MODULES`
+list idea applied to level content, and it arrived late: the same facts had been
+living in **six** hand-maintained copies with nothing comparing any pair —
+`entity.js`'s palette (13 classnames), `main.js`'s typed epair forms (5),
+`validate.py`'s required epairs and limits (5), `server.py`'s 14-way `elif`
+duplicate of those, `forge_ent.c`'s picker (8, plus a *disjoint* epair set) and
+`kiln_map.c`'s `MAX_*`.
+
+They had drifted, invisibly. `forge_ent.c`'s comment claimed to mirror
+`entity.js` while holding 8 of its 13 and different epair keys.
+`examples/cinematic-demo` registers `info_droid` and `info_alien`, which the
+editor had never heard of, so `assets/hangar.map` could only be edited through a
+free-text prompt and drew as a fallback arrow.
+
+Python consumers import `tools/schema/level_vocab.py`. JS and C consumers read a
+**generated, committed** artifact — `tools/mapmaker/src/vocab.gen.js`,
+`Forge/src/forge_vocab.gen.h`, `engine/src/kiln/kiln_levelvocab.h` — and
+`nix/checks/level-vocab.nix` regenerates and diffs all three, the same shape
+`kiln-font.nix` uses. `profile_id` is deliberately absent: the schema owns the
+vocabulary, not any game's numbering.
+
+**`forge_index` is a wire format.** The `.FRG` v2 tail stores `u8 classname` as
+an index into the Forge list, so reordering it silently reinterprets every level
+already on an SD card. The schema states the index explicitly and the check
+asserts it is contiguous from 0.
+
+**The winding was the fourth copy, and the only ungated one.** It lived in
+`mapio.js`, `validate.py`, `frg.py` and a `snprintf` format string in
+`forge_io.c`. The C copy moved to `Forge/src/forge_map.c`, which includes only
+`<stdio.h>` and the generated header so it **compiles natively** — the same
+split `kiln_voxmesh`'s vertex packing got, and for the same reason. The check
+emits one probe brush through all four and diffs them, then puts it through
+`quake_map.py`'s CSG and requires 6 surviving faces. A diff of a data file
+cannot catch a correct table used incorrectly; that probe can.
+
+**Six of the seven committed `.map` files were inside-out.** Every brush, zero
+surviving CSG faces. They loaded perfectly on console — `kiln_map.c` takes the
+componentwise min/max of the plane points and is indifferent to both winding and
+closure — and produced no geometry at all through Blender. `./dev map-validate`
+failed on all six and said only `DEGENERATE`, naming neither the cause nor a
+remedy. It now distinguishes *inside-out winding* from *not a closed volume*
+from *a duplicated plane*, and `./dev map-canon` repairs each. `assets/hangar.map`
+was the third kind: five of its six brushes were not closed volumes at all,
+carrying a duplicated plane and no bounding pair on one axis.
+
+`assets/quake_test.map` is deliberately NOT canonicalised — it passes, and
+rewriting it would move its AABB from `-64..65` to `-64..64` and invalidate
+`refs/kiln-map.png` plus four pinned assertions.
+
+## The headless level loop (tools/mapmaker/, tools/maprender/)
+
+An agent — or a script, or a test — can now author, check and SEE a level with
+no browser, no emulator and no compositor:
+
+```
+./dev map-emit  spec.json out.map     # JSON in, .map out, self-validating
+./dev map-dump  level.map             # .map in, JSON out
+./dev map-validate level.map --json   # counts, CSG, epairs, machine-readable
+./dev map-render level.map out.png    # the real engine, to a PNG
+```
+
+`tools/mapmaker/mapfmt.py` is the Python twin of `src/mapio.js` and
+`mapmaker-roundtrip.nix` holds the two byte-identical, so there is one dialect
+rather than two that resemble each other.
+
+**`map-render` is not a second renderer**, and that is the whole design.
+`nix/checks/kiln-map-check.c` already loaded an arbitrary `.map` through the real
+`kiln_map.c` and drew it; it just had `quake_test.map`-specific assertions welded
+into the same file. The scene, the frame and the capture moved to
+`tools/maprender/map_render.c`, which the check and the tool both compile, and
+`nix/checks/kiln-maprender.nix` holds them to **the same reference image**. If
+either `main()` starts drawing, that check goes red. A flag on a shared body
+would have left the framing shared only by accident — and `tools/uipreview`
+drawing its own rectangles is exactly how `kiln-widget` came to exist.
+
 ## The gates (nix/faust.nix, nix/checks/)
 
 Verified to fire in both directions — a clean voice passes, a voice using
@@ -1375,7 +1460,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (88 checks, 24 implementations)
+### The full check list (90 checks, 26 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1493,6 +1578,21 @@ worth knowing by name:
   first run caught a texture-name regex that matched `(` instead of the texture,
   so every brush re-imported as block type 1 — a level round-tripping back as one
   material.
+- **`level-vocab`** holds the level vocabulary to one statement, and — this is
+  the half a diff cannot do — asserts the winding *means* what its table says
+  (`cross(p3-p1, p2-p1)` on the declared axis with the declared sign), that all
+  four emitters write one brush byte for byte, that every classname an example
+  registers is in the schema, and that `kiln_map.c` did not re-hardcode its
+  limits. Verified firing in both directions: swap two corners of `-X` and B1
+  reports the wrong sign while B2 reports 1 surviving CSG face instead of 6.
+- **`kiln-maprender`** runs `./dev map-render`'s own binary over
+  `quake_test.map` and compares it to **`refs/kiln-map.png`** — the same
+  reference `kiln-map` uses, never a second one. It is what makes "the tool and
+  the gate draw the same frame" a fact rather than a convention.
+- **`blender-tests`** now includes `test_quake_map.py`, so the brush CSG that
+  every `.map` consumer depends on is gated directly rather than incidentally
+  through two round-trip checks. Its floor went 3 → 4; a stale floor is a
+  loosened guard.
 - **`kiln-logic`** compiles `kiln_clip`, `kiln_dict`, `kiln_cache`, `kiln_lod`,
   `kiln_rng` and `kiln_voxel` **natively at `-Werror`** against `nix/checks/stub/` and asserts on
   them. Put a new module's pure logic here. On its first run it found two real

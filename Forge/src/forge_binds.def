@@ -1,0 +1,81 @@
+/* SPDX-License-Identifier: MIT
+ *
+ * forge_binds.def — the ONE statement of Forge's control scheme.
+ *
+ * Before this file the bindings existed in three unrelated places, none
+ * generated from another, and all three had drifted:
+ *
+ *   Forge/src/forge_hud.c        abbreviated C string literals, per mode
+ *   .claude/skills/n64-forge/    a Markdown table, wrong in five ways
+ *   CLAUDE.md                    a different table, about modes not buttons
+ *
+ * The drift was not cosmetic. All three said GEO fills with `Z+A`; the code
+ * anchors on Z PRESS and fills on Z RELEASE, and suppresses A for the whole
+ * drag (forge_geo.c). Anyone following the documentation pressed a button that
+ * does nothing. The skill also gave WALK a C-button look it has never had --
+ * kiln_fpscam reads only the C-STICK, which forge_cam.c says in a comment the
+ * table contradicted.
+ *
+ * FORGE_BIND(mode, button, action)
+ *   `button` and `action` are display text. Keep them short: the in-ROM help
+ *   line is one row of a 320px screen in a 6px monospace font, so a mode's
+ *   buttons and actions together have about 52 characters.
+ *
+ * tools/forge/gen_binds.py turns this into the Markdown table the docs carry,
+ * so a binding changes in one place and shows up in both.
+ */
+
+/* ── GEO — place, dig, drag-fill ───────────────────────────────────── */
+FORGE_BIND(GEO,   "A",      "put")
+FORGE_BIND(GEO,   "B",      "dig")
+FORGE_BIND(GEO,   "Z",      "drag-fill (press anchors, release fills)")
+FORGE_BIND(GEO,   "L",      "pick the aimed block type")
+FORGE_BIND(GEO,   "dpad-lr", "block type")
+FORGE_BIND(GEO,   "dpad-ud", "rise/fall")
+FORGE_BIND(GEO,   "stick",  "fly")
+FORGE_BIND(GEO,   "C-stick", "look")
+FORGE_BIND(GEO,   "R",      "sprint")
+
+/* ── WALK — stand in it, under the real kiln_fpscam ────────────────── */
+FORGE_BIND(WALK,  "stick",  "walk")
+FORGE_BIND(WALK,  "C-stick", "look")
+FORGE_BIND(WALK,  "R",      "run")
+
+/* ── PAINT — the CI4 atlas. The camera does NOT move. ──────────────── */
+FORGE_BIND(PAINT, "dpad",   "texel cursor")
+FORGE_BIND(PAINT, "A",      "draw (held)")
+FORGE_BIND(PAINT, "B",      "pick colour")
+FORGE_BIND(PAINT, "C-lr",   "colour")
+FORGE_BIND(PAINT, "C-ud",   "tile")
+FORGE_BIND(PAINT, "R",      "flood tile")
+FORGE_BIND(PAINT, "Z",      "veiled preview (held)")
+
+/* ── ENT — classname, origin, angle, numeric epairs ────────────────── */
+FORGE_BIND(ENT,   "A",      "place/move")
+FORGE_BIND(ENT,   "B",      "remove")
+FORGE_BIND(ENT,   "dpad-lr", "classname")
+FORGE_BIND(ENT,   "dpad-ud", "epair field")
+FORGE_BIND(ENT,   "R",      "epair +")
+FORGE_BIND(ENT,   "Z",      "epair -")
+FORGE_BIND(ENT,   "stick",  "fly")
+FORGE_BIND(ENT,   "C-stick", "look")
+
+/* ── LIGHT — key/fill/ambient/fog. The camera does NOT move. ───────── */
+FORGE_BIND(LIGHT, "C-ud",   "field")
+FORGE_BIND(LIGHT, "dpad",   "edit")
+FORGE_BIND(LIGHT, "A",      "fog on/off")
+FORGE_BIND(LIGHT, "R",      "clear colour")
+
+/* ── CAM — keyframes, validated live by kiln_camlint ───────────────── */
+FORGE_BIND(CAM,   "A",      "insert key")
+FORGE_BIND(CAM,   "B",      "delete key")
+FORGE_BIND(CAM,   "Z",      "play (held)")
+FORGE_BIND(CAM,   "dpad-lr", "scrub")
+FORGE_BIND(CAM,   "dpad-ud", "key step")
+FORGE_BIND(CAM,   "R",      "duration +1s")
+FORGE_BIND(CAM,   "L",      "duration -1s")
+FORGE_BIND(CAM,   "stick",  "fly (not while playing)")
+
+/* ── every mode ────────────────────────────────────────────────────── */
+FORGE_BIND(ALL,   "L+R",    "next mode")
+FORGE_BIND(ALL,   "START",  "save")
