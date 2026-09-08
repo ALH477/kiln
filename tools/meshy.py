@@ -248,6 +248,61 @@ def sha256(path):
     return h.hexdigest()
 
 
+def archive_superseded(targets, root, name, reason, quiet=False):
+    """Copy every file about to be overwritten aside, and describe it.
+
+    Returns a list of history entries for the manifest, one per file.
+
+    ── Why this runs before the write, and why it exists at all ────────
+    The first version of this tool archived AFTER writing, and copied the
+    incoming download rather than the outgoing asset — so it could never see
+    the thing it was supposed to preserve. Ordering is the whole point: once
+    shutil.copyfile has run, the previous version is gone.
+
+    And it exists at all only because of a property specific to generated
+    assets. The consuming repo's house rule is `verified, not archived` — four
+    checks that regenerate a derived file and diff it, plus
+    nix/checks/refs/README.md choosing git-plus-human-review over keeping
+    copies. That is right for anything a harness can rebuild. A text-to-3D
+    result is not: the call is nondeterministic, so an overwritten model
+    cannot be recovered by re-running anything. Detecting the loss, which is
+    what the manifest hashes already do, is not enough when the thing lost is
+    unrecoverable.
+
+    The archive root is DELIBERATELY a subdirectory rather than `archives/`
+    itself. That directory is documented in two places as holding what
+    ARRIVED — "the original asset drops verbatim… the provenance record, not
+    a build input" — and quietly filing displaced versions among the inbound
+    drops would make both of those comments untrue.
+    """
+    entries = []
+    if not root:
+        # Explicitly opted out. Say so rather than silently recording an
+        # archive path that holds nothing.
+        if not quiet:
+            print("  NOT archiving the outgoing files (--archive-superseded '')")
+        for dst in targets:
+            entries.append({"date": date.today().isoformat(),
+                            "path": dst.name, "sha256": sha256(dst),
+                            "archived": None, "reason": reason})
+        return entries
+
+    day = date.today().isoformat()
+    out = Path(root) / name
+    out.mkdir(parents=True, exist_ok=True)
+    for dst in targets:
+        digest = sha256(dst)
+        # date + short hash: the date is what a human looks for, the hash is
+        # what makes two replacements on one day distinguishable.
+        arc = out / ("%s-%s%s" % (day, digest[:8], dst.suffix))
+        shutil.copyfile(dst, arc)
+        if not quiet:
+            print("  archived %s -> %s" % (dst.name, arc))
+        entries.append({"date": day, "path": dst.name, "sha256": digest,
+                        "archived": str(arc), "reason": reason})
+    return entries
+
+
 # ── colour ─────────────────────────────────────────────────────────────────
 def _pixels(im):
     """The image's pixels as a flat sequence, across Pillow versions.
@@ -769,12 +824,29 @@ def cmd_import(a):
     dst_tex = assets / "textures" / ("%s.png" % a.material)
     dst_meta = assets / "meshy" / ("%s.json" % a.name)
 
-    for dst in (dst_glb, dst_tex):
-        if dst.exists() and not a.force:
-            die("%s already exists. --force to replace it — and read the "
-                "consuming repo's manifest check first, because replacing a "
-                "committed asset is exactly the silent drift that check "
-                "exists to catch." % dst)
+    # dst_meta is in this list, not just the two assets. It was left out of
+    # the first version, so a manifest — the record of what the asset IS —
+    # could be replaced with no --force and no trace.
+    targets = [dst_glb, dst_tex, dst_meta]
+    existing = [d for d in targets if d.exists()]
+    if existing and not a.force:
+        die("%s already exists. --force to replace it — and read the "
+            "consuming repo's manifest check first, because replacing a "
+            "committed asset is exactly the silent drift that check "
+            "exists to catch." % existing[0])
+    if existing and not a.reason:
+        die("--force replaces %d committed file(s) and --reason is required.\n"
+            "  It goes in the manifest's history beside the archived copy, and\n"
+            "  it is the one thing a hash cannot tell the next reader: WHY the\n"
+            "  old version stopped being right. One sentence.\n"
+            "  e.g. --reason \"64x32 squared to 64x64; the T wrap mask was wrong\""
+            % len(existing))
+
+    # Before any write. See archive_superseded's docstring on the ordering.
+    history = []
+    if existing:
+        history = archive_superseded(existing, a.archive_superseded, a.name,
+                                     a.reason)
 
     dst_glb.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(glb, dst_glb)
@@ -788,6 +860,18 @@ def cmd_import(a):
     gen = {}
     if (work / "meshy.json").is_file():
         gen = json.loads((work / "meshy.json").read_text())
+
+    # The outgoing manifest's own history, read before it is replaced. A
+    # history that started over on every re-import would lose exactly the
+    # chain it exists to record. dst_meta is still on disk here: the archive
+    # step copied it aside, it did not move it.
+    prior = []
+    if dst_meta.is_file():
+        try:
+            prior = json.loads(dst_meta.read_text()).get("history") or []
+        except json.JSONDecodeError:
+            print("  warning: %s is not readable JSON; its history cannot be "
+                  "carried forward (the archived copy still has it)" % dst_meta)
     manifest = {
         "name": a.name,
         "tool": "kiln tools/meshy.py",
@@ -810,6 +894,9 @@ def cmd_import(a):
         "urls": {k: v.get("url") for k, v in
                  sorted((gen.get("downloads") or {}).items())},
         "urls_expire": True,
+        # Oldest first. Each entry is one superseded file: its sha256, where
+        # the bytes were parked, and why it stopped being right.
+        "history": prior + history,
         # Keyed relative to the ASSETS directory, not to a repo root. The
         # check that verifies these receives assets/ as a Nix store path,
         # where a repo-relative key has nothing to resolve against.
@@ -823,8 +910,13 @@ def cmd_import(a):
     print("  -> %s  (provenance + hashes)" % dst_meta)
 
     # ── park the raw drop ──
-    if a.archive:
-        arc = Path(a.archive) / a.name
+    # Distinct from archive_superseded above: this keeps what ARRIVED (the 2K
+    # albedo, the PBR maps F3D cannot use, the task JSON), which is provenance
+    # for the new asset. That one keeps what was DISPLACED. Conflating them
+    # under one --archive flag is how the first version came to archive the
+    # wrong side of the replacement.
+    if a.archive_drop:
+        arc = Path(a.archive_drop) / a.name
         arc.mkdir(parents=True, exist_ok=True)
         for f in sorted(work.iterdir()):
             if f.is_file():
@@ -1127,10 +1219,22 @@ def main(argv=None):
                         "and every one of them fails silently on a typo.")
     p.add_argument("--assets", default="assets")
     p.add_argument("--work-dir", default=None)
-    p.add_argument("--archive", default="archives/meshy",
-                   help="where the raw drop is parked for provenance; "
-                        "'' to skip")
-    p.add_argument("--force", action="store_true")
+    p.add_argument("--archive-drop", default="archives/meshy",
+                   help="where the INCOMING raw drop is parked (2K albedo, "
+                        "unused PBR maps, task JSON); '' to skip")
+    p.add_argument("--archive-superseded", default="archives/superseded",
+                   help="where an OUTGOING file is copied before it is "
+                        "overwritten. Not `archives/` itself: that directory "
+                        "is documented as holding what arrived. '' to skip, "
+                        "which records the loss in the history without the "
+                        "bytes.")
+    p.add_argument("--force", action="store_true",
+                   help="replace files that already exist. Requires --reason, "
+                        "archives each one first, and appends a history entry "
+                        "to the manifest.")
+    p.add_argument("--reason", default=None,
+                   help="one sentence on why the old version stopped being "
+                        "right. Required with --force; goes in the manifest.")
     _ci4_args(p)
     p.set_defaults(fn=cmd_import)
 
