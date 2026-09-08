@@ -175,15 +175,21 @@ def flame_tongue(parts, cx, cy, cz, w, d, h, lean_x=0.0, lean_y=0.0):
                                      # gradient instead of a banded fake
 
 
-def build_flame():
+def build_flame(front_y=None, bottom_z=None):
     """A small irregular cluster, staggered in width/height/lean so it does
     not read as one shape stamped four times. Positioned just proud of the
     doorway's front face (a touch further along -Y than the door reaches),
     tall enough that the tips clear the door's top edge — flames escaping
-    the opening, not tucked inside the silhouette of the black recess."""
+    the opening, not tucked inside the silhouette of the black recess.
+
+    `front_y`/`bottom_z` override where the licks root, for a body whose
+    doorway is not the one the constants above describe — see `--body`. The
+    licks themselves stay SCALE-relative, which holds because any body this
+    is asked to sit on is normalised to the same height.
+    """
     parts = {"verts": [], "faces": [], "colors": []}
-    door_front_y = DOOR_CY - DOOR_D / 2.0     # the door's front face
-    door_bottom_z = DOOR_CZ - DOOR_H / 2.0    # where the licks root
+    door_front_y = (DOOR_CY - DOOR_D / 2.0 if front_y is None else front_y)
+    door_bottom_z = (DOOR_CZ - DOOR_H / 2.0 if bottom_z is None else bottom_z)
     y0 = door_front_y - SCALE * 0.06
     z0 = door_bottom_z
     s = SCALE
@@ -216,13 +222,69 @@ def build_plate():
                 colors=parts["colors"], smooth=False)
 
 
+# ── Sourcing the body from a .glb instead of building it ────────────────
+# `--body <glb>` replaces build_kiln() with an imported mesh, keeping the
+# flame and the plate procedural. That split is not arbitrary: the flame needs
+# its own flicker transform (kiln_splash.h, "The flame moves separately from
+# the body") and a smooth base-to-tip vertex gradient, and a baked mesh would
+# hand over one rigid object with the gradient flattened into whatever the
+# generator's texture happened to say.
+#
+# The doorway of an imported body is somewhere else, so the flame's anchor is
+# stated here. Measured off the shipped assets/kiln_body.glb by rendering and
+# looking, which is the same way SCALE above was found — the front surface at
+# the doorway sits at y = -1.00 and the opening's floor at z = 0.06.
+BODY_DOOR_FRONT_Y = -1.00
+BODY_DOOR_BOTTOM_Z = 0.06
+
+
+def build_body(path):
+    """Import a baked body and name it `kiln`.
+
+    kiln_splash.c looks up "kiln", "flame" and "plate" by name and gives the
+    flame its own transform; if one of the three is missing it falls back to
+    drawing the model as a single rigid piece — correct for a foreign model,
+    wrong for this one. So the rename is the contract, not decoration.
+    """
+    import bpy
+    before = set(bpy.context.scene.objects)
+    bpy.ops.import_scene.gltf(filepath=path)
+    fresh = [o for o in set(bpy.context.scene.objects) - before
+             if o.type == 'MESH']
+    if not fresh:
+        raise SystemExit("kiln_logo: %s imported no mesh" % path)
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in fresh:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = fresh[0]
+    if len(fresh) > 1:
+        bpy.ops.object.join()
+    obj = bpy.context.view_layer.objects.active
+    obj.name = "kiln"
+    obj.data.materials.clear()
+    m.make_material("kiln")
+    obj.data.materials.append(bpy.data.materials["kiln"])
+    print("kiln_logo: body from %s (%d tris)"
+          % (path, len(obj.data.polygons)))
+    return obj
+
+
 def main():
     m.reset_scene()
-    build_kiln()
-    build_flame()
+    body = m.arg("--body", "")
+    if body:
+        build_body(body)
+        build_flame(BODY_DOOR_FRONT_Y, BODY_DOOR_BOTTOM_Z)
+    else:
+        build_kiln()
+        build_flame()
     build_plate()
     m.report()
     m.export_gltf(m.arg("--out"))
 
 
-main()
+if __name__ == "__main__":
+    # Importable without running: meshy_bake.py and the tests want the
+    # constants and the builders, not a render. Same guard pm_env.py uses.
+    if any(a.startswith("--out") for a in sys.argv):
+        main()

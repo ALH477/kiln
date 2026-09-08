@@ -956,6 +956,37 @@
           baseScale = 64;
         };
 
+        # ── The same splash, body generated instead of authored ──────────
+        # A drop-in alternative: same three named objects, same filename, so
+        # kiln_splash.c's "kiln"/"flame"/"plate" lookups and its camera are
+        # untouched. Only build_kiln() is replaced, by the committed
+        # assets/kiln_body.glb — a Meshy text-to-3D mesh welded, decimated to
+        # 419 triangles and coloured by tools/blender/meshy_bake.py. That
+        # file's header records the two things about the pass that are not
+        # obvious: decimating an unwelded generated mesh SHATTERS it, and
+        # sampling a 2K albedo per vertex converges on a flat beige that
+        # reads worse than the authored courses it replaces.
+        #
+        # The flame and the plate stay procedural. kiln_splash gives the
+        # flame its own transform (kiln_splash.h, "The flame moves separately
+        # from the body") and it carries a smooth base-to-tip vertex
+        # gradient; a baked body would hand over one rigid object with that
+        # gradient flattened.
+        #
+        # NOT the default, and deliberately so. Two things have to be settled
+        # first: nix/checks/kiln-splash.nix compares the rendered frame
+        # against refs/kiln-splash.png byte for byte on every architecture,
+        # so switching means regenerating that reference and LOOKING at it —
+        # refs/README.md's own rule. And this is an MIT-licensed engine's boot
+        # identity, so whether a generated asset may serve as it is a
+        # licensing question, not a rendering one.
+        kilnLogoMeshy = blenderLib.mkBlenderModel {
+          name = "kiln_logo";
+          script = "kiln_logo.py";
+          scriptArgs = [ "--body" "${./assets/kiln_body.glb}" ];
+          baseScale = 64;
+        };
+
         # The jingle. Its chord resolves 1.25 s in, which kiln_splash.c
         # times the logo's assembly and the screen flash to meet — picture
         # can be nudged a frame at runtime, audio cannot, so the sound is
@@ -1092,6 +1123,7 @@
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
           model-kiln-logo = kilnLogo;
+          model-kiln-logo-meshy = kilnLogoMeshy;
           # The splash's two assets, exposed as a pair. kiln_splash is
           # engine-level — a PUBLISHER mark, not any one game's — so a
           # downstream game adopts it by putting these two in its own ROM's

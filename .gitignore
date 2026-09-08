@@ -18,3 +18,11 @@ __pycache__/
 
 # ./dev web --verify writes its screenshots and report here.
 .webverify/
+
+# tools/meshy.py's working directory and the two provenance trees it writes.
+# `build/` above already covers the download; these are the raw drop it parks
+# (2K albedo, PBR maps F3D cannot use, the task JSON) and any outgoing asset
+# it displaced. Both are the provenance record, not a build input: what the
+# ROM consumes is the small welded-and-coloured .glb committed under assets/.
+# See tools/blender/meshy_bake.py.
+archives/
