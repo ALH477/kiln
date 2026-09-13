@@ -182,6 +182,33 @@ int main(int argc, char **argv)
 
     kiln_map_free(&m);
 
+    /* ── One face wound backwards: the collision box must keep its volume ──
+     * The same cube as quake_test.map with face 0's second and third points
+     * swapped (kiln-map.nix writes it). Real CSG keeps ONE quad of it -- the
+     * reversed half-space and the other five meet only on the x = -64 plane --
+     * so the box of the surviving vertices is zero-thick in x. kiln_map.c used
+     * to accept any 4 surviving vertices as "a solid", and handed the clip
+     * world that flat box with no debugf: a player walks straight through it.
+     * The fallback to the plane points must run instead, giving -64..65 in x
+     * (the plane points' own box, a unit oversized, never empty). */
+    {
+        KilnMap f;
+        memset(&f, 0, sizeof f);
+        const int frc = kiln_map_load(&f, "rom:/one_face_flipped.map");
+        CHECK(frc == 0, "kiln_map_load(one_face_flipped.map) returned %d", frc);
+        if (frc == 0) {
+            CHECK(f.brush_count == 1, "one_face_flipped: %u brushes, expected 1",
+                  f.brush_count);
+            for (int ax = 0; ax < 3; ax++)
+                CHECK(f.world_aabb_max.v[ax] > f.world_aabb_min.v[ax],
+                      "one_face_flipped: collision box is zero-thick on axis %d "
+                      "(%g..%g) -- a player falls through this brush",
+                      ax, (double)f.world_aabb_min.v[ax],
+                      (double)f.world_aabb_max.v[ax]);
+            kiln_map_free(&f);
+        }
+    }
+
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
     printf("a real .map loaded off the host VFS and rendered\n");
     return 0;

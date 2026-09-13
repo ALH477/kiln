@@ -60,6 +60,16 @@ target.mkCheck {
   meta.description = "a real .map loads off the host VFS, collides, and renders";
   preRun = ''
     mkdir -p fs && cp ${mapAsset} fs/quake_test.map
+    # The same cube with ONE face wound backwards (face 0's second and third
+    # points swapped). Its CSG keeps a single quad, whose box is zero-thick;
+    # kiln-map-check.c asserts the collision box still has volume.
+    # Addressed by the face's text, not a line number: the first version said
+    # `3s`, line 3 is the brush's `{`, sed changed nothing, and the guard
+    # below stopped the build under set -e with no output at all.
+    sed '0,/( -64 -64 -64 ) ( -64 -63 -64 ) ( -64 -64 -63 )/s//( -64 -64 -64 ) ( -64 -64 -63 ) ( -64 -63 -64 )/' \
+      ${mapAsset} > fs/one_face_flipped.map
+    grep -q '( -64 -64 -64 ) ( -64 -64 -63 ) ( -64 -63 -64 )' fs/one_face_flipped.map || {
+      echo "kiln-map: could not flip face 0 of ${mapAsset}; its text changed"; exit 1; }
   '';
   script = ''
     if ! cmp -s out.png ${./refs/kiln-map.png}; then

@@ -519,15 +519,30 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
      * takes an afternoon to attribute.
      *
      * So: the true box when the CSG produced a solid, the old plane-point box
-     * when it did not, and a debugf naming the repair either way. */
-    if (total_verts >= 4) {
+     * when it did not, and a debugf whenever it falls back.
+     *
+     * "Produced a solid" means a box with positive size on ALL THREE axes,
+     * not merely "some vertices survived". A brush with ONE face wound
+     * backwards, or with one plane missing, still yields a single quad: four
+     * coplanar vertices whose box is zero-thick on one axis. This test was
+     * first written `total_verts >= 4`, which accepted that quad and handed
+     * the clip world a zero-thickness box -- exactly the "falls through the
+     * world" failure the fallback exists for, and silently, because the
+     * fallback never ran. It had only been tried by flipping EVERY face, the
+     * one malformed case that leaves no vertices at all.
+     * nix/checks/kiln-map-check.c now loads a brush with ONE face flipped. */
+    int solid = total_verts >= 4 &&
+                maxs.v[0] > mins.v[0] && maxs.v[1] > mins.v[1] &&
+                maxs.v[2] > mins.v[2];
+    if (solid) {
         brush->mins = mins;
         brush->maxs = maxs;
     } else {
-        debugf("kiln_map: a brush produced no polygons (%d planes, %d "
-               "vertices) -- almost certainly inside-out winding; its collision "
-               "box falls back to the plane points and it will not render. "
-               "Run ./dev map-canon on this file.\n", np, total_verts);
+        debugf("kiln_map: a brush produced no solid (%d planes, %d "
+               "vertices) -- a face wound inside-out or a plane missing; its "
+               "collision box falls back to the plane points and it may not "
+               "render whole. Run ./dev map-canon on this file.\n",
+               np, total_verts);
         brush->mins = pt_mins;
         brush->maxs = pt_maxs;
     }
