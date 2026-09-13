@@ -503,8 +503,11 @@ int main(void)
     kiln_sound_init(shaders, 12);
 
     kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    /* Register the player profile separately (not in PROFILES array). */
-    kiln_actor_spawn(0xFFFF, (fm_vec3_t){{0,0,0}}, 0, NULL); /* dummy, replaced below */
+    /* There was a "dummy" kiln_actor_spawn(0xFFFF, ...) here, said to be
+     * replaced below; nothing replaced it, nothing used its handle, and
+     * kiln_actor asserts on a profile id past PROFILE_COUNT ("bad
+     * profile_id 65535"), so it stopped the ROM at boot. PROFILES has no
+     * player entry to register. */
     kiln_event_init();
     kiln_projectile_init();
     kiln_projectile_set_hit_fn(proj_hit_cb);
