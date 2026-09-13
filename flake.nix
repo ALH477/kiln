@@ -1585,6 +1585,10 @@
           kiln-input = import ./nix/checks/kiln-input.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
+          kiln-room = import ./nix/checks/kiln-room.nix {
+            inherit pkgs; target = hostNative;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is
