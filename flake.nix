@@ -853,13 +853,44 @@
         };
         interceptor-demo = mkN64Rom interceptorDemoArgs;
 
-        # texanim-demo: exercises kiln_texanim (UV scroll, flipbook, palette,
-        # offscreen) and kiln_vanim (procedural deform, morph blending, RSP
-        # vertex FX). All geometry is hand-built — no asset pipeline needed.
+        # texanim-demo: one exhibit per texture / vertex effect, each driven by
+        # the engine module that owns it — kiln_texanim's scroll on a tiled
+        # floor, kiln_vfx's env map and cel shade, kiln_deform's flag and
+        # kiln_morph's blob. Every model's name is its rom:/models/ filename.
+        #
+        # fog=true on every material, deliberately: f3d_inject's default
+        # fog=False becomes T3D_FOG_MODE_DISABLED (materialParser.cpp: g_fog+1),
+        # and t3d_model_draw then turns the RSP's fog OFF and leaves it off for
+        # everything drawn after the model — the scene's fog silently stops at
+        # the first model. The textures derivation ships the sprites the two
+        # textured models name: gltf_to_t3d bakes assets/textures/x.png as
+        # rom:/textures/x.sprite, and TMEM holds checker.i8 + grid.rgba16 = 3 KB.
+        texanimFloor = mkTestModel "tilefloor" {
+          inherit textures; bvh = false;
+          materials = [ "FloorMat=tex0_shade,tex=textures/checker.i8.png,size=32,fog=true" ];
+        };
+        texanimFlag = mkTestModel "flag" {
+          bvh = false;
+          materials = [ "FlagMat=shade,cull=none,fog=true" ];
+        };
+        texanimEnvSphere = mkTestModel "uvsphere" {
+          name = "envsphere"; model = "uvsphere";
+          inherit textures; bvh = false;
+          materials = [ "GridMat=tex0_shade,tex=textures/grid.rgba16.png,size=32,fog=true" ];
+        };
+        texanimTorus = mkTestModel "torus" {
+          name = "celtorus"; model = "torus"; bvh = false;
+          materials = [ "TorusMat=shade,fog=true" ];
+        };
+        texanimBlob = mkTestModel "sphere" {
+          name = "blob"; model = "sphere"; bvh = false;
+          materials = [ "SphereMat=shade,fog=true" ];
+        };
         texanimDemoArgs = {
           name = "texanim-demo";
           src = ./examples/texanim-demo;
           romTitle = "Kiln TexAnim";
+          assets = [ texanimFloor texanimFlag texanimEnvSphere texanimTorus texanimBlob textures ];
         };
         texanim-demo = mkN64Rom texanimDemoArgs;
 
