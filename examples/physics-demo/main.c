@@ -1,26 +1,24 @@
 // SPDX-License-Identifier: MIT
 //
-// Phase E integration proof: the kiln_physics module + kiln_room brush
-// auto-install + kiln_clip broadphase toggle, in one frame.
+// kiln_physics + kiln_room brush auto-install + kiln_clip broadphase, in one room.
 //
-//   kiln_room     -> one room, on_load populates room->brushes (floor + 4 walls)
-//                   kiln_room copies them into the clip world automatically —
-//                   no kiln_clip_set_world call in this ROM
-//   kiln_clip     -> swept-AABB vs the auto-installed brushes; broadphase grid
-//                   toggleable at runtime via kiln_clip_set_broadphase
-//   kiln_physics  -> 6 dynamic crate bodies fall, stack, rest, sleep; A punts
-//                   the nearest crate in a forward cone (the gravity-gun feel);
-//                   kiln_physics_set_enabled toggles the whole engine on/off
+//   kiln_room     -> one room; on_load fills room->brushes (floor + 4 walls) and
+//                   kiln_room installs them into the clip world — this ROM never
+//                   calls kiln_clip_set_world
+//   kiln_physics  -> a pyramid of 14 crates that settle, stack and sleep; A punts
+//                   the nearest one in front of you, which wakes whatever it hits
+//   kiln_clip     -> the player slides on the same brushes; the broadphase grid
+//                   is a runtime toggle, and the HUD's trace count shows its win
 //
-// HUD: fps, body count, sleeping count, PHYS ON/OFF, BP ON/OFF, last trace
-// brush count (so the broadphase win is visible — flat walk = total brushes,
-// grid = brushes in overlapped cells only).
+// Crates dim when kiln_physics puts them to sleep, so "is the simulation still
+// running" is visible rather than a number.
 //
-// Controls:
-//   stick       move player (kiln_clip_slide against the auto-installed walls)
-//   A           punt nearest crate in the player's forward cone
-//   D-pad left  toggle PHYS ON/OFF (kiln_physics_set_enabled)
-//   D-pad right toggle BP ON/OFF   (kiln_clip_set_broadphase)
+//   stick  move          A      punt           START  restack
+//   D <    physics on/off D >   broadphase     Z      body boxes
+//   idle 2 s: the demo walks up to the stack and punts it, and restacks after
+//
+// Jumps: .#physics-demo-punt walks up and punts once, then leaves the pile to
+// settle; .#physics-demo-bp boots with the broadphase and the box overlay on.
 
 #include <libdragon.h>
 #include <kiln/kiln_engine.h>
@@ -30,96 +28,79 @@
 #include <kiln/kiln_actor.h>
 #include <kiln/kiln_room.h>
 #include <kiln/kiln_physics.h>
+#include <kiln/kiln_prim.h>
+#include <kiln/kiln_debugdraw.h>
 
-#include <malloc.h>
+enum { JUMP_NONE, JUMP_PUNT, JUMP_BP };
+#ifndef KILN_JUMP
+#define KILN_JUMP JUMP_NONE
+#endif
 
 #define SCREEN_W 320
 #define SCREEN_H 240
-#define ACTOR_POOL_CAP 8
+#define ACTOR_POOL_CAP 4
 #define BODY_CAP 16
+#define CRATE_HALF 10.0f
+#define ROOM_HALF 120.0f
+#define WALL_H 36.0f
+#define WALL_T 6.0f
+#define FLOOR_TOP 1.0f
+#define WALK_SPEED 100.0f
+#define PUNT_RANGE 110.0f
 
-// ── Cube geometry ───────────────────────────────────────────────────────
-static const uint8_t CUBE_TRIS[12][3] = {
-    {0,1,2},{2,3,0}, {4,6,5},{6,4,7},
-    {0,4,5},{5,1,0}, {1,5,6},{6,2,1},
-    {2,6,7},{7,3,2}, {3,7,4},{4,0,3},
+/* Player box relative to its centre: mins NEGATIVE. This demo used to pass the
+ * half-extent as both, which shifted the box a full half-extent on every axis
+ * and sank it into the floor brush — so kiln_clip ignored the floor it started
+ * inside. */
+static const fm_vec3_t P_MINS = {{ -8, -10, -8 }};
+static const fm_vec3_t P_MAXS = {{  8,  10,  8 }};
+
+static const uint32_t CRATE_COLOURS[6] = {
+    0xF2A03CFF, 0xE8604CFF, 0x5CC8A0FF, 0x6C9CF0FF, 0xD878C8FF, 0xE8D860FF,
 };
 
-/* Build a unit-cube vertex buffer (half-extent = 1 in model space) that we
- * scale per-crate via a pushed SRT matrix. 8 verts packed into 4 T3DVertPacked
- * structs, the same layout kiln_actor uses. */
-static T3DVertPacked *make_unit_cube(uint32_t rgba)
-{
-    T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
-    const float c[8][3] = {
-        {-1,-1,-1},{ 1,-1,-1},{ 1, 1,-1},{-1, 1,-1},
-        {-1,-1, 1},{ 1,-1, 1},{ 1, 1, 1},{-1, 1, 1},
-    };
-    for (int i = 0; i < 8; i += 2) {
-        fm_vec3_t na = {{ c[i][0],   c[i][1],   c[i][2]   }};
-        fm_vec3_t nb = {{ c[i+1][0], c[i+1][1], c[i+1][2] }};
-        fm_vec3_norm(&na, &na);
-        fm_vec3_norm(&nb, &nb);
-        v[i / 2] = (T3DVertPacked){
-            .posA = { (int16_t)c[i][0],   (int16_t)c[i][1],   (int16_t)c[i][2]   },
-            .rgbaA = rgba, .normA = t3d_vert_pack_normal(&na),
-            .posB = { (int16_t)c[i+1][0], (int16_t)c[i+1][1], (int16_t)c[i+1][2] },
-            .rgbaB = rgba, .normB = t3d_vert_pack_normal(&nb),
-        };
-    }
-    return v;
-}
+// ── Tapes ───────────────────────────────────────────────────────────────
+// Camera looks down +Z, so stick up walks toward the stack.
+static const KilnInputKey ATTRACT_KEYS[] = {
+    { .frame =   0, .sy =  85 },
+    { .frame =  14 },
+    { .frame =  30, .buttons = KILN_BTN_A },
+    { .frame =  66 },
+    { .frame = 150, .sy = -85 },
+    { .frame = 190, .sx = 80, .sy = 40 },
+    { .frame = 250, .sx = -60, .sy = 60 },
+    { .frame = 300, .buttons = KILN_BTN_A },
+    { .frame = 306, .sx = 60, .sy = -30 },
+    { .frame = 380, .sy = -70 },
+    { .frame = 440 },
+};
+static const KilnInputTape ATTRACT = { ATTRACT_KEYS, 11, 0 };
 
-static void draw_cube_mesh(T3DVertPacked *v)
-{
-    t3d_vert_load(v, 0, 8);
-    for (int i = 0; i < 12; i++)
-        t3d_tri_draw(CUBE_TRIS[i][0], CUBE_TRIS[i][1], CUBE_TRIS[i][2]);
-    t3d_tri_sync();
-}
+static const KilnInputKey PUNT_KEYS[] = {
+    { .frame =   0 },
+    { .frame =  30, .sy = 85 },
+    { .frame =  44 },
+    { .frame =  90, .buttons = KILN_BTN_A },
+    { .frame =  96 },
+};
+static const KilnInputTape PUNT = { PUNT_KEYS, 5, KILN_INPUT_NO_LOOP };
 
-/* Build a box vertex buffer at a world-space AABB. Used for the floor and
- * walls — world-space verts, no matrix push needed at draw time. 8 verts
- * packed into 4 T3DVertPacked. */
-static T3DVertPacked *make_world_box(float mn0, float mn1, float mn2,
-                                     float mx0, float mx1, float mx2,
-                                     uint32_t rgba)
-{
-    T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
-    const float c[8][3] = {
-        {mn0, mn1, mn2}, {mx0, mn1, mn2}, {mx0, mx1, mn2}, {mn0, mx1, mn2},
-        {mn0, mn1, mx2}, {mx0, mn1, mx2}, {mx0, mx1, mx2}, {mn0, mx1, mx2},
-    };
-    for (int i = 0; i < 8; i += 2) {
-        fm_vec3_t na = {{ c[i][0],   c[i][1],   c[i][2]   }};
-        fm_vec3_t nb = {{ c[i+1][0], c[i+1][1], c[i+1][2] }};
-        fm_vec3_norm(&na, &na);
-        fm_vec3_norm(&nb, &nb);
-        v[i / 2] = (T3DVertPacked){
-            .posA = { (int16_t)c[i][0],   (int16_t)c[i][1],   (int16_t)c[i][2]   },
-            .rgbaA = rgba, .normA = t3d_vert_pack_normal(&na),
-            .posB = { (int16_t)c[i+1][0], (int16_t)c[i+1][1], (int16_t)c[i+1][2] },
-            .rgbaB = rgba, .normB = t3d_vert_pack_normal(&nb),
-        };
-    }
-    return v;
-}
-
-static T3DVertPacked *g_cube_player;
-static T3DVertPacked *g_unit_crate;
-static T3DMat4FP     *g_matfp; /* reused per crate per frame */
-
-// ── Player ──────────────────────────────────────────────────────────────
-// A non-physics actor: stick → kiln_clip_slide against the auto-installed
-// walls. kiln_physics is for crates; the player is its own locomotion so the
-// state machine and feel stay tight. See kiln_physics.h's "for non-player
-// actors" note.
+// ── Player actor ────────────────────────────────────────────────────────
 typedef struct { float yaw; } PlayerState;
+
+static KilnPrim g_body, g_nose, g_shadow, g_floor;
+/* One mesh per crate colour, awake and asleep. Prebuilt rather than recoloured
+ * per crate per frame: the RSP reads a vertex buffer asynchronously after
+ * t3d_vert_load, so rewriting one shared buffer between crates would hand an
+ * earlier crate the next one's colours on console, and no host render shows it. */
+static KilnPrim g_crate[6][2];
+static KilnTransform g_shadow_xf;
 
 static void player_init(KilnActor *self, const KilnDict *args)
 {
     (void)args;
     ((PlayerState *)self->state)->yaw = 0.0f;
+    self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 }
 
 static void player_update(KilnActor *self, float dt)
@@ -127,19 +108,25 @@ static void player_update(KilnActor *self, float dt)
     PlayerState *s = (PlayerState *)self->state;
     const KilnInput *in = kiln_input_get(1);
 
-    float dx =  (float)in->stick_x * 0.30f * dt * 60.0f;
-    float dz = -(float)in->stick_y * 0.30f * dt * 60.0f;
-    fm_vec3_t half = {{ 8, 8, 8 }};
-    fm_vec3_t disp = {{ dx, 0, dz }};
-    self->xform.pos = kiln_clip_slide(self->xform.pos, disp, half, half, 4);
+    /* Camera-relative: up is +Z, right is -X for a camera looking down +Z. */
+    const fm_vec3_t disp = {{ -in->stick_x * WALK_SPEED * dt, 0,
+                               in->stick_y * WALK_SPEED * dt }};
+    self->xform.pos = kiln_clip_slide(self->xform.pos, disp, P_MINS, P_MAXS, 4);
 
-    if (dx*dx + dz*dz > 1.0f) {
-        s->yaw = atan2f(dx, -dz);
-        self->xform.rot_angle = s->yaw;
-    }
+    /* Facing follows the last direction actually pushed. The old test was
+     * `dx*dx + dz*dz > 1`, and a frame's move never exceeds 0.3 units, so the
+     * yaw never updated and every punt went toward +X. */
+    if (disp.v[0] * disp.v[0] + disp.v[2] * disp.v[2] > 1e-4f)
+        s->yaw = fm_atan2f(disp.v[0], disp.v[2]);
+    self->xform.rot_angle = s->yaw;
 }
 
-static void player_draw(KilnActor *self) { (void)self; draw_cube_mesh(g_cube_player); }
+static void player_draw(KilnActor *self)
+{
+    (void)self;
+    kiln_prim_draw(&g_body);
+    kiln_prim_draw(&g_nose);
+}
 
 static const KilnActorProfile PROFILES[1] = {
     { .name = "player", .category = KILN_ACTOR_CAT_PLAYER,
@@ -150,71 +137,51 @@ enum { PROFILE_PLAYER = 0, PROFILE_COUNT = 1 };
 
 static KilnActor g_pool[ACTOR_POOL_CAP];
 
-// ── Room: floor + 4 walls ────────────────────────────────────────────────
-//
-// One room, 200×200, walls 40 tall and 4 thick. Brushes live in .bss;
-// kiln_room copies them into its module-static clip world right after
-// on_load returns. No kiln_clip_set_world call anywhere in this ROM.
-//
-// The visible mesh is also pre-built: floor + 4 wall boxes as world-space
-// vertex buffers, drawn directly (no matrix push). The brush array and the
-// mesh are built from the same AABBs so what you see is what you collide with.
-
-#define ROOM_HALF 100.0f
-#define WALL_H    40.0f
-#define WALL_T    4.0f
-#define FLOOR_H   1.0f
-
+// ── Room: floor + 4 walls, as brushes and as prims from the same AABBs ────
 static KilnBrush g_room_brushes[5];
-static T3DVertPacked *g_room_mesh[5];
+static KilnPrim g_wall_prim[4];
+
+static fm_vec3_t centre_of(const KilnBrush *b)
+{
+    return (fm_vec3_t){{ (b->mins.v[0] + b->maxs.v[0]) * 0.5f, (b->mins.v[1] + b->maxs.v[1]) * 0.5f,
+                         (b->mins.v[2] + b->maxs.v[2]) * 0.5f }};
+}
+static fm_vec3_t half_of(const KilnBrush *b)
+{
+    return (fm_vec3_t){{ (b->maxs.v[0] - b->mins.v[0]) * 0.5f, (b->maxs.v[1] - b->mins.v[1]) * 0.5f,
+                         (b->maxs.v[2] - b->mins.v[2]) * 0.5f }};
+}
 
 static void room_load(KilnRoom *room, void *user)
 {
     (void)user;
-    fm_vec3_t mn = room->aabb_min, mx = room->aabb_max;
-
-    g_room_brushes[0] = (KilnBrush){
-        .mins = {{ mn.v[0], mn.v[1], mn.v[2] }},
-        .maxs = {{ mx.v[0], mn.v[1] + FLOOR_H, mx.v[2] }},
-        .surface = 0, .flags = 0 };
-    g_room_brushes[1] = (KilnBrush){
-        .mins = {{ mn.v[0],           mn.v[1], mn.v[2] }},
-        .maxs = {{ mn.v[0] + WALL_T,  mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
-    g_room_brushes[2] = (KilnBrush){
-        .mins = {{ mx.v[0] - WALL_T,  mn.v[1], mn.v[2] }},
-        .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
-    g_room_brushes[3] = (KilnBrush){
-        .mins = {{ mn.v[0],           mn.v[1], mn.v[2] }},
-        .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mn.v[2] + WALL_T }}, .surface = 0, .flags = 0 };
-    g_room_brushes[4] = (KilnBrush){
-        .mins = {{ mn.v[0],           mn.v[1], mx.v[2] - WALL_T }},
-        .maxs = {{ mx.v[0],           mn.v[1] + WALL_H, mx.v[2] }}, .surface = 0, .flags = 0 };
-
+    const fm_vec3_t mn = room->aabb_min, mx = room->aabb_max;
+    g_room_brushes[0] = (KilnBrush){ .mins = {{ mn.v[0], mn.v[1] - 8, mn.v[2] }},
+                                     .maxs = {{ mx.v[0], FLOOR_TOP, mx.v[2] }} };
+    g_room_brushes[1] = (KilnBrush){ .mins = {{ mn.v[0], 0, mn.v[2] }},
+                                     .maxs = {{ mn.v[0] + WALL_T, WALL_H, mx.v[2] }} };
+    g_room_brushes[2] = (KilnBrush){ .mins = {{ mx.v[0] - WALL_T, 0, mn.v[2] }},
+                                     .maxs = {{ mx.v[0], WALL_H, mx.v[2] }} };
+    g_room_brushes[3] = (KilnBrush){ .mins = {{ mn.v[0], 0, mn.v[2] }},
+                                     .maxs = {{ mx.v[0], WALL_H, mn.v[2] + WALL_T }} };
+    g_room_brushes[4] = (KilnBrush){ .mins = {{ mn.v[0], 0, mx.v[2] - WALL_T }},
+                                     .maxs = {{ mx.v[0], WALL_H, mx.v[2] }} };
     room->brushes = g_room_brushes;
     room->brush_count = 5;
 
-    /* Match the visible mesh to the brushes — same AABBs. */
-    g_room_mesh[0] = make_world_box(mn.v[0], mn.v[1], mn.v[2],
-                                    mx.v[0], mn.v[1] + FLOOR_H, mx.v[2], 0x303040FF);
-    g_room_mesh[1] = make_world_box(mn.v[0], mn.v[1], mn.v[2],
-                                    mn.v[0] + WALL_T, mn.v[1] + WALL_H, mx.v[2], 0x505060FF);
-    g_room_mesh[2] = make_world_box(mx.v[0] - WALL_T, mn.v[1], mn.v[2],
-                                    mx.v[0], mn.v[1] + WALL_H, mx.v[2], 0x505060FF);
-    g_room_mesh[3] = make_world_box(mn.v[0], mn.v[1], mn.v[2],
-                                    mx.v[0], mn.v[1] + WALL_H, mn.v[2] + WALL_T, 0x505060FF);
-    g_room_mesh[4] = make_world_box(mn.v[0], mn.v[1], mx.v[2] - WALL_T,
-                                    mx.v[0], mn.v[1] + WALL_H, mx.v[2], 0x505060FF);
+    for (int i = 0; i < 4; i++)
+        kiln_prim_box(&g_wall_prim[i], centre_of(&g_room_brushes[i + 1]), half_of(&g_room_brushes[i + 1]),
+                      kiln_prim_rgba(0xB8, 0xC0, 0xD0), kiln_prim_rgba(0x68, 0x74, 0x90),
+                      kiln_prim_rgba(0x20, 0x20, 0x28));
+    kiln_prim_floor(&g_floor, ROOM_HALF, 12, kiln_prim_rgba(0x4C, 0x58, 0x6C),
+                    kiln_prim_rgba(0x40, 0x4A, 0x5C));
 }
 
 static void room_unload(KilnRoom *room, void *user)
 {
     (void)user;
-    for (int i = 0; i < 5; i++) {
-        if (g_room_mesh[i]) {
-            free_uncached(g_room_mesh[i]);
-            g_room_mesh[i] = NULL;
-        }
-    }
+    for (int i = 0; i < 4; i++) kiln_prim_free(&g_wall_prim[i]);
+    kiln_prim_free(&g_floor);
     room->brushes = NULL;
     room->brush_count = 0;
 }
@@ -226,10 +193,15 @@ static void room_spawn(KilnRoom *room, const KilnRoomSpawn *spawn, void *user)
 
 static void room_draw(KilnRoom *room, void *user)
 {
-    (void)user; (void)room;
-    for (int i = 0; i < 5; i++) {
-        if (g_room_mesh[i]) draw_cube_mesh(g_room_mesh[i]);
-    }
+    (void)room; (void)user;
+    static KilnTransform floor_xf;
+    static int floor_xf_ready;
+    if (!floor_xf_ready) { kiln_transform_init(&floor_xf); floor_xf_ready = 1; }
+    floor_xf.pos = (fm_vec3_t){{ 0, FLOOR_TOP, 0 }};
+    kiln_transform_push(&floor_xf);
+    kiln_prim_draw(&g_floor);
+    kiln_transform_pop();
+    for (int i = 0; i < 4; i++) kiln_prim_draw(&g_wall_prim[i]);
 }
 
 static KilnRoomSystem g_sys;
@@ -241,125 +213,157 @@ static KilnRoom g_room = {
     .spawn_count = 0,
 };
 
-// ── Physics world + crates ──────────────────────────────────────────────
+// ── Physics world ───────────────────────────────────────────────────────
 static KilnPhysicsBody g_bodies[BODY_CAP];
 static KilnPhysicsWorld g_phys;
+static KilnTransform g_crate_xf[BODY_CAP];
+
+/* 3x3, then 2x2, then 1: fourteen crates, each resting on the layer below. */
+static void stack_crates(void)
+{
+    kiln_physics_init(&g_phys, g_bodies, BODY_CAP);
+    const float step = CRATE_HALF * 2.0f + 0.5f;
+    const fm_vec3_t half = {{ CRATE_HALF, CRATE_HALF, CRATE_HALF }};
+    for (int layer = 0; layer < 3; layer++) {
+        const int n = 3 - layer;
+        const float y = FLOOR_TOP + CRATE_HALF + 0.5f + layer * step;
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                fm_vec3_t p = {{ (i - (n - 1) * 0.5f) * step, y,
+                                 40.0f + (j - (n - 1) * 0.5f) * step }};
+                kiln_physics_spawn(&g_phys, KILN_PHYS_DYNAMIC, p, half, 5.0f);
+            }
+        }
+    }
+}
 
 int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
-    dfs_init(DFS_DEFAULT_LOCATION);
     kiln_input_init();
 
-    g_cube_player = make_world_box(-8, -8, -8, 8, 8, 8, 0xFFD94CFF);
-    g_unit_crate  = make_unit_cube(0x4C6AFFFF);
-    g_matfp       = malloc_uncached(sizeof(T3DMat4FP));
+    kiln_prim_box(&g_body, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 8, 10, 8 }},
+                  kiln_prim_rgba(0xFF, 0xE0, 0x50), kiln_prim_rgba(0xE0, 0xA0, 0x18),
+                  kiln_prim_rgba(0x60, 0x40, 0x00));
+    kiln_prim_box(&g_nose, (fm_vec3_t){{ 0, 3, 10 }}, (fm_vec3_t){{ 3, 3, 3 }},
+                  kiln_prim_rgba(0xFF, 0xFF, 0xFF), kiln_prim_rgba(0xE0, 0xE0, 0xE8),
+                  kiln_prim_rgba(0x80, 0x80, 0x80));
+    kiln_prim_floor(&g_shadow, 11.0f, 1, kiln_prim_rgba(0x14, 0x18, 0x20),
+                    kiln_prim_rgba(0x14, 0x18, 0x20));
+    for (int c = 0; c < 6; c++) {
+        for (int asleep = 0; asleep < 2; asleep++) {
+            const uint32_t top = asleep ? kiln_prim_shade(CRATE_COLOURS[c], 0.55f) : CRATE_COLOURS[c];
+            kiln_prim_box(&g_crate[c][asleep], (fm_vec3_t){{ 0, 0, 0 }},
+                          (fm_vec3_t){{ CRATE_HALF, CRATE_HALF, CRATE_HALF }},
+                          top, kiln_prim_shade(top, 0.72f), kiln_prim_shade(top, 0.3f));
+        }
+    }
+    kiln_transform_init(&g_shadow_xf);
+    for (int i = 0; i < BODY_CAP; i++) kiln_transform_init(&g_crate_xf[i]);
 
     kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-
     kiln_room_system_init(&g_sys, &g_room, 1, 1,
-                         room_load, room_unload, room_spawn, room_draw, NULL,
-                         /*owns_clip_world=*/1);
+                          room_load, room_unload, room_spawn, room_draw, NULL,
+                          /*owns_clip_world=*/1);
+    stack_crates();
 
-    kiln_physics_init(&g_phys, g_bodies, BODY_CAP);
-
-    /* Spawn 6 crates above the floor in two rows so they stack visibly. */
-    for (int i = 0; i < 6; i++) {
-        fm_vec3_t pos = {{ (i % 3) * 30.0f - 30.0f,
-                          60.0f + (i / 3) * 30.0f,
-                          (i / 3) * 30.0f - 15.0f }};
-        fm_vec3_t half = {{ 12, 12, 12 }};
-        (void)kiln_physics_spawn(&g_phys, KILN_PHYS_DYNAMIC, pos, half, /*mass=*/5.0f);
-    }
-
-    /* Player at the centre of the room, on the floor. */
+    /* On the floor: floor top + half height + a hair, so the player does not
+     * begin inside the floor brush. */
     KilnActorHandle player_h = kiln_actor_spawn(PROFILE_PLAYER,
-        (fm_vec3_t){{ 0, 8, 0 }}, 0.0f, NULL);
+        (fm_vec3_t){{ 0, FLOOR_TOP + 10.5f, -30 }}, 0.0f, NULL);
 
     KilnScene scene;
     kiln_scene_init(&scene);
-    scene.far_z = 600.0f;
-    scene.fov_deg = 70.0f;
+    kiln_prim_stage(&scene, RGBA32(0x24, 0x22, 0x34, 0xFF), 260.0f, 560.0f);
+    scene.fov_deg = 62.0f;
+    scene.near_z = 12.0f;
+    scene.far_z = 560.0f;
 
-    int phys_on = 1, bp_on = 0;
+    int phys_on = 1, bp_on = (KILN_JUMP == JUMP_BP), show_boxes = (KILN_JUMP == JUMP_BP);
+    kiln_clip_set_broadphase(bp_on);
+    if (KILN_JUMP == JUMP_PUNT) kiln_input_play(1, &PUNT);
+    else kiln_input_set_attract(1, &ATTRACT, 120);
+
     uint16_t last_trace = 0;
-
+    int flash = 0;
+    fm_vec3_t flash_to = {{ 0, 0, 0 }};
+    float calm = 0.0f;
+    int punts = 0;
     uint32_t frames = 0;
-    float fps = 0.0f;
+    float fps = 60.0f;
     uint32_t last_ticks = get_ticks();
+    fm_vec3_t cam_target = {{ 0, 0, 5 }};
 
     for (;;) {
         kiln_input_update();
         const KilnInput *in = kiln_input_get(1);
-        float dt = 1.0f / 60.0f;
+        const float dt = 1.0f / 60.0f;
 
-        /* Toggles via edges (kiln_input computes edges by diffing against
-         * last frame). */
-        if (in->edges & KILN_BTN_DL) {
-            phys_on = !phys_on;
-            kiln_physics_set_enabled(&g_phys, phys_on);
-        }
-        if (in->edges & KILN_BTN_DR) {
-            bp_on = !bp_on;
-            kiln_clip_set_broadphase(bp_on);
-        }
-        if (in->edges & KILN_BTN_DU) { phys_on = 1; kiln_physics_set_enabled(&g_phys, 1); }
-        if (in->edges & KILN_BTN_DD) { phys_on = 0; kiln_physics_set_enabled(&g_phys, 0); }
+        if (in->edges & KILN_BTN_DL) { phys_on = !phys_on; kiln_physics_set_enabled(&g_phys, phys_on); }
+        if (in->edges & KILN_BTN_DR) { bp_on = !bp_on; kiln_clip_set_broadphase(bp_on); }
+        if (in->edges & KILN_BTN_Z) show_boxes = !show_boxes;
+        if (in->edges & KILN_BTN_START) { stack_crates(); calm = 0; }
 
         kiln_actor_update_all(dt);
-
-        /* Player punts the nearest crate in a forward cone on A-edge. */
         KilnActor *player = kiln_actor_resolve(player_h);
+
+        /* Punt: the nearest crate inside a ±60° cone ahead of the player. */
         if (player && (in->edges & KILN_BTN_A)) {
-            fm_vec3_t ppos = player->xform.pos;
-            float pyaw = ((PlayerState *)player->state)->yaw;
-            fm_vec3_t pf = {{ fm_cosf(pyaw), 0, -fm_sinf(pyaw) }};
+            const fm_vec3_t pp = player->xform.pos;
+            const float yaw = ((PlayerState *)player->state)->yaw;
+            const fm_vec3_t pf = {{ fm_sinf(yaw), 0, fm_cosf(yaw) }};
             KilnPhysicsBody *best = NULL;
-            float best_d = 80.0f; /* punt radius */
+            float best_d = PUNT_RANGE;
             for (uint16_t i = 0; i < g_phys.count; i++) {
                 KilnPhysicsBody *b = &g_phys.bodies[i];
                 if (b->type != KILN_PHYS_DYNAMIC) continue;
-                fm_vec3_t d = {{ b->pos.v[0] - ppos.v[0],
-                                b->pos.v[1] - ppos.v[1],
-                                b->pos.v[2] - ppos.v[2] }};
-                float dist = fm_vec3_len(&d);
+                fm_vec3_t d = {{ b->pos.v[0] - pp.v[0], 0, b->pos.v[2] - pp.v[2] }};
+                const float dist = fm_vec3_len(&d);
                 if (dist > best_d || dist < 1e-3f) continue;
-                fm_vec3_norm(&d, &d);
-                float dot = d.v[0]*pf.v[0] + d.v[1]*pf.v[1] + d.v[2]*pf.v[2];
-                if (dot < 0.5f) continue; /* ~60° half-cone */
+                if ((d.v[0] * pf.v[0] + d.v[2] * pf.v[2]) / dist < 0.5f) continue;
                 best = b; best_d = dist;
             }
             if (best) {
-                fm_vec3_t imp = {{ pf.v[0] * 800.0f, 400.0f, pf.v[2] * 800.0f }};
-                kiln_physics_apply_impulse(best, imp);
+                kiln_physics_apply_impulse(best, (fm_vec3_t){{ pf.v[0] * 1400.0f, 900.0f,
+                                                                pf.v[2] * 1400.0f }});
+                flash = 12;
+                flash_to = best->pos;
+                punts++;
             }
+            calm = 0.0f;
         }
 
-        /* Step physics. When phys_on is 0 this is a no-op and crates
-         * freeze in place. */
         kiln_physics_step(&g_phys, dt);
 
-        /* Room streaming: camera = player pos. The room's brushes are
-         * re-installed into the clip world on load/unload — this ROM never
-         * calls kiln_clip_set_world. */
-        fm_vec3_t cam_target = player ? player->xform.pos
-                                      : (fm_vec3_t){{ 0, 0, 0 }};
-        kiln_room_system_update(&g_sys, cam_target);
+        uint16_t sleeping = 0;
+        for (uint16_t i = 0; i < g_phys.count; i++) if (g_phys.bodies[i].sleeping) sleeping++;
 
-        /* Third-person camera: behind + above the player. */
-        scene.cam_target = cam_target;
-        scene.cam_pos = (fm_vec3_t){{
-            cam_target.v[0], cam_target.v[1] + 80.0f, cam_target.v[2] - 120.0f
-        }};
+        /* While a tape is playing, restack once the pile has been still for a
+         * while — so an unattended demo keeps showing something falling. */
+        calm = (sleeping == g_phys.count) ? calm + dt : 0.0f;
+        if (KILN_JUMP != JUMP_PUNT && kiln_input_scripted(1) && calm > 3.0f) {
+            stack_crates();
+            calm = 0.0f;
+        }
+
+        const fm_vec3_t ppos = player ? player->xform.pos : (fm_vec3_t){{ 0, 0, 0 }};
+        kiln_room_system_update(&g_sys, ppos);
+
+        /* Camera: behind and above, easing after the player, kept inside the
+         * room so the south wall never blocks the view. */
+        cam_target.v[0] += (ppos.v[0] * 0.5f - cam_target.v[0]) * 0.06f;
+        cam_target.v[2] += ((ppos.v[2] + 40.0f) * 0.5f - cam_target.v[2]) * 0.06f;
+        /* Aimed between the player and the stack, low enough that the
+         * pyramid stands in the middle of the frame, clear of the HUD panel. */
+        scene.cam_target = (fm_vec3_t){{ cam_target.v[0], 22, cam_target.v[2] }};
+        float cz = cam_target.v[2] - 115.0f;
+        if (cz < -ROOM_HALF + WALL_T + 4) cz = -ROOM_HALF + WALL_T + 4;
+        scene.cam_pos = (fm_vec3_t){{ cam_target.v[0] * 0.6f, 100, cz }};
         kiln_scene_update(&scene);
 
-        /* Sample the trace counter after a representative trace this frame
-         * — a ground probe from the player. The HUD shows this so the BP
-         * toggle's effect is visible. */
         if (player) {
-            fm_vec3_t half = {{ 8, 8, 8 }};
-            kiln_clip_ground(player->xform.pos, half, half);
+            kiln_clip_ground(player->xform.pos, P_MINS, P_MAXS);
             last_trace = kiln_clip_last_trace_brushes();
         }
 
@@ -373,52 +377,68 @@ int main(void)
         kiln_frame_begin();
         kiln_scene_begin(&scene);
 
-        /* Draw the room (floor + walls) — world-space verts, no matrix push. */
         kiln_room_draw_all(&g_sys);
 
-        /* Draw each crate body at its current pos via a pushed SRT matrix.
-         * The unit cube is scaled by the body's half-extents. */
+        if (player) {
+            g_shadow_xf.pos = (fm_vec3_t){{ ppos.v[0], FLOOR_TOP + 0.4f, ppos.v[2] }};
+            kiln_transform_push(&g_shadow_xf);
+            kiln_prim_draw(&g_shadow);
+            kiln_transform_pop();
+        }
+
         for (uint16_t i = 0; i < g_phys.count; i++) {
-            KilnPhysicsBody *b = &g_phys.bodies[i];
-            float hx = b->maxs.v[0], hy = b->maxs.v[1], hz = b->maxs.v[2];
-            T3DMat4 m;
-            float scale[3]    = { hx, hy, hz };
-            float quat[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
-            float translate[3] = { b->pos.v[0], b->pos.v[1], b->pos.v[2] };
-            t3d_mat4_from_srt(&m, scale, quat, translate);
-            t3d_mat4_to_fixed(g_matfp, &m);
-            t3d_matrix_push(g_matfp);
-            draw_cube_mesh(g_unit_crate);
-            t3d_matrix_pop(1);
+            const KilnPhysicsBody *b = &g_phys.bodies[i];
+            g_crate_xf[i].pos = b->pos;
+            kiln_transform_push(&g_crate_xf[i]);
+            kiln_prim_draw(&g_crate[i % 6][b->sleeping ? 1 : 0]);
+            kiln_transform_pop();
         }
 
         kiln_actor_draw_all();
 
         /* ── 2D ───────────────────────────────────────────────────── */
         kiln_gui_begin();
-        kiln_gui_panel(8, 8, 220, 100,
-                      RGBA32(10, 10, 24, 200), RGBA32(0, 245, 212, 255));
-        kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN PHYSICS (HL2)");
-        kiln_gui_text(14, 34, RGBA32(232, 232, 240, 255), "fps %5.1f", fps);
-        kiln_gui_text(14, 46, RGBA32(232, 232, 240, 255),
-                     "phys %s   bp %s",
-                     phys_on ? "ON " : "OFF",
-                     bp_on    ? "ON " : "OFF");
-        uint16_t sleeping = 0;
-        for (uint16_t i = 0; i < g_phys.count; i++)
-            if (g_phys.bodies[i].sleeping) sleeping++;
-        kiln_gui_text(14, 58, RGBA32(232, 232, 240, 255),
-                     "bodies %u  sleep %u", g_phys.count, sleeping);
-        kiln_gui_text(14, 70, RGBA32(232, 232, 240, 255),
-                     "traces/step %u", last_trace);
-        kiln_gui_text(14, 82, RGBA32(232, 232, 240, 255),
-                     "loaded rooms %u",
-                     kiln_room_loaded_count(&g_sys));
 
-        kiln_gui_panel(8, SCREEN_H - 28, SCREEN_W - 16, 20,
-                      RGBA32(10, 10, 24, 200), RGBA32(139, 92, 246, 255));
-        kiln_gui_text(14, SCREEN_H - 18, RGBA32(232, 232, 240, 255),
-                     "stick: move  A: punt  DPad-L/R: phys/bp  U/D: phys on/off");
+        if (show_boxes || flash > 0) {
+            kiln_dd_begin(&scene, SCREEN_W, SCREEN_H);
+            if (show_boxes) {
+                for (uint16_t i = 0; i < g_phys.count; i++) {
+                    const KilnPhysicsBody *b = &g_phys.bodies[i];
+                    if (b->sleeping) continue;
+                    kiln_dd_box(b->pos, b->maxs, RGBA32(0x80, 0xFF, 0xF0, 0xFF));
+                }
+            }
+            if (flash > 0) {
+                const fm_vec3_t from = {{ ppos.v[0], ppos.v[1] + 4, ppos.v[2] }};
+                kiln_dd_line(from, flash_to, RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+                kiln_dd_point(flash_to, 2 + flash / 2, RGBA32(0xFF, 0xF0, 0x80, 0xFF));
+                flash--;
+            }
+            kiln_dd_end();
+        }
+
+        const color_t ink = RGBA32(0xE8, 0xE8, 0xF0, 0xFF);
+        const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
+        const color_t dim = RGBA32(0x90, 0x98, 0xB0, 0xFF);
+        kiln_gui_panel(8, 8, 150, 80, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
+        kiln_gui_text(14, 21, teal, "KILN PHYSICS");
+        kiln_gui_text(14, 34, ink, "phys %s  bp %s", phys_on ? "on " : "off", bp_on ? "on" : "off");
+        kiln_gui_text(14, 46, ink, "bodies %u  asleep %u", g_phys.count, sleeping);
+        kiln_gui_text(14, 58, ink, "traced %u/5  punts %d", last_trace, punts);
+        kiln_gui_rect(14, 64, 120, 4, RGBA32(0x30, 0x34, 0x44, 0xFF));
+        kiln_gui_rect(14, 64, 120 * (g_phys.count - sleeping) / (g_phys.count ? g_phys.count : 1), 4,
+                      RGBA32(0xFF, 0xA0, 0x40, 0xFF));
+        kiln_gui_text(14, 80, dim, "%4.1f fps", fps);
+
+        if (kiln_input_scripted(1)) {
+            kiln_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
+                           RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            kiln_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        }
+        kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16,
+                       RGBA32(0x0C, 0x10, 0x1C, 0xFF), RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        kiln_gui_text(14, SCREEN_H - 12, ink, "A punt  D< phys  D> bp  Z boxes  START stack");
+
         kiln_gui_end();
         kiln_frame_end();
     }

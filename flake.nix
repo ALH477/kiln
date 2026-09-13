@@ -731,11 +731,12 @@
         # stack, rest, sleep; A punts the nearest crate in a forward cone
         # (gravity-gun feel); D-pad toggles PHYS ON/OFF and BP ON/OFF; HUD
         # shows the last trace's brush count so the broadphase win is visible.
-        physics-demo = mkN64Rom {
+        physicsDemoArgs = {
           name = "physics-demo";
           src = ./examples/physics-demo;
           romTitle = "Kiln Physics";
         };
+        physics-demo = mkN64Rom physicsDemoArgs;
 
         # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
@@ -977,7 +978,8 @@
 
         jumpRoms =
           mkJumpRoms clipDemoArgs [ "CORNER" ]
-          // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ];
+          // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
+          // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1168,6 +1170,23 @@
             assets = [ mapDemoMap quakeMap ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_QUAKE_TEST" ];
             meta.description = "map-demo-quake-test, on this machine";
+          };
+          pc-physics-demo = hostNative.mkGame {
+            pname = "kiln-physics-demo";
+            sources = [ ./examples/physics-demo/main.c ];
+            meta.description = "physics-demo, on this machine";
+          };
+          pc-physics-demo-punt = hostNative.mkGame {
+            pname = "kiln-physics-demo-punt";
+            sources = [ ./examples/physics-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_PUNT" ];
+            meta.description = "physics-demo-punt, on this machine";
+          };
+          pc-physics-demo-bp = hostNative.mkGame {
+            pname = "kiln-physics-demo-bp";
+            sources = [ ./examples/physics-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_BP" ];
+            meta.description = "physics-demo-bp, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
