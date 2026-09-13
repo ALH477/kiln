@@ -159,11 +159,13 @@ void kiln_prim_stage(KilnScene *s, color_t sky, float fog_near, float fog_far)
 {
     s->clear_color = sky;
 
-    /* Ambient: a quarter of the sky plus a floor of 28, so a black sky still
-     * leaves shadowed faces visible against it. */
-    s->ambient[0] = (uint8_t)(28 + sky.r / 4);
-    s->ambient[1] = (uint8_t)(28 + sky.g / 4);
-    s->ambient[2] = (uint8_t)(28 + sky.b / 4);
+    /* Ambient: a third of the sky plus a floor of 52. It was 28 + sky/4, which
+     * read well in host renders and near-black on the console: through a 16-bit
+     * framebuffer and a CRT-style output, every floor and shadowed face in the
+     * first Ares batch sat within a few steps of the clear colour. */
+    s->ambient[0] = (uint8_t)(52 + sky.r / 3);
+    s->ambient[1] = (uint8_t)(52 + sky.g / 3);
+    s->ambient[2] = (uint8_t)(52 + sky.b / 3);
     s->ambient[3] = 0xFF;
 
     /* Key: warm, high, from the camera's usual (-Z) side of the scene.
@@ -180,8 +182,8 @@ void kiln_prim_stage(KilnScene *s, color_t sky, float fog_near, float fog_far)
 
     /* Rim: cool and weaker, from behind and the other side, so the faces the
      * key cannot see still separate from each other. */
-    s->lights[0].color[0] = 0x40; s->lights[0].color[1] = 0x60;
-    s->lights[0].color[2] = 0xA0; s->lights[0].color[3] = 0xFF;
+    s->lights[0].color[0] = 0x58; s->lights[0].color[1] = 0x78;
+    s->lights[0].color[2] = 0xB8; s->lights[0].color[3] = 0xFF;
     s->lights[0].dir = (fm_vec3_t){{ 0.60f, -0.35f, -0.70f }};
     fm_vec3_norm(&s->lights[0].dir, &s->lights[0].dir);
     s->light_count = 2;
