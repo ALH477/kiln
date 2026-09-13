@@ -253,14 +253,22 @@ void t3d_mat4_to_fixed_3x4(T3DMat4FP *out, const fm_mat4_t *in)
     t3d_mat4_to_fixed(out, in);
 }
 
+/* out = a * b, in the column-major convention every matrix here uses
+ * (m[col][row]), which is what rsp_tiny3d's mulMat4Mat4(out, L, R) computes:
+ * each column of the result is L applied to the matching column of R. This
+ * once summed a[i][k] * b[k][j] — row-major indexing over column-major data —
+ * which is b * a, so a push stored new * previous. A single push cannot tell;
+ * two nested ones applied the child transform OUTSIDE its parent, and a
+ * viewmodel built as camera-then-offset landed wherever the offset alone put
+ * it. kiln-prim draws a nested pair and samples where the box must be. */
 static void mat_mul(fm_mat4_t *out, const fm_mat4_t *a, const fm_mat4_t *b)
 {
     fm_mat4_t r;
-    for (int i = 0; i < 4; i++)
-        for (int j = 0; j < 4; j++) {
+    for (int col = 0; col < 4; col++)
+        for (int row = 0; row < 4; row++) {
             float s = 0.0f;
-            for (int k = 0; k < 4; k++) s += a->m[i][k] * b->m[k][j];
-            r.m[i][j] = s;
+            for (int k = 0; k < 4; k++) s += a->m[k][row] * b->m[col][k];
+            r.m[col][row] = s;
         }
     *out = r;
 }
@@ -273,7 +281,7 @@ void t3d_matrix_push(T3DMat4FP *mat)
             "overruns the ucode's matrix buffer.", g_depth);
     fm_mat4_t top;
     if (g_depth == 0) top = mat->m;
-    else mat_mul(&top, &g_stack[g_depth - 1], &mat->m);
+    else mat_mul(&top, &g_stack[g_depth - 1], &mat->m);   /* previous * new, as the ucode's push */
     g_stack[g_depth++] = top;
     if ((uint32_t)g_depth > g_c.matrix_depth_max) g_c.matrix_depth_max = (uint32_t)g_depth;
 }

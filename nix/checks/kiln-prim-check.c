@@ -16,6 +16,10 @@
  *   batching    a 256-cell floor must go out in 17-quad loads — the host's
  *               vertex cache asserts if one ever exceeds 70.
  *   the stage   clear colour equals fog colour and two lights are uploaded.
+ *   nesting     a transform pushed inside another applies INSIDE it (parent *
+ *               child, as the ucode's push multiplies). A box offset +70 on X
+ *               under a parent turned 180 degrees must land at -70; the host
+ *               once multiplied the other way round and put it at +70.
  */
 #include <kiln_engine.h>
 #include <kiln_gui.h>
@@ -189,12 +193,63 @@ int main(void)
               "from below, i.e. the light direction's sign is wrong", lum);
     }
 
+    /* ── nested transforms: the child applies inside its parent ── */
+    {
+        KilnPrim marker;
+        CHECK(kiln_prim_box(&marker, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 12, 4, 12 }},
+                            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) == 0, "marker alloc");
+        KilnScene top;
+        kiln_scene_init(&top);
+        kiln_prim_stage(&top, RGBA32(0, 0, 0, 0xFF), 0.0f, 0.0f);   /* no fog */
+        top.cam_pos = (fm_vec3_t){{ 0, 260, 60 }};
+        top.cam_target = (fm_vec3_t){{ 0, 0, 0 }};
+        top.far_z = 600.0f;
+        kiln_scene_update(&top);
+
+        KilnTransform outer, inner;
+        kiln_transform_init(&outer);
+        kiln_transform_init(&inner);
+        outer.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
+        outer.rot_angle = 3.14159265f;
+        inner.pos = (fm_vec3_t){{ 70, 0, 0 }};
+
+        kiln_frame_begin();
+          kiln_scene_begin(&top);
+            kiln_transform_push(&outer);
+              kiln_transform_push(&inner);
+                kiln_prim_draw(&marker);
+              kiln_transform_pop();
+            kiln_transform_pop();
+          kiln_gui_begin();
+          kiln_gui_end();
+        kiln_frame_end();
+
+        int gx, gy, bx, by;
+        const int seen = kiln_scene_project(&top, (fm_vec3_t){{ -70, 4, 0 }}, 320, 240, &gx, &gy)
+                       & kiln_scene_project(&top, (fm_vec3_t){{  70, 4, 0 }}, 320, 240, &bx, &by);
+        CHECK(seen && gx >= 0 && gx < 320 && bx >= 0 && bx < 320 && gy >= 0 && gy < 240 &&
+              by >= 0 && by < 240, "nesting probe points are off screen");
+        if (seen && g_frame_w == 320 && gx >= 0 && gx < 320 && bx >= 0 && bx < 320 &&
+            gy >= 0 && gy < 240 && by >= 0 && by < 240) {
+            const uint8_t *g = &g_frame[(gy * 320 + gx) * 4], *b = &g_frame[(by * 320 + bx) * 4];
+            const int lg = (g[0] + g[1] + g[2]) / 3, lb = (b[0] + b[1] + b[2]) / 3;
+            printf("  nesting: parent*child at (%d,%d) lum %d, child*parent at (%d,%d) lum %d\n",
+                   gx, gy, lg, bx, by, lb);
+            CHECK(lg > 40, "no box where parent*child puts it (lum %d)", lg);
+            CHECK(lb < 10, "a box where child*parent puts it (lum %d): the matrix stack "
+                  "multiplies nested pushes in the wrong order", lb);
+        }
+        kiln_transform_free(&outer);
+        kiln_transform_free(&inner);
+        kiln_prim_free(&marker);
+    }
+
     kiln_transform_free(&t);
     kiln_prim_free(&box);
     kiln_prim_free(&floor_);
     CHECK(box.verts == NULL, "kiln_prim_free left a dangling pointer");
 
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
-    printf("kiln_prim: winding, normals, extents, batching and the stage all hold\n");
+    printf("kiln_prim: winding, normals, extents, batching, the stage and nesting all hold\n");
     return 0;
 }
