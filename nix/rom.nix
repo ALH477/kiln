@@ -215,7 +215,10 @@ ${lib.optionalString (assets != [ ]) ''
   '';
 
   passthru = (args.passthru or { }) // {
-    inherit n64Inst toolchain;
+    # `assets` is kept, not only consumed: examples/demo-reel builds one ROM
+    # from every example and takes the union of their assets from here, so
+    # each asset list is still written once, beside the ROM that needs it.
+    inherit n64Inst toolchain assets;
     romFile = "${placeholder "out"}/${name}.z64";
   };
 

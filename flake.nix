@@ -974,6 +974,76 @@
           romTitle = "Kiln Board";
         };
 
+        # ── The demo reel: every example on one cartridge ─────────────────
+        # examples/demo-reel is a menu, with every example's own source linked
+        # into the same ELF under a renamed main (its main.c and Makefile say
+        # how). RESET returns to the menu.
+        #
+        # demoReelRoms is the standalone ROM of each example on the reel, used
+        # for one thing: the union of their assets, so no asset list is written
+        # twice. Its source directories must be exactly demos.def's, and
+        # evaluation fails if not -- an example added to one and not the other
+        # would otherwise ship a reel whose rom:/ paths are simply absent, the
+        # silent-empty-filesystem failure nix/rom.nix already refuses once.
+        #
+        # demo-reel-<id> is the same ROM built to launch one demo on its own
+        # after half a second of menu: a jump ROM per demo, which is how each
+        # hand-over is verified (./dev shot demo-reel-fps).
+        demoReelRoms = [
+          fps cinematic-demo interceptor-demo oot-demo openworld-demo
+          exsec-streamdb-demo bass-synth camera-skel-demo physics-demo map-demo
+          clip-demo rooms-demo actors-demo event-demo board-demo texanim-demo
+          debug-demo splash-demo engine-demo assets-demo streamdb-demo audio
+          live-voice music-demo hello
+        ];
+        demoReelDef = builtins.filter (m: m != null) (map
+          (l: builtins.match ''DEMO\(([a-z0-9_]+), *"([a-z0-9-]+)".*'' l)
+          (pkgs.lib.splitString "\n" (builtins.readFile ./examples/demo-reel/demos.def)));
+        demoReelIds = map builtins.head demoReelDef;
+        mkDemoReel = { name, autorun ? null }:
+          let
+            lib = pkgs.lib;
+            sorted = lib.sort (a: b: a < b);
+            defDirs = sorted (map (m: builtins.elemAt m 1) demoReelDef);
+            romDirs = sorted (map (r: baseNameOf (toString r.src)) demoReelRoms);
+            assets = lib.unique (lib.concatMap (r: r.passthru.assets) demoReelRoms);
+          in
+          assert lib.assertMsg (defDirs == romDirs)
+            "demo-reel: demos.def has [${toString defDirs}] but demoReelRoms has [${toString romDirs}]";
+          mkN64Rom {
+            inherit name assets;
+            src = ./examples;
+            sourceRoot = "examples/demo-reel";
+            romTitle = "Kiln Demo Reel";
+            audioRate = 32000;
+            makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ]
+              ++ lib.optional (autorun != null) "AUTORUN=${autorun}";
+            # mkN64Rom stages assets with `cp`, so when two examples ship the
+            # same rom:/ path the later one silently wins. Today every shared
+            # path is one derivation (blip.wav64 is demoSound in all seven), and
+            # this keeps it so: the same path must be the same bytes.
+            preBuild = ''
+              declare -A seen
+              for a in ${lib.escapeShellArgs (map toString assets)}; do
+                while IFS= read -r -d "" f; do
+                  rel=''${f#"$a"/filesystem/}
+                  h=$(sha256sum "$f" | cut -d' ' -f1)
+                  if [ -n "''${seen[$rel]:-}" ] && [ "''${seen[$rel]}" != "$h" ]; then
+                    echo "demo-reel: rom:/$rel has different bytes in two examples' assets" >&2
+                    exit 1
+                  fi
+                  seen[$rel]=$h
+                done < <(find -L "$a/filesystem" -type f -print0)
+              done
+              echo "demo-reel: ''${#seen[@]} rom:/ files from ${toString (builtins.length assets)} assets, no conflicts"
+            '';
+          };
+        demo-reel = mkDemoReel { name = "demo-reel"; };
+        demoReelJumps = pkgs.lib.listToAttrs (map
+          (id: pkgs.lib.nameValuePair "demo-reel-${id}"
+            (mkDemoReel { name = "demo-reel-${id}"; autorun = id; }))
+          demoReelIds);
+
         # ── The Kiln boot splash ──────────────────────────────────────────
         # A parody of the Nintendo 64's boot, and a publisher mark rather
         # than any one game's title screen — which is why the runtime half
@@ -1136,7 +1206,7 @@
           host-backend      = hostNative.backend;
           host-vadpcm       = hostNative.vadpcm;
 
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo demo-reel forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
@@ -1144,6 +1214,7 @@
           inherit dev-image;
         }
         // forgeModeRoms
+        // demoReelJumps
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
@@ -1320,6 +1391,11 @@
             inherit pkgs;
             rom = board-demo;
             name = "board-demo";
+          };
+          rom-demo-reel = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = demo-reel;
+            name = "demo-reel";
           };
           # rom.nix globs for *.z64 rather than taking a filename, which is
           # what makes this work for Forge: the Makefile emits `forge.z64` no

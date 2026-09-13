@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: MIT
+//
+// The demo reel's one list. Three readers, so nothing is written twice:
+//   main.c     -- the menu, in this order (an X-macro: #include it under a DEMO)
+//   Makefile   -- one object per row, from examples/<dir>/<src>, as demo_<id>_main
+//   flake.nix  -- the set of <dir>s must equal the ROMs listed in demoReelRoms,
+//                 which is where the assets come from; it fails evaluation if not
+//
+// One row per line, exactly this shape, because the Makefile and the flake read
+// it with a regex rather than a C preprocessor:
+//   DEMO(id, "dir", "src", "label", "blurb")
+// The blurb is one 8px-font line: at most 37 characters.
+
+DEMO(fps,            "fps",                 "main.c",   "FPS",                "Doom, Half-Life and OoT mechanics")
+DEMO(cinematic,      "cinematic-demo",      "main.c",   "Cinematic",          "a 60 s hangar scene with music")
+DEMO(interceptor,    "interceptor-demo",    "main.c",   "Interceptor",        "every engine layer on one screen")
+DEMO(oot,            "oot-demo",            "main.c",   "OoT",                "Z-targeting in a Quake .map room")
+DEMO(openworld,      "openworld-demo",      "main.c",   "Open World",         "tile streaming, cache and LOD")
+DEMO(exsec_streamdb, "exsec-streamdb-demo", "main.c",   "Exsecutor StreamDB", "a reader in Exsecutor vs Kiln's")
+DEMO(bass_synth,     "bass-synth",          "main.c",   "Bass Synth",         "4-player bass, 12 wavetables")
+DEMO(camera_skel,    "camera-skel-demo",    "main.c",   "Camera + Skeleton",  "spring-arm camera, skinned walker")
+DEMO(physics,        "physics-demo",        "main.c",   "Physics",            "bodies in a room, clip broadphase")
+DEMO(map,            "map-demo",            "main.c",   "Map",                "a Quake .map, collided and drawn")
+DEMO(clip,           "clip-demo",           "main.c",   "Clip",               "swept boxes sliding along walls")
+DEMO(rooms,          "rooms-demo",          "main.c",   "Rooms",              "a 2x2 grid of streamed rooms")
+DEMO(actors,         "actors-demo",         "main.c",   "Actors",             "spawn, despawn and draw order")
+DEMO(event,          "event-demo",          "main.c",   "Event",              "a delayed event opens a door")
+DEMO(board,          "board-demo",          "main.c",   "Board",              "rng, dice and a branching board")
+DEMO(texanim,        "texanim-demo",        "main.c",   "TexAnim",            "UV scroll, deform and morph")
+DEMO(debug,          "debug-demo",          "main.c",   "Debug Console",      "hold START, press C to toggle")
+DEMO(splash,         "splash-demo",         "main.c",   "Splash",             "the Kiln boot splash")
+DEMO(engine,         "engine",              "main.c",   "Engine",             "a 3D pass under a 2D HUD")
+DEMO(assets,         "assets-demo",         "main.c",   "Assets",             "one of each converted asset kind")
+DEMO(streamdb,       "streamdb-demo",       "main.c",   "StreamDB",           "the same assets from one container")
+DEMO(audio,          "audio",               "audio.c",  "Audio",              "a baked Faust instrument")
+DEMO(live_voice,     "live-voice",          "main.c",   "Live Voice",         "a live Faust voice vs the baked one")
+DEMO(music,          "music",               "main.c",   "Music",              "XM64 tracker playback")
+DEMO(hello,          "hello",               "hello.c",  "Hello",              "the smallest ROM that boots")
