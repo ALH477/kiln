@@ -704,12 +704,13 @@
         };
         camera-skel-demo = mkN64Rom cameraSkelDemoArgs;
 
-        # Phase C verification: same three asset kinds as assets-demo, but
-        # loaded from a single StreamDB container mounted at boot via
-        # kiln_asset_open. Exercises kiln_asset_model (the patched
-        # t3d_model_load_buf path), kiln_asset_sprite (sprite_load_buf), and
-        # kiln_asset_load on a raw level blob, plus kiln_asset_count and
-        # kiln_asset_find_suffix.
+        # Phase C verification: one StreamDB container mounted at boot via
+        # kiln_asset_open, and everything on screen comes out of it. The raw
+        # level blob (kiln_asset_load) is parsed into spawn points, the model
+        # (kiln_asset_model, the patched t3d_model_load_buf path) stands on
+        # each, the sprite (kiln_asset_sprite) is the logo, and the HUD lists
+        # every key by kiln_asset_find_suffix against kiln_asset_count.
+        # Jump ROM and host builds: nix/demos/streamdb-demo.nix.
         streamdbDemoArgs = {
           name = "streamdb-demo";
           src = ./examples/streamdb-demo;
