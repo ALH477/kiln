@@ -175,9 +175,10 @@ int main(void)
 
     /* A floor under the stage's key light must come out well above ambient.
      * Ambient alone lands a 0x90 grey near 0x1C; lit from overhead it is
-     * several times that. This is the assertion that would have caught the
-     * stage's lights pointing upward, which lit every wall side and left every
-     * floor black. Sampled low in the frame, where only floor is drawn. */
+     * several times that. This is the assertion that catches the stage's key
+     * pointing the wrong way, which leaves every floor black while wall sides
+     * look fine — and, with plat/host's lambert sign fixed, it now means the
+     * same thing on console. Sampled low in the frame, where only floor is drawn. */
     CHECK(g_frame_w == 320 && g_frame_h == 240, "no frame was presented (%dx%d)",
           g_frame_w, g_frame_h);
     if (g_frame_w == 320) {

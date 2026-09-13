@@ -63,7 +63,7 @@ int map_render_frame(const KilnMap *m, const char *png)
     scene.ambient[3] = 0xFF;
     scene.light_color[0] = 0xFF; scene.light_color[1] = 0xF2;
     scene.light_color[2] = 0xCC; scene.light_color[3] = 0xFF;
-    scene.light_dir = (fm_vec3_t){{ -0.45f, -0.8f, -0.4f }};
+    scene.light_dir = (fm_vec3_t){{ 0.45f, 0.8f, 0.4f }};
     scene.light_count = 1;
     kiln_scene_update(&scene);
 

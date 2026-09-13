@@ -450,11 +450,18 @@ static void shade(const fm_vec3_t *nrm, uint32_t rgba, Out *o)
         float lr = g_ambient[0] / 255.0f, lg = g_ambient[1] / 255.0f,
               lb = g_ambient[2] / 255.0f;
         for (int i = 0; i < g_light_count; i++) {
-            /* Tiny3D's light direction points FROM the surface toward the
-             * source, so the lambert term is -dot(N, dir). */
-            float d = -(nrm->v[0] * g_lights[i].dir.v[0]
-                      + nrm->v[1] * g_lights[i].dir.v[1]
-                      + nrm->v[2] * g_lights[i].dir.v[2]);
+            /* Tiny3D's light direction points FROM the surface TOWARD the
+             * source, so the lambert term is +dot(N, dir): rsp_tiny3d.rspl
+             * multiplies the transformed normal by the direction and adds the
+             * products straight into the light colour ("usually we want
+             * dot(normal, lightDir) * lightColor"), and its examples light
+             * from above with a positive y. This read -dot for a long time,
+             * which lit every host render from the opposite side: tops and
+             * floors that are lit on console came out dark here and the
+             * reverse, so content tuned on the host went dark on hardware. */
+            float d = nrm->v[0] * g_lights[i].dir.v[0]
+                    + nrm->v[1] * g_lights[i].dir.v[1]
+                    + nrm->v[2] * g_lights[i].dir.v[2];
             if (d < 0.0f) d = 0.0f;
             lr += d * g_lights[i].color[0] / 255.0f;
             lg += d * g_lights[i].color[1] / 255.0f;

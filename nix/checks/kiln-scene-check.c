@@ -141,10 +141,10 @@ int main(int argc, char **argv)
     scene.ambient[3] = 0xFF;
     scene.light_color[0] = 0xFF; scene.light_color[1] = 0xF0;
     scene.light_color[2] = 0xC0; scene.light_color[3] = 0xFF;
-    scene.light_dir = (fm_vec3_t){{ -0.55f, -0.70f, -0.45f }};
+    scene.light_dir = (fm_vec3_t){{ 0.55f, 0.70f, 0.45f }};
     scene.lights[0].color[0] = 0x30; scene.lights[0].color[1] = 0x50;
     scene.lights[0].color[2] = 0x90; scene.lights[0].color[3] = 0xFF;
-    scene.lights[0].dir = (fm_vec3_t){{ 0.80f, 0.20f, 0.55f }};
+    scene.lights[0].dir = (fm_vec3_t){{ -0.80f, -0.20f, -0.55f }};
     scene.light_count = 2;
 
     kiln_scene_set_fog(&scene, RGBA32(0x0A, 0x0C, 0x14, 0xFF), 260.0f, 620.0f);

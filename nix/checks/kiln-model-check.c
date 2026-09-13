@@ -96,7 +96,7 @@ int main(int argc, char **argv)
     scene.ambient[3] = 0xFF;
     scene.light_color[0] = 0xFF; scene.light_color[1] = 0xF4;
     scene.light_color[2] = 0xD0; scene.light_color[3] = 0xFF;
-    scene.light_dir = (fm_vec3_t){{ -0.5f, -0.75f, -0.4f }};
+    scene.light_dir = (fm_vec3_t){{ 0.5f, 0.75f, 0.4f }};
     scene.light_count = 1;
     kiln_scene_update(&scene);
 

@@ -170,21 +170,22 @@ void kiln_prim_stage(KilnScene *s, color_t sky, float fog_near, float fog_far)
 
     /* Key: warm, high, from the camera's usual (-Z) side of the scene.
      *
-     * Direction is the way the light TRAVELS: a surface is lit by
-     * -dot(normal, dir), so a light overhead has NEGATIVE y. This preset
-     * first shipped pointing the other way — every floor came out at bare
-     * ambient, (5,7,10) on a dusk sky, while wall sides looked fine — and
-     * kiln-prim now samples a floor pixel so it cannot come back. */
+     * Direction points TOWARD the light: Tiny3D lights a vertex by
+     * +dot(normal, dir), so a light overhead has POSITIVE y. This preset once
+     * shipped pointing down, tuned against a host renderer that had the sign
+     * backwards — on console every floor and box top sat at bare ambient
+     * while wall sides looked fine. kiln-prim samples a floor pixel so it
+     * cannot come back. */
     s->light_color[0] = 0xFF; s->light_color[1] = 0xE8;
     s->light_color[2] = 0xC8; s->light_color[3] = 0xFF;
-    s->light_dir = (fm_vec3_t){{ -0.40f, -0.80f, 0.45f }};
+    s->light_dir = (fm_vec3_t){{ 0.40f, 0.80f, -0.45f }};
     fm_vec3_norm(&s->light_dir, &s->light_dir);
 
     /* Rim: cool and weaker, from behind and the other side, so the faces the
      * key cannot see still separate from each other. */
     s->lights[0].color[0] = 0x58; s->lights[0].color[1] = 0x78;
     s->lights[0].color[2] = 0xB8; s->lights[0].color[3] = 0xFF;
-    s->lights[0].dir = (fm_vec3_t){{ 0.60f, -0.35f, -0.70f }};
+    s->lights[0].dir = (fm_vec3_t){{ -0.60f, 0.35f, 0.70f }};
     fm_vec3_norm(&s->lights[0].dir, &s->lights[0].dir);
     s->light_count = 2;
 

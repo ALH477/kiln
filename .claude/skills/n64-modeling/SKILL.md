@@ -180,10 +180,14 @@ two darkenings — which is what "the room is unreadable" often actually is.
   directions of its most influential fixtures (not their brightness) lets a
   runtime's own highlights land where the baked ones already are, pulling
   colour mostly toward white rather than re-tinting the scene.
-- A directional light's `dir` is the direction light **travels** — from the
-  fixture toward the subject. Backwards lights the far side of everything,
-  which reads as inside-out geometry and is invisible in a still of a
-  symmetric room.
+- A directional light's `dir` points **toward the light** — from the subject
+  toward the fixture, so overhead is +y (the engine default is (1,1,1)).
+  Tiny3D's microcode lights a vertex by `+dot(normal, dir)`
+  (`rsp_tiny3d.rspl`). This said "travels" once, and the host renderer had the
+  sign backwards to match, so host renders agreed with the wrong rule and only
+  a console capture disagreed. Backwards lights the far side of everything:
+  floors and tops at bare ambient while walls look fine, which reads as a dark
+  scene rather than a wrong one.
 
 ## Lighting and atmosphere (KilnScene)
 
