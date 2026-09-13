@@ -757,8 +757,22 @@ Tracker music:
 The engine audio layer (`kiln_audio.h`) wraps libdragon's RSP mixer with:
 - `kiln_audio_init/update/close` — init, per-frame pump, teardown
 - `kiln_sfx_load/play/play_ex/stop` — SFX with priority-based voice stealing
-- `kiln_music_load/play/stop/set_volume` — XM64/YM64 tracker music
+- `kiln_sfx_set_vol_pan/set_freq/set_pitch` — `set_freq` is absolute Hz,
+  `set_pitch` a ratio of the asset's encoded rate
+- `kiln_music_load/play/stop/set_volume/set_loop/playing` — XM64/YM64 tracker
+  music; `kiln_music_tell/seek/num_channels/first_channel` for visualisers
+- `kiln_audio_set_tap` — a read-only callback on every mixed buffer, for
+  meters and scopes that show what was mixed rather than a model of it
 - `kiln_audio_set_room_music/update_rooms` — room-based music crossfading
+
+**A stereo wav64 occupies two mixer channels**, the one returned and the next;
+the allocator finds or steals a pair and routes calls on the second half to
+the first. Stealing only one half used to hit a CPU assert in Ares. Bake mono
+(`mono = true`) when both sides are the same signal. **Pitching above the
+output rate asserts** in libdragon's mixer unless `mixer_ch_set_limits` raised
+that channel's limit first; `kiln_sfx_set_pitch` documents it and leaves the
+choice to the caller, because a higher limit grows the channel's buffer. The
+host mixer asserts on both, the same way.
 
 Channel partition: `[0..sfx_channels)` for SFX, `[sfx_channels..total)` for
 music. Default: 16 SFX + 10 music = 26 channels (max 32).
@@ -766,8 +780,11 @@ music. Default: 16 SFX + 10 music = 26 channels (max 32).
 The cycle budget gate (`nix/faust.nix`) is a **hard failure** when
 frame-scoped weighted cycles exceed the declared budget. It is scoped to
 the `frame<name>` function only — init/constructor code is excluded. The KS
-voice measures 259 weighted cycles in `frame()` (vs 333 for the whole
-object, including init).
+voice measures 349 weighted cycles in `frame()` against a 500 budget. It was
+259 while `dsp/ks.dsp` passed its `freq` slider straight to `pm.ks`, which
+takes a string LENGTH in metres: 220, 440 and 880 rendered byte-identical
+files, a decaying DC step with no pitch at all. `nix/checks/ks-pitch.nix`
+now measures the pitch of the rendered reference.
 
 `mkN64Rom` accepts an `audioRate` parameter that cross-checks baked
 instrument rates against the ROM's `audio_init` rate at build time. A
@@ -1391,7 +1408,8 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   report's `-double -ftz 2` house style is therefore not reachable via
   `-lang c`. Single source of truth: `ftzMode` in `nix/faust.nix`.
   Adding it cost the KS voice 291 → 333 weighted cycles (whole object); the
-  frame-scoped count is 259. That is the price of not trapping into the
+  frame-scoped count was 259 then, and is 349 since the voice gained a real
+  pitch (see the audio layer). That is the price of not trapping into the
   denormal exception handler.
 - **Faust `-os` emits `frame()` and leaves `compute()` an EMPTY STUB.** An
   architecture file written against `compute()` builds, links, runs, and outputs
