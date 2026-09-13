@@ -775,12 +775,13 @@
         # (kiln_player locomotion) walks an oot_test.map room, slides via
         # kiln_clip, Z-targets enemies (kiln_target + camera TARGETING mode),
         # and emits footstep SFX through kiln_event + kiln_sound shaders.
-        oot-demo = mkN64Rom {
+        ootDemoArgs = {
           name = "oot-demo";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT";
-          assets = [ ootMap stepSound ];
+          assets = [ ootMap stepSound impactSfx ];
         };
+        oot-demo = mkN64Rom ootDemoArgs;
 
         # Same integration proof, but with the retro console + profiler wired in.
         # This is the debug build of oot-demo; keep the vanilla one lean.
@@ -788,7 +789,7 @@
           name = "oot-demo-debug";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT Debug";
-          assets = [ ootMap stepSound ];
+          assets = [ ootMap stepSound impactSfx ];
           debugConsole = true;
         };
 
@@ -981,7 +982,8 @@
           mkJumpRoms clipDemoArgs [ "CORNER" ]
           // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
           // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
-          // mkJumpRoms roomsDemoArgs [ "ROOM_D" ];
+          // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
+          // mkJumpRoms ootDemoArgs [ "TARGET" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1200,6 +1202,19 @@
             sources = [ ./examples/rooms-demo/main.c ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_ROOM_D" ];
             meta.description = "rooms-demo-room-d, on this machine";
+          };
+          pc-oot-demo = hostNative.mkGame {
+            pname = "kiln-oot-demo";
+            sources = [ ./examples/oot-demo/main.c ];
+            assets = [ ootMap stepSound impactSfx ];
+            meta.description = "oot-demo, on this machine";
+          };
+          pc-oot-demo-target = hostNative.mkGame {
+            pname = "kiln-oot-demo-target";
+            sources = [ ./examples/oot-demo/main.c ];
+            assets = [ ootMap stepSound impactSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_TARGET" ];
+            meta.description = "oot-demo-target, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
