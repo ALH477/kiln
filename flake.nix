@@ -1196,10 +1196,40 @@
                              mkStreamdb mkAssetPak mkTextures mkVideo
                              mkMidiMusic mkVeilTexture;
           inherit (blenderLib) mkBlenderModel mkQuakeMapModel mkGodotSceneModel;
+
+          # A game's scenes, held to a declared cost. The budget is the
+          # GAME's statement (Kiln cannot know what scenes it has); the
+          # measurement is the ENGINE's (a game should not have to
+          # reimplement how many bytes of TMEM a 32x32 CI4 tile needs).
+          # See nix/checks/asset-budget.nix for the budget's shape and for
+          # what it refuses to let default.
+          mkAssetBudgetCheck = args:
+            import ./nix/checks/asset-budget.nix ({ inherit pkgs; } // args);
         };
 
         checks = {
           toolchain = import ./nix/checks/toolchain.nix { inherit pkgs toolchain; };
+
+          # Kiln's own instance of the asset budget, so the mechanism is
+          # exercised through nix and not only through the measurer's
+          # selftest. The fixture's ceilings are MEASURED from these three
+          # model-* outputs and sit exactly on the measurement, so a change
+          # to their geometry turns this red rather than being absorbed.
+          asset-budget-demo = import ./nix/checks/asset-budget.nix {
+            inherit pkgs;
+            name = "asset-budget-demo";
+            budget = ./nix/checks/asset-budget-demo.json;
+            models = {
+              alien = alienModel;
+              cone = testModels.cone;
+              checker = testModels.checker;
+            };
+            # Textures and audio are exercised against fixtures by the
+            # measurer's own selftest, which runs first inside this check.
+            # Kiln's test textures are generated into a derivation rather
+            # than committed, so pointing at one here would couple this
+            # fixture to mkTextures' internal layout for no extra coverage.
+          };
           rom-hello = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = hello;
