@@ -227,7 +227,7 @@ beside `libdragon.a`) and Nix store paths are immutable.
 
 ## The engine — the whole inventory
 
-**53 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
+**54 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
 lines, ~290 public `kiln_*` functions. The sections below this one describe
 Phases B/C/D in detail and do NOT cover everything — this table does. Anyone
 (or anything) planning against the Phase sections alone will conclude the engine
@@ -248,7 +248,7 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 51 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 52 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
@@ -266,7 +266,7 @@ libdragon's `exception_t`, which has no host analogue, so
 
 | cluster | modules |
 |---|---|
-| frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line) |
+| frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line), `kiln_prim` (24-vertex flat-shaded boxes, checker floors, `kiln_prim_stage` key+rim+fog preset — what examples draw with instead of hand-packed cubes) |
 | runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel` |
 | feel (Phase D) | `kiln_input`, `kiln_clip`, `kiln_dict`, `kiln_map`, `kiln_surface`, `kiln_sound`, `kiln_event`, `kiln_target`, `kiln_player` |
 | streaming (Phase C/E/F) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass`, `kiln_stream`, `kiln_streamio` |

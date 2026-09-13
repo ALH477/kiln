@@ -1466,6 +1466,14 @@
           kiln-scene = import ./nix/checks/kiln-scene.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_prim's boxes and floors, read back: outward winding, signed
+          # 5.6.5 normals, extents, and 17-quad batches under the vertex cache.
+          kiln-prim = import ./nix/checks/kiln-prim.nix {
+            inherit pkgs; target = hostNative;
+          };
+          kiln-prim-wasm32 = import ./nix/checks/kiln-prim.nix {
+            inherit pkgs; target = hostWasm;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is
