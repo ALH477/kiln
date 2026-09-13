@@ -206,8 +206,11 @@
           src = ./assets/step.wav;
         };
 
-        # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py)
-        # for camera-skel-demo. Same ignoreMaterials reasoning as demoModel —
+        # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py),
+        # the minimum a skinned glTF needs. camera-skel-demo's RIG jump ROM
+        # (.#camera-skel-demo-rig) boots it in place of the goblin, so the
+        # hand-built path stays booted and not only built. Same
+        # ignoreMaterials reasoning as demoModel —
         # hand-authored, not a fast64 export. baseScale 32 (half the default
         # 64) keeps the ~1-2 Blender-unit rig in the same size range as
         # examples/actors-demo's hand-built cubes (half-extent 8-14).
@@ -410,10 +413,11 @@
             };
           };
 
-        # The rigged/animated reference — the only thing here exercising
-        # Tiny3D's skinning + animation (t3dskeleton.h/t3danim.h) through the
-        # Blender-authoring path (kiln_skel.h's runtime side is exercised
-        # separately by examples/camera-skel-demo's hand-authored rig).
+        # The rigged/animated reference — Tiny3D's skinning + animation
+        # (t3dskeleton.h/t3danim.h) through the Blender-authoring path. It is
+        # also kiln_skel's runtime test: examples/camera-skel-demo walks it
+        # round a courtyard blending Idle<->Walk by speed, and that demo's RIG
+        # jump keeps the hand-authored skelModel rig booting alongside it.
         # tools/blender/goblin.py documents why every part is rigidly bound
         # to exactly one bone.
         goblinModel = blenderLib.mkBlenderModel {
@@ -686,15 +690,16 @@
         };
         rooms-demo = mkN64Rom roomsDemoArgs;
 
-        # Phase B completion: kiln_camera (OoT-style spring-arm follow) +
-        # kiln_skel (skeletal animation, idle/swing blend) + kiln_audio
-        # (footstep SFX on distance travelled) together in one ROM, driving
-        # the kiln_actor player already exercised by actors-demo.
+        # Phase B completion: the goblin walks a lit courtyard — kiln_camera
+        # (OoT-style spring arm, collision on) + kiln_skel (Idle<->Walk blended
+        # by speed) + kiln_clip (floor, walls, pillars) + kiln_audio (step.wav64
+        # footfalls). Jump ROMs in nix/demos/camera-skel-demo.nix. skelModel is
+        # here for the RIG jump; the base ROM carries it so the two share args.
         cameraSkelDemoArgs = {
           name = "camera-skel-demo";
           src = ./examples/camera-skel-demo;
-          romTitle = "Kiln Camera Skel";
-          assets = [ skelModel demoSound ];
+          romTitle = "Kiln Courtyard";
+          assets = [ goblinModel skelModel stepSound ];
           audioRate = 32000;
         };
         camera-skel-demo = mkN64Rom cameraSkelDemoArgs;

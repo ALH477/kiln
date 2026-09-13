@@ -17,7 +17,7 @@ all: camera-skel-demo.z64
 $(BUILD_DIR)/camera-skel-demo.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
 $(BUILD_DIR)/camera-skel-demo.elf: $(OBJS)
 
-camera-skel-demo.z64: N64_ROM_TITLE = "Kiln Camera Skel"
+camera-skel-demo.z64: N64_ROM_TITLE = "Kiln Courtyard"
 camera-skel-demo.z64: $(BUILD_DIR)/camera-skel-demo.dfs
 
 clean:
