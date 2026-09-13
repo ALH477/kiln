@@ -132,6 +132,10 @@ int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
+    // The sounds below are rom:/ files, and nothing mounts the filesystem for
+    // a ROM that does not ask: without this the first load asserts "File not
+    // found: rom:/sfx/blip.wav64 -- did you forget to call dfs_init()?".
+    dfs_init(DFS_DEFAULT_LOCATION);
     kiln_input_init();
     kiln_audio_init(KILN_AUDIO_DEFAULT);
 

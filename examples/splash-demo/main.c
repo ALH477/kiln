@@ -27,6 +27,12 @@ int main(void)
     kiln_engine_init(RESOLUTION_320x240);
     kiln_gui_init();
     joypad_init();
+    // The logo model is a rom:/ file; without a mounted filesystem
+    // t3d_model_load asserts "File not found ... did you forget dfs_init()?".
+    dfs_init(DFS_DEFAULT_LOCATION);
+    // kiln_logo.t3dm is packed at compression level 2, which libdragon only
+    // decodes once asked to ("compression level 2 not initialized").
+    asset_init_compression(2);
     kiln_input_init();
 
     T3DModel *model = t3d_model_load("rom:/models/kiln_logo.t3dm");
