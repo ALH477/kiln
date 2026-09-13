@@ -365,22 +365,25 @@
                      (assetsPakModel "cone") (assetsPakModel "cube") sdSprite ];
         };
 
-        # openworld-demo's tile mesh, StreamDB-packed so kiln_streamio can
-        # load it through kiln_asset_model + kiln_cache instead of the
-        # hand-built 2-vert stub the demo used before it had a real streaming
-        # pacer to exercise. One shared model at one key — the point of the
-        # demo is the pacer's priority/budget admission across many
-        # simultaneous tile requests, not per-tile unique geometry.
-        owTileModel = assetLib.mkModel {
-          name = "tile";
-          src = ./assets/cube.gltf;
-          ignoreMaterials = true;
-          baseScale = 24;
-          compress = 0;
-        };
+        # openworld-demo's tile meshes, StreamDB-packed so kiln_streamio loads
+        # them through kiln_asset_model + kiln_cache. Keys are
+        # models/ow_<biome>_<lod>.t3dm: twelve keys shared by a 32x32 island,
+        # so the pacer contends over many requests for few distinct assets.
+        # Four biomes x three LODs, all authored by tools/blender/ow_tile.py.
+        # Uncompressed because kiln_asset_model hands the bytes straight to
+        # t3d_model_load_buf, and with fog=1 on the material so Tiny3D keeps
+        # fog on while it draws them — the fog is what hides the edge of the
+        # streamed window.
+        owTileModels = pkgs.lib.concatMap (biome: map (lod:
+          blenderLib.mkBlenderModel {
+            name = "ow_${biome}_${toString lod}";
+            script = "ow_tile.py";
+            compress = 0;
+            materials = [ "*=shade,fog=1" ];
+          }) [ 0 1 2 ]) [ "water" "grass" "forest" "rock" ];
         owStreamdb = assetLib.mkAssetPak {
           name = "openworld";
-          assets = [ owTileModel ];
+          assets = owTileModels;
         };
 
         # Geometry authoring. Owns the whole Blender strategy; see the file for
