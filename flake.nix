@@ -1474,6 +1474,11 @@
           kiln-prim-wasm32 = import ./nix/checks/kiln-prim.nix {
             inherit pkgs; target = hostWasm;
           };
+          # kiln_input's tapes: the attract modes and jump ROMs every example
+          # uses to show something without a controller.
+          kiln-input = import ./nix/checks/kiln-input.nix {
+            inherit pkgs; target = hostNative;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is

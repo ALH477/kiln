@@ -10,10 +10,79 @@
 static KilnInput g_input[JOYPAD_PORT_COUNT];
 static uint32_t g_last_buttons[JOYPAD_PORT_COUNT];
 
+typedef struct {
+    const KilnInputTape *forced;
+    const KilnInputTape *attract;
+    uint16_t idle_frames;
+    uint16_t idle;          /* consecutive idle updates, saturating */
+    uint8_t  attract_on;
+    uint16_t frame;         /* tape clock of whichever tape is running */
+    uint16_t key;           /* index of the key in effect */
+} TapeState;
+
+static TapeState g_tape[JOYPAD_PORT_COUNT];
+
+static int port_index(int port)
+{
+    if (port < 1 || port > JOYPAD_PORT_COUNT) port = 1;
+    return port - 1;
+}
+
 void kiln_input_init(void)
 {
     memset(g_input, 0, sizeof(g_input));
     memset(g_last_buttons, 0, sizeof(g_last_buttons));
+    memset(g_tape, 0, sizeof(g_tape));
+}
+
+void kiln_input_play(int port, const KilnInputTape *tape)
+{
+    TapeState *t = &g_tape[port_index(port)];
+    t->forced = tape;
+    t->frame = 0;
+    t->key = 0;
+}
+
+void kiln_input_set_attract(int port, const KilnInputTape *tape, uint16_t idle_frames)
+{
+    TapeState *t = &g_tape[port_index(port)];
+    t->attract = tape;
+    t->idle_frames = idle_frames;
+    t->idle = 0;
+    t->attract_on = 0;
+    if (!t->forced) { t->frame = 0; t->key = 0; }
+}
+
+int kiln_input_scripted(int port)
+{
+    const TapeState *t = &g_tape[port_index(port)];
+    return t->forced != NULL || t->attract_on;
+}
+
+/* Read the tape at its clock into raw pad values, then advance the clock. */
+static void tape_read(TapeState *t, const KilnInputTape *tape, joypad_inputs_t *in)
+{
+    memset(in, 0, sizeof *in);
+    if (!tape || !tape->keys || tape->count == 0) return;
+
+    const uint16_t last = (uint16_t)(tape->count - 1);
+    if (tape->loop_frame != KILN_INPUT_NO_LOOP && tape->count > 1 &&
+        t->frame >= tape->keys[last].frame) {
+        t->frame = tape->loop_frame;
+        t->key = 0;
+    }
+    if (t->frame < tape->keys[t->key].frame) t->key = 0;
+    while (t->key < last && tape->keys[t->key + 1].frame <= t->frame) t->key++;
+
+    const KilnInputKey *k = &tape->keys[t->key];
+    if (t->frame >= k->frame) {
+        in->btn.raw  = k->buttons;
+        in->stick_x  = k->sx;
+        in->stick_y  = k->sy;
+        in->cstick_x = k->cx;
+        in->cstick_y = k->cy;
+    }
+    if (t->frame < 0xFFFE) t->frame++;
 }
 
 void kiln_input_update(void)
@@ -44,6 +113,32 @@ void kiln_input_update(void)
         joypad_port_t port = (joypad_port_t)p;
         joypad_inputs_t in = joypad_get_inputs(port);
         joypad_buttons_t b = joypad_get_buttons(port);
+
+        /* Tapes substitute RAW state here, above the deadzone and the edge
+         * diff, so a scripted press is indistinguishable from a real one. */
+        TapeState *tp = &g_tape[p];
+        if (tp->forced) {
+            tape_read(tp, tp->forced, &in);
+            b = in.btn;
+        } else if (tp->attract) {
+            const int sxr = in.stick_x, syr = in.stick_y;
+            const int real = b.raw != 0 || sxr * sxr + syr * syr >= 8 * 8;
+            if (real) {
+                tp->idle = 0;
+                tp->attract_on = 0;
+            } else {
+                if (tp->idle < 0xFFFF) tp->idle++;
+                if (!tp->attract_on && tp->idle >= tp->idle_frames) {
+                    tp->attract_on = 1;
+                    tp->frame = 0;
+                    tp->key = 0;
+                }
+            }
+            if (tp->attract_on) {
+                tape_read(tp, tp->attract, &in);
+                b = in.btn;
+            }
+        }
 
         const float dz = 8.0f;
         float sx = (float)in.stick_x;
