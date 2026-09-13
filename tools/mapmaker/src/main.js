@@ -12,6 +12,10 @@ import { allocId as allocBrushId, makeBrushMesh, syncBrushMesh } from './brush.j
 import { allocId as allocSpawnId, makeSpawnGroup, syncSpawnGroup, KNOWN_CLASSNAMES, ENTITY_PALETTE } from './entity.js';
 import { parseEditorState, emitMap, LIMITS } from './mapio.js';
 import { snapRound, snapFloor, snapCeil, clampInt16 } from './snap.js';
+// EPAIR_SCHEMAS used to be a local table in this file; df31be7 moved it into
+// the generated vocabulary and deleted the table but not the use (line ~562),
+// so selecting any spawn threw a ReferenceError. No gate loads main.js.
+import { EPAIR_SCHEMAS } from './vocab.gen.js';
 
 const DEFAULT_GRID = 16;
 const DEFAULT_BRUSH_HEIGHT = 64;
