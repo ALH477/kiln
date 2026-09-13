@@ -282,6 +282,15 @@
           extension = "map";
           compress = 0;
         };
+        # examples/map-demo's arena, authored with ./dev map-emit. The name is
+        # the filename: main.c opens rom:/maps/map_demo.map.
+        mapDemoMap = assetLib.mkRawAsset {
+          name = "map_demo";
+          src = ./assets/map_demo.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
         # Two-room + enemies test map for examples/oot-demo. Same raw-asset
         # path as quakeMap so kiln_map reads it via rom:/maps/oot_test.map —
         # which this entry CLAIMED and did not do: the name was "oot-test-map",
@@ -731,12 +740,15 @@
         # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
         # info_player_start entity by reading "origin" from the KilnDict.
-        map-demo = mkN64Rom {
+        mapDemoArgs = {
           name = "map-demo";
           src = ./examples/map-demo;
           romTitle = "Kiln Map";
-          assets = [ quakeMap ];
+          # quake_test.map rides along for the QUAKE_TEST jump, which keeps the
+          # parser's frozen fixture booted rather than only unit-tested.
+          assets = [ mapDemoMap quakeMap ];
         };
+        map-demo = mkN64Rom mapDemoArgs;
 
         # The engine's own boot splash (kiln_splash.h), booted straight into.
         # kilnLogo is the same model kiln_splash_apply's camera comment is
@@ -964,7 +976,8 @@
           }))) jumps);
 
         jumpRoms =
-          mkJumpRoms clipDemoArgs [ "CORNER" ];
+          mkJumpRoms clipDemoArgs [ "CORNER" ]
+          // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1135,6 +1148,26 @@
             sources = [ ./examples/clip-demo/main.c ];
             assets = [ demoSound stepSound ];
             meta.description = "clip-demo, playable on this machine";
+          };
+          pc-map-demo = hostNative.mkGame {
+            pname = "kiln-map-demo";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            meta.description = "map-demo, on this machine";
+          };
+          pc-map-demo-overlay = hostNative.mkGame {
+            pname = "kiln-map-demo-overlay";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_OVERLAY" ];
+            meta.description = "map-demo-overlay, on this machine";
+          };
+          pc-map-demo-quake-test = hostNative.mkGame {
+            pname = "kiln-map-demo-quake-test";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_QUAKE_TEST" ];
+            meta.description = "map-demo-quake-test, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
