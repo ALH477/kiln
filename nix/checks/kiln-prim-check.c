@@ -31,6 +31,17 @@ static int fails = 0;
 #define CHECK(c, ...) do { if (!(c)) { \
         printf("  FAIL: "); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
+/* The last presented frame, via the launcher seam (kiln_host.h). */
+static uint8_t g_frame[320 * 240 * 4];
+static int g_frame_w, g_frame_h;
+static void grab(void *ctx, const void *rgba8, int w, int h)
+{
+    (void)ctx;
+    if (w * h * 4 > (int)sizeof g_frame) return;
+    memcpy(g_frame, rgba8, (size_t)(w * h * 4));
+    g_frame_w = w; g_frame_h = h;
+}
+
 static int sext(unsigned v, int bits)
 {
     const unsigned sign = 1u << (bits - 1);
@@ -90,6 +101,7 @@ static unsigned check_quads(const char *what, const KilnPrim *p)
 int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
+    kiln_host_set_hooks(&(KilnHostHooks){ .present = grab });
 
     /* ── a box off its origin, as a hinged door is built ── */
     KilnPrim box;
@@ -113,7 +125,7 @@ int main(void)
 
     /* ── a 16x16 floor ── */
     KilnPrim floor_;
-    CHECK(kiln_prim_floor(&floor_, 160.0f, 16, 0x202020FF, 0x404040FF) == 0, "floor alloc");
+    CHECK(kiln_prim_floor(&floor_, 160.0f, 16, 0x909090FF, 0xA0A0A0FF) == 0, "floor alloc");
     CHECK(floor_.quad_count == 256, "floor has %u quads, expected 256", floor_.quad_count);
     CHECK(check_quads("floor", &floor_) == 1u << 2, "floor faces are not all +Y");
     {
@@ -160,6 +172,21 @@ int main(void)
     CHECK(tc->tris_submitted == 512 + 12, "expected 524 triangles, got %u",
           tc->tris_submitted);
     CHECK(kiln_host_counters()->shaded_px > 0, "the frame shaded no pixels");
+
+    /* A floor under the stage's key light must come out well above ambient.
+     * Ambient alone lands a 0x90 grey near 0x1C; lit from overhead it is
+     * several times that. This is the assertion that would have caught the
+     * stage's lights pointing upward, which lit every wall side and left every
+     * floor black. Sampled low in the frame, where only floor is drawn. */
+    CHECK(g_frame_w == 320 && g_frame_h == 240, "no frame was presented (%dx%d)",
+          g_frame_w, g_frame_h);
+    if (g_frame_w == 320) {
+        const uint8_t *px = &g_frame[(225 * 320 + 60) * 4];
+        const int lum = (px[0] + px[1] + px[2]) / 3;
+        printf("  floor pixel (60,225): %d %d %d\n", px[0], px[1], px[2]);
+        CHECK(lum > 80, "a floor under the stage's key light is lum %d; it is lit "
+              "from below, i.e. the light direction's sign is wrong", lum);
+    }
 
     kiln_transform_free(&t);
     kiln_prim_free(&box);

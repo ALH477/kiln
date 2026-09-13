@@ -79,7 +79,8 @@ void kiln_prim_free(KilnPrim *p);
  *  - clear colour = fog colour = `sky`, so geometry ends in haze and not at an
  *    edge (kiln_engine.h's fog comment explains why that matching matters);
  *  - a warm key from above and in front (light 0) and a cool rim from behind
- *    (lights[0]), `light_count = 2`, so no face sits at bare ambient;
+ *    (lights[0]), `light_count = 2`, so no face sits at bare ambient. Both
+ *    directions are the way the light travels (overhead = negative y);
  *  - ambient at a quarter of the sky, tinted by it.
  *
  *  Every field stays a plain KilnScene field: override any of them after. Pass
