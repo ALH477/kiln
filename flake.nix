@@ -534,11 +534,12 @@
           inherit pkgs toolchain n64Inst;
         };
 
-        hello = mkN64Rom {
+        helloArgs = {
           name = "hello";
           src = ./examples/hello;
           romTitle = "Kiln Hello";
         };
+        hello = mkN64Rom helloArgs;
 
         # The Faust bridge and the gates that enforce the report's constraints.
         faust = import ./nix/faust.nix {
@@ -572,18 +573,19 @@
         };
 
         # Report Stage 1 proved end to end: bake -> DFS -> RSP mixer -> ROM.
-        audio = mkN64Rom {
+        audioArgs = {
           name = "audio";
           src = ./examples/audio;
           romTitle = "Kiln Audio";
           assets = [ ks-baked ];
           audioRate = 32000;
         };
+        audio = mkN64Rom audioArgs;
 
         # Live Faust voice + baked instrument A/B comparison (report Stage 2).
         # Links the ks-voice MIPS object into the ROM and renders it
         # sample-by-sample on the VR4300, mixed with the RSP mixer output.
-        live-voice = mkN64Rom {
+        liveVoiceArgs = {
           name = "live-voice";
           src = ./examples/live-voice;
           romTitle = "Kiln Live Voice";
@@ -591,6 +593,7 @@
           audioRate = 32000;
           makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ];
         };
+        live-voice = mkN64Rom liveVoiceArgs;
 
         # 3D + 2D GUI worked example.
         engine-demo = mkN64Rom {
@@ -604,12 +607,13 @@
         # (Phase F) kiln_stream + kiln_streamio pacing real kiln_asset loads
         # through kiln_cache instead of the hand-built stub loaders every
         # other kiln_tile consumer still uses.
-        openworld-demo = mkN64Rom {
+        openworldDemoArgs = {
           name = "openworld-demo";
           src = ./examples/openworld-demo;
           romTitle = "Kiln Open World";
           assets = [ owStreamdb ];
         };
+        openworld-demo = mkN64Rom openworldDemoArgs;
 
         # XM64 tracker music playback example. mkMusic converts the .xm
         # via audioconv64; the ROM plays it through libdragon's XM64 player.
@@ -630,13 +634,14 @@
           loop = true;
         };
 
-        music-demo = mkN64Rom {
+        musicDemoArgs = {
           name = "music";
           src = ./examples/music;
           romTitle = "Kiln Music";
           assets = [ test-music ];
           audioRate = 32000;
         };
+        music-demo = mkN64Rom musicDemoArgs;
 
         sc64deployer = import ./nix/tools/sc64deployer.nix {
           inherit pkgs;
@@ -651,13 +656,14 @@
         # Phase A verification: a ROM that loads one of each converted asset
         # kind — proves gltf_to_t3d, mksprite and audioconv64 actually run,
         # not just that the Nix glue around them evaluates.
-        assets-demo = mkN64Rom {
+        assetsDemoArgs = {
           name = "assets-demo";
           src = ./examples/assets-demo;
           romTitle = "Kiln Assets";
           assets = [ assetsDemoPak demoSound ];
           audioRate = 32000;
         };
+        assets-demo = mkN64Rom assetsDemoArgs;
 
         # Phase B verification: the actor system (engine/src/kiln/kiln_actor.*)
         # with one profile per category that matters here — spawn, handle-based
@@ -684,13 +690,14 @@
         # kiln_skel (skeletal animation, idle/swing blend) + kiln_audio
         # (footstep SFX on distance travelled) together in one ROM, driving
         # the kiln_actor player already exercised by actors-demo.
-        camera-skel-demo = mkN64Rom {
+        cameraSkelDemoArgs = {
           name = "camera-skel-demo";
           src = ./examples/camera-skel-demo;
           romTitle = "Kiln Camera Skel";
           assets = [ skelModel demoSound ];
           audioRate = 32000;
         };
+        camera-skel-demo = mkN64Rom cameraSkelDemoArgs;
 
         # Phase C verification: same three asset kinds as assets-demo, but
         # loaded from a single StreamDB container mounted at boot via
@@ -698,23 +705,25 @@
         # t3d_model_load_buf path), kiln_asset_sprite (sprite_load_buf), and
         # kiln_asset_load on a raw level blob, plus kiln_asset_count and
         # kiln_asset_find_suffix.
-        streamdb-demo = mkN64Rom {
+        streamdbDemoArgs = {
           name = "streamdb-demo";
           src = ./examples/streamdb-demo;
           romTitle = "Kiln StreamDB";
           assets = [ demoStreamdb ];
         };
+        streamdb-demo = mkN64Rom streamdbDemoArgs;
 
         # A StreamDB reader written in Exsecutor (github.com/ALH477/exsecutor),
         # compiled to C by that language's compiler and checked in as
         # lector_streamdb.gen.c. It runs on a 32 KB kthread and is compared,
         # key by key, against streamdb-embedded on the same container.
-        exsec-streamdb-demo = mkN64Rom {
+        exsecStreamdbDemoArgs = {
           name = "exsec-streamdb-demo";
           src = ./examples/exsec-streamdb-demo;
           romTitle = "Kiln Exsecutor";
           assets = [ exsecStreamdb ];
         };
+        exsec-streamdb-demo = mkN64Rom exsecStreamdbDemoArgs;
 
         # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
         # edges) + kiln_clip (swept-AABB-vs-brushes collision with iterative
@@ -759,12 +768,13 @@
         # The engine's own boot splash (kiln_splash.h), booted straight into.
         # kilnLogo is the same model kiln_splash_apply's camera comment is
         # tuned for — see tools/blender/kiln_logo.py.
-        splash-demo = mkN64Rom {
+        splashDemoArgs = {
           name = "splash-demo";
           src = ./examples/splash-demo;
           romTitle = "Kiln Splash";
           assets = [ kilnLogo ];
         };
+        splash-demo = mkN64Rom splashDemoArgs;
 
         # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
@@ -816,22 +826,24 @@
         # The single-screen showcase: title + 3-mode flight + engine streaks +
         # credit HUD. Loads the hand-authored Interceptor starfighter through
         # the same mkBlenderModel path tools/blender/interceptor.py documents.
-        interceptor-demo = mkN64Rom {
+        interceptorDemoArgs = {
           name = "interceptor-demo";
           src = ./examples/interceptor-demo;
           romTitle = "Kiln Interceptor";
           assets = [ interceptorModel demoSound test-music ];
           audioRate = 32000;
         };
+        interceptor-demo = mkN64Rom interceptorDemoArgs;
 
         # texanim-demo: exercises kiln_texanim (UV scroll, flipbook, palette,
         # offscreen) and kiln_vanim (procedural deform, morph blending, RSP
         # vertex FX). All geometry is hand-built — no asset pipeline needed.
-        texanim-demo = mkN64Rom {
+        texanimDemoArgs = {
           name = "texanim-demo";
           src = ./examples/texanim-demo;
           romTitle = "Kiln TexAnim";
         };
+        texanim-demo = mkN64Rom texanimDemoArgs;
 
         # Cinematic-demo: a 60-second single-shot scene of the Interceptor in
         # its hangar with the goblin captain walking the perimeter, droids
@@ -843,7 +855,7 @@
         #   hangarMap           — the Quake-format .map room
         #   demoSound / stepSound — SFX (engine whoosh, footsteps)
         #   cine-music          — VADPCM .wav64 loop (15s dark-sci-fi bed)
-        cinematic-demo = mkN64Rom {
+        cinematicDemoArgs = {
           name = "cinematic-demo";
           src = ./examples/cinematic-demo;
           romTitle = "Kiln Cinematic";
@@ -853,6 +865,7 @@
           ];
           audioRate = 32000;
         };
+        cinematic-demo = mkN64Rom cinematicDemoArgs;
 
         # A minimal playable first-person shooter. First-person camera
         # (kiln_fpscam), hitscan weapon (kiln_weapon), enemy actors that chase
@@ -884,13 +897,14 @@
           engines = [ "heavy" "sub" "growl" "industrial" ];
         in pkgs.lib.concatMap (e: map (l: bassWav e l) layers) engines;
 
-        bass-synth = mkN64Rom {
+        bassSynthArgs = {
           name = "bass-synth";
           src = ./examples/bass-synth;
           romTitle = "Kiln Bass Synth";
           assets = bassWavFlat;
           audioRate = 32000;
         };
+        bass-synth = mkN64Rom bassSynthArgs;
 
         # ── Forge ────────────────────────────────────────────────────────
         # A standalone tool ROM: a voxel level/cinematic editor that runs on the
@@ -997,6 +1011,22 @@
           // mkJumpRoms actorsDemoArgs [ "FULL" ]
           // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ]
           // mkJumpRoms debugDemoArgs [ "CONSOLE" ];
+
+        # ── Per-demo packages (nix/demos/*.nix) ─────────────────────────
+        # One file per demo for its jump ROMs and host builds, so work on two
+        # demos never edits the same lines of this file. See nix/demos/README.md.
+        demoCtx = {
+          inherit pkgs mkN64Rom mkJumpRoms hostNative hostWasm assetLib blenderLib textures testModels goblinModel interceptorModel droidModel alienModel kilnLogo demoSound stepSound impactSfx doorOpenSfx ks-baked ks-voice test-music cine-music owStreamdb assetsDemoPak demoStreamdb exsecStreamdb skelModel hangarMap bassWavFlat;
+          lib = pkgs.lib;
+          args = {
+            inherit helloArgs audioArgs liveVoiceArgs musicDemoArgs openworldDemoArgs assetsDemoArgs cameraSkelDemoArgs streamdbDemoArgs exsecStreamdbDemoArgs splashDemoArgs interceptorDemoArgs texanimDemoArgs cinematicDemoArgs bassSynthArgs fpsArgs;
+          };
+        };
+        demoPackages = pkgs.lib.foldl'
+          (acc: f: acc // import (./nix/demos + "/${f}") demoCtx)
+          { }
+          (builtins.filter (pkgs.lib.hasSuffix ".nix")
+            (builtins.attrNames (builtins.readDir ./nix/demos)));
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1344,6 +1374,7 @@
         }
         // forgeModeRoms
         // jumpRoms
+        // demoPackages
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
