@@ -547,10 +547,12 @@ int main(void)
             }
         }
 
+        /* Bottom-right, above the hint bar: in oot-demo-debug the console's log
+         * panel occupies the top-right corner and covered it. */
         if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
+            kiln_gui_panel(SCREEN_W - 58, SCREEN_H - 44, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
                            RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+            kiln_gui_text(SCREEN_W - 49, SCREEN_H - 32, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
         kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16,
                        RGBA32(0x0C, 0x10, 0x1C, 0xFF), RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
