@@ -740,9 +740,9 @@ static const char *objective(void)
     if (!g_gate_open) return "find the switch in the corridor";
     /* The key is spent opening the door: without this the objective went back
      * to "find the red key" the moment the door rose. */
-    if (g_exit_open) return "the red door is open: reach the exit";
+    if (g_exit_open) return "red door open: reach the exit";
     if (!kiln_inventory_has(&g_inv, ITEM_KEY_RED)) return "find the red key";
-    return "open the red door and reach the exit";
+    return "open the red door, reach the exit";
 }
 
 int main(void)
@@ -1066,7 +1066,9 @@ int main(void)
         if (g_toast_t > 0 && g_toast)
             kiln_gui_text(SCREEN_W/2 - (int)strlen(g_toast) * 3, SCREEN_H/2 - 30, RGBA32(255,255,255,255), "%s", g_toast);
 
-        kiln_gui_panel(8, 8, 150, 52, RGBA32(10,10,24,255), teal);
+        /* 206 wide: the objective line is up to 33 characters (6 px each) and
+         * ran past a 150-wide panel on console; the HP bars start at x 222. */
+        kiln_gui_panel(8, 8, 206, 52, RGBA32(10,10,24,255), teal);
         const KilnWeaponDef *wd = kiln_weapons_active_def(&g_wset);
         KilnWeapon *ws = kiln_weapons_active_state(&g_wset);
         kiln_gui_text(14, 20, teal, "KILN FPS");
