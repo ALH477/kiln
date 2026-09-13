@@ -54,6 +54,24 @@ static void set_vert(T3DVertPacked *v, int idx, int16_t x, int16_t y, int16_t z,
     }
 }
 
+// ── Transforms ─────────────────────────────────────────────────────
+// One persistent KilnTransform per object. kiln_transform_push converts
+// into t->mtx, which only kiln_transform_init allocates; every draw below
+// used to push a compound literal, whose mtx is NULL, and the first one
+// wrote a matrix through address 0 (TLB miss on store in
+// t3d_mat4_to_fixed). Nobody saw it, because the double display_init
+// stopped this ROM first.
+enum { XF_WATER, XF_FLAG, XF_BLOB, XF_CEL, XF_COUNT };
+static KilnTransform g_xf[XF_COUNT];
+
+static void push_xf(int which, float x, float y, float z, float yaw)
+{
+    KilnTransform *t = &g_xf[which];
+    t->pos = (fm_vec3_t){{ x, y, z }};
+    t->rot_angle = yaw;
+    kiln_transform_push(t);
+}
+
 // ── Water plane (UV scroll demo) ──────────────────────────────────────
 // A flat grid with scrolling UVs. Drawn as hand-rolled t3d_vert_load +
 // t3d_tri_draw, NOT as a .t3dm model — so the UV scroll is done by modifying
@@ -85,12 +103,7 @@ static void water_draw(float dt)
     g_water_scroll_s += 8.0f * dt;
     g_water_scroll_t += 6.0f * dt;
 
-    kiln_transform_push(&(KilnTransform){
-        .pos = { { -60, -20, 0 } },
-        .scale = { { 1, 1, 1 } },
-        .rot_axis = { { 0, 1, 0 } },
-        .rot_angle = 0,
-    });
+    push_xf(XF_WATER, -60, -20, 0, 0);
     t3d_vert_load(g_water_verts, 0, WATER_VERTS);
     for (int y = 0; y < WATER_GRID - 1; y++) {
         for (int x = 0; x < WATER_GRID - 1; x++) {
@@ -153,12 +166,7 @@ static void flag_update(float dt)
 
 static void flag_draw(void)
 {
-    kiln_transform_push(&(KilnTransform){
-        .pos = { { 20, 10, -20 } },
-        .scale = { { 1, 1, 1 } },
-        .rot_axis = { { 0, 1, 0 } },
-        .rot_angle = -0.3f,
-    });
+    push_xf(XF_FLAG, 20, 10, -20, -0.3f);
     t3d_vert_load(g_flag_verts, 0, FLAG_VERTS);
     for (int y = 0; y < FLAG_GRID_Y - 1; y++) {
         for (int x = 0; x < FLAG_GRID_X - 1; x++) {
@@ -254,12 +262,7 @@ static void blob_draw(void)
         {0,2,1},{1,2,3},{4,5,6},{5,7,6},{0,4,2},{4,6,2},
         {1,3,5},{3,7,5},{0,1,4},{1,5,4},{2,6,3},{3,6,7},
     };
-    kiln_transform_push(&(KilnTransform){
-        .pos = { { 60, 10, 0 } },
-        .scale = { { 1, 1, 1 } },
-        .rot_axis = { { 0, 1, 0 } },
-        .rot_angle = g_blob_time * 0.5f,
-    });
+    push_xf(XF_BLOB, 60, 10, 0, g_blob_time * 0.5f);
     t3d_vert_load(g_blob_work, 0, BLOB_VERTS);
     for (int i = 0; i < 12; i++)
         t3d_tri_draw(tris[i][0], tris[i][1], tris[i][2]);
@@ -296,12 +299,7 @@ static void cel_cube_draw(float dt)
         {0,2,1},{1,2,3},{4,5,6},{5,7,6},{0,4,2},{4,6,2},
         {1,3,5},{3,7,5},{0,1,4},{1,5,4},{2,6,3},{3,6,7},
     };
-    kiln_transform_push(&(KilnTransform){
-        .pos = { { 0, 30, -30 } },
-        .scale = { { 1, 1, 1 } },
-        .rot_axis = { { 0, 1, 0 } },
-        .rot_angle = g_cel_rot,
-    });
+    push_xf(XF_CEL, 0, 30, -30, g_cel_rot);
     if (g_cel_on) kiln_vfx_set(KILN_VFX_CELSHADE_COLOR, 0, 0);
     t3d_vert_load(g_cel_cube, 0, BLOB_VERTS);
     for (int i = 0; i < 12; i++)
@@ -319,7 +317,9 @@ static float g_spin;
 int main(void)
 {
     debug_init_isviewer();
-    display_init(RESOLUTION_320x240, DEPTH_16_BPP, 2, GAMMA_NONE, FILTERS_RESAMPLE);
+    // No display_init here: kiln_engine_init opens the display itself, and a
+    // second display_init asserts ("called while the display is already
+    // initialized"), which is where this ROM used to stop.
     dfs_init(DFS_DEFAULT_LOCATION);
 
     kiln_engine_init(RESOLUTION_320x240);
@@ -332,6 +332,7 @@ int main(void)
     g_scene.fov_deg = 70.0f;
     g_scene.far_z = 300.0f;
 
+    for (int i = 0; i < XF_COUNT; i++) kiln_transform_init(&g_xf[i]);
     water_init();
     flag_setup();
     blob_setup();
