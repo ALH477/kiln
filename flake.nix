@@ -856,13 +856,14 @@
         # (kiln_fpscam), hitscan weapon (kiln_weapon), enemy actors that chase
         # the player, HUD with crosshair + health + ammo. The FPS level is a
         # Quake .map loaded at runtime via kiln_map.
-        fps = mkN64Rom {
+        fpsArgs = {
           name = "fps";
           src = ./examples/fps;
           romTitle = "Kiln FPS";
           assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
           audioRate = 32000;
         };
+        fps = mkN64Rom fpsArgs;
 
         # ── Bass synth ────────────────────────────────────────────────────
         # 4-controller collaborative bass ROM. 12 dual-layer wavetables
@@ -989,7 +990,8 @@
           // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
           // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
           // mkJumpRoms ootDemoArgs [ "TARGET" ]
-          // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ];
+          // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
+          // mkJumpRoms fpsArgs [ "SWITCH" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1241,6 +1243,19 @@
             assets = [ demoSound doorOpenSfx ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_QUEUED" ];
             meta.description = "event-demo-queued, on this machine";
+          };
+          pc-fps = hostNative.mkGame {
+            pname = "kiln-fps";
+            sources = [ ./examples/fps/main.c ];
+            assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
+            meta.description = "fps, on this machine";
+          };
+          pc-fps-switch = hostNative.mkGame {
+            pname = "kiln-fps-switch";
+            sources = [ ./examples/fps/main.c ];
+            assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_SWITCH" ];
+            meta.description = "fps-switch, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
