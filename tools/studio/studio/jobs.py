@@ -28,7 +28,7 @@ from pathlib import Path
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,99}$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 MAX_LINES = 100_000
-KINDS = ("build", "check", "cheap", "validate")
+KINDS = ("build", "check", "cheap", "validate", "host-shot")
 
 
 class JobError(ValueError):
@@ -43,6 +43,7 @@ class Job:
         self.argv = steps[-1]
         self.adapt = adapt
         self.report = None
+        self.shot = None              # a host-shot job's PNG, once written
         self.stdout = []
         self.state = "queued"
         self.created = time.time()
@@ -88,6 +89,7 @@ class Job:
             "created": self.created, "started": self.started, "ended": self.ended,
             "lines": self.seq, "argv": list(self.argv), "arg": self.arg,
             "steps": [list(s) for s in self.steps], "report": self.report,
+            "shot": bool(self.shot and Path(self.shot).is_file()),
         }
 
 
@@ -133,14 +135,41 @@ class Runner:
             if "argv" not in self.breaks and arg not in spec["args"]():
                 raise JobError(f"{arg!r} is not something {target} can validate here")
             return spec["steps"](arg), (spec["adapt"] or (lambda parsed: parsed))
+        if kind == "host-shot":
+            return self.host_shot_steps(target), None
         return [self.argv(kind, target)], None
+
+    def _build(self):
+        return [self.nix, "build", "--no-link", "--print-out-paths", "--log-format", "internal-json", "-L"]
+
+    def host_shot_steps(self, target):
+        """Build a pc-* game, then run it headless — SDL's dummy drivers, a fixed
+        number of frames — and keep the frame the real renderer drew with the
+        launcher's own --shot. No window, no compositor, nothing on anyone's
+        screen, so it is as safe for a remote collaborator as for the host."""
+        m = self.manifest()
+        if m is None:
+            raise JobError("the project manifest is not loaded yet")
+        if "argv" not in self.breaks and not (isinstance(target, str) and TARGET_RE.match(target)
+                                              and (m.get("packages", {}).get(target) or {}).get("kind") == "pc"):
+            raise JobError(f"{target!r} is not a host (pc-*) build in the manifest")
+        return [self._build() + [f"{self.repo}#{target}"],
+                ["env", "SDL_VIDEODRIVER=dummy", "SDL_AUDIODRIVER=dummy",
+                 "{bin}", "--frames", "120", "--shot", "{shot}", "--stats"]]
+
+    def latest_output(self, target):
+        """The output path of the most recent successful build of `target` in this session."""
+        with self.lock:
+            done = [j for j in self.jobs.values()
+                    if j.kind == "build" and j.target == target and j.state == "ok" and j.outputs]
+        return max(done, key=lambda j: j.ended).outputs[-1] if done else None
 
     def argv(self, kind, target):
         m = self.manifest()
         if m is None:
             raise JobError("the project manifest is not loaded yet")
         flake = str(self.repo)
-        base = [self.nix, "build", "--no-link", "--print-out-paths", "--log-format", "internal-json", "-L"]
+        base = self._build()
         if "argv" not in self.breaks:
             if kind not in KINDS:
                 raise JobError(f"unknown job type {kind!r}")
@@ -187,9 +216,15 @@ class Runner:
             last_out = None
             for i, step in enumerate(job.steps):
                 final = i == len(job.steps) - 1
-                argv = [a.replace("{out}", last_out or "") for a in step]
+                try:
+                    argv = [self._fill(a, job, last_out) for a in step]
+                except JobError as e:
+                    job.add(str(e))
+                    job.exit = 127
+                    break
                 job.add(f"$ {' '.join(argv)}")
-                code = self._step(job, argv, capture=final and job.adapt is not None)
+                # A nix build's stdout is its output paths; anything else's is log.
+                code = self._step(job, argv, capture=(final and job.adapt is not None) or step[0] != self.nix)
                 job.exit = code
                 if job.state == "cancelled" or code != 0 and not (final and job.adapt):
                     break
@@ -205,6 +240,20 @@ class Runner:
                               else "failed")
         self._finish(job)
 
+    def _fill(self, arg, job, out):
+        if arg == "{bin}":
+            bindir = Path(out or "/nonexistent") / "bin"
+            found = sorted(p for p in bindir.iterdir() if p.is_file()) if bindir.is_dir() else []
+            if len(found) != 1:
+                raise JobError(f"expected exactly one program in {bindir}, found {len(found)}")
+            return str(found[0])
+        if arg == "{shot}":
+            shots = self.state_dir.parent / "shots"
+            shots.mkdir(parents=True, exist_ok=True)
+            job.shot = str(shots / f"{job.id}.png")
+            return job.shot
+        return arg.replace("{out}", out or "")
+
     def _step(self, job, argv, capture):
         try:
             job.proc = subprocess.Popen(
@@ -217,7 +266,8 @@ class Runner:
         def pump_out():
             for line in job.proc.stdout:
                 if capture:
-                    job.stdout.append(line.rstrip("\n"))
+                    if job.adapt is not None:
+                        job.stdout.append(line.rstrip("\n"))
                     job.add(line.rstrip("\n"))
                     continue
                 line = line.strip()

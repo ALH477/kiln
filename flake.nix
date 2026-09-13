@@ -1310,9 +1310,7 @@
           modules = [ ./nix/dev-image.nix ];
           specialArgs = { inherit claude-code-nix; };
         };
-      in
-      {
-        packages = {
+        hostGames = {
           # ── playable host builds ───────────────────────────────────
           # The same examples/<x>/main.c the ROM builds, compiled with
           # -Dmain=kiln_game_main and linked against plat/shell. engine-demo
@@ -1323,11 +1321,6 @@
             pname = "kiln-engine-demo";
             sources = [ ./examples/engine/main.c ];
             meta.description = "engine-demo, playable on this machine";
-          };
-          web-engine-demo = hostWasm.mkGame {
-            pname = "kiln-engine-demo";
-            sources = [ ./examples/engine/main.c ];
-            meta.description = "engine-demo, playable in a browser";
           };
           pc-clip-demo = hostNative.mkGame {
             pname = "kiln-clip-demo";
@@ -1464,7 +1457,25 @@
             extraCFlags = [ "-DKILN_JUMP=JUMP_CORNER" ];
             meta.description = "clip-demo's CORNER jump, on this machine";
           };
-
+        };
+        # Every host-capable game in the browser as well: the same arguments
+        # through hostWasm.mkGame, a web-<x> beside each pc-<x>, so Kiln Studio
+        # can play any of them in a tab. Generated rather than written out a
+        # second time, because two hand-kept lists of the same games are two
+        # lists that disagree. web-engine-demo's derivation is unchanged by
+        # this: meta is not part of a derivation's hash.
+        hostWebGames = pkgs.lib.mapAttrs'
+          (n: g: pkgs.lib.nameValuePair ("web-" + pkgs.lib.removePrefix "pc-" n)
+            (hostWasm.mkGame (g.gameArgs // {
+              meta = g.gameArgs.meta // {
+                description = builtins.replaceStrings [ "on this machine" ] [ "in a browser" ]
+                  (g.gameArgs.meta.description or n);
+              };
+            })))
+          hostGames;
+      in
+      {
+        packages = hostGames // hostWebGames // {
           # `./dev map-render` — a level, through the real kiln_map.c, drawn by
           # the real engine, with no ROM and no compositor. Shares its whole
           # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to

@@ -65,6 +65,7 @@ async function detail(root, id) {
     cancel.disabled = true;
     outputs.replaceChildren(...snap.outputs.map((o) => el("code", { text: o })));
     if (snap.report) report.replaceChildren(reportView(snap.report));
+    if (snap.shot) report.replaceChildren(el("img", { src: `/api/jobs/${id}/shot.png`, class: "game-shot", alt: "the frame it drew" }));
     es.close();
   });
   return () => es.close();

@@ -16,7 +16,12 @@ function buildButton(label, pkg, primary = false) {
 
 function gameCard(name, g) {
   const jumps = g.jumps.map((j) => buildButton((j.jump || j.package).toLowerCase(), j.package));
-  const hosts = [...g.pc, ...g.web].map((h) => buildButton(h.package, h.package));
+  const hosts = [
+    ...g.web.map((h) => el("button", { class: "primary", title: "play it in this tab",
+      onclick: () => { location.hash = `#/game/${h.package}`; } }, `play ${h.package}`)),
+    ...g.pc.map((h) => el("span", { class: "row" }, buildButton(h.package, h.package),
+      el("button", { title: "run it headless and keep the frame it drew", onclick: () => start("host-shot", h.package) }, "shot"))),
+  ];
   return el("div", { class: "card" },
     el("div", { class: "row" },
       el("h3", { text: name }),

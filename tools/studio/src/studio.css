@@ -47,3 +47,9 @@ code { font-family: var(--mono); font-size: 12.5px; }
 #people .person .dim { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
 input { background: #0a0d13; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
 a { color: var(--blue); }
+.game { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; margin-top: 8px; }
+.game-frame { width: 100%; height: calc(100vh - 110px); border: 1px solid var(--line); border-radius: 8px; background: #000; }
+.game-side input { width: 100%; margin-top: 6px; }
+.game-console { max-height: 240px; overflow: auto; min-height: 60px; }
+.game-shot { display: block; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line);
+  border-radius: 6px; margin-top: 8px; }

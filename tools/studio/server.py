@@ -69,11 +69,13 @@ def _under(rel, prefixes):
     return any(rel == p or (p.endswith("/") and rel.startswith(p)) for p in prefixes)
 
 
-def editor_csp(html):
+def editor_csp(html, wasm=False):
     """The editors' pages carry an inline importmap and inline styles. Rather
     than allow inline script, allow exactly the inline scripts this page has, by
-    hash; anything injected later matches no hash and does not run."""
-    hashes = " ".join("'sha256-" + base64.b64encode(hashlib.sha256(m.group(1)).digest()).decode() + "'"
+    hash; anything injected later matches no hash and does not run. A game page
+    also needs 'wasm-unsafe-eval', which permits compiling WebAssembly and
+    nothing else — not eval, not new Function."""
+    hashes = ("'wasm-unsafe-eval' " if wasm else "") + " ".join("'sha256-" + base64.b64encode(hashlib.sha256(m.group(1)).digest()).decode() + "'"
                       for m in re.finditer(rb"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S))
     return ("default-src 'self'; script-src 'self' " + hashes + "; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
@@ -204,6 +206,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self.events(job)
                 if method == "POST" and parts[2:] == ["cancel"]:
                     return self.json(200, {"cancelled": self.studio.runner.cancel(job)})
+                if method == "GET" and parts[2:] == ["shot.png"]:
+                    if not (job.shot and Path(job.shot).is_file()):
+                        return self.error(404, "no frame from that job")
+                    return self.send(200, Path(job.shot).read_bytes(), ctype="image/png",
+                                     headers={"Cache-Control": "no-store"})
+            if method == "GET" and len(parts) == 2 and parts[0] == "play":
+                return self.json(200, {"package": parts[1],
+                                       "ready": self.studio.runner.latest_output(parts[1]) is not None})
             return self.error(404, "no such endpoint")
         except FsError as e:
             return self.json(e.status, {"error": str(e), **e.extra})
@@ -301,9 +311,47 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    def play(self, rel):
+        """A browser build this session built, served from its own output:
+        /play/<web package>/index.html is the build's page, anything else a
+        plain file beside it in bin/."""
+        studio = self.studio
+        if studio.auth.identify(self.client_address[0], self.headers) is None:
+            return self.error(401, "not signed in")
+        parts = rel.split("/")
+        pkg, name = parts[1] if len(parts) > 1 else "", "/".join(parts[2:]) or "index.html"
+        if ((studio.project.manifest or {}).get("packages", {}).get(pkg) or {}).get("kind") != "web":
+            return self.error(404, "not a browser build")
+        out = studio.runner.latest_output(pkg)
+        if out is None:
+            return self.error(404, "not built in this session — build it first")
+        bindir = Path(out) / "bin"
+        if name == "index.html":
+            pages = sorted(bindir.glob("*.html")) if bindir.is_dir() else []
+            if len(pages) != 1:
+                return self.error(404, "that build has no page")
+            target = pages[0]
+        else:
+            if "traversal" not in studio.breaks and ("/" in name or name.startswith(".")):
+                return self.error(404, "not found")
+            target = (bindir / name).resolve()
+            if "traversal" not in studio.breaks and target.parent != bindir.resolve():
+                return self.error(404, "not found")
+        if not target.is_file():
+            return self.error(404, "not found")
+        body = target.read_bytes()
+        ctype = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                 ".wasm": "application/wasm"}.get(target.suffix, "application/octet-stream")
+        headers = {"Cache-Control": "no-cache"}
+        if target.suffix == ".html":
+            headers["Content-Security-Policy"] = editor_csp(body, wasm=True)
+        self.send(200, body, ctype=ctype, headers=headers)
+
     def static(self, path):
         studio = self.studio
         rel = unquote(path).lstrip("/") or "index.html"
+        if rel.startswith("play/"):
+            return self.play(rel)
         if rel in ("tools/mapmaker/", "tools/poser/"):
             rel += "index.html"
         if _under(rel, REPO_STATIC):

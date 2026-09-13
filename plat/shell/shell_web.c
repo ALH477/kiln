@@ -32,6 +32,7 @@
 
 #include <libdragon.h>
 #include <kiln_host.h>
+#include <kiln/kiln_console.h>
 
 #include <emscripten.h>
 
@@ -62,7 +63,7 @@ EM_JS(void, web_open, (int w, int h, const char *title), {
   c.style.background = '#000';
   k.ctx = c.getContext('2d', { alpha: false });
   k.img = k.ctx.createImageData(w, h);
-  if (title) document.title = UTF8ToString(title);
+  if (title) { var t = ""; for (var i = title; HEAPU8[i] && i - title < 128; i++) t += String.fromCharCode(HEAPU8[i]); document.title = t; }
 });
 
 EM_JS(void, web_blit, (const void *fb, int w, int h), {
@@ -200,11 +201,125 @@ EM_JS(void, web_publish_pad, (int sx, int sy, int buttons), {
   k.pad = { stick_x: sx, stick_y: sy, buttons: buttons, frame: (k.pad ? k.pad.frame + 1 : 1) };
 });
 
+/* ── the Kiln Studio bridge ────────────────────────────────────────── */
+/* Kiln Studio embeds the page (plat/shell/kiln_web_shell.html relays its
+ * postMessages) and talks to the game through Module.kiln: it leaves console
+ * commands on `cmdq` and pad input on `padq`, and reads `frame`, `pad` and
+ * `console` back. Queues and not calls: between frames the game is suspended
+ * inside vsync below, so JS cannot call into it — only leave work for it to
+ * pick up when it resumes. The object is also published as
+ * globalThis.kilnBridge, because under node the generated JS runs in a module
+ * scope where a harness cannot reach Module at all; a preset left there first
+ * is adopted, which is how nix/checks/kiln-web-dom.js queues before main(). */
+
+EM_JS(void, web_bridge_init, (void), {
+  var k = Module.kiln = Module.kiln || {};
+  var g = (typeof globalThis !== 'undefined') ? globalThis : window;
+  var preset = g.kilnBridge;
+  if (preset && preset !== k) for (var key in preset) if (!(key in k)) k[key] = preset[key];
+  g.kilnBridge = k;
+});
+
+/* The next queued command into out, ASCII, at most cap-1 bytes; 0 if none. */
+EM_JS(int, web_cmd_next, (char *out, int cap), {
+  var k = Module.kiln;
+  if (!k || !k.cmdq || !k.cmdq.length) return 0;
+  var s = String(k.cmdq.shift());
+  var n = Math.min(s.length, cap - 1);
+  for (var i = 0; i < n; i++) {
+    var c = s.charCodeAt(i);
+    HEAPU8[out + i] = (c >= 32 && c < 127) ? c : 63;   // the console font is ASCII
+  }
+  HEAPU8[out + n] = 0;
+  return 1;
+});
+
+/* The head of padq, packed like web_gamepad: bit 0 = present, bits 1..14 the
+ * buttons in web_publish_pad's order, then the stick. An entry holds for its
+ * `frames`, then the next one takes over. */
+EM_JS(int, web_padq_next, (void), {
+  var k = Module.kiln;
+  if (!k || !k.padq || !k.padq.length) return 0;
+  var p = k.padq[0];
+  if (!(p.frames > 1)) k.padq.shift(); else p.frames--;
+  return (1 | ((p.buttons & 0x3FFF) << 1) | ((p.stick_x & 0xFF) << 16) | ((p.stick_y & 0xFF) << 24)) | 0;
+});
+
+EM_JS(void, web_publish_frame, (int n, int w, int h, int rects, int tris, int glyphs, double shaded), {
+  var k = Module.kiln = Module.kiln || {};
+  k.frame = { n: n, w: w, h: h, counters: { rects: rects, tris: tris, glyphs: glyphs, shaded_px: shaded } };
+});
+
+EM_JS(void, web_console_begin, (void), { Module.kiln.consoleNext = []; });
+/* Bytes copied out by hand, not UTF8ToString. With memory growth on, Chromium
+ * backs the wasm heap with a resizable ArrayBuffer, and TextDecoder refuses a
+ * view of one — which is what emscripten's UTF8ToString passes it for any
+ * string past a few bytes. So every console line threw in a real browser while
+ * node, and therefore nix/checks/kiln-web.nix, decoded them happily; found by
+ * running the studio's game view in headless Chromium. The console font is
+ * ASCII, so nothing is lost. The title in web_open is copied the same way. */
+EM_JS(void, web_console_line, (const char *s), {
+  var t = "";
+  for (var i = s; HEAPU8[i] && i - s < 128; i++) t += String.fromCharCode(HEAPU8[i]);
+  Module.kiln.consoleNext.push(t);
+});
+EM_JS(void, web_console_end, (void), {
+  var k = Module.kiln;
+  k.console = k.consoleNext;
+  k.consoleSeq = (k.consoleSeq || 0) + 1;
+  delete k.consoleNext;
+});
+
+static uint32_t g_console_sig;
+
+/* Publish the console's log when it changed. A hash over the tail rather than
+ * a line count, because `clear` changes the log as surely as a new line does
+ * and a full ring stays the same length forever. */
+static void publish_console(void)
+{
+    const int n = kiln_console_tail_lines();
+    uint32_t h = 2166136261u ^ (uint32_t)n;
+    for (int i = 0; i < n; i++)
+        for (const char *c = kiln_console_tail_line(i); *c; c++)
+            h = (h ^ (uint8_t)*c) * 16777619u;
+    if (h == g_console_sig) return;
+    g_console_sig = h;
+    web_console_begin();
+    for (int i = 0; i < n; i++) web_console_line(kiln_console_tail_line(i));
+    web_console_end();
+}
+
+/* Queued pad input is OR-ed over the keyboard and gamepad, the way a second
+ * controller on the same port would be; queued commands run through the real
+ * kiln_console, exactly as a line typed on the pad grid does. */
+static void drain_bridge(KilnShellPad *p)
+{
+    const int q = web_padq_next();
+    if (q & 1) {
+        const int b = q >> 1;
+        p->a       |= b & 1;          p->b      |= (b >> 1) & 1;
+        p->z       |= (b >> 2) & 1;   p->l      |= (b >> 3) & 1;
+        p->r       |= (b >> 4) & 1;   p->start  |= (b >> 5) & 1;
+        p->c_up    |= (b >> 6) & 1;   p->c_down |= (b >> 7) & 1;
+        p->c_left  |= (b >> 8) & 1;   p->c_right |= (b >> 9) & 1;
+        p->d_up    |= (b >> 10) & 1;  p->d_down |= (b >> 11) & 1;
+        p->d_left  |= (b >> 12) & 1;  p->d_right |= (b >> 13) & 1;
+        const int8_t sx = (int8_t)((q >> 16) & 0xFF);
+        const int8_t sy = (int8_t)((q >> 24) & 0xFF);
+        if (sx) p->stick_x = sx;
+        if (sy) p->stick_y = sy;
+    }
+    char line[64];
+    for (int i = 0; i < 8 && web_cmd_next(line, (int)sizeof line); i++)
+        kiln_console_exec(line);
+}
+
 /* ── hooks ─────────────────────────────────────────────────────────── */
 
 static KilnShellOpts g_opt;
 static int g_w, g_h;
 static int g_audio;
+static uint32_t g_frames;
 
 static void present(void *ctx, const void *rgba8, int w, int h)
 {
@@ -212,6 +327,9 @@ static void present(void *ctx, const void *rgba8, int w, int h)
     if (w != g_w || h != g_h) { web_open(w, h, g_opt.title); g_w = w; g_h = h; }
     web_blit(rgba8, w, h);
     kiln_shell_presented();
+    const KilnHostCounters *c = kiln_host_counters();
+    web_publish_frame((int)++g_frames, w, h, (int)c->rects, (int)c->tris, (int)c->glyphs, (double)c->shaded_px);
+    publish_console();
 }
 
 static void vsync(void *ctx)
@@ -239,6 +357,7 @@ static void vsync(void *ctx)
         if (sx) p.stick_x = sx;
         if (sy) p.stick_y = sy;
     }
+    drain_bridge(&p);
     kiln_shell_pad(&p);
     web_publish_pad(p.stick_x, p.stick_y,
                     (p.a) | (p.b << 1) | (p.z << 2) | (p.l << 3) | (p.r << 4) |
@@ -290,6 +409,7 @@ int main(int argc, char **argv)
     kiln_shell_env(&g_opt);
 
     web_input_init();
+    web_bridge_init();
 
     const KilnHostHooks hooks = {
         .present      = present,

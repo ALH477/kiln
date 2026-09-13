@@ -70,7 +70,18 @@ if args[:1] == ["build"]:
     for i in range(1, 21):
         say(f"line {i}")
     sys.stderr.write("@nix " + json.dumps({"action": "result", "type": 101, "fields": ["a build log line"]}) + "\n")
-    print("/nix/store/0000-fake-" + attr.replace(".", "-"))
+    if attr.startswith("web-"):
+        # A browser build: a real directory with a page and its script, so
+        # /play/ has something to serve.
+        out = os.path.join(os.environ["FAKE_NIX_STORE"], attr)
+        os.makedirs(os.path.join(out, "bin"), exist_ok=True)
+        with open(os.path.join(out, "bin", "kiln-demo.html"), "w") as f:
+            f.write('<!doctype html><script>var Module = {};</script><script src="kiln-demo.js"></script>')
+        with open(os.path.join(out, "bin", "kiln-demo.js"), "w") as f:
+            f.write("console.log('demo');")
+        print(out)
+    else:
+        print("/nix/store/0000-fake-" + attr.replace(".", "-"))
     sys.exit(3 if attr.endswith("broken-demo") else 0)
 sys.exit(1)
 '''
@@ -78,7 +89,8 @@ sys.exit(1)
 MANIFEST = {
     "version": 1, "system": "x86_64-linux", "cheap": ["fast-check"],
     "games": {"demo": {"roms": ["demo"], "romTitle": "Demo", "jumps": [], "pc": [], "web": [], "hostable": False}},
-    "packages": {n: {"kind": "rom", "example": "demo"} for n in ("demo", "slow-demo", "broken-demo")},
+    "packages": {**{n: {"kind": "rom", "example": "demo"} for n in ("demo", "slow-demo", "broken-demo")},
+                 "web-demo": {"kind": "web", "example": "demo"}, "pc-demo": {"kind": "pc", "example": "demo"}},
     "tools": [], "checks": ["fast-check"],
 }
 
@@ -86,7 +98,8 @@ MANIFEST = {
 class Server:
     def __init__(self, work, breaks=()):
         self.work = work
-        env = dict(os.environ, KILN_STUDIO_BREAK=",".join(breaks), FAKE_NIX_PIDFILE=str(work / "child.pid"))
+        env = dict(os.environ, KILN_STUDIO_BREAK=",".join(breaks), FAKE_NIX_PIDFILE=str(work / "child.pid"),
+                   FAKE_NIX_STORE=str(work / "store"))
         self.proc = subprocess.Popen(
             [sys.executable, str(SERVER), "--repo", str(work / "repo"), "--port", "0",
              "--manifest-file", str(work / "manifest.json"), "--caps-file", str(work / "caps.json"),
@@ -294,6 +307,36 @@ def suite(server):
                f"the build ended {snap.get('state')} with outputs {snap.get('outputs')}")
         resumed = [e for e in sse(server, job["id"], last=10) if e.get("event") == "line"]
         expect(resumed and resumed[0]["id"] == "11", f"resume after id 10 started at {resumed[0]['id'] if resumed else None}")
+
+    # ── the game view ────────────────────────────────────────────────────
+    st, _, _ = server.request("GET", "/play/web-demo/index.html")
+    expect(st == 404, f"playing a browser build before building it gave {st}, want 404")
+    st, _, body = server.request("POST", "/api/jobs", body={"kind": "build", "target": "web-demo"})
+    web = json.loads(body or b"{}")
+    if web.get("id"):
+        sse(server, web["id"])
+    st, _, body = server.request("GET", "/api/play/web-demo")
+    expect(st == 200 and json.loads(body or b"{}").get("ready") is True, f"the built browser game is not ready: {st} {body[:80]!r}")
+    st, hdrs, body = server.request("GET", "/play/web-demo/index.html")
+    script_src = hdrs.get("Content-Security-Policy", "").split("script-src", 1)[-1].split(";", 1)[0]
+    expect(st == 200 and b"kiln-demo.js" in body and "'wasm-unsafe-eval'" in script_src
+           and "'sha256-" in script_src and "unsafe-inline" not in script_src and "'unsafe-eval'" not in script_src,
+           f"the game page gave {st} with script-src {script_src!r}")
+    st, hdrs, _ = server.request("GET", "/play/web-demo/kiln-demo.js")
+    expect(st == 200 and hdrs.get("Content-Type", "").startswith("text/javascript"), f"the game's script gave {st}")
+    for path in ("/play/web-demo/..%2f..%2f..%2frepo%2fnotes.txt", "/play/web-demo/.hidden", "/play/demo/index.html",
+                 "/play/pc-demo/index.html"):
+        st, _, _ = server.request("GET", path)
+        expect(st == 404, f"{path} gave {st}, want 404")
+    st, _, _ = server.request("GET", "/play/web-demo/index.html", auth=False)
+    expect(st == 401, f"a game page without a session gave {st}, want 401")
+    for target in ("demo", "web-demo", "pc-demo; reboot"):
+        st, _, _ = server.request("POST", "/api/jobs", body={"kind": "host-shot", "target": target})
+        expect(st == 400, f"a host shot of {target!r} gave {st}, want 400")
+    st, _, body = server.request("POST", "/api/jobs", body={"kind": "host-shot", "target": "pc-demo"})
+    shot = json.loads(body or b"{}")
+    expect(st == 201 and shot.get("steps", [[]])[-1][:3] == ["env", "SDL_VIDEODRIVER=dummy", "SDL_AUDIODRIVER=dummy"],
+           f"a host shot of pc-demo gave {st} {shot.get('steps')}")
 
     # ── cancel kills the tree ────────────────────────────────────────────
     pidfile = server.work / "child.pid"

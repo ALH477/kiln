@@ -328,6 +328,9 @@ let
                          ++ (if assets == [ ] then [ ] else shell.assetFlags fs);
           extraBuildInputs = shell.buildInputs;
         }) // {
+          # The arguments, kept so the flake can build the same game for
+          # another target (web-<x> from pc-<x>) without restating them.
+          gameArgs = { inherit pname sources assets extraCFlags meta; };
           # Kiln Studio's project record (see nix/rom.nix's). The example is the
           # directory of the game's first source file; the jump is the
           # -DKILN_JUMP a jump variant is compiled with. Attached to the value,

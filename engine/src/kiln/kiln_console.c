@@ -335,15 +335,22 @@ static void type_cell(void)
 
 static void backspace(void) { if (g_cmd_len > 0) g_cmd_len--; }
 
+void kiln_console_exec(const char *line)
+{
+    /* dispatch() tokenises in place, so it always gets a private copy. */
+    char buf[CON_CMD_MAX];
+    snprintf(buf, sizeof buf, "%s", line ? line : "");
+    if (buf[0] == '\0') return;
+    kiln_console_log("> %s", buf);
+    dispatch(buf);
+}
+
 static void submit(void)
 {
     if (g_cmd_len == 0) return; /* empty submit is a no-op */
     g_cmd[g_cmd_len] = '\0';
-    kiln_console_log("> %s", g_cmd);
-    char buf[CON_CMD_MAX];
-    memcpy(buf, g_cmd, g_cmd_len + 1);
     g_cmd_len = 0;
-    dispatch(buf);
+    kiln_console_exec(g_cmd);
 }
 
 void kiln_console_update(int port)

@@ -8,11 +8,12 @@
 import { AuthError, bootstrap, el, get, post } from "./api.js";
 import * as editor from "./panels/editor.js";
 import * as files from "./panels/files.js";
+import * as game from "./panels/game.js";
 import * as hub from "./panels/hub.js";
 import * as jobs from "./panels/jobs.js";
 import * as validate from "./panels/validate.js";
 
-const PANELS = { hub, jobs, validate, files, map: editor.map, pose: editor.pose };
+const PANELS = { hub, jobs, validate, files, game, map: editor.map, pose: editor.pose };
 const root = document.getElementById("panel");
 let cleanup = null;
 
