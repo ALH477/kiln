@@ -49,19 +49,30 @@ fm_vec3_t kiln_fpscam_forward(const KilnFpsCam *cam)
     } };
 }
 
+/* ── Handedness ──────────────────────────────────────────────────────
+ * The renderer is right-handed: t3d_viewport_look_at builds side = forward x
+ * up, so an eye looking down +Z has screen-right at -X. Right is therefore
+ * forward x up = (-cos yaw, 0, sin yaw), and turning right swings forward
+ * toward it, which DECREASES yaw.
+ *
+ * This used to return (cos, 0, -sin) and add C-stick X to yaw — screen-left
+ * both times, so stick right strafed left and C right turned left in every
+ * consumer, on console as well as on the host. nix/checks/kiln-fpscam.nix asks
+ * the look-at matrix where screen-right is and holds the pad to it. */
 fm_vec3_t kiln_fpscam_right(const KilnFpsCam *cam)
 {
     return (fm_vec3_t){ {
-        fm_cosf(cam->yaw),
+        -fm_cosf(cam->yaw),
         0.0f,
-        -fm_sinf(cam->yaw),
+        fm_sinf(cam->yaw),
     } };
 }
 
 void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
 {
-    /* Look: C-stick X → yaw, C-stick Y → pitch. */
-    cam->yaw   += in->cstick_x * cam->look_speed;
+    /* Look: C-stick X → yaw, C-stick Y → pitch. Right is negative yaw; see
+     * kiln_fpscam_right. */
+    cam->yaw   -= in->cstick_x * cam->look_speed;
     cam->pitch += in->cstick_y * cam->look_speed;
 
     /* Clamp pitch to avoid gimbal-flip. */
@@ -76,8 +87,8 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
      * Build the horizontal forward (pitch ignored for movement). */
     float fwd_x = fm_sinf(cam->yaw);
     float fwd_z = fm_cosf(cam->yaw);
-    float rgt_x = fm_cosf(cam->yaw);
-    float rgt_z = -fm_sinf(cam->yaw);
+    float rgt_x = -fm_cosf(cam->yaw);
+    float rgt_z = fm_sinf(cam->yaw);
 
     /* Run: hold R for sprint speed. */
     /* A zero mask disables the action: `x & 0` is never true, so a game that

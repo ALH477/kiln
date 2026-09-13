@@ -1753,6 +1753,10 @@
           kiln-texrect = import ./nix/checks/kiln-texrect.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_fpscam's strafe and turn, against the renderer's screen-right.
+          kiln-fpscam = import ./nix/checks/kiln-fpscam.nix {
+            inherit pkgs; target = hostNative;
+          };
           # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;
