@@ -805,12 +805,13 @@
         # libkiln.a; the flag only controls whether the example wires it up.
         # Toggle in-rom by holding Start and pressing C-Up → C-Left →
         # C-Down → C-Right (counter-clockwise around the C cluster).
-        debug-demo = mkN64Rom {
+        debugDemoArgs = {
           name = "debug-demo";
           src = ./examples/debug-demo;
           romTitle = "Kiln Debug";
           debugConsole = true;
         };
+        debug-demo = mkN64Rom debugDemoArgs;
 
         # The single-screen showcase: title + 3-mode flight + engine streaks +
         # credit HUD. Loads the hand-authored Interceptor starfighter through
@@ -994,7 +995,8 @@
           // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
           // mkJumpRoms fpsArgs [ "SWITCH" ]
           // mkJumpRoms actorsDemoArgs [ "FULL" ]
-          // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ];
+          // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ]
+          // mkJumpRoms debugDemoArgs [ "CONSOLE" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1288,6 +1290,18 @@
             sources = [ ./examples/board-demo/main.c ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_RESULTS" ];
             meta.description = "board-demo-results, on this machine";
+          };
+          pc-debug-demo = hostNative.mkGame {
+            pname = "kiln-debug-demo";
+            sources = [ ./examples/debug-demo/main.c ];
+            extraCFlags = [ "-DKILN_DEBUG=1" ];
+            meta.description = "debug-demo, with its console, on this machine";
+          };
+          pc-debug-demo-console = hostNative.mkGame {
+            pname = "kiln-debug-demo-console";
+            sources = [ ./examples/debug-demo/main.c ];
+            extraCFlags = [ "-DKILN_DEBUG=1" "-DKILN_JUMP=JUMP_CONSOLE" ];
+            meta.description = "debug-demo-console, with its console, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
