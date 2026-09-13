@@ -689,13 +689,16 @@ FIFO-only case.
   this project a whole PLAY screen once). Distinct counters on purpose, per
   Forge's "every gauge goes red at the value that means it's lying to you."
 
-Verified by `examples/openworld-demo`, rewired from its original hand-malloc'd
-2-vert tile stub onto a real `openworld.streamdb` (`models/tile.t3dm`, one
-shared model — the point is the pacer's priority ordering across many
-simultaneous requests, not per-tile unique geometry): `nix build
-.#openworld-demo` links clean, and `./dev shot openworld-demo` shows the full
-5×5 window (25 tiles) loaded through `kiln_stream`→`kiln_streamio`→
-`kiln_cache`→`kiln_asset` with `pending 0 dropped 0 failed 0`.
+Verified by `examples/openworld-demo`: a 32×32 island of terraced tiles in
+four biomes, streamed from `openworld.streamdb` as twelve models keyed by
+biome and LOD (`tools/blender/ow_tile.py`), through
+`kiln_stream`→`kiln_streamio`→`kiln_cache`→`kiln_asset` over a 7×7 window.
+LOD is chosen by distance from the camera, tiles still pending draw a
+placeholder block rather than a hole, fog and a sea plane hide the window's
+edge, and the HUD's pacer gauges go amber/red at the values that mean trouble
+(Ares, `openworld-demo-fast`: pending 14/64, 0 dropped, 0 failed). One thing
+the demo had to learn: `kiln_tile_first`/`kiln_tile_next` still yield tiles
+queued for unload, so a count of residents must skip them.
 
 **Getting that screenshot found four pre-existing, previously-unverified
 bugs, none of them in the new pacer** — this appears to be the first time
