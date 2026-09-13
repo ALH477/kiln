@@ -109,17 +109,19 @@ void forge_hud_draw(Forge *f)
      * because an editor whose bindings have to be remembered is an editor used
      * with a laptop open next to the television — and the whole argument for
      * being on the console is that the television is where your attention is. */
-    /* Built from Forge/src/forge_binds.def, which is the one statement of the
-     * control scheme -- the SKILL's table and CLAUDE.md's are generated from
-     * the same file. These strings used to be written here by hand and said
-     * "Z+A fill", which has never been true: forge_geo.c anchors on Z press and
-     * fills on Z release, and suppresses A for the whole drag. The skill
-     * repeated it faithfully for as long as it existed.
+    /* WRITTEN BY HAND, and kept in step with Forge/src/forge_binds.def by hand.
+     * That file is the one statement of the control scheme, but only
+     * tools/forge/gen_binds.py reads it, and what that emits is the Markdown
+     * table in the n64-forge skill -- nothing #includes it, and nothing compares
+     * these strings with it. (This comment used to say they were "built from"
+     * it, alongside a B() macro nothing used; both implied a generation that
+     * never existed.) The strings once said "Z+A fill", which has never been
+     * true: forge_geo.c anchors on Z press and fills on Z release, and
+     * suppresses A for the whole drag.
      *
      * Abbreviated on purpose: one row of a 320px screen in a 6px monospace
      * font is about 52 characters, so this lists the EDIT verbs and leaves
      * camera and sprint to the mode's own panel. */
-    #define B(m, btn, act) btn " " act "  "
     static const char *const HELP[FORGE_MODE_COUNT] = {
         [FORGE_MODE_GEO]   = "A put  B dig  Z drag-fill  L pick  LR mode  START save",
         [FORGE_MODE_WALK]  = "stick walk  R run  LR mode  START save",
@@ -128,7 +130,6 @@ void forge_hud_draw(Forge *f)
         [FORGE_MODE_LIGHT] = "C-ud field  dpad edit  A fog  R clear  START save",
         [FORGE_MODE_CAM]   = "A key  B del  Z play  dpad scrub  R/L dur  START save",
     };
-    #undef B
 
     kiln_gui_text(6, FORGE_SCREEN_H - 10, DIM_COL, "%s", HELP[f->mode]);
 }

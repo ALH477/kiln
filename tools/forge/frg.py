@@ -130,7 +130,14 @@ def boxes_to_map(boxes, spawn=None, ents=None, classnames=None):
     so `frg.py tomap` emitted geometry only, and ./dev forge-pull's "ROM emit
     and host mirror agree byte for byte" cross-check could never pass for a
     level with a single entity in it. It reported that as a NOTE, not an error,
-    so it looked like a curiosity rather than a broken comparison."""
+    so it looked like a curiosity rather than a broken comparison.
+
+    It agrees now ONLY for a level whose author placed an info_player_start.
+    When none was placed, Forge/src/forge_io.c appends a fallback spawn at the
+    CAMERA position, which the .FRG does not record and so this mirror cannot
+    reproduce -- `_cmd_tomap` passes no `spawn`, and forge-pull's NOTE is
+    expected for such a level. The epair rule, by contrast, now mirrors
+    forge_ent_emit exactly (below)."""
     out = ['{', '"classname" "worldspawn"']
     for mins, maxs, t in boxes:
         tex = f'FORGE{t}'
