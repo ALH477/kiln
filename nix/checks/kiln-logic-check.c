@@ -32,6 +32,7 @@
 #include "kiln_rng.h"
 #include "kiln_stream.h"
 #include "kiln_voxel.h"
+#include "kiln_physics.h"
 
 static int g_fail;
 
@@ -1047,9 +1048,56 @@ static void test_voxel(void)
        "bounds are the inclusive AABB over solid blocks");
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * kiln_physics
+ *
+ * Stacking, which is the thing its header promised and nothing had exercised:
+ * physics-demo's pyramid sank into the floor within a second the first time a
+ * crate was actually spawned on top of another. Body-body correction split a
+ * vertical contact by mass and pushed the lower crate into the floor brush,
+ * where kiln_clip — which ignores a brush a trace starts inside — let it fall.
+ * The second half is the mirror image: a sleeping crate whose support is
+ * removed must fall, not hang.
+ * ──────────────────────────────────────────────────────────────────────── */
+static void test_physics(void)
+{
+    puts("\nkiln_physics");
+    kiln_clip_set_broadphase(0);
+    kiln_clip_set_world(ROOM, ROOM_N);
+
+    static KilnPhysicsBody bodies[4];
+    KilnPhysicsWorld w;
+    kiln_physics_init(&w, bodies, 4);
+    const fm_vec3_t h = V(10, 10, 10);
+    KilnPhysicsBody *lo  = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 10.2f, 0), h, 5.0f);
+    KilnPhysicsBody *mid = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 30.5f, 0), h, 5.0f);
+    KilnPhysicsBody *hi  = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 50.8f, 0), h, 5.0f);
+
+    for (int f = 0; f < 300; f++) kiln_physics_step(&w, 1.0f / 60.0f);
+
+    ok(lo->pos.v[1] - 10.0f >= FLOOR_TOP - 0.05f,
+       "a crate under a three-high stack stays on the floor (bottom %.2f, floor %.2f)",
+       lo->pos.v[1] - 10.0f, FLOOR_TOP);
+    ok(NEAR(mid->pos.v[1], lo->pos.v[1] + 20.0f, 0.1f) && NEAR(hi->pos.v[1], mid->pos.v[1] + 20.0f, 0.1f),
+       "the stack rests face on face (y %.2f %.2f %.2f)", lo->pos.v[1], mid->pos.v[1], hi->pos.v[1]);
+    ok(lo->sleeping && mid->sleeping && hi->sleeping,
+       "a settled stack goes to sleep (%d %d %d)", lo->sleeping, mid->sleeping, hi->sleeping);
+
+    /* Take the bottom crate away, as a punt would. */
+    lo->pos.v[0] = 60.0f;
+    lo->sleeping = 0;
+    for (int f = 0; f < 180; f++) kiln_physics_step(&w, 1.0f / 60.0f);
+
+    ok(NEAR(mid->pos.v[1], FLOOR_TOP + 10.0f, 0.3f),
+       "a sleeping crate falls when the crate under it is removed (y %.2f)", mid->pos.v[1]);
+    ok(NEAR(hi->pos.v[1], mid->pos.v[1] + 20.0f, 0.3f),
+       "and the one above it follows it down (y %.2f)", hi->pos.v[1]);
+}
+
 int main(void)
 {
     test_clip();
+    test_physics();
     test_dict();
     test_cache();
     test_lod();
