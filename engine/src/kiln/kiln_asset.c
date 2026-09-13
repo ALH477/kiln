@@ -110,6 +110,11 @@ uint32_t kiln_asset_count(const KilnAsset *db)
     return db ? streamdb_emb_count(&db->db) : 0u;
 }
 
+size_t kiln_asset_arena_used(const KilnAsset *db)
+{
+    return db ? db->db.arena_used : 0u;
+}
+
 size_t kiln_asset_size(const KilnAsset *db, const char *key, size_t key_len)
 {
     if (!db || !key || !key_len) return 0;
