@@ -30,3 +30,5 @@ archives/
 # tools/meshy.py reads its API key from here and tells the user to create it.
 # A paid key; never commit it.
 .meshy_key
+# Kiln Studio's runtime state: session token, job logs, worktrees
+.studio/

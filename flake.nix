@@ -1104,7 +1104,7 @@
         studioCheapChecks = [
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
-          "studio-manifest"
+          "studio-manifest" "studio-api"
         ];
 
         forgeModeRoms = pkgs.lib.listToAttrs (map
@@ -2012,6 +2012,10 @@
             kiln = { lib.${system} = self.lib.${system}; };
             inherit system;
           }).rom;
+          studio-api = import ./nix/checks/studio-api.nix {
+            inherit pkgs;
+            studioDir = ./tools/studio;
+          };
           studio-manifest = import ./nix/checks/studio-manifest.nix {
             inherit pkgs;
             manifest = self.studioManifest.${system};
@@ -2068,6 +2072,17 @@
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-dev" ''
               exec ${pkgs.bash}/bin/bash "''${KILN_REPO:-$PWD}/dev" "$@"
+            '');
+          };
+          # Kiln Studio (tools/studio/): the hub, jobs, editors and live game
+          # view in one local web app. Like mapmaker, it runs the checkout's own
+          # copy rather than a store path, because it edits that checkout.
+          # Binds 127.0.0.1:8420; prints a link carrying the session token.
+          studio = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-studio" ''
+              repo="''${KILN_REPO:-$PWD}"
+              exec ${pkgs.python3Minimal}/bin/python3 "$repo/tools/studio/server.py" --repo "$repo" "$@"
             '');
           };
           # three.js .map maker (tools/mapmaker/). A dev-only web app run

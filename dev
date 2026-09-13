@@ -46,6 +46,9 @@ usage() {
   check                    nix flake check (the pre-push gate)
   cheap                    the fast host gates: geometry, logic, gui, the
                            level vocabulary and the .map path (no ROMs)
+  studio [--port N] [--host ADDR]
+                           Kiln Studio: every game, builds and checks with live
+                           logs, in one local web app (http://localhost:8420)
   doctor [--json]          toolchain, libdragon, cart presence, versions
   new <name> [--in-repo] [--out DIR]
                            start a game from templates/game: a new flake in
@@ -106,8 +109,8 @@ case "${1:-}" in
   # that.
   map-validate | map-emit | map-dump | map-canon | map-render | mcp)
     DEV_IN_NIX=1 ;;
-  # Scaffolding copies files; it builds nothing.
-  new) DEV_IN_NIX=1 ;;
+  # Scaffolding copies files; the studio is a python server that calls nix.
+  new | studio) DEV_IN_NIX=1 ;;
 esac
 
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
@@ -691,6 +694,10 @@ PY
     echo
     echo "wrote assets/$name.frg and assets/$name.map"
     echo "git diff assets/$name.map to review the change."
+    ;;
+
+  studio)
+    KILN_REPO="$REPO" exec nix run "$REPO#studio" -- "$@"
     ;;
 
   new)
