@@ -588,11 +588,15 @@
           src = ./dsp/ks.dsp;
           sampleRate = 32000;
           duration = 2.0;
-          # gain 0.1 is not arbitrary: pm.ks runs hot, and anything above ~0.1
-          # clips against the renderer's [-1,1] clamp. The clipping gate in
-          # mkBakedInstrument found this — at the obvious-looking 0.8, 15% of
-          # samples were clamped. Peak here is -2.8 dBFS.
-          params = { freq = 220; gain = 0.1; };
+          # gain is set against the clipping gate, which is how it was found
+          # that the obvious-looking 0.8 clamped 15% of samples. That was the
+          # old DC-step excitation running hot (see dsp/ks.dsp); the one-period
+          # noise burst peaks at about -4.5 dBFS at 0.25.
+          #
+          # freq = 220 now IS 220 Hz (A3, measured 217.7 by autocorrelation of
+          # share/ksvoice-reference.wav). examples/audio pitches its notes as
+          # ratios of it, so changing this retunes that demo.
+          params = { freq = 220; gain = 0.25; };
           gate = { param = "gate"; on = 0.0; off = 0.02; };
         };
 
@@ -1801,6 +1805,12 @@
           # kiln_fpscam's strafe and turn, against the renderer's screen-right.
           kiln-fpscam = import ./nix/checks/kiln-fpscam.nix {
             inherit pkgs; target = hostNative;
+          };
+          # dsp/ks.dsp's freq slider moves the pitch, and the pluck is a tone
+          # rather than a DC step. Neither was true until this check existed.
+          ks-pitch = import ./nix/checks/ks-pitch.nix {
+            inherit pkgs;
+            renderer = faust.mkOfflineRenderer { name = "ksvoice"; src = ./dsp/ks.dsp; };
           };
           # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
           # examples/cinematic-demo's shots: camlint-clean, no eye inside the
