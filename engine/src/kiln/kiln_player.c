@@ -172,10 +172,15 @@ void kiln_player_update(KilnActor *self, int port, float dt)
         enter_state(p, KILN_PLAYER_FALL);
     }
 
-    /* Update the actor's yaw on the transform so the renderer / camera
-     * see the facing. */
+    /* Update the actor's yaw on the transform so the renderer sees the
+     * facing, for a model whose front is +Z. NEGATED, because the two angles
+     * turn opposite ways: `yaw` is fm_atan2f(x, z), so it faces
+     * (sin yaw, cos yaw), while libdragon's fm_mat4_from_axis_angle about +Y
+     * maps +Z to (-sin a, 0, cos a) — measured natively. Writing yaw here drew
+     * the player mirrored whenever it moved off the Z axis. A model facing -Z
+     * wants PI - yaw, which the caller sets after this. */
     self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
-    self->xform.rot_angle = p->yaw;
+    self->xform.rot_angle = -p->yaw;
 
     /* Footstep cadence while walking/running on ground. Cadence is
      * inversely proportional to horizontal speed: walk ~2 Hz, run ~4 Hz. */
