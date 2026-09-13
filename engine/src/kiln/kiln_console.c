@@ -25,6 +25,7 @@
  * submitting a half-typed buffer.
  */
 #include "kiln_console.h"
+#include "kiln_input.h"
 
 #include <libdragon.h>
 #include <kiln/kiln_actor.h>
@@ -79,7 +80,6 @@ static int   g_log_count; /* live entries (capped at CON_LOG_LINES) */
 
 static bool     g_open;
 static int      g_chord_step;
-static uint32_t g_last_btns;
 static uint32_t g_init_ticks;
 
 static int g_cur_col, g_cur_row;
@@ -233,7 +233,6 @@ void kiln_console_init(void)
     g_log_count = 0; g_log_head = 0;
     g_open = false;
     g_chord_step = 0;
-    g_last_btns = 0;
     g_cur_col = 0; g_cur_row = 0;
     g_stick_state = 0;
     g_cmd_len = 0;
@@ -293,16 +292,16 @@ static void poll_chord(uint32_t held, uint32_t pressed)
     }
 }
 
-static void poll_stick(joypad_inputs_t in)
+static void poll_stick(int stick_x, int stick_y)
 {
     /* Discrete stick navigation: move one cell when the stick crosses the
      * threshold in a direction it wasn't last frame. A 32-unit deadzone
      * matches the engine's kiln_input default. */
     int dx = 0, dy = 0;
-    if (in.stick_x >  32) dx =  1;
-    if (in.stick_x < -32) dx = -1;
-    if (in.stick_y >  32) dy =  1;
-    if (in.stick_y < -32) dy = -1;
+    if (stick_x >  32) dx =  1;
+    if (stick_x < -32) dx = -1;
+    if (stick_y >  32) dy =  1;
+    if (stick_y < -32) dy = -1;
 
     int new_state = 0;
     if (dy > 0) new_state = 1;       /* up    */
@@ -349,11 +348,14 @@ static void submit(void)
 
 void kiln_console_update(int port)
 {
-    joypad_port_t p = (port <= 0) ? JOYPAD_PORT_1 : (joypad_port_t)(port - 1);
-    joypad_buttons_t b = joypad_get_buttons(p);
-    uint32_t held = b.raw;
-    uint32_t pressed = held & ~g_last_btns;
-    g_last_btns = held;
+    /* Through kiln_input, not the joypad. This read joypad_get_buttons and
+     * diffed its own edges, so a kiln_input tape — an attract mode, or a jump
+     * ROM entering the chord for a capture — could never open the console or
+     * type into it: scripted input stopped at kiln_input and the console never
+     * saw it. Every caller already runs kiln_input_update first each frame. */
+    const KilnInput *in = kiln_input_get(port <= 0 ? 1 : port);
+    const uint32_t held = in->buttons;
+    const uint32_t pressed = in->edges;
 
     poll_chord(held, pressed);
 
@@ -364,7 +366,8 @@ void kiln_console_update(int port)
     if (pressed & KILN_BTN_B)  backspace();
     if (pressed & KILN_BTN_START) submit();
 
-    poll_stick(joypad_get_inputs(p));
+    poll_stick((int)(in->stick_x * (float)JOYPAD_RANGE_N64_STICK_MAX),
+               (int)(in->stick_y * (float)JOYPAD_RANGE_N64_STICK_MAX));
 }
 
 /* ── Draw ──────────────────────────────────────────────────────────────── */

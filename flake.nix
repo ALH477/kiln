@@ -1694,6 +1694,10 @@
           kiln-context = import ./nix/checks/kiln-context.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_console reads its buttons through kiln_input, so tapes drive it.
+          kiln-console = import ./nix/checks/kiln-console.nix {
+            inherit pkgs; target = hostNative;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is
