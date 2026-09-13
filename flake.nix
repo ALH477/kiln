@@ -770,14 +770,26 @@
         };
         map-demo = mkN64Rom mapDemoArgs;
 
-        # The engine's own boot splash (kiln_splash.h), booted straight into.
-        # kilnLogo is the same model kiln_splash_apply's camera comment is
-        # tuned for — see tools/blender/kiln_logo.py.
+        # The engine's own boot splash (kiln_splash.h) with its jingle, handing
+        # over to a lit turntable of the same model that replays the splash on
+        # START or every 20 s. kilnLogo is the model kiln_splash_apply's camera
+        # comment is tuned for — see tools/blender/kiln_logo.py.
+        #
+        # kilnLogoRaw is that model with compress = 0: the host's .t3dm reader
+        # has no decompression stage and pc-splash-demo ships the same
+        # filesystem, and uncompressed, the ROM needs no
+        # asset_init_compression(2) either. Same rom:/models/kiln_logo.t3dm.
+        kilnLogoRaw = blenderLib.mkBlenderModel {
+          name = "kiln_logo";
+          script = "kiln_logo.py";
+          compress = 0;
+        };
         splashDemoArgs = {
           name = "splash-demo";
           src = ./examples/splash-demo;
           romTitle = "Kiln Splash";
-          assets = [ kilnLogo ];
+          assets = [ kilnLogoRaw kilnJingle ];
+          audioRate = 32000;
         };
         splash-demo = mkN64Rom splashDemoArgs;
 
