@@ -15,14 +15,57 @@
  *
  * It also asserts the brush/face counts, because a .map parse that silently
  * drops geometry renders as level-design intent.
+ *
+ * ── This file no longer draws ───────────────────────────────────────────
+ * The scene, the frame and the capture moved to tools/maprender/map_render.c
+ * so that `./dev map-render` — which an author or an agent points at arbitrary
+ * content — draws THE SAME FRAME this gate compares. What is left here is only
+ * what is specific to assets/quake_test.map: the absent-map probe, and the
+ * assertions that pin kiln_map.c's brush reduction. A flag on a shared body
+ * would have kept those assertions inside the tool, where they are noise on
+ * every other map; a split makes the sharing structural.
+ *
+ * ── This check used to pin two DEFECTS. It now pins their fix ───────────
+ * Rendering a .map on the host is what made both visible, and both are fixed:
+ *
+ *   1. kiln_map_draw did not render the brush's FACES. A Quake .map gives
+ *      three points per face and those points define a PLANE — conventionally
+ *      one unit apart, which is exactly what assets/quake_test.map uses.
+ *      kiln_map.c read them as face corners and completed the parallelogram
+ *      p0,p1,p2,p0+p2-p1, so a 128-unit wall rendered as a 1x2-unit patch at
+ *      one corner, six per brush. This check measured it and said so:
+ *      "face 0 spans 2 units on y; the brush spans 129".
+ *
+ *      kiln_map.c now does real brush CSG — every triple of planes
+ *      intersected, candidates kept only if inside all the others, survivors
+ *      wound into a ring — ported from tools/blender/quake_map.py, which has
+ *      had the correct algorithm on the host side all along.
+ *
+ *   2. t3d_vert_pack_normal's uint16_t was assigned into a uint8_t, discarding
+ *      the whole x field and half of y. Three of this brush's six faces came
+ *      out with normA == 0, i.e. no normal at all.
+ *
+ * Every assertion below therefore reads the opposite way from the way it read
+ * before, and the numbers are the authored ones rather than the convention
+ * leaking through: 128 units, not 2; zero zeroed normals, not three; and a
+ * collision box of -64..64, not -64..65.
+ *
+ * The AABB is the part worth a second look, because it is the field every
+ * consumer actually uses — kiln_clip_set_world, kiln_room's brush install, a
+ * game's PLAY screen — and until now it was the min/max of the plane POINTS,
+ * so every collision box in every level here was a unit oversized on whichever
+ * axes the plane-point convention pushed outward. Real vertices make it the
+ * real box. kiln_map.c keeps the plane-point box as a fallback for exactly one
+ * case, an inside-out brush that yields no vertices at all, so that a winding
+ * problem stays a rendering problem instead of becoming a brush with no
+ * collision; assets/quake_test.map is deliberately not canonicalised but it is
+ * wound correctly, so it does not take that path.
  */
+#include "map_render.h"
+
 #include <kiln_map.h>
 #include <kiln_clip.h>
-#include <kiln_engine.h>
-#include <kiln_gui.h>
-#include <kiln_debugdraw.h>
 #include <kiln_host.h>
-#include <libdragon.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -36,9 +79,7 @@ int main(int argc, char **argv)
     const char *map = argc > 1 ? argv[1] : "rom:/quake_test.map";
     const char *png = argc > 2 ? argv[2] : "map.png";
 
-    kiln_engine_init(RESOLUTION_320x240);
-    kiln_gui_init();
-    dfs_init(DFS_DEFAULT_LOCATION);
+    map_render_init();
 
     /* A missing map must be a LOUD miss, not a silent empty world. Prove the
      * negative first, because it is the failure mode that actually happened. */
@@ -51,149 +92,122 @@ int main(int argc, char **argv)
 
     KilnMap m;
     memset(&m, 0, sizeof m);
-    const int rc = kiln_map_load(&m, map);
+    const int rc = map_render_open(&m, map);
     CHECK(rc == 0, "kiln_map_load('%s') returned %d", map, rc);
     if (rc != 0) return 1;
 
-    printf("  loaded '%s': %u brushes, %u faces, %u spawns\n",
-           map, m.brush_count, m.face_count, m.spawn_count);
-    printf("  aabb [%.0f %.0f %.0f] .. [%.0f %.0f %.0f]\n",
-           (double)m.world_aabb_min.v[0], (double)m.world_aabb_min.v[1],
-           (double)m.world_aabb_min.v[2], (double)m.world_aabb_max.v[0],
-           (double)m.world_aabb_max.v[1], (double)m.world_aabb_max.v[2]);
-
-    /* ── Two defects in kiln_map, pinned ──────────────────────────────
-     * Rendering this on the host is what made them visible. Neither is mine
-     * and neither is fixed here; both are asserted so that fixing them fails
-     * this check, which is the notification you want.
-     *
-     * 1. kiln_map_draw does not render the brush's FACES. A Quake .map gives
-     *    three points per face, and those points define a PLANE — by
-     *    convention one unit apart, which is exactly what assets/quake_test.map
-     *    uses. kiln_map.c:155 treats them as face corners and builds the
-     *    parallelogram p0,p1,p2,p0+p2-p1, so a 128-unit wall renders as a
-     *    1x2-unit patch at one corner. Six of those per brush.
-     *
-     *    The repo already contains the correct algorithm, on the host side:
-     *    tools/blender/quake_map.py intersects every triple of a brush's
-     *    planes and keeps the candidates inside all the others. CLAUDE.md
-     *    credits that discipline with catching two real bugs. kiln_map.c does
-     *    no intersection at all.
-     *
-     * 2. kiln_map.c:164 assigns t3d_vert_pack_normal's uint16_t return into a
-     *    uint8_t, discarding the top eight bits — the whole x field and half
-     *    of y. Three of this brush's six faces come out with normA == 0.
-     *
-     * What DOES work is the AABB, which is the componentwise min/max of the
-     * plane points, and it is what every consumer actually relies on:
-     * kiln_clip_set_world, kiln_room's brush install, PetaByte Madness' PLAY.
-     * Which is presumably why the rendering was never examined — the geometry
-     * on screen comes from models, and the brushes are collision.
-     *
-     * Note the AABB inherits the same off-by-one: the plane points reach one
-     * unit past the brush, so a -64..64 brush becomes a -64..65 collision box.
+    /* ── The brush reduction, pinned ─────────────────────────────────
+     * See the file header: these three assertions used to pin two defects and
+     * now pin their fix. Each still prints its measurement before judging it,
+     * because a bare pass/fail on geometry tells you nothing about which way
+     * it went wrong the day it breaks.
      */
     CHECK(m.brush_count == 1, "%u brushes, expected 1", m.brush_count);
     CHECK(m.face_count == m.brush_count * 6,
-          "%u faces for %u brushes; kiln_map emits one parallelogram per face, "
-          "so this should be exactly 6x", m.face_count, m.brush_count);
-    CHECK(m.world_aabb_min.v[0] == -64.0f && m.world_aabb_max.v[0] == 65.0f,
-          "world aabb x is %.0f..%.0f, expected -64..65 — the brush is -64..64 "
-          "and the extra unit is the plane-point convention leaking into the "
-          "collision box", (double)m.world_aabb_min.v[0],
-          (double)m.world_aabb_max.v[0]);
+          "%u faces for %u brushes; the CSG emits one polygon per plane that "
+          "reaches the surface, and an axial cube's six planes all do, so this "
+          "should be exactly 6x", m.face_count, m.brush_count);
+
+    /* The AABB is now the min/max of the brush's real vertices, not of its
+     * plane points, so it is the box the level author drew. -64..65 here means
+     * the plane-point convention is leaking into the collision box again. */
+    CHECK(m.world_aabb_min.v[0] == -64.0f && m.world_aabb_max.v[0] == 64.0f,
+          "world aabb x is %.0f..%.0f, expected -64..64 — this brush is "
+          "authored -64..64 and the AABB comes from its CSG vertices",
+          (double)m.world_aabb_min.v[0], (double)m.world_aabb_max.v[0]);
+    CHECK(m.world_aabb_min.v[1] == -64.0f && m.world_aabb_max.v[1] == 64.0f,
+          "world aabb y is %.0f..%.0f, expected -64..64",
+          (double)m.world_aabb_min.v[1], (double)m.world_aabb_max.v[1]);
+    CHECK(m.world_aabb_min.v[2] == -64.0f && m.world_aabb_max.v[2] == 64.0f,
+          "world aabb z is %.0f..%.0f, expected -64..64",
+          (double)m.world_aabb_min.v[2], (double)m.world_aabb_max.v[2]);
+
     {
-        /* Finding 1, measured: the face quad's extent against the brush's. */
+        /* Finding 1, measured the same way it was measured when it was a
+         * defect: the face's own extent against the brush's. A cube face spans
+         * the whole brush on the two axes it is not normal to. */
+        CHECK(m.faces[0].vert_count == 4,
+              "face 0 has %u vertices, expected 4 — a cube face is a quad, and "
+              "a count of 3 means the CSG lost a corner to an epsilon",
+              m.faces[0].vert_count);
+
         const T3DVertPacked *v = m.faces[0].verts;
-        int lo = v[0].posA[1], hi = v[0].posA[1];
-        const int16_t ys[4] = { v[0].posA[1], v[0].posB[1],
-                                v[1].posA[1], v[1].posB[1] };
-        for (int i = 0; i < 4; i++) {
-            if (ys[i] < lo) lo = ys[i];
-            if (ys[i] > hi) hi = ys[i];
+        int lo = 32767, hi = -32768;
+        for (uint8_t i = 0; i < m.faces[0].vert_count; i++) {
+            const int y = (i & 1) ? v[i / 2].posB[1] : v[i / 2].posA[1];
+            if (y < lo) lo = y;
+            if (y > hi) hi = y;
         }
         printf("  face 0 spans %d units on y; the brush spans %.0f\n",
                hi - lo, (double)(m.world_aabb_max.v[1] - m.world_aabb_min.v[1]));
-        CHECK(hi - lo <= 4,
-              "face 0 spans %d units, so kiln_map may now be doing real brush "
-              "CSG — if so this check is obsolete and that is good news",
-              hi - lo);
+        CHECK(hi - lo == 128,
+              "face 0 spans %d units on y, expected the brush's own 128. A "
+              "span of 2 is the old parallelogram-from-three-plane-points "
+              "reduction coming back", hi - lo);
     }
     {
-        /* Finding 2, measured: normals truncated to a byte. */
+        /* Finding 2, measured: normals truncated to a byte lost the x field
+         * entirely, so the three faces whose normal is +/-X arrived as 0. */
         int zeroed = 0;
         for (uint16_t i = 0; i < m.face_count; i++)
             if (m.faces[i].verts[0].normA == 0) zeroed++;
-        printf("  %d of %u face normals are zero (uint8_t truncation)\n",
-               zeroed, m.face_count);
-        CHECK(zeroed > 0,
-              "no face normals are zero, so kiln_map.c:164's uint8_t "
-              "truncation may be fixed — if so this check is obsolete");
+        printf("  %d of %u face normals are zero\n", zeroed, m.face_count);
+        CHECK(zeroed == 0,
+              "%d of %u face normals are zero — t3d_vert_pack_normal returns a "
+              "uint16_t and storing it in a uint8_t drops the x field",
+              zeroed, m.face_count);
+
+        /* A packed normal is 5.6.5 signed, so a face pointing along -X carries
+         * a non-zero value in the TOP five bits: the half a byte discarded.
+         * Asserting only "not zero" would pass on a normal whose x survived by
+         * luck and whose z did not. */
+        int with_x = 0;
+        for (uint16_t i = 0; i < m.face_count; i++)
+            if ((m.faces[i].verts[0].normA >> 11) != 0) with_x++;
+        CHECK(with_x == 2,
+              "%d of %u face normals carry an x component, expected 2 — an "
+              "axial cube has exactly one +X face and one -X face",
+              with_x, m.face_count);
     }
 
-    /* Into the clip world, exactly as examples/oot-demo does at boot: a map is
-     * geometry AND collision, and loading one without installing it is the
-     * shape of the bug that made the player fall forever. */
-    kiln_clip_set_world(m.brushes, m.brush_count);
+    CHECK(map_render_frame(&m, png) == 0, "could not write %s", png);
+
     CHECK(kiln_clip_world_count() == m.brush_count,
           "clip world has %d brushes, map has %u", kiln_clip_world_count(),
           m.brush_count);
 
-    const fm_vec3_t centre = {{
-        (m.world_aabb_min.v[0] + m.world_aabb_max.v[0]) * 0.5f,
-        (m.world_aabb_min.v[1] + m.world_aabb_max.v[1]) * 0.5f,
-        (m.world_aabb_min.v[2] + m.world_aabb_max.v[2]) * 0.5f }};
-    const float span = m.world_aabb_max.v[0] - m.world_aabb_min.v[0]
-                     + m.world_aabb_max.v[2] - m.world_aabb_min.v[2];
-
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    scene.cam_pos = (fm_vec3_t){{ centre.v[0] + span * 0.55f,
-                                  m.world_aabb_max.v[1] + span * 0.42f,
-                                  centre.v[2] + span * 0.62f }};
-    scene.cam_target = centre;
-    scene.fov_deg = 55.0f;
-    scene.near_z = 4.0f;
-    scene.far_z = span * 6.0f + 100.0f;
-    scene.clear_color = RGBA32(0x08, 0x0A, 0x10, 0xFF);
-    scene.ambient[0] = scene.ambient[1] = scene.ambient[2] = 0x48;
-    scene.ambient[3] = 0xFF;
-    scene.light_color[0] = 0xFF; scene.light_color[1] = 0xF2;
-    scene.light_color[2] = 0xCC; scene.light_color[3] = 0xFF;
-    scene.light_dir = (fm_vec3_t){{ -0.45f, -0.8f, -0.4f }};
-    scene.light_count = 1;
-    kiln_scene_update(&scene);
-
-    kiln_frame_begin();
-      kiln_scene_begin(&scene);
-        kiln_map_draw(&m);
-      kiln_gui_begin();
-        /* The brush AABBs through kiln_debugdraw, which projects with
-         * kiln_scene_project — the pure-fm_ path that needed no 3D backend at
-         * all. Drawn in the 2D pass so it cannot perturb the frame it
-         * describes. */
-        kiln_dd_begin(&scene, 320, 240);
-        for (uint16_t i = 0; i < m.brush_count && i < 24; i++)
-            kiln_dd_aabb(m.brushes[i].mins, m.brushes[i].maxs,
-                         RGBA32(0x00, 0xF5, 0xD4, 0xFF));
-        kiln_dd_end();
-        kiln_gui_rect(0, 0, 320, 12, RGBA32(0x10, 0x12, 0x18, 0xFF));
-        kiln_gui_text(6, 9, RGBA32(0x00, 0xF5, 0xD4, 0xFF), "KILN MAP");
-        kiln_gui_text(6, 232, RGBA32(0xA0, 0xA0, 0xB0, 0xFF),
-                      "brushes %u  faces %u  clip %d", m.brush_count,
-                      m.face_count, kiln_clip_world_count());
-      kiln_gui_end();
-    kiln_frame_end();
-
     const KilnHostT3DCounters *t = kiln_host_t3d_counters();
-    printf("  drew: loads %u submitted %u drawn %u clipped %u\n",
-           t->vert_loads, t->tris_submitted, t->tris_drawn, t->tris_clipped);
     CHECK(t->tris_submitted > 0, "no geometry submitted");
     CHECK(t->tris_drawn > 0, "geometry submitted but nothing rasterised");
 
-    kiln_host_stats(stdout, 5);
-    CHECK(kiln_host_capture(png) == 0, "could not write %s", png);
     kiln_map_free(&m);
+
+    /* ── One face wound backwards: the collision box must keep its volume ──
+     * The same cube as quake_test.map with face 0's second and third points
+     * swapped (kiln-map.nix writes it). Real CSG keeps ONE quad of it -- the
+     * reversed half-space and the other five meet only on the x = -64 plane --
+     * so the box of the surviving vertices is zero-thick in x. kiln_map.c used
+     * to accept any 4 surviving vertices as "a solid", and handed the clip
+     * world that flat box with no debugf: a player walks straight through it.
+     * The fallback to the plane points must run instead, giving -64..65 in x
+     * (the plane points' own box, a unit oversized, never empty). */
+    {
+        KilnMap f;
+        memset(&f, 0, sizeof f);
+        const int frc = kiln_map_load(&f, "rom:/one_face_flipped.map");
+        CHECK(frc == 0, "kiln_map_load(one_face_flipped.map) returned %d", frc);
+        if (frc == 0) {
+            CHECK(f.brush_count == 1, "one_face_flipped: %u brushes, expected 1",
+                  f.brush_count);
+            for (int ax = 0; ax < 3; ax++)
+                CHECK(f.world_aabb_max.v[ax] > f.world_aabb_min.v[ax],
+                      "one_face_flipped: collision box is zero-thick on axis %d "
+                      "(%g..%g) -- a player falls through this brush",
+                      ax, (double)f.world_aabb_min.v[ax],
+                      (double)f.world_aabb_max.v[ax]);
+            kiln_map_free(&f);
+        }
+    }
 
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
     printf("a real .map loaded off the host VFS and rendered\n");

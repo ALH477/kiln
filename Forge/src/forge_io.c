@@ -44,6 +44,7 @@
 #include <string.h>
 
 #include "forge.h"
+#include "forge_map.h"
 
 /* ── .FRG payload ──────────────────────────────────────────────────────*/
 
@@ -175,7 +176,19 @@ int forge_io_save(Forge *f)
 
     /* Entities. Positions as floats rather than block indices: an entity is a
      * point in the world, not a cell, and quantising it to the block grid on
-     * every save would walk it towards a corner one round trip at a time. */
+     * every save would walk it towards a corner one round trip at a time.
+     *
+     * The epair slots are POSITIONAL and their COUNT is the wire format; their
+     * KEYS are not stored, because they are a function of the classname that is
+     * stored one field earlier (forge_vocab_epair_key). That is why making the
+     * keys per-classname did NOT change the payload layout and FRG_VERSION
+     * stays 2 — a v2 file written before that change still decodes field for
+     * field. What it does change is what slot 0 MEANS for info_key_door: the
+     * byte that was an untouched `count` reads back as `key_id`. Nothing in
+     * this tree ever consumed `count`, the value is shown on the ENT panel
+     * under its new name, and the alternative — bumping the version — would
+     * make kiln_store_read refuse every level already on a card outright.
+     * Stated here rather than discovered: see forge_ent.c's header. */
     at = put_u16(g_frg, at, (uint16_t)f->ent_count);
     for (int i = 0; i < f->ent_count; i++) {
         const ForgeEnt *e = &f->ents[i];
@@ -237,24 +250,14 @@ int forge_io_save(Forge *f)
         char tex[16];
         snprintf(tex, sizeof tex, "FORGE%d", f->boxes[i].surface);
 
-        n += snprintf(g_map + n, (size_t)(MAP_MAX_BYTES - n), "{\n");
-        /* Transcribed from mapio.js's aabbFaces, in its order. Do not "tidy"
-         * these into a loop over axes without re-deriving the winding: the
-         * outward normal is cross(p3-p1, p2-p1). */
-        n += snprintf(g_map + n, (size_t)(MAP_MAX_BYTES - n),
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* -X */
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* +X */
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* -Y */
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* +Y */
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* -Z */
-            "( %d %d %d ) ( %d %d %d ) ( %d %d %d ) %s 0 0 0 1 1\n"   /* +Z */
-            "}\n",
-            x0, y0, z0,  x0, y1, z0,  x0, y0, z1, tex,
-            x1, y0, z0,  x1, y0, z1,  x1, y1, z0, tex,
-            x0, y0, z0,  x0, y0, z1,  x1, y0, z0, tex,
-            x0, y1, z0,  x1, y1, z0,  x0, y1, z1, tex,
-            x0, y0, z0,  x1, y0, z0,  x0, y1, z0, tex,
-            x0, y0, z1,  x0, y1, z1,  x1, y0, z1, tex);
+        /* The winding lives in tools/schema/level_vocab.json and is emitted
+         * by forge_map_emit_box, which compiles natively so a gate can assert
+         * on it. It used to be transcribed here, in a snprintf format string,
+         * with a comment asking the next reader not to tidy it. */
+        const int mins[3] = { x0, y0, z0 };
+        const int maxs[3] = { x1, y1, z1 };
+        n += forge_map_emit_box(g_map + n, (size_t)(MAP_MAX_BYTES - n),
+                                mins, maxs, tex);
     }
     n += snprintf(g_map + n, (size_t)(MAP_MAX_BYTES - n), "}\n");
 
@@ -339,6 +342,7 @@ int forge_io_load(Forge *f)
     uint16_t nchunks = 0;
     at = get_u16(g_frg, at, &nchunks);
 
+    int refused = 0;
     static uint8_t blocks[KILN_VOXEL_CHUNK_BLOCKS];
     for (uint16_t i = 0; i < nchunks && at + 3 < len; i++) {
         int cx = g_frg[at++], cy = g_frg[at++], cz = g_frg[at++];
@@ -354,11 +358,23 @@ int forge_io_load(Forge *f)
         for (int x = 0; x < KILN_VOXEL_CHUNK; x++) {
             uint8_t b = blocks[(z * KILN_VOXEL_CHUNK + y) * KILN_VOXEL_CHUNK + x];
             if (b == KILN_VOXEL_AIR) continue;
-            kiln_voxel_set(&f->world, cx * KILN_VOXEL_CHUNK + x,
-                                     cy * KILN_VOXEL_CHUNK + y,
-                                     cz * KILN_VOXEL_CHUNK + z, b);
+            /* kiln_voxel_set refuses a block once KILN_VOXEL_MAX_CHUNKS is
+             * reached. Discarding that return is how a level pushed from the
+             * host arrives on the console missing whole rooms, with nothing to
+             * say so but the `chunks n/24` gauge going red -- which nobody is
+             * watching during a load. The host side now refuses to WRITE such
+             * a file (tools/forge/frg.py's encode); this is the other end. */
+            if (kiln_voxel_set(&f->world, cx * KILN_VOXEL_CHUNK + x,
+                                          cy * KILN_VOXEL_CHUNK + y,
+                                          cz * KILN_VOXEL_CHUNK + z, b) != 0)
+                refused++;
         }
     }
+
+    if (refused)
+        debugf("forge_io: %d block(s) refused — the file needs more than "
+               "KILN_VOXEL_MAX_CHUNKS (%d) chunks, so this level loaded "
+               "INCOMPLETE\n", refused, KILN_VOXEL_MAX_CHUNKS);
 
     if (at + sizeof f->atlas.index <= len) {
         memcpy(f->atlas.index, &g_frg[at], sizeof f->atlas.index);

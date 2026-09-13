@@ -27,25 +27,12 @@ export function allocId() { return nextId++; }
 
 // ── Entity palette ──────────────────────────────────────────────────────
 // Each entry: { color, size, shape, label }
-// size = arrow length or box half-extent, in world units.
-// shape: 'arrow' | 'box' | 'cylinder' | 'diamond' | 'wireframe'
-export const ENTITY_PALETTE = {
-  info_player_start: { color: 0x44ff44, size: 24, shape: 'arrow', label: 'START' },
-  info_enemy:        { color: 0xff4444, size: 24, shape: 'arrow', label: 'ENEMY' },
-  info_heavy:        { color: 0x8b0000, size: 32, shape: 'arrow', label: 'HEAVY' },
-  info_health:       { color: 0x00cc44, size: 6,  shape: 'box',   label: 'HP' },
-  info_armor:        { color: 0x4488ff, size: 6,  shape: 'box',   label: 'ARM' },
-  info_ammo:         { color: 0xffd700, size: 6,  shape: 'box',   label: 'AMMO' },
-  info_npc:          { color: 0x88ccff, size: 10, shape: 'cylinder', label: 'NPC' },
-  info_chest:        { color: 0x8b4513, size: 12, shape: 'box',   label: 'CHEST' },
-  info_key_door:     { color: 0xff3333, size: 14, shape: 'box',   label: 'DOOR' },
-  info_key_red:      { color: 0xff4444, size: 6,  shape: 'diamond', label: 'KEY' },
-  info_switch:       { color: 0x00f5d4, size: 6,  shape: 'box',   label: 'SW' },
-  info_barrel:       { color: 0xff8800, size: 8,  shape: 'cylinder', label: 'BARREL' },
-  info_trigger:      { color: 0xff00ff, size: 0,  shape: 'wireframe', label: 'TRIG' },
-};
-
-export const KNOWN_CLASSNAMES = Object.keys(ENTITY_PALETTE);
+// The palette is GENERATED from tools/schema/level_vocab.json. It used to be
+// hand-kept here, and Forge/src/forge_ent.c's comment claimed to mirror it
+// while holding 8 of the 13 and a different epair set. Re-exported under the
+// same names so every importer of this module is untouched.
+export { ENTITY_PALETTE, KNOWN_CLASSNAMES } from './vocab.gen.js';
+import { ENTITY_PALETTE } from './vocab.gen.js';
 
 function paletteEntry(classname) {
   return ENTITY_PALETTE[classname] || { color: 0xff5555, size: 24, shape: 'arrow', label: classname };

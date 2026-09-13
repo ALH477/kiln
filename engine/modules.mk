@@ -42,7 +42,9 @@ MODULES := \
 # $(OBJS), and a name in there with no .c fails the archive with "No rule to
 # make target". nix/engine.nix asks for both lists, so a header-only module is
 # still checked for being installed.
-HEADER_ONLY := kiln_camkey
+# kiln_levelvocab is generated (tools/schema/level_vocab.py) and contributes no
+# object, same as kiln_camkey — it is macros only.
+HEADER_ONLY := kiln_camkey kiln_levelvocab
 
 # ── The host tier ──────────────────────────────────────────────────────
 # The modules that compile NATIVELY, against plat/host/include's <libdragon.h>

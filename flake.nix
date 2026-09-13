@@ -304,6 +304,27 @@
           ];
         };
 
+        # The container examples/exsec-streamdb-demo opens with a StreamDB reader
+        # written in Exsecutor and, beside it, with streamdb-embedded -- the ROM
+        # shows whether the two agree. Small on purpose: that reader's buffer is
+        # a fixed 65,536 bytes. Packed by the same upstream C writer as every
+        # other .streamdb here.
+        exsecAve = assetLib.mkRawAsset {
+          name = "ave";
+          src = pkgs.writeText "ave.txt"
+            "Ave, Kiln. This document was found by a StreamDB reader written in Exsecutor.\n";
+          dest = "data";
+          compress = 0;
+          extension = "txt";
+        };
+        exsecStreamdb = assetLib.mkStreamdb {
+          name = "exsec";
+          entries = [
+            { key = "levels/intro.bin"; asset = sdLevel; }
+            { key = "data/ave.txt";     asset = exsecAve; }
+          ];
+        };
+
         # assets-demo's StreamDB pak: reuses sdModel/sdSprite (the same
         # compress=0 twins demoStreamdb already packs) via mkAssetPak instead
         # of mkStreamdb's hand-typed `entries` — demonstrating the auto-keyed
@@ -434,15 +455,16 @@
         # a single 6-plane cube brush, the same content
         # tools/blender-mcp/server.py's own inspect/import tools were checked
         # against before this Nix wiring was written.
-        # FPS level: a larger Quake .map with multiple enemies, loaded at
-        # runtime via kiln_map (same raw-asset path as ootMap / hangarMap).
-        fpsMap = assetLib.mkRawAsset {
-          name = "fps-level-map";
-          src = ./assets/fps_level.map;
-          dest = "maps";
-          extension = "map";
-          compress = 0;
-        };
+        # assets/fps_level.map has NO builder here on purpose. It used to have
+        # one named "fps-level-map", which — because an asset builder's `name`
+        # IS the filename the ROM opens — would have shipped as
+        # rom:/maps/fps-level-map.map, a path nothing asks for.
+        # examples/fps/main.c only ever loads "rom:/maps/fps_room%d.map". The
+        # derivation was also referenced by no ROM's `assets` list, so it never
+        # shipped at all: a dead builder for an unreachable name.
+        # The .map itself is kept as standalone content — it validates, and
+        # `./dev map-render assets/fps_level.map` draws it. If a ROM ever wants
+        # it, add the builder back with name = "fps_level" and open that path.
         # Per-room maps for the multi-room streaming FPS.
         fpsRoom0 = assetLib.mkRawAsset {
           name = "fps_room0";
@@ -667,6 +689,17 @@
           src = ./examples/streamdb-demo;
           romTitle = "Kiln StreamDB";
           assets = [ demoStreamdb ];
+        };
+
+        # A StreamDB reader written in Exsecutor (github.com/ALH477/exsecutor),
+        # compiled to C by that language's compiler and checked in as
+        # lector_streamdb.gen.c. It runs on a 32 KB kthread and is compared,
+        # key by key, against streamdb-embedded on the same container.
+        exsec-streamdb-demo = mkN64Rom {
+          name = "exsec-streamdb-demo";
+          src = ./examples/exsec-streamdb-demo;
+          romTitle = "Kiln Exsecutor";
+          assets = [ exsecStreamdb ];
         };
 
         # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
@@ -894,7 +927,11 @@
         # which would put content nobody authored into every level anyone
         # imported. So the demo content has exactly ONE author (forge_io_seed),
         # and `.#forge-dfs` still covers the load path it is there to cover.
-        forgeModes = [ "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
+        # GEO is Forge's default boot mode, so `.#forge` already IS the GEO ROM --
+        # but nothing said so, and CLAUDE.md claimed each of the six modes had a
+        # jump ROM. `.#forge-geo` now exists so the claim is true and so the set
+        # is uniform to anyone scripting over it.
+        forgeModes = [ "GEO" "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
         forgeModeRoms = pkgs.lib.listToAttrs (map
           (m: pkgs.lib.nameValuePair "forge-${pkgs.lib.toLower m}" (mkN64Rom {
             name = "forge-${pkgs.lib.toLower m}";
@@ -951,6 +988,37 @@
           baseScale = 64;
         };
 
+        # ── The same splash, body generated instead of authored ──────────
+        # A drop-in alternative: same three named objects, same filename, so
+        # kiln_splash.c's "kiln"/"flame"/"plate" lookups and its camera are
+        # untouched. Only build_kiln() is replaced, by the committed
+        # assets/kiln_body.glb — a Meshy text-to-3D mesh welded, decimated to
+        # 419 triangles and coloured by tools/blender/meshy_bake.py. That
+        # file's header records the two things about the pass that are not
+        # obvious: decimating an unwelded generated mesh SHATTERS it, and
+        # sampling a 2K albedo per vertex converges on a flat beige that
+        # reads worse than the authored courses it replaces.
+        #
+        # The flame and the plate stay procedural. kiln_splash gives the
+        # flame its own transform (kiln_splash.h, "The flame moves separately
+        # from the body") and it carries a smooth base-to-tip vertex
+        # gradient; a baked body would hand over one rigid object with that
+        # gradient flattened.
+        #
+        # NOT the default, and deliberately so. Two things have to be settled
+        # first: nix/checks/kiln-splash.nix compares the rendered frame
+        # against refs/kiln-splash.png byte for byte on every architecture,
+        # so switching means regenerating that reference and LOOKING at it —
+        # refs/README.md's own rule. And this is an MIT-licensed engine's boot
+        # identity, so whether a generated asset may serve as it is a
+        # licensing question, not a rendering one.
+        kilnLogoMeshy = blenderLib.mkBlenderModel {
+          name = "kiln_logo";
+          script = "kiln_logo.py";
+          scriptArgs = [ "--body" "${./assets/kiln_body.glb}" ];
+          baseScale = 64;
+        };
+
         # The jingle. Its chord resolves 1.25 s in, which kiln_splash.c
         # times the logo's assembly and the screen flash to meet — picture
         # can be nudged a frame at runtime, audio cannot, so the sound is
@@ -982,12 +1050,17 @@
         # ever be exercised on hardware. Generated from a committed .map by the
         # same host tool `./dev forge-push` uses, so this is not a special export:
         # it is the file the card would hold.
+        # The whole tools/ tree, not just frg.py: it imports
+        # tools/schema/level_vocab.py for the classname table and the face
+        # winding, which it used to state itself. A lone ${./tools/forge/frg.py}
+        # lands in the store with no siblings and the import fails.
         forgeSeedFrg = pkgs.runCommand "forge-seed-frg"
           { nativeBuildInputs = [ pkgs.python3 ]; }
           ''
             mkdir -p $out
-            python3 ${./tools/forge/frg.py} frommap ${./assets/oot_test.map} \
-                    $out/LEVEL.frg
+            cp -r ${./tools} tools && chmod -R u+w tools
+            PYTHONDONTWRITEBYTECODE=1 python3 tools/forge/frg.py \
+                    frommap ${./assets/oot_test.map} $out/LEVEL.frg
           '';
 
         # compress = 0 because kiln_store reads this with a plain fopen, not
@@ -1033,6 +1106,17 @@
             meta.description = "engine-demo, playable in a browser";
           };
 
+          # `./dev map-render` — a level, through the real kiln_map.c, drawn by
+          # the real engine, with no ROM and no compositor. Shares its whole
+          # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to
+          # the same reference image. See tools/maprender/map_render.h.
+          map-render = hostNative.mkProgram {
+            pname = "maprender";
+            sources = [ ./tools/maprender/main.c ./tools/maprender/map_render.c ];
+            extraCFlags = [ "-I${./tools/maprender}" ];
+            meta.description = "render a .map on the host, no ROM";
+          };
+
           # The host tier's own artefacts, per architecture. The cross pair
           # is Linux-only — nix/host.nix declares those two targets only where
           # pkgsCross can reach them, so they are added conditionally rather
@@ -1046,7 +1130,7 @@
           host-backend      = hostNative.backend;
           host-vadpcm       = hostNative.vadpcm;
 
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
@@ -1071,6 +1155,7 @@
           model-alien = alienModel;
           model-quake-test = quakeTestModel;
           model-kiln-logo = kilnLogo;
+          model-kiln-logo-meshy = kilnLogoMeshy;
           # The splash's two assets, exposed as a pair. kiln_splash is
           # engine-level — a PUBLISHER mark, not any one game's — so a
           # downstream game adopts it by putting these two in its own ROM's
@@ -1331,12 +1416,14 @@
           kiln-map-wasm32 = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostWasm;
             mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
           };
           kiln-splash-wasm32 = import ./nix/checks/kiln-splash.nix {
             inherit pkgs n64Inst kilnLogo; target = hostWasm;
           };
           kiln-voxmesh-wasm32 = import ./nix/checks/kiln-voxmesh.nix {
             inherit pkgs; target = hostWasm;
+            forgeSrc = ./Forge/src;
           };
           # kiln_widget's screens, rendered through the same host backend and
           # diffed against their committed captures.
@@ -1350,9 +1437,13 @@
             inherit pkgs; target = hostNative;
           };
           # A real voxel mesh rendered with two combiners, which is how the
-          # atlas-never-sampled defect became visible instead of arguable.
+          # atlas-never-sampled defect became visible instead of arguable —
+          # and, since it is fixed, greps forge_geo.c so the caller's choice is
+          # asserted too. The captures alone cannot see which combiner Forge
+          # picks, because this check sets both of them itself.
           kiln-voxmesh = import ./nix/checks/kiln-voxmesh.nix {
             inherit pkgs; target = hostNative;
+            forgeSrc = ./Forge/src;
           };
           # A real .t3dm, converted by the same gltf_to_t3d the ROM uses,
           # parsed and rendered by the host reader.
@@ -1370,6 +1461,26 @@
           kiln-map = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
+          };
+          # The same body as kiln-map, run as the TOOL an author points at
+          # arbitrary content, held to the SAME reference image. If either
+          # main() starts drawing, this fails — which is the only thing making
+          # "one renderer, one framing" a fact rather than a convention.
+          # The level vocabulary has one statement, and it means what it says.
+          # Six hand-kept copies before this; see the check's header.
+          level-vocab = import ./nix/checks/level-vocab.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+            engineSrc = ./engine/src;
+            forgeSrc = ./Forge/src;
+            examplesDir = ./examples;
+            mapmakerSrc = ./tools/mapmaker/src;
+          };
+          kiln-maprender = import ./nix/checks/kiln-maprender.nix {
+            inherit pkgs; target = hostNative;
+            mapAsset = ./assets/quake_test.map;
+            mapRenderSrc = ./tools/maprender;
           };
           # The launcher runs the real examples/engine/main.c game loop for
           # ninety frames under SDL's dummy drivers. See the check's header
@@ -1496,6 +1607,38 @@
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-map-validate" ''
               exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/validate.py" "$@"
+            '');
+          };
+          # mapgen — the headless half of tools/mapmaker/. The browser editor
+          # can only hand a file to a human through a download, so anything
+          # without a browser (a build script, a test, an agent) had no way to
+          # author a level at all and had to hand-write Quake text, which is
+          # how six of the seven committed .map files ended up inside-out.
+          # Same dialect as the editor: both go through tools/mapmaker/mapfmt.py.
+          mapgen = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-mapgen" ''
+              exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/mapgen.py" "$@"
+            '');
+          };
+          # map-render resolves its argument under $KILN_HOST_DFS, which is a
+          # DIRECTORY root (host_io.c's resolve() strips "rom:/" and any
+          # leading slash), so the file's own directory becomes the root and
+          # the basename is what gets opened. Pure parameter expansion, not
+          # dirname/basename: writeShellScript sets no PATH, so coreutils is
+          # whatever the caller happens to have. No `cd`, so a relative out.png
+          # lands where the user typed it rather than beside the map.
+          map-render = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-map-render" ''
+              map="''${1:?usage: map-render <file.map> [out.png]}"
+              png="''${2:-map.png}"
+              case "$map" in
+                */*) dir="''${map%/*}"; base="''${map##*/}" ;;
+                *)   dir="."; base="$map" ;;
+              esac
+              exec env KILN_HOST_DFS="$dir" \
+                ${self.packages.${system}.map-render}/bin/maprender "$base" "$png"
             '');
           };
           # tools/blender-mcp/'s MCP server. The `mcp` package comes from

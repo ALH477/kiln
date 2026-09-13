@@ -26,7 +26,40 @@ static void begin_voxel_state(Forge *f)
      * was in fact the lab being lit twice. */
     t3d_state_set_drawflags(T3D_FLAG_TEXTURED | T3D_FLAG_SHADED |
                             T3D_FLAG_DEPTH | T3D_FLAG_NO_LIGHT);
-    kiln_voxatlas_bind(&f->atlas, KILN_VOXATLAS_COLD);
+
+    /* PAINT's Z previews the VEILED TLUT on the geometry itself, not just on
+     * the swatches: whether a 16-colour ramp still separates once the veil
+     * discards hue is a judgement about the level you are looking at, and a
+     * palette judged only against 7-pixel swatches is judged against the wrong
+     * thing. Gated on the mode as well as the flag because forge_paint_update
+     * is the only writer of paint_veiled — leaving PAINT with Z held would
+     * otherwise strand the whole world veiled with no control that clears it. */
+    kiln_voxatlas_bind(&f->atlas,
+                       (f->mode == FORGE_MODE_PAINT && f->paint_veiled)
+                           ? KILN_VOXATLAS_VEILED : KILN_VOXATLAS_COLD);
+
+    /* THE combiner. kiln_scene_begin leaves RDPQ_COMBINER_SHADE set every
+     * frame, which is right for the engine's untextured default and wrong for
+     * this mesh: kiln_voxmesh puts the block TYPE only in the UVs and leaves
+     * vertex colour as DIR_SHADE[dir], a greyscale per-face brightness carrying
+     * no type at all. Under SHADE the texel is discarded, so all fifteen block
+     * types draw the same grey, the atlas above is uploaded and thrown away
+     * (~83,000 texels in one frame, per nix/checks/kiln-voxmesh.nix), and the
+     * veiled preview has nothing to change.
+     *
+     * T3D_FLAG_TEXTURED is only the RSP's half — it makes texture coordinates
+     * be emitted; t3d_state_set_drawflags never touches the combiner, and the
+     * combiner is what decides whether the texel survives. TEX_SHADE is
+     * tile * DIR_SHADE, which is why the shade was made greyscale.
+     *
+     * It goes HERE and not in kiln_engine.c because kiln_voxmesh_draw's own
+     * contract is "sets NO render state: the caller has already chosen the
+     * combiner" — the engine's default is correct for untextured geometry and
+     * Forge is the caller that was omitting its own choice. Nothing has to
+     * restore it: kiln_gui_begin's rdpq_set_mode_standard resets combiner, SOM
+     * and TLUT wholesale for the 2D pass, and kiln_scene_begin re-arms
+     * RDPQ_COMBINER_SHADE at the top of the next frame's 3D pass. */
+    rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE);
 }
 
 void forge_geo_remesh(Forge *f)
@@ -113,14 +146,17 @@ void forge_geo_update(Forge *f, const KilnInput *in)
         }
     }
 
-    /* Block palette on the shoulder-free D-pad axis. B-picks-the-aimed-type is
+    /* Block palette on the shoulder-free D-pad axis. L-picks-the-aimed-type is
      * the Minecraft middle-click and is worth having: it is how you match a
-     * material you placed twenty blocks ago without counting through 15 types. */
+     * material you placed twenty blocks ago without counting through 15 types.
+     * (The comment used to say B. B is dig — see above.) */
     if (in->edges & KILN_BTN_DR)
         f->block = (uint8_t)(f->block % KILN_VOXEL_TYPE_MAX + 1);
     if (in->edges & KILN_BTN_DL)
         f->block = (uint8_t)(f->block <= 1 ? KILN_VOXEL_TYPE_MAX : f->block - 1);
-    if ((in->edges & KILN_BTN_CU) == 0 && (in->edges & KILN_BTN_L) && f->aim.hit)
+    /* No C-up guard: C-up is camera pitch and has never had anything to do
+     * with picking a block. The test it replaced could only ever misfire. */
+    if ((in->edges & KILN_BTN_L) && f->aim.hit)
         f->block = f->aim.block;
 
     if (edited || any_dirty(f)) forge_geo_remesh(f);

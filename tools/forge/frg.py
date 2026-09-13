@@ -37,7 +37,9 @@ says so rather than leaving it to be inferred from one sample):
                                --- v2 tail, all OPTIONAL ---
                                u16 ent_count, then per entity:
                                  f32 x,y,z | u16 angle | u8 classname
-                                 | 3 x u16 epair
+                                 | 3 x u16 epair   (POSITIONAL; the KEY of
+                                   each slot is a function of the classname
+                                   byte above it -- see forge_epairs())
                                light: f32 key_yaw, key_pitch, fill_yaw,
                                       fill_pitch | u8 key, fill, ambient,
                                       fog_on, clear_idx | f32 fog_near, fog_far
@@ -51,6 +53,7 @@ without having to invent a light rig and a camera path for it.
 """
 
 import struct
+from pathlib import Path as _Path
 import sys
 import zlib
 
@@ -63,6 +66,42 @@ CHUNK_BLOCKS = CHUNK * CHUNK * CHUNK
 GRID = (16, 4, 16)
 DIM = tuple(g * CHUNK for g in GRID)
 MAX_CHUNKS = 24
+
+# Forge's entity vocabulary and the canonical face winding come from
+# tools/schema/level_vocab.json. FORGE_CLASSNAMES is a WIRE FORMAT -- the .FRG
+# v2 tail stores `u8 classname` as an index into it -- which is why the schema
+# carries an explicit, contiguous, append-only forge_index rather than relying
+# on anyone's declaration order.
+sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'schema'))
+import level_vocab  # noqa: E402
+
+FORGE_CLASSNAMES = level_vocab.forge_classnames()
+FORGE_EPAIR_SLOTS = level_vocab.forge_epair_slots()
+
+
+def forge_epairs(cls_index):
+    """The epair slots for a classname INDEX, mirroring Forge's
+    forge_vocab_epair_key(cls, i). The keys are per-classname, not global:
+    info_key_door's slot 0 is `key_id` and everything else's is `count`. The
+    slot COUNT is what the wire format fixes; the keys are derived from the
+    classname byte stored beside them, which is why this was fixable without a
+    FRG_VERSION bump."""
+    if 0 <= cls_index < len(FORGE_CLASSNAMES):
+        return level_vocab.forge_epairs(FORGE_CLASSNAMES[cls_index])
+    return [{'key': k, 'default': 0, 'required': False}
+            for k in level_vocab.forge_generic_epairs()][:FORGE_EPAIR_SLOTS]
+
+
+def epair_dict(e):
+    """An entity's epairs as {key: value}, for `info` and `--json`."""
+    return {s['key']: v for s, v in zip(forge_epairs(e['classname']),
+                                        e['epairs'])}
+
+
+def _num(v):
+    """Integers stay integers. Matches tools/mapmaker/mapfmt.py's _num."""
+    r = round(v)
+    return f'{r}' if abs(v - r) < 1e-9 else f'{v:g}'
 BLOCK_UNITS = 32
 
 ATLAS_SIDE = 64
@@ -77,20 +116,28 @@ ATLAS_COLOURS = 16
 
 
 def aabb_faces(mins, maxs):
-    x0, y0, z0 = mins
-    x1, y1, z1 = maxs
-    return [
-        [(x0, y0, z0), (x0, y1, z0), (x0, y0, z1)],   # -X
-        [(x1, y0, z0), (x1, y0, z1), (x1, y1, z0)],   # +X
-        [(x0, y0, z0), (x0, y0, z1), (x1, y0, z0)],   # -Y
-        [(x0, y1, z0), (x1, y1, z0), (x0, y1, z1)],   # +Y
-        [(x0, y0, z0), (x1, y0, z0), (x0, y1, z0)],   # -Z
-        [(x0, y0, z1), (x0, y1, z1), (x1, y0, z1)],   # +Z
-    ]
+    """From tools/schema/level_vocab.json's table. This used to be a deliberate
+    transcription of tools/mapmaker/src/mapio.js's aabbFaces, kept in step by a
+    comment -- one of four copies of a winding whose sign decides whether a
+    brush survives the CSG at all."""
+    return level_vocab.aabb_faces(mins, maxs)
 
 
-def boxes_to_map(boxes, spawn=None):
-    """boxes: [(mins, maxs, block_type)] in WORLD units. Returns .map text."""
+def boxes_to_map(boxes, spawn=None, ents=None, classnames=None):
+    """boxes: [(mins, maxs, block_type)] in WORLD units. Returns .map text.
+
+    `ents` are World.ents, which decode() populates and this used to discard --
+    so `frg.py tomap` emitted geometry only, and ./dev forge-pull's "ROM emit
+    and host mirror agree byte for byte" cross-check could never pass for a
+    level with a single entity in it. It reported that as a NOTE, not an error,
+    so it looked like a curiosity rather than a broken comparison.
+
+    It agrees now ONLY for a level whose author placed an info_player_start.
+    When none was placed, Forge/src/forge_io.c appends a fallback spawn at the
+    CAMERA position, which the .FRG does not record and so this mirror cannot
+    reproduce -- `_cmd_tomap` passes no `spawn`, and forge-pull's NOTE is
+    expected for such a level. The epair rule, by contrast, now mirrors
+    forge_ent_emit exactly (below)."""
     out = ['{', '"classname" "worldspawn"']
     for mins, maxs, t in boxes:
         tex = f'FORGE{t}'
@@ -103,6 +150,24 @@ def boxes_to_map(boxes, spawn=None):
     if spawn is not None:
         out += ['{', '"classname" "info_player_start"',
                 f'"origin" "{spawn[0]} {spawn[1]} {spawn[2]}"', '}']
+    for e in ents or []:
+        cls = e['classname']
+        name = (classnames[cls] if classnames and cls < len(classnames)
+                else f'info_class{cls}')
+        x, y, z = e['pos']
+        out += ['{', f'"classname" "{name}"',
+                f'"origin" "{_num(x)} {_num(y)} {_num(z)}"',
+                f'"angle" "{e["angle"]}"']
+        # The numeric epairs Forge ENT mode can author. Their keys come from
+        # tools/schema/level_vocab.json and depend on the classname. The
+        # emission rule mirrors Forge/src/forge_ent.c's forge_ent_emit exactly,
+        # because ./dev forge-pull compares the ROM's .MAP and this one byte
+        # for byte: a required epair is always written, an optional one only
+        # when non-zero.
+        for slot, v in zip(forge_epairs(cls), e['epairs']):
+            if v or slot['required']:
+                out.append(f'"{slot["key"]}" "{v}"')
+        out.append('}')
     return '\n'.join(out) + '\n'
 
 
@@ -242,6 +307,20 @@ def encode(world):
     # slot order, which is allocation order, so a byte-for-byte comparison
     # between the two encoders is NOT one of the properties on offer here.
     keys = sorted(world.chunks.keys(), key=lambda k: (k[2], k[1], k[0]))
+    # MAX_CHUNKS was declared here and then used ONLY to format `info`'s
+    # display string, so `frg.py frommap` of a map spanning more than 24 chunks
+    # wrote a .FRG the ROM loads PARTIALLY -- kiln_voxel_set refuses the extra
+    # chunks and forge_io.c discarded its return value, leaving a level that is
+    # silently missing rooms with nothing to say so but a HUD gauge nobody is
+    # looking at during an import. Refuse to write it instead.
+    if len(keys) > MAX_CHUNKS:
+        raise SystemExit(
+            f'frg.py: this map needs {len(keys)} chunks but the ROM can hold '
+            f'{MAX_CHUNKS} (KILN_VOXEL_MAX_CHUNKS).\n'
+            f'        A chunk is {CHUNK}x{CHUNK}x{CHUNK} blocks of '
+            f'{BLOCK_UNITS} units. Shrink the level, or raise '
+            f'KILN_VOXEL_MAX_CHUNKS in engine/src/kiln/kiln_voxel.h and '
+            f'MAX_CHUNKS here together.')
     p += struct.pack('>H', len(keys))
     for (cx, cy, cz) in keys:
         p += bytes((cx, cy, cz))
@@ -474,54 +553,98 @@ def voxelise(map_text):
     return w, warnings
 
 
+def _cmd_info(args):
+    w = decode(open(args.file, 'rb').read())
+    if args.json:
+        import json
+        json.dump({
+            'offset': list(w.offset),
+            'chunks': len(w.chunks), 'max_chunks': MAX_CHUNKS,
+            'solid': w.solid_count(),
+            'boxes': len(w.boxes()),
+            'block_types': sorted({t for _, _, t in w.boxes()}),
+            'entities': [
+                {'classname': (FORGE_CLASSNAMES[e['classname']]
+                               if e['classname'] < len(FORGE_CLASSNAMES)
+                               else e['classname']),
+                 'pos': [round(v) for v in e['pos']], 'angle': e['angle'],
+                 'epairs': epair_dict(e)}
+                for e in w.ents],
+            'light': w.light is not None,
+            'cam_keys': len(w.cam['keys']) if w.cam else 0,
+        }, sys.stdout, indent=2)
+        sys.stdout.write('\n')
+        return 0
+    print(f'offset      {w.offset}')
+    print(f'chunks      {len(w.chunks)} / {MAX_CHUNKS}')
+    print(f'solid       {w.solid_count()} blocks')
+    bx = w.boxes()
+    print(f'boxes       {len(bx)}')
+    types = sorted({t for _, _, t in bx})
+    print(f'block types {types}')
+    print(f'entities    {len(w.ents)}')
+    for e in w.ents:
+        cls = e['classname']
+        name = (FORGE_CLASSNAMES[cls] if cls < len(FORGE_CLASSNAMES)
+                else f'#{cls}')
+        print(f'  cls {name} at {tuple(round(v) for v in e["pos"])}'
+              f' ang {e["angle"]} epairs {epair_dict(e)}')
+    print(f'light       {"present" if w.light else "-"}')
+    if w.cam:
+        print(f'cam         {len(w.cam["keys"])} keys over '
+              f'{w.cam["duration"]:g}s loop={w.cam["loop"]}')
+    else:
+        print('cam         -')
+    return 0
+
+
+def _cmd_tomap(args):
+    w = decode(open(args.frg, 'rb').read())
+    open(args.map, 'w').write(
+        boxes_to_map(w.boxes(), ents=w.ents, classnames=FORGE_CLASSNAMES))
+    print(f'{args.map}: {len(w.boxes())} brushes, {len(w.ents)} entities')
+    return 0
+
+
+def _cmd_frommap(args):
+    w, warns = voxelise(open(args.map).read())
+    for x in warns[:20]:
+        print(f'warning: {x}', file=sys.stderr)
+    if len(warns) > 20:
+        print(f'warning: and {len(warns) - 20} more', file=sys.stderr)
+    open(args.frg, 'wb').write(encode(w))
+    print(f'{args.frg}: {len(w.chunks)} chunks, {w.solid_count()} blocks')
+    return 0
+
+
 def main(argv):
-    if len(argv) < 2:
-        print(__doc__)
-        return 2
-    cmd = argv[1]
+    """argparse, not positional dispatch. The old hand-rolled version guarded
+    each command with `and len(argv) == N` and fell through to a shared
+    `unknown command` branch, so `frg.py info` with no path reported
+    "unknown command 'info'" -- naming the one thing that was right."""
+    import argparse
+    ap = argparse.ArgumentParser(
+        prog='frg.py', description="Forge's .FRG container: inspect, and "
+                                   'convert to and from Quake .map.')
+    sub = ap.add_subparsers(dest='cmd', required=True)
 
-    if cmd == 'info' and len(argv) == 3:
-        w = decode(open(argv[2], 'rb').read())
-        print(f'offset      {w.offset}')
-        print(f'chunks      {len(w.chunks)} / {MAX_CHUNKS}')
-        print(f'solid       {w.solid_count()} blocks')
-        bx = w.boxes()
-        print(f'boxes       {len(bx)}')
-        types = sorted({t for _, _, t in bx})
-        print(f'block types {types}')
-        print(f'entities    {len(w.ents)}')
-        for e in w.ents:
-            print(f'  cls {e["classname"]} at {tuple(round(v) for v in e["pos"])}'
-                  f' ang {e["angle"]} epairs {e["epairs"]}')
-        print(f'light       {"present" if w.light else "-"}')
-        if w.cam:
-            print(f'cam         {len(w.cam["keys"])} keys over '
-                  f'{w.cam["duration"]:g}s loop={w.cam["loop"]}')
-        else:
-            print('cam         -')
-        return 0
+    q = sub.add_parser('info', help='describe a .FRG')
+    q.add_argument('file'); q.add_argument('--json', action='store_true')
+    q.set_defaults(fn=_cmd_info)
 
-    if cmd == 'tomap' and len(argv) == 4:
-        w = decode(open(argv[2], 'rb').read())
-        open(argv[3], 'w').write(boxes_to_map(w.boxes()))
-        print(f'{argv[3]}: {len(w.boxes())} brushes')
-        return 0
+    q = sub.add_parser('tomap', help='.FRG -> .map')
+    q.add_argument('frg'); q.add_argument('map')
+    q.set_defaults(fn=_cmd_tomap)
 
-    if cmd == 'frommap' and len(argv) == 4:
-        w, warns = voxelise(open(argv[2]).read())
-        for x in warns[:20]:
-            print(f'warning: {x}', file=sys.stderr)
-        if len(warns) > 20:
-            print(f'warning: and {len(warns) - 20} more', file=sys.stderr)
-        open(argv[3], 'wb').write(encode(w))
-        print(f'{argv[3]}: {len(w.chunks)} chunks, {w.solid_count()} blocks')
-        return 0
+    q = sub.add_parser('frommap', help='.map -> .FRG (voxelise)')
+    q.add_argument('map'); q.add_argument('frg')
+    q.set_defaults(fn=_cmd_frommap)
 
-    if cmd == 'selftest':
-        return selftest()
+    q = sub.add_parser('selftest', help='the asserted-property suite')
+    q.set_defaults(fn=lambda _a: selftest())
 
-    print(f'unknown command {cmd!r}', file=sys.stderr)
-    return 2
+    args = ap.parse_args(argv[1:])
+    return args.fn(args)
 
 
 def selftest():
@@ -635,6 +758,38 @@ def selftest():
     w5 = decode(encode(w4))
     ok(w5.ents == [] and w5.light is None and w5.cam is None,
        'a geometry-only file decodes with no tail, not a defaulted one')
+
+    # ── Per-classname epair keys ──────────────────────────────────────────
+    # The defect this replaced: ENT mode offered one global count/delay/speed,
+    # so info_key_door's REQUIRED `key_id` could not be authored on the console
+    # and every door pulled back off a card carried a warning nobody holding the
+    # controller could act on.
+    door = FORGE_CLASSNAMES.index('info_key_door')
+    ok(forge_epairs(door)[0]['key'] == 'key_id',
+       f"info_key_door's slot 0 is key_id (got {forge_epairs(door)[0]['key']})")
+    ok(forge_epairs(door)[0]['required'] and forge_epairs(door)[0]['default'] == 1,
+       'and it is required, defaulting to 1')
+    ok(forge_epairs(0)[0]['key'] == 'count',
+       'a classname with no numeric epairs keeps the generic escape hatch')
+    ok(all(len(forge_epairs(i)) == FORGE_EPAIR_SLOTS
+           for i in range(len(FORGE_CLASSNAMES))),
+       f'every classname has exactly {FORGE_EPAIR_SLOTS} slots -- the slot '
+       f'COUNT is the wire format, the keys are not')
+
+    # And the emission rule, which must match forge_ent_emit byte for byte: a
+    # required epair is written even at 0, an optional one only when non-zero.
+    dm = boxes_to_map([], ents=[{'pos': (0.0, 0.0, 0.0), 'angle': 0,
+                                'classname': door, 'epairs': [0, 0, 0]}],
+                      classnames=FORGE_CLASSNAMES)
+    ok('"key_id" "0"' in dm,
+       'a required epair is emitted even at 0 -- the validator warns on ABSENCE')
+    ok('"count"' not in dm,
+       'an untouched optional epair is still omitted')
+    dm2 = boxes_to_map([], ents=[{'pos': (0.0, 0.0, 0.0), 'angle': 0,
+                                  'classname': 0, 'epairs': [2, 0, 0]}],
+                       classnames=FORGE_CLASSNAMES)
+    ok('"count" "2"' in dm2 and 'key_id' not in dm2,
+       'and a non-door writes count, never key_id')
 
     # A brush off the block grid must WARN, not silently move.
     off = boxes_to_map([((5, 0, 0), (37, 32, 32), 1)])

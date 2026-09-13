@@ -16,13 +16,8 @@
 // winding-independent, but tools/blender/quake_map.py's brush_to_faces CSG
 // (used by validate.py) is winding-sensitive; wrong winding = inside-out CSG.
 
-export const LIMITS = {
-  brushes: 256,
-  faces: 1536,
-  spawns: 64,
-  classnames: 32,
-  coord: 32767,
-};
+export { LIMITS } from './vocab.gen.js';
+import { AABB_FACE_CORNERS } from './vocab.gen.js';
 
 // Canonical 6-face-per-AABB corner ordering. Winding verified against
 // quake_test.map:4-9 (the file mkQuakeMapModel round-trips through Blender, so
@@ -34,22 +29,12 @@ export const LIMITS = {
 // this convention (works on console, fails CSG); the editor's emit must use
 // the canonical winding so its output validates.
 function aabbFaces(mins, maxs) {
-  const [xmin, ymin, zmin] = mins;
-  const [xmax, ymax, zmax] = maxs;
-  return [
-    // -X  (cross(p3-p1, p2-p1) = (-dy*dz, 0, 0))
-    [[xmin, ymin, zmin], [xmin, ymax, zmin], [xmin, ymin, zmax]],
-    // +X  (cross = (+dy*dz, 0, 0))
-    [[xmax, ymin, zmin], [xmax, ymin, zmax], [xmax, ymax, zmin]],
-    // -Y  (cross = (0, -dx*dz, 0))
-    [[xmin, ymin, zmin], [xmin, ymin, zmax], [xmax, ymin, zmin]],
-    // +Y  (cross = (0, +dx*dz, 0))
-    [[xmin, ymax, zmin], [xmax, ymax, zmin], [xmin, ymax, zmax]],
-    // -Z  (cross = (0, 0, -dx*dy))
-    [[xmin, ymin, zmin], [xmax, ymin, zmin], [xmin, ymax, zmin]],
-    // +Z  (cross = (0, 0, +dx*dy))
-    [[xmin, ymin, zmax], [xmin, ymax, zmax], [xmax, ymin, zmax]],
-  ];
+  // From the generated corner table, not a transcription. This was one of four
+  // hand-kept copies of a winding whose sign decides whether a brush survives
+  // the CSG at all — the others being validate.py, frg.py and forge_io.c.
+  const sel = [mins, maxs];
+  return AABB_FACE_CORNERS.map(
+    f => f.map(c => [sel[c[0]][0], sel[c[1]][1], sel[c[2]][2]]));
 }
 
 function fmt(v) {
@@ -67,6 +52,9 @@ export function emitMap(state) {
   const lines = [];
   lines.push('{');
   lines.push('"classname" "worldspawn"');
+  for (const [k, v] of Object.entries(state.worldspawn || {})) {
+    if (k !== 'classname') lines.push(`"${k}" "${v}"`);
+  }
   for (const b of state.brushes) {
     const mins = b.mins, maxs = b.maxs;
     const tex = b.texture || 'TEX';
@@ -220,8 +208,14 @@ export function parseMap(text) {
 export function toEditorState(entities) {
   const brushes = [];
   const spawns = [];
+  const worldspawn = {};
   for (const ent of entities) {
     if (ent.brushes.length > 0) {
+      // Worldspawn's own epairs used to be dropped here — this branch only
+      // ever looked at the brushes. Kept in step with mapfmt.py's to_state.
+      for (const [k, v] of Object.entries(ent.props)) {
+        if (k !== 'classname' && !(k in worldspawn)) worldspawn[k] = v;
+      }
       for (const faces of ent.brushes) {
         const aabb = aabbFromFaces(faces);
         aabb.texture = faces[0]?.texture || 'TEX';
@@ -243,7 +237,9 @@ export function toEditorState(entities) {
       });
     }
   }
-  return { brushes, spawns };
+  const st = { brushes, spawns };
+  if (Object.keys(worldspawn).length > 0) st.worldspawn = worldspawn;
+  return st;
 }
 
 export function parseEditorState(text) {

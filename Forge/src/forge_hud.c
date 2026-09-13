@@ -12,7 +12,9 @@
  * value that means the level is lying to you:
  *
  *   chunks n/24   red at the cap: further blocks are being REFUSED
- *   mesh n%       red at 100: geometry exists that is not being drawn
+ *   arena n%      red at 100: geometry exists that is not being drawn
+ *                 (this line said "mesh n%"; the code has always printed
+ *                  "arena %lu%%" -- see the quads/arena text below)
  *   quads         red when a chunk overflowed its scratch
  *   brushes n/512 red at 0 in WALK (nothing to stand on) or over the cap
  *   store         red when the last save or load did not succeed
@@ -107,13 +109,27 @@ void forge_hud_draw(Forge *f)
      * because an editor whose bindings have to be remembered is an editor used
      * with a laptop open next to the television — and the whole argument for
      * being on the console is that the television is where your attention is. */
+    /* WRITTEN BY HAND, and kept in step with Forge/src/forge_binds.def by hand.
+     * That file is the one statement of the control scheme, but only
+     * tools/forge/gen_binds.py reads it, and what that emits is the Markdown
+     * table in the n64-forge skill -- nothing #includes it, and nothing compares
+     * these strings with it. (This comment used to say they were "built from"
+     * it, alongside a B() macro nothing used; both implied a generation that
+     * never existed.) The strings once said "Z+A fill", which has never been
+     * true: forge_geo.c anchors on Z press and fills on Z release, and
+     * suppresses A for the whole drag.
+     *
+     * Abbreviated on purpose: one row of a 320px screen in a 6px monospace
+     * font is about 52 characters, so this lists the EDIT verbs and leaves
+     * camera and sprint to the mode's own panel. */
     static const char *const HELP[FORGE_MODE_COUNT] = {
-        [FORGE_MODE_GEO]   = "A put B dig Z+A fill LR mode START save",
-        [FORGE_MODE_WALK]  = "stick walk R run LR mode START save",
-        [FORGE_MODE_PAINT] = "dpad move A draw B pick Z veil LR mode",
-        [FORGE_MODE_ENT]   = "A place B remove dpad class LR mode",
-        [FORGE_MODE_LIGHT] = "C-ud field dpad edit A fog R clear",
-        [FORGE_MODE_CAM]   = "A key B del Z play dpad scrub LR mode",
+        [FORGE_MODE_GEO]   = "A put  B dig  Z drag-fill  L pick  LR mode  START save",
+        [FORGE_MODE_WALK]  = "stick walk  R run  LR mode  START save",
+        [FORGE_MODE_PAINT] = "dpad move  A draw  B pick  R flood  Z veil  LR mode",
+        [FORGE_MODE_ENT]   = "A place  B remove  dpad class/field  R/Z value  START save",
+        [FORGE_MODE_LIGHT] = "C-ud field  dpad edit  A fog  R clear  START save",
+        [FORGE_MODE_CAM]   = "A key  B del  Z play  dpad scrub  R/L dur  START save",
     };
+
     kiln_gui_text(6, FORGE_SCREEN_H - 10, DIM_COL, "%s", HELP[f->mode]);
 }

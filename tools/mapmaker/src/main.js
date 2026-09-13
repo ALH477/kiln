@@ -12,6 +12,10 @@ import { allocId as allocBrushId, makeBrushMesh, syncBrushMesh } from './brush.j
 import { allocId as allocSpawnId, makeSpawnGroup, syncSpawnGroup, KNOWN_CLASSNAMES, ENTITY_PALETTE } from './entity.js';
 import { parseEditorState, emitMap, LIMITS } from './mapio.js';
 import { snapRound, snapFloor, snapCeil, clampInt16 } from './snap.js';
+// EPAIR_SCHEMAS used to be a local table in this file; df31be7 moved it into
+// the generated vocabulary and deleted the table but not the use (line ~562),
+// so selecting any spawn threw a ReferenceError. No gate loads main.js.
+import { EPAIR_SCHEMAS } from './vocab.gen.js';
 
 const DEFAULT_GRID = 16;
 const DEFAULT_BRUSH_HEIGHT = 64;
@@ -72,7 +76,12 @@ orbit.target.set(0, 16, 0);
 const transform = new TransformControls(camera, renderer.domElement);
 transform.addEventListener('dragging-changed', e => {
   orbit.enabled = !e.value;
-  if (!e.value) {
+  if (e.value) {
+    // Drag STARTED — snapshot before anything moves, or the gizmo is the one
+    // edit in the editor that ctrl-Z cannot reach. Every other mutation goes
+    // through pushUndo(); this path did not.
+    pushUndo();
+  } else {
     // Drag ended — bake mesh position back to brush AABB.
     applyTransformToBrush();
   }
@@ -485,33 +494,10 @@ function sidebarBrush(b) {
 // ── entity-specific epair schemas ────────────────────────────────────────────
 // For each classname that needs typed fields, define the schema.
 // 'generic' epairs are still available below the typed fields.
-const EPAIR_SCHEMAS = {
-  info_npc: [
-    { key: 'dialogue', label: 'dialogue', type: 'text', default: '...' },
-  ],
-  info_chest: [
-    { key: 'contents', label: 'contents', type: 'select', options: [
-      { value: '1', label: 'key_red' },
-      { value: '0', label: '(none)' },
-    ], default: '0' },
-  ],
-  info_key_door: [
-    { key: 'key_id', label: 'key_id', type: 'number', default: 1 },
-  ],
-  info_switch: [
-    { key: 'target_door', label: 'target_door', type: 'door_select', default: 0 },
-  ],
-  info_trigger: [
-    { key: 'mins', label: 'mins', type: 'vec3', default: '0 0 0' },
-    { key: 'maxs', label: 'maxs', type: 'vec3', default: '0 0 0' },
-    { key: 'event_id', label: 'event_id', type: 'number', default: 0 },
-    { key: 'type', label: 'type', type: 'select', options: [
-      { value: '0', label: 'once' },
-      { value: '1', label: 'multiple' },
-      { value: '2', label: 'push' },
-    ], default: '0' },
-  ],
-};
+// Generated from tools/schema/level_vocab.json. The TYPE RENDERING
+// (text/number/select/vec3/door_select, below) stays here: data in the schema,
+// behaviour in the editor.
+
 
 function getEpair(spawn, key) {
   for (const e of (spawn.epairs || [])) if (e.k === key) return e.v;

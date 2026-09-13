@@ -1,0 +1,427 @@
+{
+  "__": "THE source of truth for Kiln level content. See tools/schema/level_vocab.py.",
+  "limits": {
+    "brushes": 256,
+    "spawns": 64,
+    "classnames": 32,
+    "entities": 64,
+    "coord": 32767,
+    "brush_planes": 32,
+    "face_verts": 16
+  },
+  "forge_epair_slots": 3,
+  "forge_generic_epairs": [
+    "count",
+    "delay",
+    "speed"
+  ],
+  "forge_waived": {
+    "info_npc": "'dialogue' is a STRING and the console has no keyboard. A .FRG epair slot is a u16 and kiln_dict_set_auto types \"3\" as an int, so a numeric stand-in would satisfy the validator and still hand the game nothing to read. Author info_npc in tools/mapmaker or by hand."
+  },
+  "aabb_faces": [
+    {
+      "name": "-X",
+      "axis": 0,
+      "sign": -1,
+      "corners": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "+X",
+      "axis": 0,
+      "sign": 1,
+      "corners": [
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "-Y",
+      "axis": 1,
+      "sign": -1,
+      "corners": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          1,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "+Y",
+      "axis": 1,
+      "sign": 1,
+      "corners": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          1,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "-Z",
+      "axis": 2,
+      "sign": -1,
+      "corners": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "name": "+Z",
+      "axis": 2,
+      "sign": 1,
+      "corners": [
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          1
+        ]
+      ]
+    }
+  ],
+  "classnames": [
+    {
+      "name": "info_player_start",
+      "label": "START",
+      "category": "player_start",
+      "color": "0x44ff44",
+      "size": 24,
+      "shape": "arrow",
+      "forge_index": 0,
+      "epairs": []
+    },
+    {
+      "name": "info_enemy",
+      "label": "ENEMY",
+      "category": "enemies",
+      "color": "0xff4444",
+      "size": 24,
+      "shape": "arrow",
+      "forge_index": 1,
+      "epairs": []
+    },
+    {
+      "name": "info_heavy",
+      "label": "HEAVY",
+      "category": "heavies",
+      "color": "0x8b0000",
+      "size": 32,
+      "shape": "arrow",
+      "forge_index": 2,
+      "epairs": []
+    },
+    {
+      "name": "info_health",
+      "label": "HP",
+      "category": "health",
+      "color": "0x00cc44",
+      "size": 6,
+      "shape": "box",
+      "forge_index": 3,
+      "epairs": []
+    },
+    {
+      "name": "info_ammo",
+      "label": "AMMO",
+      "category": "ammo",
+      "color": "0xffd700",
+      "size": 6,
+      "shape": "box",
+      "forge_index": 4,
+      "epairs": []
+    },
+    {
+      "name": "info_armor",
+      "label": "ARM",
+      "category": "armor",
+      "color": "0x4488ff",
+      "size": 6,
+      "shape": "box",
+      "forge_index": 5,
+      "epairs": []
+    },
+    {
+      "name": "info_npc",
+      "label": "NPC",
+      "category": "npcs",
+      "color": "0x88ccff",
+      "size": 10,
+      "shape": "cylinder",
+      "forge_index": 6,
+      "epairs": [
+        {
+          "key": "dialogue",
+          "label": "dialogue",
+          "type": "text",
+          "default": "...",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "info_key_door",
+      "label": "DOOR",
+      "category": "key_doors",
+      "color": "0xff3333",
+      "size": 14,
+      "shape": "box",
+      "forge_index": 7,
+      "epairs": [
+        {
+          "key": "key_id",
+          "label": "key_id",
+          "type": "number",
+          "default": 1,
+          "required": true,
+          "numeric": true
+        }
+      ]
+    },
+    {
+      "name": "info_alien",
+      "label": "ALIEN",
+      "category": "cinematic",
+      "color": "0x99ff66",
+      "size": 22,
+      "shape": "arrow",
+      "epairs": [
+        {
+          "key": "speed",
+          "label": "speed",
+          "type": "number",
+          "default": 10
+        },
+        {
+          "key": "path",
+          "label": "path",
+          "type": "select",
+          "default": "approach",
+          "options": [
+            {
+              "value": "approach",
+              "label": "approach"
+            },
+            {
+              "value": "approach_late",
+              "label": "approach late"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "info_barrel",
+      "label": "BARREL",
+      "category": "barrels",
+      "color": "0xff8800",
+      "size": 8,
+      "shape": "cylinder",
+      "epairs": []
+    },
+    {
+      "name": "info_chest",
+      "label": "CHEST",
+      "category": "chests",
+      "color": "0x8b4513",
+      "size": 12,
+      "shape": "box",
+      "epairs": [
+        {
+          "key": "contents",
+          "label": "contents",
+          "type": "select",
+          "default": "0",
+          "required": true,
+          "options": [
+            {
+              "value": "1",
+              "label": "key_red"
+            },
+            {
+              "value": "0",
+              "label": "(none)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "info_droid",
+      "label": "DROID",
+      "category": "cinematic",
+      "color": "0xc0c0c0",
+      "size": 20,
+      "shape": "box",
+      "epairs": [
+        {
+          "key": "radius",
+          "label": "orbit radius",
+          "type": "number",
+          "default": 30
+        },
+        {
+          "key": "phase",
+          "label": "orbit phase\u00b0",
+          "type": "number",
+          "default": 0
+        }
+      ]
+    },
+    {
+      "name": "info_key_red",
+      "label": "KEY",
+      "category": "key_red",
+      "color": "0xff4444",
+      "size": 6,
+      "shape": "diamond",
+      "epairs": []
+    },
+    {
+      "name": "info_switch",
+      "label": "SW",
+      "category": "switches",
+      "color": "0x00f5d4",
+      "size": 6,
+      "shape": "box",
+      "epairs": [
+        {
+          "key": "target_door",
+          "label": "target_door",
+          "type": "door_select",
+          "default": 0,
+          "required": true,
+          "numeric": true,
+          "target_classname": "info_key_door"
+        }
+      ]
+    },
+    {
+      "name": "info_trigger",
+      "label": "TRIG",
+      "category": "triggers",
+      "color": "0xff00ff",
+      "size": 0,
+      "shape": "wireframe",
+      "epairs": [
+        {
+          "key": "mins",
+          "label": "mins",
+          "type": "vec3",
+          "default": "0 0 0",
+          "required": true
+        },
+        {
+          "key": "maxs",
+          "label": "maxs",
+          "type": "vec3",
+          "default": "0 0 0",
+          "required": true
+        },
+        {
+          "key": "event_id",
+          "label": "event_id",
+          "type": "number",
+          "default": 0,
+          "required": true,
+          "numeric": true
+        },
+        {
+          "key": "type",
+          "label": "type",
+          "type": "select",
+          "default": "0",
+          "required": true,
+          "options": [
+            {
+              "value": "0",
+              "label": "once"
+            },
+            {
+              "value": "1",
+              "label": "multiple"
+            },
+            {
+              "value": "2",
+              "label": "push"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "__epairs_note": "An epair with `required: true` is one the game cannot default; the validator warns when it is absent. info_droid/info_alien's are optional -- examples/cinematic-demo/main.c:182,215 supplies defaults -- so they are declared for the EDITOR's typed fields, not as a check.",
+  "__forge_epairs_note": "ENT mode gives every entity forge_epair_slots numeric slots. The KEY of a slot depends on the classname: that classname's own `numeric: true` epairs first, in declaration order, then forge_generic_epairs fills what is left. The slot COUNT is a wire format (.FRG v2 stores u16 epair[slots] positionally); the generator refuses a classname declaring more numeric epairs than there are slots, so growing one is a deliberate FRG_VERSION bump rather than an accident."
+}

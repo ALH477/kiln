@@ -1,78 +1,52 @@
-// SPDX-License-Identifier: MIT
-//
-// hangar.map — the cinematic-demo's hangar.
-//
-// The layout is a 200×200 unit room with a 30×30 raised metal pad in the
-// centre for the Interceptor. Walls/floor carry surface id 0 (stone);
-// the pad carries surface id 1 (metal). kiln_map's current parser tags
-// every worldspawn brush with surface=0 (see kiln_map.c:182), so the
-// surface id distinction is currently *authored-only*; the cinematic
-// uses surface for an audio shader ("step_metal" vs "step_stone") that
-// is played by player footsteps via kiln_surface_play_footstep. The pad
-// geometry is what gives the goblin a different footstep SFX as he walks
-// across it.
-//
-// Brushes are 6-plane AABBs (each face uses 3 coplanar plane points).
-// kiln_map reduces each brush to its AABB for collision and builds 6
-// parallelogram faces for rendering, which is exactly the right shape
-// for these rectangular rooms.
-//
-// Entity spawns:
-//   info_player_start -> goblin's start position (the captain stands here)
-//   info_droid        -> service droid, reads "radius" and "phase" from dict
-//   info_alien        -> approaching alien, reads "path" and "speed" from dict
-//
-// The Interceptor and goblin are placed by code (not by the map).
-
 {
 "classname" "worldspawn"
 {
-( -100 0 -100 ) ( 100 0 -100 ) ( -100 0 100 ) FLOOR 0 0 0 1 1
-( 100 0 100 ) ( -100 0 100 ) ( 100 0 -100 ) FLOOR 0 0 0 1 1
-( -100 0 -100 ) ( -100 0 100 ) ( -100 0.4 -100 ) FLOOR 0 0 0 1 1
-( 100 0.4 100 ) ( 100 0 100 ) ( -100 0.4 100 ) FLOOR 0 0 0 1 1
-( -100 0 -100 ) ( -100 0.4 -100 ) ( 100 0 -100 ) FLOOR 0 0 0 1 1
-( 100 0.4 100 ) ( 100 0.4 -100 ) ( -100 0.4 100 ) FLOOR 0 0 0 1 1
+( -100 0 -100 ) ( -100 0.4 -100 ) ( -100 0 100 ) FLOOR 0 0 0 1 1
+( 100 0 -100 ) ( 100 0 100 ) ( 100 0.4 -100 ) FLOOR 0 0 0 1 1
+( -100 0 -100 ) ( -100 0 100 ) ( 100 0 -100 ) FLOOR 0 0 0 1 1
+( -100 0.4 -100 ) ( 100 0.4 -100 ) ( -100 0.4 100 ) FLOOR 0 0 0 1 1
+( -100 0 -100 ) ( 100 0 -100 ) ( -100 0.4 -100 ) FLOOR 0 0 0 1 1
+( -100 0 100 ) ( -100 0.4 100 ) ( 100 0 100 ) FLOOR 0 0 0 1 1
 }
 {
-( -100 0 -100 ) ( -100 0 -96 ) ( 100 0 -100 ) WALL 0 0 0 1 1
-( 100 0 -96 ) ( -100 0 -96 ) ( 100 0 -100 ) WALL 0 0 0 1 1
-( -100 0 -100 ) ( 100 0 -100 ) ( -100 30 -100 ) WALL 0 0 0 1 1
-( 100 30 -100 ) ( -100 30 -100 ) ( 100 0 -100 ) WALL 0 0 0 1 1
 ( -100 0 -100 ) ( -100 30 -100 ) ( -100 0 -96 ) WALL 0 0 0 1 1
-( 100 30 -96 ) ( 100 0 -96 ) ( -100 30 -96 ) WALL 0 0 0 1 1
+( 100 0 -100 ) ( 100 0 -96 ) ( 100 30 -100 ) WALL 0 0 0 1 1
+( -100 0 -100 ) ( -100 0 -96 ) ( 100 0 -100 ) WALL 0 0 0 1 1
+( -100 30 -100 ) ( 100 30 -100 ) ( -100 30 -96 ) WALL 0 0 0 1 1
+( -100 0 -100 ) ( 100 0 -100 ) ( -100 30 -100 ) WALL 0 0 0 1 1
+( -100 0 -96 ) ( -100 30 -96 ) ( 100 0 -96 ) WALL 0 0 0 1 1
 }
 {
-( 100 0 96 ) ( 100 0 100 ) ( -100 0 96 ) WALL 0 0 0 1 1
-( -100 0 100 ) ( 100 0 100 ) ( -100 0 96 ) WALL 0 0 0 1 1
-( 100 0 96 ) ( -100 0 96 ) ( 100 30 96 ) WALL 0 0 0 1 1
-( -100 30 96 ) ( 100 30 96 ) ( -100 0 96 ) WALL 0 0 0 1 1
-( 100 0 96 ) ( 100 30 96 ) ( 100 0 100 ) WALL 0 0 0 1 1
-( -100 30 100 ) ( -100 0 100 ) ( 100 30 100 ) WALL 0 0 0 1 1
+( -100 0 96 ) ( -100 30 96 ) ( -100 0 100 ) WALL 0 0 0 1 1
+( 100 0 96 ) ( 100 0 100 ) ( 100 30 96 ) WALL 0 0 0 1 1
+( -100 0 96 ) ( -100 0 100 ) ( 100 0 96 ) WALL 0 0 0 1 1
+( -100 30 96 ) ( 100 30 96 ) ( -100 30 100 ) WALL 0 0 0 1 1
+( -100 0 96 ) ( 100 0 96 ) ( -100 30 96 ) WALL 0 0 0 1 1
+( -100 0 100 ) ( -100 30 100 ) ( 100 0 100 ) WALL 0 0 0 1 1
 }
 {
-( -100 0 -100 ) ( -96 0 -100 ) ( -100 0 100 ) WALL 0 0 0 1 1
-( -96 0 100 ) ( -96 0 -100 ) ( -100 0 100 ) WALL 0 0 0 1 1
-( -100 0 -100 ) ( -100 0 100 ) ( -100 30 -100 ) WALL 0 0 0 1 1
-( -100 30 100 ) ( -96 30 100 ) ( -100 30 -100 ) WALL 0 0 0 1 1
-( -100 0 -100 ) ( -100 30 -100 ) ( -96 0 -100 ) WALL 0 0 0 1 1
-( -96 30 100 ) ( -100 30 100 ) ( -96 0 100 ) WALL 0 0 0 1 1
+( -100 0 -100 ) ( -100 30 -100 ) ( -100 0 100 ) WALL 0 0 0 1 1
+( -96 0 -100 ) ( -96 0 100 ) ( -96 30 -100 ) WALL 0 0 0 1 1
+( -100 0 -100 ) ( -100 0 100 ) ( -96 0 -100 ) WALL 0 0 0 1 1
+( -100 30 -100 ) ( -96 30 -100 ) ( -100 30 100 ) WALL 0 0 0 1 1
+( -100 0 -100 ) ( -96 0 -100 ) ( -100 30 -100 ) WALL 0 0 0 1 1
+( -100 0 100 ) ( -100 30 100 ) ( -96 0 100 ) WALL 0 0 0 1 1
 }
 {
-( 96 0 -100 ) ( 100 0 -100 ) ( 96 0 100 ) WALL 0 0 0 1 1
-( 100 0 100 ) ( 100 0 -100 ) ( 96 0 100 ) WALL 0 0 0 1 1
-( 96 0 -100 ) ( 96 0 100 ) ( 96 30 -100 ) WALL 0 0 0 1 1
-( 96 30 100 ) ( 100 30 100 ) ( 96 30 -100 ) WALL 0 0 0 1 1
-( 96 0 -100 ) ( 96 30 -100 ) ( 100 0 -100 ) WALL 0 0 0 1 1
-( 100 30 100 ) ( 96 30 100 ) ( 100 0 100 ) WALL 0 0 0 1 1
+( 96 0 -100 ) ( 96 30 -100 ) ( 96 0 100 ) WALL 0 0 0 1 1
+( 100 0 -100 ) ( 100 0 100 ) ( 100 30 -100 ) WALL 0 0 0 1 1
+( 96 0 -100 ) ( 96 0 100 ) ( 100 0 -100 ) WALL 0 0 0 1 1
+( 96 30 -100 ) ( 100 30 -100 ) ( 96 30 100 ) WALL 0 0 0 1 1
+( 96 0 -100 ) ( 100 0 -100 ) ( 96 30 -100 ) WALL 0 0 0 1 1
+( 96 0 100 ) ( 96 30 100 ) ( 100 0 100 ) WALL 0 0 0 1 1
 }
 {
-( -30 0.4 -30 ) ( 30 0.4 -30 ) ( -30 4.4 -30 ) PAD 0 0 0 1 1
-( 30 0.4 -30 ) ( 30 4.4 -30 ) ( 30 0.4 30 ) PAD 0 0 0 1 1
-( 30 0.4 30 ) ( 30 4.4 30 ) ( -30 0.4 30 ) PAD 0 0 0 1 1
-( -30 0.4 30 ) ( -30 4.4 30 ) ( -30 0.4 -30 ) PAD 0 0 0 1 1
+( -30 0.4 -30 ) ( -30 4.4 -30 ) ( -30 0.4 30 ) PAD 0 0 0 1 1
+( 30 0.4 -30 ) ( 30 0.4 30 ) ( 30 4.4 -30 ) PAD 0 0 0 1 1
+( -30 0.4 -30 ) ( -30 0.4 30 ) ( 30 0.4 -30 ) PAD 0 0 0 1 1
 ( -30 4.4 -30 ) ( 30 4.4 -30 ) ( -30 4.4 30 ) PAD 0 0 0 1 1
-( -30 0.4 30 ) ( 30 0.4 30 ) ( -30 0.4 -30 ) PAD 0 0 0 1 1
+( -30 0.4 -30 ) ( 30 0.4 -30 ) ( -30 4.4 -30 ) PAD 0 0 0 1 1
+( -30 0.4 30 ) ( -30 4.4 30 ) ( 30 0.4 30 ) PAD 0 0 0 1 1
 }
 }
 {

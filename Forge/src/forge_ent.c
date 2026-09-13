@@ -17,40 +17,64 @@
  * to misspell. The same argument tools/mapmaker/src/entity.js makes with its
  * KNOWN_CLASSNAMES.
  *
- * Epairs are the escape hatch, and they are numeric on purpose: `count`,
- * `delay`, `speed`, `target_room` — the arguments that actually vary per
- * placement. Anything needing a string belongs in the game's own table.
+ * ── Why the epairs are numeric, and per-classname ──────────────────────
+ *
+ * Numeric because there is no keyboard: a slot is a u16 stepped by two buttons.
+ *
+ * PER-CLASSNAME because the global list was a defect. ENT mode used to offer
+ * one `count`/`delay`/`speed` to every classname while the schema's REQUIRED
+ * epair for info_key_door is `key_id` — so a door placed on hardware came back
+ * through `./dev forge-pull` with `WARN: info_key_door ... missing 'key_id'
+ * epair`, and there was no way to fix it on the console. Nothing consumed
+ * `count` or `delay` anywhere in the tree; `key_id` is read by
+ * examples/fps/main.c:269. The editor was offering three keys nobody wanted
+ * and withholding the one the validator asked for.
+ *
+ * So the KEY of slot `i` now depends on the classname:
+ * tools/schema/level_vocab.json's own `numeric: true` epairs for that class
+ * first, then the generic escape hatch fills what is left
+ * (forge_vocab_epair_key(cls, i), generated). The slot COUNT is unchanged and
+ * is still a wire format — see forge_io.c.
+ *
+ * What is still NOT authorable, honestly: info_npc's `dialogue` is a STRING.
+ * A slot is a u16, and kiln_dict_set_auto types "3" as an int, so writing a
+ * number under that key would satisfy the validator and hand the game nothing
+ * to read — a worse failure than the warning, because it looks fixed. It stays
+ * in the schema's forge_waived, with that as the reason.
  */
 #include <stdio.h>
 #include "forge.h"
+#include "forge_vocab.gen.h"
 
 /* Mirrors tools/mapmaker/src/entity.js's KNOWN_CLASSNAMES (ENTITY_PALETTE) and
  * the `info_*` vocabulary the engine's own examples register via
  * kiln_map_register_classname — examples/fps/main.c registers the widest set.
  * Kept short deliberately: a picker is only better than typing while it is
  * short enough to cycle. */
-static const char *const CLASSNAMES[FORGE_CLASSNAMES] = {
-    "info_player_start",
-    "info_enemy",
-    "info_heavy",
-    "info_health",
-    "info_ammo",
-    "info_armor",
-    "info_npc",
-    "info_key_door",
-};
-
-/* The numeric epairs an entity can carry. Names, not indices, because the .map
- * carries a name and kiln_dict interns it — an index would have to agree with a
- * table in the consuming game, which is the drift this avoids. */
-static const char *const EPAIR_KEYS[FORGE_EPAIRS] = { "count", "delay", "speed" };
+/* Both tables are GENERATED into forge_vocab.gen.h from
+ * tools/schema/level_vocab.json. They used to be written here, with a comment
+ * claiming to mirror tools/mapmaker/src/entity.js -- which held 13 classnames
+ * to this file's 8, and a completely different epair vocabulary. Nothing
+ * compared them.
+ *
+ * The classname ORDER is a wire format: the .FRG v2 tail stores `u8 classname`
+ * as an index into it. The schema's forge_index is explicit and append-only
+ * for exactly that reason. */
 
 const char *forge_ent_classname(int i)
 {
-    return CLASSNAMES[(i % FORGE_CLASSNAMES + FORGE_CLASSNAMES) % FORGE_CLASSNAMES];
+    return forge_vocab_classname(i);
 }
 
-const char *forge_ent_epair_key(int i) { return EPAIR_KEYS[i % FORGE_EPAIRS]; }
+const char *forge_ent_epair_key(int cls, int i)
+{
+    return forge_vocab_epair_key(cls, i);
+}
+
+int forge_ent_epair_required(int cls, int i)
+{
+    return forge_vocab_epair_required(cls, i);
+}
 
 /* Nearest entity to a world position, within one block. Used to select what the
  * reticle is over, because entities are points and a point cannot be raycast
@@ -99,6 +123,12 @@ void forge_ent_update(Forge *f, const KilnInput *in)
             memset(e, 0, sizeof *e);
             e->pos = at;
             e->classname = (uint8_t)f->ent_class;
+            /* Seed every slot from the schema rather than leaving it 0. A
+             * required epair left at 0 is the WARN this mode exists to stop:
+             * info_key_door's key_id defaults to 1, and an author who never
+             * opens the field still gets a level that validates. */
+            for (int k = 0; k < FORGE_EPAIRS; k++)
+                e->epair[k] = forge_vocab_epair_default(f->ent_class, k);
             /* Face the way the camera is facing, in degrees, which is what the
              * .map "angle" epair means. */
             float deg = f->fly_yaw * (180.0f / 3.14159265f);
@@ -123,13 +153,20 @@ void forge_ent_update(Forge *f, const KilnInput *in)
     if (in->edges & KILN_BTN_DL)
         f->ent_class = (f->ent_class + FORGE_CLASSNAMES - 1) % FORGE_CLASSNAMES;
 
-    /* Edit the selected entity's epairs. C-up/down picks the key, R/Z step the
-     * value — R up, Z down, because they are the two buttons not already spoken
-     * for in this mode and a value editor needs a pair. */
+    /* Edit the selected entity's epairs. D-pad up/down picks the key, R/Z step
+     * the value — R up, Z down, because they are the two buttons not already
+     * spoken for in this mode and a value editor needs a pair.
+     *
+     * The key used to be on C-up/down, which forge_cam_update reads on the
+     * SAME frame to pitch the camera (forge_cam.c:71-72, on `buttons` where
+     * this is on `edges`). Both run in ENT, so there was no way to look up
+     * without also changing the selected field. D-pad up/down is genuinely
+     * free here: forge_cam.c only binds it in GEO, where A/B are the edit
+     * buttons and vertical movement has nowhere else to go. */
     if (f->ent_sel >= 0 && f->ent_sel < f->ent_count) {
         ForgeEnt *e = &f->ents[f->ent_sel];
-        if (in->edges & KILN_BTN_CU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
-        if (in->edges & KILN_BTN_CD)
+        if (in->edges & KILN_BTN_DU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
+        if (in->edges & KILN_BTN_DD)
             f->ent_field = (f->ent_field + FORGE_EPAIRS - 1) % FORGE_EPAIRS;
         if (in->edges & KILN_BTN_R) e->epair[f->ent_field]++;
         if (in->edges & KILN_BTN_Z && e->epair[f->ent_field] > 0)
@@ -187,10 +224,17 @@ void forge_ent_draw(Forge *f)
         const ForgeEnt *e = &f->ents[f->ent_sel];
         kiln_gui_text(6, 92, dim, "sel %s ang %d",
                      forge_ent_classname(e->classname), e->angle);
+        /* The keys shown are the SELECTED entity's, not the placement
+         * class's — editing acts on what is selected, and a panel naming the
+         * other one is a panel that lies about what R and Z are about to
+         * change. A required key is marked, because "which of these does the
+         * validator actually want" is otherwise only knowable off-console. */
         for (int i = 0; i < FORGE_EPAIRS; i++)
             kiln_gui_text(6, 102 + i * 10, i == f->ent_field ? hot : dim,
-                         "%c %s %d", i == f->ent_field ? '>' : ' ',
-                         forge_ent_epair_key(i), e->epair[i]);
+                         "%c %s%s %d", i == f->ent_field ? '>' : ' ',
+                         forge_ent_epair_key(e->classname, i),
+                         forge_ent_epair_required(e->classname, i) ? "*" : "",
+                         e->epair[i]);
     }
 }
 
@@ -201,6 +245,13 @@ void forge_ent_draw(Forge *f)
  * written as "0": a spawn arg the author never touched should not become a
  * value the game reads, because kiln_dict_get_int's default and an explicit 0
  * are different intentions and only one of them was expressed.
+ *
+ * REQUIRED epairs are the exception and are always written, 0 included. The
+ * validator warns on ABSENCE, so omitting one is the failure — and 0 is a value
+ * an author can only reach by stepping the field down to it, which is an
+ * intention, whereas the seeded default is what an untouched field carries.
+ * tools/forge/frg.py's boxes_to_map applies the same rule, because `./dev
+ * forge-pull` compares the two emitters byte for byte.
  */
 int forge_ent_emit(const Forge *f, char *out, int cap)
 {
@@ -214,9 +265,10 @@ int forge_ent_emit(const Forge *f, char *out, int cap)
                       (int)e->pos.v[0], (int)e->pos.v[1], (int)e->pos.v[2],
                       e->angle);
         for (int k = 0; k < FORGE_EPAIRS; k++)
-            if (e->epair[k])
+            if (e->epair[k] || forge_ent_epair_required(e->classname, k))
                 n += snprintf(out + n, (size_t)(cap - n), "\"%s\" \"%d\"\n",
-                              forge_ent_epair_key(k), e->epair[k]);
+                              forge_ent_epair_key(e->classname, k),
+                              (int)e->epair[k]);
         n += snprintf(out + n, (size_t)(cap - n), "}\n");
     }
     return n;

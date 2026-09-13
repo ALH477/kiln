@@ -122,12 +122,24 @@ int main(void)
         /* L+R cycles mode — a chord, so neither shoulder alone can change mode
          * while it is doing its own job (R sprints, L picks a block type). Same
          * reasoning as pm_cine's arm chord. */
-        if ((in->buttons & KILN_BTN_L) && (in->edges & KILN_BTN_R)) {
+        const int mode_changed =
+            (in->buttons & KILN_BTN_L) && (in->edges & KILN_BTN_R);
+        if (mode_changed) {
             f->mode = (ForgeMode)((f->mode + 1) % FORGE_MODE_COUNT);
             if (f->mode == FORGE_MODE_WALK) forge_walk_enter(f);
-        } else if (in->edges & KILN_BTN_START) {
-            forge_io_save(f);
-        } else {
+        }
+
+        /* Independent of the chord, and deliberately so. This used to be the
+         * `else if` of the mode test, which meant START did nothing at all
+         * while L was held -- and L is held for the whole of the L+R chord, so
+         * "cycle to the mode I want, then save" failed silently for whoever
+         * had not let go yet. A save button that sometimes does nothing is
+         * worse than no save button. */
+        if (in->edges & KILN_BTN_START) forge_io_save(f);
+
+        /* The per-mode update still skips the frame the mode changed on, so a
+         * mode never sees the chord's own edges as its input. */
+        if (!mode_changed) {
             switch (f->mode) {
             case FORGE_MODE_GEO:
                 forge_cam_update(f, in, dt);

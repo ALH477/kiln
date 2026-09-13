@@ -38,6 +38,7 @@ OBJS = $(BUILD_DIR)/forge_main.o \
        $(BUILD_DIR)/forge_geo.o \
        $(BUILD_DIR)/forge_walk.o \
        $(BUILD_DIR)/forge_hud.o \
+       $(BUILD_DIR)/forge_map.o \
        $(BUILD_DIR)/forge_paint.o \
        $(BUILD_DIR)/forge_ent.o \
        $(BUILD_DIR)/forge_light.o \

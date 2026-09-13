@@ -68,7 +68,14 @@ nix flake check        # the pre-push gate — see "The gates" below
 ./dev inspect <rom>                       # Ares + GDB server, prints the attach line
 ./dev mapmaker                            # three.js .map editor on :8000
 ./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001
-./dev map-validate <file.map>              # round-trip through quake_map.py
+./dev map-validate <file.map> [--json]     # round-trip through quake_map.py
+./dev map-emit <spec.json> [out.map]      # author a level from JSON, no browser
+./dev map-dump <file.map> [out.json]      # read one back (round-trips with emit)
+./dev map-canon <file.map>                # repair inside-out brush winding
+./dev map-render <file.map> [out.png]     # DRAW it — no ROM, no emulator, no
+                                          #   compositor. The same body
+                                          #   nix/checks/kiln-map.nix compiles.
+./dev mcp [--build]                       # the blender-mcp server (.mcp.json)
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into
@@ -547,9 +554,11 @@ left out. Verified by `examples/clip-demo`, `examples/map-demo`,
 - **`kiln_map.h`** — idMapFile analogue. Parses the existing Quake `.map`
   text format (`assets/quake_test.map`, `assets/oot_test.map`). One-pass
   tokenizer: entity `{ "k" "v" ... <brushes> }`; brush blocks reduced to
-  AABB (componentwise min/max of plane points) + one parallelogram per
-  face. Non-axis-aligned faces render as parallelograms, not true polygons
-  — flagged as a known limit, fine for rectangular OoT-style rooms.
+  a real convex polygon per face, by intersecting every triple of the brush's
+  planes and keeping the candidates inside all the others — the same algorithm
+  `tools/blender/quake_map.py` uses. The AABB comes from those vertices, with
+  the old plane-point box as a fallback for a brush whose winding is inside-out
+  and which therefore yields no polygons at all.
   `classname` → `profile_id` via `kiln_map_register_classname`. One `.map`
   = one room for the demo; multi-room games load several `.map` files and
   connect them via `target_room` epairs later.
@@ -807,24 +816,29 @@ a corridor.
   CI4 + TLUT is the format the veil is built on, so a Forge level is
   veil-capable by construction. The 16-colour palette is also why block types
   cap at 15.
-- **…but the atlas is not currently reaching the screen, and every block type
-  draws the same grey.** `kiln_voxmesh` puts the block TYPE only in the UVs
-  (`:103-106`); vertex colour is `DIR_SHADE[dir]`, greyscale per-face
-  brightness, carrying no type at all (`:108`). `forge_geo.c:27` sets
-  `T3D_FLAG_TEXTURED`, so the RSP emits texture coordinates — but the
-  **combiner** decides whether the texel survives, and it is
-  `RDPQ_COMBINER_SHADE` from `kiln_scene_begin` (`kiln_engine.c:126`), which
-  outputs vertex colour and discards the texel. Tiny3D's
-  `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`), and
-  nothing in `Forge/src` sets one. So PAINT mode's authored palette never
-  appears, and `Z`'s veiled preview cannot change the geometry it is previewing.
-  `nix/checks/kiln-voxmesh.nix` renders it both ways and its two committed
-  captures are the before and after: ~83,000 texels sampled and thrown away in
-  one frame. **The fix is one `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)` in
-  Forge**, not the engine — `kiln_voxmesh_draw`'s own comment says "Sets NO
-  render state: the caller has already chosen the combiner" — and whether the
-  palettes still read once it lands is a judgement about a CRT that only
-  hardware settles.
+- **The atlas reaches the screen now, and it took a combiner to get there.**
+  `kiln_voxmesh` puts the block TYPE only in the UVs (`:103-106`); vertex colour
+  is `DIR_SHADE[dir]`, greyscale per-face brightness carrying no type at all
+  (`:108`). `forge_geo.c` sets `T3D_FLAG_TEXTURED`, so the RSP emits texture
+  coordinates — but the **combiner** decides whether the texel survives, and for
+  a long time it was `RDPQ_COMBINER_SHADE` from `kiln_scene_begin`
+  (`kiln_engine.c:126`), which outputs vertex colour and discards the texel.
+  Tiny3D's `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`)
+  and nothing in `Forge/src` set one. So PAINT mode's authored palette never
+  appeared and `Z`'s veiled preview could not change the geometry it was
+  previewing — ~83,000 texels sampled and thrown away in one frame.
+  `begin_voxel_state` now sets `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)`,
+  **in Forge and not the engine**, because `kiln_voxmesh_draw`'s own comment
+  says "Sets NO render state: the caller has already chosen the combiner" and
+  `SHADE` is right as the engine's untextured default. The atlas bind follows
+  `Z` too, so the veiled preview finally previews something. Nothing restores
+  it: `kiln_gui_begin`'s `rdpq_set_mode_standard` resets combiner, SOM and TLUT
+  wholesale, and `kiln_scene_begin` re-arms `SHADE` next frame.
+  `nix/checks/kiln-voxmesh.nix` keeps both captures — `-shade` is now the
+  counter-example rather than the status quo — and **greps `forge_geo.c`**,
+  because it sets both combiners itself and so the pixels alone cannot tell
+  which one Forge picks. Whether the palettes still read once the veil discards
+  hue is still a judgement only hardware settles.
 - **WALK mode installs the greedy boxes and hands the pad to the real
   `kiln_fpscam`**, so a doorway's width is judged by walking through it. It
   leaves `kiln_clip`'s broadphase **off** on purpose: the grid is 16×16 in XZ with
@@ -840,7 +854,7 @@ a corridor.
 ### Six modes, in authoring order
 
 `L+R` cycles, and the cycle order is the order you work in. Each has a
-`nix build .#forge-<mode>` jump ROM, because `./dev shot` has no input path and a
+`nix build .#forge-<mode>` jump ROM (GEO included, since 2026-09), because `./dev shot` has no input path and a
 mode reached only by a chord can only be verified by hand.
 
 | mode | what it authors | out |
@@ -1141,29 +1155,40 @@ is ever going into a golden-image test.
   when nothing before `tools/blender/kiln_logo.py` had a front/back to get
   backwards. Settled by rendering all four quarter-turns through the host
   backend and looking, not by reasoning about axis conventions.
-- **`kiln_map_draw` does not render the brush's faces, and never has.** A Quake
-  `.map` gives three points per face, and those points define a **plane** —
-  conventionally one unit apart, which is exactly what `assets/quake_test.map`
-  uses. `kiln_map.c:155` treats them as face corners and builds the
-  parallelogram `p0,p1,p2,p0+p2-p1`, so a 128-unit wall renders as a **1×2-unit
-  patch at one corner**, six per brush. `nix/checks/kiln-map.nix` measures it:
-  *"face 0 spans 2 units on y; the brush spans 129"*.
-  The correct algorithm is already in this repo, on the host side —
-  `tools/blender/quake_map.py` intersects every triple of a brush's planes and
-  keeps the candidates inside all the others. `kiln_map.c` does no intersection
-  at all.
-  What DOES work is the AABB, componentwise min/max of the plane points, and
-  that is what every consumer actually uses: `kiln_clip_set_world`,
-  `kiln_room`'s brush install, PetaByte Madness' PLAY. Which is presumably why
-  the rendering was never examined — what you see on screen comes from models,
-  and the brushes are collision. The AABB inherits the same off-by-one, so a
-  −64..64 brush becomes a −64..**65** collision box.
-- **`kiln_map.c:165` truncates a packed normal to eight bits.**
-  `uint8_t np = t3d_vert_pack_normal(&n)` takes a `uint16_t` and discards the
-  whole x field plus half of y. Three of `quake_test.map`'s six faces come out
-  with `normA == 0`. The fix is one word; it is not applied yet because it
-  changes what the console shades and wants a look on hardware, and
-  `kiln-map`'s reference capture is what will make it visible when it lands.
+- **`kiln_map_draw` did not render the brush's faces, and for a long time
+  nobody could tell.** A Quake `.map` gives three points per face, and those
+  points define a **plane** — conventionally one unit apart, which is what
+  `assets/quake_test.map` uses. The old code treated them as face corners and
+  built the parallelogram `p0,p1,p2,p0+p2-p1`, so a 128-unit wall rendered as a
+  **1×2-unit patch at one corner**, six per brush. `nix/checks/kiln-map.nix`
+  measured it: *"face 0 spans 2 units on y; the brush spans 129"*.
+  **Fixed** — the algorithm was already in this repo on the host side, and
+  `kiln_map.c` now ports `tools/blender/quake_map.py` step for step: intersect
+  every triple of planes, keep candidates inside all the others, weld, order
+  into a ring. Two more defects fell out of doing it, and neither could have
+  been reported while the faces were invisible: the packed normal was assigned
+  into a `uint8_t` (discarding the x field and half of y), and the normal was
+  **inward** — `cross(p2-p1, p3-p1)` where the Quake convention, settled in
+  `quake_map.py`'s docstring against the canonical axial cube, is
+  `cross(p3-p1, p2-p1)`. Every brush face in every level had its lighting term
+  negated.
+  **The AABB changed too, and the fallback is the point.** It was the min/max
+  of the plane *points*, so every collision box was a unit oversized on
+  whichever axes the convention pushed outward — a −64..64 brush became
+  −64..**65**. It is now the true box from the CSG vertices. But an inside-out
+  brush yields **no** candidates (the reversed half-spaces intersect in the
+  empty set), so deriving it from CSG output alone would turn a rendering bug
+  into a brush with no collision, which reads as *"the player falls through the
+  world"*. `kiln_map.c` uses the true box when the CSG produced a solid, the
+  plane-point box when it did not, and `debugf`s `./dev map-canon` either way.
+  Two departures from the Python are deliberate and commented: the epsilons are
+  1/32 unit (the Python runs in double; a float carries ~1e-4 of slack at a
+  coordinate of 1024, so `1e-5` would reject a brush's own corners), and the
+  ring sort uses a diamond angle rather than `atan2f` — monotonic in `atan2`
+  and plain arithmetic, so the vertex ORDER is identical on every architecture
+  sharing one reference image.
+  Still true: the faces carry **no texture coordinates** and draw white.
+  `kiln_map` parses no UV data.
 
 - **`.t3dm` is three traps and a render will not find them all.** Writing the
   host reader turned up, in order of how quietly they fail:
@@ -1357,6 +1382,86 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   real `f3d_mat` block directly without the actual addon (see "Geometry
   authoring" above) — what everything under `nix/blender.nix` uses.
 
+## The level vocabulary has one statement (tools/schema/)
+
+`tools/schema/level_vocab.json` holds the entity classnames, their epairs, the
+engine's capacities and the canonical AABB face winding. It is the `MODULES`
+list idea applied to level content, and it arrived late: the same facts had been
+living in **six** hand-maintained copies with nothing comparing any pair —
+`entity.js`'s palette (13 classnames), `main.js`'s typed epair forms (5),
+`validate.py`'s required epairs and limits (5), `server.py`'s 14-way `elif`
+duplicate of those, `forge_ent.c`'s picker (8, plus a *disjoint* epair set) and
+`kiln_map.c`'s `MAX_*`.
+
+They had drifted, invisibly. `forge_ent.c`'s comment claimed to mirror
+`entity.js` while holding 8 of its 13 and different epair keys.
+`examples/cinematic-demo` registers `info_droid` and `info_alien`, which the
+editor had never heard of, so `assets/hangar.map` could only be edited through a
+free-text prompt and drew as a fallback arrow.
+
+Python consumers import `tools/schema/level_vocab.py`. JS and C consumers read a
+**generated, committed** artifact — `tools/mapmaker/src/vocab.gen.js`,
+`Forge/src/forge_vocab.gen.h`, `engine/src/kiln/kiln_levelvocab.h` — and
+`nix/checks/level-vocab.nix` regenerates and diffs all three, the same shape
+`kiln-font.nix` uses. `profile_id` is deliberately absent: the schema owns the
+vocabulary, not any game's numbering.
+
+**`forge_index` is a wire format.** The `.FRG` v2 tail stores `u8 classname` as
+an index into the Forge list, so reordering it silently reinterprets every level
+already on an SD card. The schema states the index explicitly and the check
+asserts it is contiguous from 0.
+
+**The winding was the fourth copy, and the only ungated one.** It lived in
+`mapio.js`, `validate.py`, `frg.py` and a `snprintf` format string in
+`forge_io.c`. The C copy moved to `Forge/src/forge_map.c`, which includes only
+`<stdio.h>` and the generated header so it **compiles natively** — the same
+split `kiln_voxmesh`'s vertex packing got, and for the same reason. The check
+emits one probe brush through all four and diffs them, then puts it through
+`quake_map.py`'s CSG and requires 6 surviving faces. A diff of a data file
+cannot catch a correct table used incorrectly; that probe can.
+
+**Six of the seven committed `.map` files were inside-out.** Every brush, zero
+surviving CSG faces. They loaded perfectly on console — `kiln_map.c` takes the
+componentwise min/max of the plane points and is indifferent to both winding and
+closure — and produced no geometry at all through Blender. `./dev map-validate`
+failed on all six and said only `DEGENERATE`, naming neither the cause nor a
+remedy. It now distinguishes *inside-out winding* from *not a closed volume*
+from *a duplicated plane*, and `./dev map-canon` repairs each. `assets/hangar.map`
+was the third kind: five of its six brushes were not closed volumes at all,
+carrying a duplicated plane and no bounding pair on one axis.
+
+`assets/quake_test.map` is deliberately NOT canonicalised — it passes, and it
+is the file that still exercises the one-unit-apart plane-point convention, so
+it is the only place the parser's indifference to that convention is tested.
+(Its AABB *did* move from `-64..65` to `-64..64`, but by fixing `kiln_map.c`'s
+reduction rather than by rewriting the file — see the hard-won facts.)
+
+## The headless level loop (tools/mapmaker/, tools/maprender/)
+
+An agent — or a script, or a test — can now author, check and SEE a level with
+no browser, no emulator and no compositor:
+
+```
+./dev map-emit  spec.json out.map     # JSON in, .map out, self-validating
+./dev map-dump  level.map             # .map in, JSON out
+./dev map-validate level.map --json   # counts, CSG, epairs, machine-readable
+./dev map-render level.map out.png    # the real engine, to a PNG
+```
+
+`tools/mapmaker/mapfmt.py` is the Python twin of `src/mapio.js` and
+`mapmaker-roundtrip.nix` holds the two byte-identical, so there is one dialect
+rather than two that resemble each other.
+
+**`map-render` is not a second renderer**, and that is the whole design.
+`nix/checks/kiln-map-check.c` already loaded an arbitrary `.map` through the real
+`kiln_map.c` and drew it; it just had `quake_test.map`-specific assertions welded
+into the same file. The scene, the frame and the capture moved to
+`tools/maprender/map_render.c`, which the check and the tool both compile, and
+`nix/checks/kiln-maprender.nix` holds them to **the same reference image**. If
+either `main()` starts drawing, that check goes red. A flag on a shared body
+would have left the framing shared only by accident — and `tools/uipreview`
+drawing its own rectangles is exactly how `kiln-widget` came to exist.
+
 ## The gates (nix/faust.nix, nix/checks/)
 
 Verified to fire in both directions — a clean voice passes, a voice using
@@ -1375,7 +1480,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (88 checks, 24 implementations)
+### The full check list (90 checks, 26 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1493,6 +1598,21 @@ worth knowing by name:
   first run caught a texture-name regex that matched `(` instead of the texture,
   so every brush re-imported as block type 1 — a level round-tripping back as one
   material.
+- **`level-vocab`** holds the level vocabulary to one statement, and — this is
+  the half a diff cannot do — asserts the winding *means* what its table says
+  (`cross(p3-p1, p2-p1)` on the declared axis with the declared sign), that all
+  four emitters write one brush byte for byte, that every classname an example
+  registers is in the schema, and that `kiln_map.c` did not re-hardcode its
+  limits. Verified firing in both directions: swap two corners of `-X` and B1
+  reports the wrong sign while B2 reports 1 surviving CSG face instead of 6.
+- **`kiln-maprender`** runs `./dev map-render`'s own binary over
+  `quake_test.map` and compares it to **`refs/kiln-map.png`** — the same
+  reference `kiln-map` uses, never a second one. It is what makes "the tool and
+  the gate draw the same frame" a fact rather than a convention.
+- **`blender-tests`** now includes `test_quake_map.py`, so the brush CSG that
+  every `.map` consumer depends on is gated directly rather than incidentally
+  through two round-trip checks. Its floor went 3 → 4; a stale floor is a
+  loosened guard.
 - **`kiln-logic`** compiles `kiln_clip`, `kiln_dict`, `kiln_cache`, `kiln_lod`,
   `kiln_rng` and `kiln_voxel` **natively at `-Werror`** against `nix/checks/stub/` and asserts on
   them. Put a new module's pure logic here. On its first run it found two real

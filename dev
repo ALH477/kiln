@@ -44,15 +44,27 @@ usage() {
   faust [target]           show a voice's gate output + cycle budget
   bake  [target]           show baked VADPCM assets + reference render
   check                    nix flake check (the pre-push gate)
-  cheap                    blender-tests + kiln-logic + kiln-gui (no ROMs)
+  cheap                    the fast host gates: geometry, logic, gui, the
+                           level vocabulary and the .map path (no ROMs)
   doctor                   toolchain, libdragon, cart presence, versions
   mapmaker                 three.js .map editor on :8000
-  map-validate <file.map>  round-trip through quake_map.py
+  map-validate <file.map>  round-trip through quake_map.py (+ --json)
+  map-emit <spec.json> [out.map]
+                           author a level from JSON, no browser needed
+  map-dump <file.map> [out.json]
+                           read a level as JSON (round-trips with map-emit)
+  map-canon <file.map>     repair inside-out brush winding in place
+  map-render <file.map> [out.png]
+                           draw a level to a PNG — no ROM, no emulator
+  mcp [--build]            the tools/blender-mcp server (agents use .mcp.json)
   poser / poser-stage / poser-verify
                            three.js animation editor on :8001
 
   Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
   is the transport in BOTH directions, because an ED64 Plus has no USB:
+  Jump ROMs boot Forge straight into one mode, which is how a mode reached
+  only by a chord gets verified with no controller: nix build .#forge-<mode>
+  for geo, walk, paint, ent, light, cam — then ./dev shot forge-cam out.png
   forge-card [mount]       print where the card is mounted (or fail loudly)
   forge-push <file.map> [mount]
                            convert a .map to Forge's working format on the card,
@@ -82,7 +94,15 @@ case "${1:-help}" in help | -h | --help) usage; exit 0 ;; esac
 # pc, web and arch are host-tier commands: they build nothing for the N64 and
 # have no business pulling in a mips64-elf toolchain to run a program on this
 # machine. Everything they need is inside the derivation nix builds for them.
-case "${1:-}" in pc | web | arch) DEV_IN_NIX=1 ;; esac
+case "${1:-}" in
+  pc | web | arch) DEV_IN_NIX=1 ;;
+  # The .map tools are python3 and a host binary; none of them builds
+  # anything for the N64, so pulling in a mips64-elf toolchain just to
+  # reach a `nix run` is pure latency. map-validate used to do exactly
+  # that.
+  map-validate | map-emit | map-dump | map-canon | map-render | mcp)
+    DEV_IN_NIX=1 ;;
+esac
 
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
 if [ "${DEV_IN_NIX:-}" != 1 ] && ! have_toolchain; then
@@ -459,7 +479,12 @@ PY
     nix build --print-out-paths \
       ".#checks.${SYS}.blender-tests" \
       ".#checks.${SYS}.kiln-logic" \
-      ".#checks.${SYS}.kiln-gui"
+      ".#checks.${SYS}.kiln-gui" \
+      ".#checks.${SYS}.level-vocab" \
+      ".#checks.${SYS}.mapmaker-roundtrip" \
+      ".#checks.${SYS}.forge-roundtrip" \
+      ".#checks.${SYS}.kiln-map" \
+      ".#checks.${SYS}.kiln-maprender"
     ;;
 
   check)
@@ -469,6 +494,9 @@ PY
   mapmaker)
     # Launch the three.js .map maker (tools/mapmaker/) on http://localhost:8000.
     # Dev-only — outside the hermetic build, same split as tools/blender-mcp/.
+    echo "dev: map maker on http://localhost:8000  (ctrl-c to stop)"
+    echo "     export with the button; then ./dev map-validate <file.map>"
+    echo "     no browser? ./dev map-emit authors the same format from JSON."
     nix run .#mapmaker
     ;;
 
@@ -488,8 +516,60 @@ PY
   map-validate)
     # Round-trip a .map through quake_map.py's pure-Python CSG + report counts
     # vs. the engine's limits. Run after exporting from the map maker.
-    shift
     nix run .#map-validate -- "$@"
+    ;;
+
+  map-emit)
+    # Author a level from a JSON spec. `./dev map-emit - out.map` reads stdin.
+    # Self-validating: it will not write a .map that map-validate would reject.
+    nix run .#mapgen -- emit "$@"
+    ;;
+
+  map-dump)
+    # Read a level as JSON — the same shape map-emit takes, so dump | edit |
+    # emit is a round trip.
+    nix run .#mapgen -- dump "$@"
+    ;;
+
+  mcp)
+    # tools/blender-mcp/'s MCP server. Agents reach it through .mcp.json at the
+    # repo root, which runs `nix run .#blender-mcp` DIRECTLY and never through
+    # this script: dev auto-execs `nix develop`, whose shellHook echoes a banner
+    # to stdout, and stdout is the JSON-RPC channel. That corrupts the stream
+    # before the first initialize reply, and presents as a generic "server
+    # failed to connect" with nothing to diagnose.
+    #
+    # --build pre-warms the closure. A cold python3.withPackages [mcp] build can
+    # outrun the client's startup timeout, which looks like the same failure.
+    if [ "${1:-}" = "--build" ]; then
+      # blender-mcp is an APP, not a package, so there is no derivation to
+      # `nix build`. Running it with stdin already at EOF builds the closure
+      # and then exits immediately, which is the warm-up we want.
+      echo "dev: warming the blender-mcp closure..." >&2
+      nix run .#blender-mcp </dev/null >/dev/null 2>&1
+      echo "dev: blender-mcp closure is warm"
+      exit 0
+    fi
+    echo "dev: running the MCP server on stdio (ctrl-c to stop)." >&2
+    echo "     agents reach it via .mcp.json; this is for smoke-testing." >&2
+    nix run .#blender-mcp
+    ;;
+
+  map-render)
+    # Draw a level with the real engine and the real kiln_map.c, to a PNG, with
+    # no ROM and no compositor. `./dev shot` needs Ares on a live Hyprland
+    # session; this needs nothing. Prints the same pixel statistics ./dev shot
+    # does, from the same code, so a host render and a console capture read
+    # alike — and trust those numbers, not your eyes (see CLAUDE.md).
+    nix run .#map-render -- "$@"
+    ;;
+
+  map-canon)
+    # Repair a .map's brush winding in place. A brush wound inward loads fine
+    # on console (kiln_map.c only takes min/max of the plane points) and yields
+    # ZERO geometry through quake_map.py's CSG, so this failure is invisible
+    # exactly where people look. Reports which reduction each brush needed.
+    nix run .#mapgen -- canon "$@"
     ;;
 
   forge-card)
@@ -513,8 +593,13 @@ PY
     # not stop the push; read them.
     python3 "$REPO/tools/forge/frg.py" frommap "$src" "$card/FORGE/LEVEL.FRG"
     echo "pushed $src -> $card/FORGE/LEVEL.FRG"
-    echo "put forge.z64 on the card too if it is not already there:"
-    echo "  nix build .#forge && cp -L result/forge.z64 \"$card/\""
+    # forge_find_card already looks for forge.z64 as a card marker, so printing
+    # "put the ROM on too" unconditionally was advice the script could see was
+    # unnecessary.
+    if [ ! -f "$card/forge.z64" ] && [ ! -f "$card/FORGE.Z64" ]; then
+      echo "the card has no forge.z64 yet:"
+      echo "  nix build .#forge && cp -L result/forge.z64 \"$card/\""
+    fi
     ;;
 
   forge-pull)
@@ -527,6 +612,20 @@ PY
     card="$(forge_find_card "${1:-}")" || exit 1
     name="${2:-forge_level}"
     dir="$card/FORGE"
+
+    # This writes four files into assets/ and used to do it silently. The
+    # default name is shared by every pull, so a second session with no
+    # explicit name overwrote the first without a word. Say so; --force skips.
+    if [ "${FORGE_PULL_FORCE:-}" != 1 ]; then
+      for ext in frg map; do
+        if [ -e "$REPO/assets/$name.$ext" ]; then
+          echo "dev: assets/$name.$ext already exists and will be overwritten." >&2
+          echo "     Pass a name:  ./dev forge-pull \"$card\" my_level" >&2
+          echo "     Or force it:  FORGE_PULL_FORCE=1 ./dev forge-pull ..." >&2
+          exit 1
+        fi
+      done
+    fi
     [ -d "$dir" ] || { echo "dev: no FORGE/ on $card — has the ROM saved yet?" >&2; exit 1; }
 
     echo "── on the card ──"
@@ -548,12 +647,14 @@ PY
     if [ -f "$dir/LEVEL.MAP" ]; then
       cp "$dir/LEVEL.MAP" "$REPO/assets/$name.map"
       echo "map: taken from the ROM's own emit"
-      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" /tmp/forge_check.map
-      if diff -q /tmp/forge_check.map "$REPO/assets/$name.map" >/dev/null 2>&1; then
+      check_map="$(mktemp -t forge_check.XXXXXX.map)"
+      trap 'rm -f "$check_map"' EXIT
+      python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" "$check_map"
+      if diff -q "$check_map" "$REPO/assets/$name.map" >/dev/null 2>&1; then
         echo "map: ROM emit and host mirror agree byte for byte"
       else
         echo "map: NOTE the ROM's emit differs from the host mirror" >&2
-        diff -u /tmp/forge_check.map "$REPO/assets/$name.map" | head -20 >&2 || true
+        diff -u "$check_map" "$REPO/assets/$name.map" | head -20 >&2 || true
       fi
     else
       python3 "$REPO/tools/forge/frg.py" tomap "$REPO/assets/$name.frg" "$REPO/assets/$name.map"
