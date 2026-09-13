@@ -420,14 +420,10 @@ out. The summary, so it's in one place:
 
 Verified: `nix build .#camera-skel-demo` links clean (300 KB text, matching
 the other actor-system demos' size class) and passes the `audioRate = 32000`
-check. `./dev shot camera-skel-demo` was attempted but the capture is not
-trustworthy in this sandbox — Ares maps a window (correct geometry, correct
-PID, all of `tools/n64-shot.sh`'s own sanity checks pass) but its surface
-never actually composites here, so the "capture" is whatever desktop window
-sits behind it rather than the emulator. That is a property of this
-particular desktop/Vulkan environment, not of the ROM or the script; treat
-`nix build` + the gates as the verification for this ROM until it's run on
-a desktop where Ares' Vulkan surface actually presents.
+check. It now captures correctly in Ares (the earlier "surface never
+composites" note is obsolete): the goblin walks a `kiln_prim` courtyard
+blending Idle and Walk by distance covered, and the hand-built 2-bone rig
+above lives on as the `camera-skel-demo-rig` jump ROM.
 
 ## Phase C — runtime asset streaming (engine/src/kiln/kiln_asset.*, examples/streamdb-demo)
 
@@ -1087,8 +1083,9 @@ keydown/keyup, 608 frames pushed in ~10 s, zero page errors.
 console's binding constraint, no host analogue — a PC run is never evidence
 that content is affordable); skinned or animated characters (`t3d_skeleton_*`
 and `t3d_anim_*` all abort); near-plane clipping (`host_t3d.c` drops a
-triangle straddling the eye); `rdpq_sprite_upload` / `rdpq_texture_rectangle`;
-and XM/YM tracker playback, which stays bookkeeping. Those are gaps in
+triangle straddling the eye); models built with asset compression (the
+`.t3dm` reader wants raw `T3M` bytes, so a `pc-*` build ships `compress = 0`
+models); and XM/YM tracker playback, which stays bookkeeping. Those are gaps in
 `plat/host`, not in the launcher, and each one fails loudly rather than
 quietly.
 
@@ -1263,6 +1260,33 @@ is ever going into a golden-image test.
   silent on hardware — TMEM occupancy, the 70-vertex cache, matrix depth — so
   the direction of travel is a host build that is *stricter* than the console,
   not laxer.
+- **The host lit everything from the wrong side for months, and the docs
+  agreed with it.** `host_t3d.c` shaded with `-dot(normal, dir)`; Tiny3D's
+  `rsp_tiny3d.rspl` computes `+dot`, so a light direction points **toward**
+  the light (overhead is +y, the engine default `(1,1,1)`). The n64-modeling
+  skill said "the direction light travels", the host rendered that rule
+  correctly, and content tuned on the host came out with every floor and box
+  top at bare ambient on console — read for a long time as "the console is
+  darker". Only an Ares A/B settled it. `kiln-prim` samples a floor pixel
+  under `kiln_prim_stage` so the sign cannot flip back unnoticed.
+- **A nested matrix push was multiplied child * parent on the host.**
+  `mat_mul` indexed column-major `fm_mat4_t` data row-major, computing `b*a`;
+  the ucode's push is `previous * new`. A single push cannot tell. `kiln-prim`
+  draws a box offset under a parent turned 180 degrees and samples both
+  candidate positions.
+- **`kiln_fpscam` was mirrored on console too.** Tiny3D's look-at builds
+  screen-right as forward × up, so an eye looking down +Z has screen-right at
+  −X; `kiln_fpscam` called +X right and turned left on C-right. `kiln-fpscam`
+  asks the look-at matrix where screen-right is at four headings.
+- **A `rom:/` load before `dfs_init(DFS_DEFAULT_LOCATION)` asserts on console**
+  ("File not found") and used to succeed on the host, whose directory is
+  always there. Two demos shipped that way. `dfs_open` on the host now
+  asserts the same way.
+- **`kiln_actor_draw_all` already pushes `actor->xform`.** A draw callback
+  that pushes it again squares the scale and doubles the offset.
+- **An f3d_inject material built with the default `fog=False` turns the RSP's
+  fog off for everything drawn after it**, not just that model. Build scene
+  models with `fog=true`.
 
 Each cost real build time to discover. `nix/toolchain.nix` documents them inline.
 
