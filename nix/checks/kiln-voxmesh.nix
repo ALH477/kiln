@@ -95,7 +95,39 @@ target.mkCheck {
     # here still matches while the editor silently goes back to grey. That is
     # the same shape as the drift this check was written to expose, one level
     # up, so assert the caller as well as the callee.
-    if ! grep -q 'rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)'          ${forgeSrc}/forge_geo.c; then
+    # A bare grep for the call text passed with the call commented out, moved
+    # into a function forge_geo_draw never calls, or called only after the
+    # chunk loop. So: strip C comments, look inside ONE function's body, and
+    # require (a) the call as live code in begin_voxel_state and (b)
+    # forge_geo_draw calling begin_voxel_state before any kiln_voxmesh_draw.
+    fn_body() {
+      awk -v fn="$1" '
+        index($0, fn) == 1 { infn = 1 }
+        infn {
+          line = $0; out = ""
+          while (length(line) > 0) {
+            if (inc) { p = index(line, "*/"); if (p == 0) { line = ""; break }
+                       line = substr(line, p + 2); inc = 0; continue }
+            p = index(line, "/*"); q = index(line, "//")
+            if (q > 0 && (p == 0 || q < p)) { out = out substr(line, 1, q - 1); line = ""; break }
+            if (p > 0) { out = out substr(line, 1, p - 1); line = substr(line, p + 2); inc = 1; continue }
+            out = out line; line = ""
+          }
+          print out
+          if ($0 ~ /^}/) exit
+        }' ${forgeSrc}/forge_geo.c
+    }
+    combiner_live() {
+      fn_body 'static void begin_voxel_state(' |
+        grep -Eq '^[[:space:]]*rdpq_mode_combiner\(RDPQ_COMBINER_TEX_SHADE\);'
+    }
+    state_before_draw() {
+      fn_body 'void forge_geo_draw(' | awk '
+        /begin_voxel_state\(/ && !b { b = NR }
+        /kiln_voxmesh_draw\(/ && !d { d = NR }
+        END { exit !(b && d && b < d) }'
+    }
+    if ! combiner_live || ! state_before_draw; then
       echo ""
       echo "FAILED: Forge/src/forge_geo.c no longer sets a TEX combiner."
       echo "  kiln_voxmesh puts the block type ONLY in the UVs, so without it"
