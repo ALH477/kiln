@@ -263,6 +263,20 @@ def build_f3d_mat(preset, tex=None, size=32, mode="opaque", filt="bilerp",
             mat[f"{key}_color"] = list(value)
 
     if useRef:
+        # Tiny3D reads a texReference of 0 as "no texture" (t3dmodel.c), and
+        # rdpq's lookup slots are 1..15, so 0 or anything past 15 names nothing.
+        try:
+            ref = int(str(refAddress), 0)
+        except ValueError:
+            raise SystemExit(f"f3d_inject: refAddress {refAddress!r} is not a number")
+        if not 1 <= ref <= 15:
+            raise SystemExit(f"f3d_inject: refAddress {refAddress!r} must be 1..15; "
+                             f"0 is Tiny3D's 'no texture'")
+        # gltf_to_t3d bakes the UVs against the reference size (parser.cpp),
+        # so a missing one converts cleanly and samples the wrong texels.
+        if not refSize:
+            raise SystemExit("f3d_inject: useRef=1 needs refSize=W:H, the size of the "
+                             "surface the game uploads — the UVs are baked against it")
         tex0 = {
             "use_tex_reference": 1,
             "tex_reference": refAddress,
@@ -340,6 +354,17 @@ def main(argv):
                          f"gltf_to_t3d would skip every mesh in it")
 
     default = specs.get("*")
+    refs = {}
+    for name, spec in specs.items():
+        if spec.get("useRef"):
+            refs.setdefault(str(spec.get("refAddress", "0x01")), []).append(name)
+    for ref, names in refs.items():
+        if len(names) > 1:
+            # Tiny3D hashes a reference material by its number, so a second
+            # material with the same number is not re-uploaded: it shows
+            # whatever the first one uploaded. Sometimes that is the point.
+            print(f"f3d_inject: warning: materials {names} share texture reference {ref}; "
+                  f"they will show one image", file=sys.stderr)
     touched, skipped = [], []
     for mat in materials:
         name = mat.get("name")

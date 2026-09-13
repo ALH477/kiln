@@ -51,6 +51,11 @@ typedef struct {
     uint8_t  fogMode;
     char    *texPathA;
     char    *texPathB;
+    /* The one field of Tiny3D's T3DMaterialTexture the engine reads:
+     * kiln_texanim matches a texture-reference material by it. The host reader
+     * leaves it 0, which Tiny3D also reads as "not a reference", and the host
+     * draw never calls a dynTextureCb anyway. */
+    struct { uint32_t texReference; } textureA;
 } T3DMaterial;
 
 typedef struct {

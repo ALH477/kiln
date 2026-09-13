@@ -11,68 +11,68 @@
 typedef struct {
     KilnTexAnim *anims;
     int count;
+    int tlut;    /* a PALETTE upload turned TLUT sampling on */
 } TexAnimCtx;
 
-/* ── Tile callback: scroll + palette ──────────────────────────────────── */
+/* ── Tile callback: scroll ───────────────────────────────────────────── */
 
 static void tile_cb(void *userData, rdpq_texparms_t *tileParams,
                     rdpq_tile_t tile)
 {
-    /* The material name is not available in the tile callback signature;
-     * we apply scroll/palette to all tiles. A multi-material model with
-     * per-material scroll would need the filterCb or a name match via the
-     * material pointer. For the common case (one animated material per
-     * model), this is correct and simple. */
+    /* No material here, so a scroll applies to every textured material the
+     * model draws — right for the one-textured-material models that use it. */
     TexAnimCtx *ctx = (TexAnimCtx *)userData;
     (void)tile;
 
     for (int i = 0; i < ctx->count; i++) {
-        KilnTexAnim *a = &ctx->anims[i];
+        const KilnTexAnim *a = &ctx->anims[i];
         if (a->mode == KILN_TEXANIM_SCROLL) {
             tileParams->s.translate = a->scroll.s_offset;
             tileParams->t.translate = a->scroll.t_offset;
         }
-        if (a->mode == KILN_TEXANIM_PALETTE) {
-            int frame = (int)(a->palette.time * a->palette.fps) %
-                        a->palette.pal_count;
-            if (frame < 0) frame += a->palette.pal_count;
-            rdpq_tex_upload_tlut(a->palette.palettes[frame], 0,
-                                 a->palette.colors_per);
-        }
     }
 }
 
-/* ── Dynamic texture callback: flipbook + offscreen ───────────────────── */
+/* ── Dynamic texture callback: flipbook, palette, offscreen ───────────── */
+
+static int frame_of(float time, float fps, int count)
+{
+    int f = (int)(time * fps) % count;
+    return f < 0 ? f + count : f;
+}
 
 static void dyn_tex_cb(void *userData, const T3DMaterial *material,
                        rdpq_texparms_t *tileParams, rdpq_tile_t tile)
 {
-    /* `material` IS available here, unlike in tile_cb, and is deliberately
-     * unused: every registered animation is applied to every material, which
-     * is right for the one-animated-material-per-model case every consumer in
-     * this repo has. A per-material path would match material->name against
-     * KilnTexAnim.material_name — a `find_anim` doing exactly that used to sit
-     * above, unreferenced, and native -Werror is what pointed it out. If that
-     * path is ever wanted, write it here where the pointer is, rather than
-     * above where it was not reachable. */
-    (void)material;
-    (void)tileParams;
-    (void)tile;
-
+    /* Called INSTEAD of Tiny3D's upload for a texture-reference material, so
+     * whatever matches uploads here or the material draws untextured. */
     TexAnimCtx *ctx = (TexAnimCtx *)userData;
+    const uint32_t ref = material->textureA.texReference;
+
     for (int i = 0; i < ctx->count; i++) {
         KilnTexAnim *a = &ctx->anims[i];
-        if (a->mode == KILN_TEXANIM_FLIPBOOK) {
-            int frame = (int)(a->flipbook.time * a->flipbook.fps) %
-                        a->flipbook.frame_count;
-            if (frame < 0) frame += a->flipbook.frame_count;
-            rdpq_set_lookup_address(a->ref_id,
-                                    a->flipbook.frames[frame]->data);
+        if (a->mode == KILN_TEXANIM_SCROLL || a->ref_id != ref) continue;
+
+        switch (a->mode) {
+        case KILN_TEXANIM_FLIPBOOK: {
+            const int f = frame_of(a->flipbook.time, a->flipbook.fps, a->flipbook.frame_count);
+            surface_t s = sprite_get_pixels(a->flipbook.frames[f]);
+            rdpq_tex_upload(tile, &s, tileParams);
+            break;
         }
-        if (a->mode == KILN_TEXANIM_OFFSCREEN) {
-            if (a->offscreen.surface) {
-                rdpq_tex_upload(TILE0, a->offscreen.surface, NULL);
-            }
+        case KILN_TEXANIM_PALETTE: {
+            const int f = frame_of(a->palette.time, a->palette.fps, a->palette.pal_count);
+            rdpq_tex_upload(tile, a->palette.indices, tileParams);
+            rdpq_tex_upload_tlut(a->palette.palettes[f], 0, a->palette.colors_per);
+            rdpq_mode_tlut(TLUT_RGBA16);
+            ctx->tlut = 1;
+            break;
+        }
+        case KILN_TEXANIM_OFFSCREEN:
+            if (a->offscreen.surface) rdpq_tex_upload(tile, a->offscreen.surface, tileParams);
+            break;
+        default:
+            break;
         }
     }
 }
@@ -111,12 +111,15 @@ void kiln_texanim_draw(const T3DModel *model, KilnTexAnim *anims, int count)
 
     int has_tile = 0, has_dyn = 0;
     for (int i = 0; i < count; i++) {
-        if (anims[i].mode == KILN_TEXANIM_SCROLL ||
-            anims[i].mode == KILN_TEXANIM_PALETTE)
+        if (anims[i].mode == KILN_TEXANIM_SCROLL) {
             has_tile = 1;
-        if (anims[i].mode == KILN_TEXANIM_FLIPBOOK ||
-            anims[i].mode == KILN_TEXANIM_OFFSCREEN)
+        } else {
+            /* rdpq's lookup slots, and so f3d's reference numbers, are 1..15;
+             * 0 means "no texture" to Tiny3D. */
+            assertf(anims[i].ref_id >= 1 && anims[i].ref_id <= 15,
+                    "kiln_texanim: ref_id %d is not a texture reference (1..15)", anims[i].ref_id);
             has_dyn = 1;
+        }
     }
 
     t3d_model_draw_custom(model, (T3DModelDrawConf){
@@ -124,4 +127,6 @@ void kiln_texanim_draw(const T3DModel *model, KilnTexAnim *anims, int count)
         .tileCb = has_tile ? tile_cb : NULL,
         .dynTextureCb = has_dyn ? dyn_tex_cb : NULL,
     });
+
+    if (ctx.tlut) rdpq_mode_tlut(TLUT_NONE);
 }

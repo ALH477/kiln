@@ -11,5 +11,5 @@
 target.mkCheck {
   pname = "vanimcheck";
   sources = [ ./kiln-vanim-check.c ];
-  meta.description = "kiln_morph blends colour per channel, keeps normals, rounds once, clamps weights and alternates buffers";
+  meta.description = "kiln_morph blends colour per channel and normals between its two heaviest targets, rounds once, clamps weights and alternates buffers; kiln_deform starts from its base every frame";
 }

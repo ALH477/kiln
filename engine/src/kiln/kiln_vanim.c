@@ -99,6 +99,34 @@ void kiln_morph_destroy(KilnMorph *m)
     m->initialised = false;
 }
 
+/* t3d_vert_pack_normal's 5.6.5 fields are SIGNED, scaled by 15.5/31.5/15.5
+ * (CLAUDE.md's .t3dm traps). Unpacked, lerped, repacked. Two identical
+ * normals stay bit-identical, and two that cancel keep the first. */
+static void unpack_normal(uint16_t n, T3DVec3 *out)
+{
+    int x = (n >> 11) & 0x1F, y = (n >> 5) & 0x3F, z = n & 0x1F;
+    if (x & 0x10) x -= 32;
+    if (y & 0x20) y -= 64;
+    if (z & 0x10) z -= 32;
+    out->v[0] = (float)x / 15.5f;
+    out->v[1] = (float)y / 31.5f;
+    out->v[2] = (float)z / 15.5f;
+}
+
+static uint16_t blend_normal(uint16_t a, uint16_t b, float t)
+{
+    if (a == b) return a;
+    T3DVec3 na, nb, n;
+    unpack_normal(a, &na);
+    unpack_normal(b, &nb);
+    for (int k = 0; k < 3; k++) n.v[k] = na.v[k] + (nb.v[k] - na.v[k]) * t;
+    /* Shorter than 0.1 is two normals cancelling. Not zero, because the
+     * packing is asymmetric (+Y is 31/31.5, -Y is -32/31.5): +Y and -Y at a
+     * half each leave -0.016 of Y, which would otherwise repack as -Y. */
+    if (n.v[0] * n.v[0] + n.v[1] * n.v[1] + n.v[2] * n.v[2] < 1e-2f) return a;
+    return t3d_vert_pack_normal(&n);
+}
+
 void kiln_morph_update(KilnMorph *m, float dt)
 {
     (void)dt;
@@ -108,18 +136,29 @@ void kiln_morph_update(KilnMorph *m, float dt)
      * weights while the blend divided the raw ones, so a weight of 3 pushed
      * the shape three times past its target. */
     float sum = 0.0f;
-    int dominant = 0;
-    float best = -1.0f;
+    int dominant = 0, second = -1;
+    float best = -1.0f, next = -1.0f;
     for (int t = 0; t < m->target_count; t++) {
         const float w = clamp01(m->weights[t]);
         sum += w;
-        if (w > best) { best = w; dominant = t; }
+        if (w > best) {
+            next = best; second = dominant >= 0 && best >= 0.0f ? dominant : -1;
+            best = w; dominant = t;
+        } else if (w > next) {
+            next = w; second = t;
+        }
     }
     const int all_zero = sum < 1e-6f;   /* then the base shape, target 0 */
 
     int pc = packed_count(m->model->totalVertCount);
     T3DVertPacked *dst = &m->work_buffers[m->current_buffer * pc];
     const T3DVertPacked *dom = m->targets[all_zero ? 0 : dominant];
+    /* Normals blend between the two heaviest targets once the lighter one has
+     * a real share. Below that it is the dominant target's normal exactly, as
+     * it always was — which is also every frame of a morph that is HOLDING a
+     * shape, where re-quantising would be work for nothing. */
+    const float share = (!all_zero && second >= 0 && next > 0.0f) ? next / (best + next) : 0.0f;
+    const T3DVertPacked *sec = share >= 0.05f ? m->targets[second] : NULL;
 
     /* dst = sum(w[t] * targets[t]), accumulated in float per vertex and
      * rounded ONCE. Truncating each target's share separately lost up to one
@@ -129,11 +168,11 @@ void kiln_morph_update(KilnMorph *m, float dt)
      * per channel. It used to scale the packed word by a float, which carries
      * between channels: red + green at a half each came out (127,255,128).
      *
-     * Normals are not blended: a sum of 5.6.5 packed normals is not a normal,
-     * and renormalising per vertex per frame is not worth it for poses whose
-     * normals are close. They are taken from the most-weighted target. They
-     * used to be left at the memset's zero despite a comment promising the
-     * first target's — and a zero normal lights nothing. */
+     * Normals: a sum of 5.6.5 packed normals is not a normal, so they are
+     * unpacked, blended between the two heaviest targets, and repacked (which
+     * normalises). They used to come from the most-weighted target alone, and
+     * the lighting jumped at the 50% crossover in the middle of every morph.
+     * Before that they were left at the memset's zero — which lights nothing. */
     for (int i = 0; i < pc; i++) {
         float pa[3] = { 0 }, pb[3] = { 0 }, ca[4] = { 0 }, cb[4] = { 0 };
         float sa[2] = { 0 }, sb[2] = { 0 };
@@ -170,8 +209,8 @@ void kiln_morph_update(KilnMorph *m, float dt)
             dst[i].stA[j] = round_i16(sa[j]);
             dst[i].stB[j] = round_i16(sb[j]);
         }
-        dst[i].normA = dom[i].normA;
-        dst[i].normB = dom[i].normB;
+        dst[i].normA = sec ? blend_normal(dom[i].normA, sec[i].normA, share) : dom[i].normA;
+        dst[i].normB = sec ? blend_normal(dom[i].normB, sec[i].normB, share) : dom[i].normB;
     }
 
     data_cache_hit_writeback(dst, sizeof(T3DVertPacked) * pc);

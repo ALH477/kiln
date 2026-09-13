@@ -16,16 +16,23 @@
  *   normals    the work buffer was memset to zero and normals were never
  *              written, although the comment said "take the first target's".
  *              A zero normal lights nothing, so a morphing mesh rendered at
- *              flat ambient.
+ *              flat ambient. Then they came from the heaviest target alone,
+ *              and the lighting jumped at the 50% crossover of every morph;
+ *              now they blend between the two heaviest, and a held shape
+ *              keeps its target's normal bit for bit.
  *   rounding   each target's contribution was truncated separately, so a
  *              blend of three identical targets lost up to three units.
  *   weights    the sum was taken over CLAMPED weights but the loop divided the
  *              raw ones, so an out-of-range weight overshot the shape.
  *   ping-pong  successive updates write alternate buffers, so the RSP never
  *              reads a buffer the CPU is rewriting.
+ *   deform     kiln_deform_update starts every frame from the base copy — a
+ *              callback that ADDS a displacement must not compound — writes
+ *              alternate buffers, and never touches the base.
  */
 #include <kiln_vanim.h>
 #include <libdragon.h>
+#include <t3d/t3d.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -36,6 +43,23 @@ static int fails = 0;
 
 static int ch(uint32_t rgba, int shift) { return (int)((rgba >> shift) & 0xFF); }
 
+/* Packed unit normals, spelled out: 5.6.5 signed, x and z scaled 15.5, y 31.5. */
+#define N_PX 0x7800   /* (+1, 0, 0): x = 15            */
+#define N_PZ 0x000F   /* (0, 0, +1): z = 15            */
+#define N_PY 0x03E0   /* (0, +1, 0): y = 31            */
+#define N_NY 0x0400   /* (0, -1, 0): y = -32           */
+#define N_XZ 0x580B   /* (0.707, 0, 0.707): x = z = 11 */
+
+static int deform_calls;
+static float deform_last_time;
+static void push_x(T3DVertPacked *verts, int count, float time, void *user)
+{
+    (void)user;
+    deform_calls++;
+    deform_last_time = time;
+    for (int i = 0; i < (count + 1) / 2; i++) verts[i].posA[0] += 10;
+}
+
 int main(void)
 {
     /* Two packed entries = four vertices. */
@@ -44,12 +68,12 @@ int main(void)
 
     static T3DVertPacked red[2], green[2], blue[2], work[4];
     for (int i = 0; i < 2; i++) {
-        red[i]   = (T3DVertPacked){ .posA = { 100, 0, -40 }, .normA = 0x1234,
-                                    .posB = { 7, 7, 7 },      .normB = 0x0F0F,
+        red[i]   = (T3DVertPacked){ .posA = { 100, 0, -40 }, .normA = N_PX,
+                                    .posB = { 7, 7, 7 },      .normB = N_PY,
                                     .rgbaA = 0xFF0000FF, .rgbaB = 0xFF0000FF,
                                     .stA = { 64, 0 }, .stB = { 0, 64 } };
-        green[i] = (T3DVertPacked){ .posA = { 0, 100, -40 }, .normA = 0x4321,
-                                    .posB = { 7, 7, 7 },      .normB = 0xF0F0,
+        green[i] = (T3DVertPacked){ .posA = { 0, 100, -40 }, .normA = N_PZ,
+                                    .posB = { 7, 7, 7 },      .normB = N_NY,
                                     .rgbaA = 0x00FF00FF, .rgbaB = 0x00FF00FF,
                                     .stA = { 0, 64 }, .stB = { 64, 0 } };
         blue[i]  = (T3DVertPacked){ .posA = { 0, 0, 100 },   .normA = 0x5555,
@@ -83,8 +107,11 @@ int main(void)
     CHECK(d->normA != 0 && d->normB != 0,
           "normals are 0x%04x/0x%04x after the blend; a zero normal lights nothing",
           d->normA, d->normB);
-    CHECK(d->normA == 0x1234 || d->normA == 0x4321,
-          "normal 0x%04x is neither target's", d->normA);
+    CHECK(d->normA == N_XZ,
+          "+X and +Z at 0.5 each packs to 0x%04x, want 0x%04x (0.707, 0, 0.707)", d->normA, N_XZ);
+    CHECK(d->normB == N_PY,
+          "opposite normals cancel; the blend kept 0x%04x, want the heavier target's 0x%04x",
+          d->normB, N_PY);
     CHECK(d->stA[0] == 32 && d->stA[1] == 32, "uv blend is (%d,%d), want (32,32)",
           d->stA[0], d->stA[1]);
 
@@ -121,7 +148,46 @@ int main(void)
           "weights {3,1,0} blend to (%d,%d); clamped they are {1,1,0} -> (50,50)",
           d->posA[0], d->posA[1]);
 
+    /* ── a held shape keeps its target's normal exactly ─────────────── */
+    float held[3] = { 0.98f, 0.02f, 0.0f };
+    m.weights = held;
+    kiln_morph_update(&m, 1.0f / 60.0f);
+    d = &work[2];
+    CHECK(d->normA == N_PX,
+          "weights {0.98,0.02} give normal 0x%04x; under a 5%% share it is the dominant 0x%04x",
+          d->normA, N_PX);
+    /* and past 5% it moves off it: no jump at the crossover */
+    float leaning[3] = { 0.7f, 0.3f, 0.0f };
+    m.weights = leaning;
+    kiln_morph_update(&m, 1.0f / 60.0f);
+    d = &work[0];
+    CHECK(d->normA != N_PX && d->normA != N_PZ,
+          "weights {0.7,0.3} give normal 0x%04x, which is one target's; it should be between", d->normA);
+
+    /* ── kiln_deform ───────────────────────────────────────────────── */
+    static T3DModel dmodel;
+    dmodel.totalVertCount = 4;
+    static T3DVertPacked base[2], dwork[4];
+    base[0] = (T3DVertPacked){ .posA = { 5, 1, 2 } };
+    base[1] = (T3DVertPacked){ .posA = { -5, 1, 2 } };
+    KilnDeform df = {
+        .model = &dmodel, .fn = push_x, .work_buffers = dwork, .base_buffer = base,
+        .vert_count = 4, .buffer_count = 2, .current_buffer = 0, .segment_id = 1,
+        .initialised = true,
+    };
+    kiln_deform_update(&df, 0.25f);
+    kiln_deform_update(&df, 0.25f);
+    CHECK(dwork[0].posA[0] == 15 && dwork[2].posA[0] == 15,
+          "each frame starts from the base: buffers hold x = %d and %d, want 15 and 15 (not 25)",
+          dwork[0].posA[0], dwork[2].posA[0]);
+    CHECK(base[0].posA[0] == 5 && base[1].posA[0] == -5,
+          "the base copy was modified (x = %d, %d)", base[0].posA[0], base[1].posA[0]);
+    CHECK(deform_calls == 2 && deform_last_time == 0.5f,
+          "callback ran %d times, last with t = %.2f; want 2 and 0.50", deform_calls, (double)deform_last_time);
+    CHECK(df.current_buffer == 0, "after two updates the next buffer is %d, want 0", df.current_buffer);
+
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
-    printf("kiln_morph: per-channel colour, kept normals, exact rounding, clamped weights, alternating buffers\n");
+    printf("kiln_morph: per-channel colour, blended normals, exact rounding, clamped weights, alternating buffers\n");
+    printf("kiln_deform: starts from base each frame, alternating buffers, base untouched\n");
     return 0;
 }
