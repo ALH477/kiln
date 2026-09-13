@@ -29,6 +29,36 @@ static int g_sfx_count;
 /* Per-SFX-channel priority (for voice stealing). 0 = not playing or no priority. */
 static int g_ch_priority[MIXER_MAX_CHANNELS];
 
+/* The encoded rate of whatever each SFX channel last started playing, so a
+ * pitch can be a ratio (kiln_sfx_set_pitch) rather than an absolute Hz. */
+static float g_ch_base_freq[MIXER_MAX_CHANNELS];
+
+/* 1 when the last SFX started on this channel was stereo (so ch+1 is its
+ * secondary for as long as it plays). */
+static uint8_t g_ch_stereo[MIXER_MAX_CHANNELS];
+
+/* Is `ch` the right half of a stereo SFX that is still playing on ch-1? */
+static int is_secondary(int ch)
+{
+    return ch > 0 && g_ch_stereo[ch - 1] && mixer_ch_playing(ch - 1);
+}
+
+/* The channel that owns the voice sounding on `ch`. libdragon asserts on
+ * set_vol / set_freq / play through a secondary, so every call goes here. */
+static int owner_of(int ch)
+{
+    return is_secondary(ch) ? ch - 1 : ch;
+}
+
+/* Stop the voice covering `ch`, if any. */
+static void release_channel(int ch)
+{
+    if (!mixer_ch_playing(ch)) return;
+    const int owner = owner_of(ch);
+    mixer_ch_stop(owner);
+    g_ch_priority[owner] = 0;
+}
+
 /* Music table: XM64/YM64 players. */
 static struct {
     xm64player_t xm;
@@ -38,6 +68,10 @@ static struct {
     int num_ch;       /* channels this track occupies */
 } g_music[KILN_AUDIO_MAX_MUSIC];
 static int g_music_count;
+
+/* Output tap: see kiln_audio_set_tap. */
+static KilnAudioTap g_tap;
+static void *g_tap_ctx;
 
 /* ── Public API ─────────────────────────────────────────────────────── */
 
@@ -97,11 +131,19 @@ void kiln_audio_update(void)
      * what makes the guarantee independent of how heavy a frame gets. */
     while (audio_can_write()) {
         short *buf = audio_write_begin();
+        const int frames = audio_get_buffer_length();
         rspq_highpri_begin();
-        mixer_poll(buf, audio_get_buffer_length());
+        mixer_poll(buf, frames);
         rspq_highpri_end();
+        if (g_tap) g_tap(buf, frames, g_tap_ctx);
         audio_write_end();
     }
+}
+
+void kiln_audio_set_tap(KilnAudioTap tap, void *ctx)
+{
+    g_tap = tap;
+    g_tap_ctx = ctx;
 }
 
 void kiln_audio_close(void)
@@ -146,38 +188,63 @@ int kiln_sfx_play_ex(int sfx_handle, int channel, int priority,
     if (sfx_handle < 0 || sfx_handle >= g_sfx_count) return -1;
     if (!g_audio.initialised) return -1;
 
-    /* Auto-allocate a channel if none specified. */
+    /* A stereo wav64 occupies TWO mixer channels: it plays on `ch` and libdragon
+     * marks ch+1 its secondary, which asserts ("cannot call on secondary stereo
+     * channel") if anything is played on, pitched or volumed through it while
+     * the owner plays. So a stereo SFX needs a free PAIR, and a secondary is
+     * never a victim in its own right.
+     *
+     * This allocator used to treat every channel alike. A secondary carries
+     * priority 0 — nothing was ever played on it directly — so the first time
+     * the SFX range filled up with stereo voices, the steal picked a secondary
+     * and wav64_play asserted. examples/audio found it in Ares on the fifth
+     * note. */
+    const int span = g_sfx[sfx_handle].wave.channels == 2 ? 2 : 1;
+
+    /* Auto-allocate a channel (a pair, for stereo) if none specified. */
     if (channel < 0) {
-        /* First, look for a free channel in the SFX range. */
-        for (int ch = 0; ch < g_audio.sfx_channels; ch++) {
-            if (!mixer_ch_playing(ch)) {
+        /* A live secondary reports its owner's state through mixer_ch_playing,
+         * so "not playing" is "free" for owners and secondaries alike. */
+        for (int ch = 0; ch + span <= g_audio.sfx_channels; ch++) {
+            if (!mixer_ch_playing(ch) && (span == 1 || !mixer_ch_playing(ch + 1))) {
                 channel = ch;
                 break;
             }
         }
-        /* All busy: steal the lowest-priority channel if our priority is higher. */
+        /* All busy: steal the voice(s) with the lowest priority, if ours is
+         * higher. A pair costs the higher of the two voices it would stop. */
         if (channel < 0) {
             int victim = -1;
             int lowest_pri = priority;
-            for (int ch = 0; ch < g_audio.sfx_channels; ch++) {
-                if (g_ch_priority[ch] < lowest_pri) {
-                    lowest_pri = g_ch_priority[ch];
+            for (int ch = 0; ch + span <= g_audio.sfx_channels; ch++) {
+                if (is_secondary(ch)) continue;
+                int cost = mixer_ch_playing(ch) ? g_ch_priority[ch] : 0;
+                if (span == 2 && mixer_ch_playing(ch + 1)) {
+                    const int other = g_ch_priority[owner_of(ch + 1)];
+                    if (other > cost) cost = other;
+                }
+                if (cost < lowest_pri) {
+                    lowest_pri = cost;
                     victim = ch;
                 }
             }
-            if (victim >= 0) {
-                mixer_ch_stop(victim);
-                channel = victim;
-            }
+            channel = victim;
         }
         if (channel < 0) return -1; /* all channels busy at >= our priority */
     }
 
-    /* Clamp channel to SFX range. */
-    if (channel >= g_audio.sfx_channels) return -1;
+    /* Clamp channel (and a stereo pair's second half) to the SFX range. */
+    if (channel + span > g_audio.sfx_channels) return -1;
+
+    /* Clear the way: stop whatever voice covers either channel we need —
+     * including a stereo owner one below `channel`, whose secondary it is. */
+    release_channel(channel);
+    if (span == 2) release_channel(channel + 1);
 
     wav64_play(&g_sfx[sfx_handle], channel);
     g_ch_priority[channel] = priority;
+    g_ch_stereo[channel] = (uint8_t)(span == 2);
+    g_ch_base_freq[channel] = (float)g_sfx[sfx_handle].wave.frequency;
 
     /* Volume and pan: libdragon wants separate L/R volumes. */
     float lvol = vol * (1.0f - pan);
@@ -196,6 +263,7 @@ int kiln_sfx_playing(int channel)
 void kiln_sfx_stop(int channel)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
+    channel = owner_of(channel);
     mixer_ch_stop(channel);
     g_ch_priority[channel] = 0;
 }
@@ -205,13 +273,21 @@ void kiln_sfx_set_vol_pan(int channel, float vol, float pan)
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
     float lvol = vol * (1.0f - pan);
     float rvol = vol * pan;
-    mixer_ch_set_vol(channel, lvol, rvol);
+    mixer_ch_set_vol(owner_of(channel), lvol, rvol);
 }
 
 void kiln_sfx_set_freq(int channel, float freq)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
-    mixer_ch_set_freq(channel, freq);
+    mixer_ch_set_freq(owner_of(channel), freq);
+}
+
+void kiln_sfx_set_pitch(int channel, float ratio)
+{
+    if (channel < 0 || channel >= g_audio.sfx_channels) return;
+    channel = owner_of(channel);
+    if (ratio <= 0.0f || g_ch_base_freq[channel] <= 0.0f) return;
+    mixer_ch_set_freq(channel, g_ch_base_freq[channel] * ratio);
 }
 
 /* ── Music ──────────────────────────────────────────────────────────── */
@@ -317,9 +393,16 @@ int kiln_music_playing(int music_handle)
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     if (g_music[music_handle].is_xm < 0) return 0;
 
-    /* Check if the first channel is still playing. */
     int first = g_music[music_handle].first_ch;
     if (first < 0) return 0;
+
+    /* XM: ask the player. Asking mixer channel `first` was wrong whenever the
+     * tune's first column rests — xm64.c's per-tick sync calls mixer_ch_stop
+     * on any channel with no sample, so the track read as stopped mid-song.
+     * YM64 streams one waveform continuously and has no public playing flag,
+     * so its channel is the right question there. */
+    if (g_music[music_handle].is_xm == 1)
+        return g_music[music_handle].xm.playing ? 1 : 0;
     return mixer_ch_playing(first);
 }
 
@@ -327,6 +410,30 @@ int kiln_music_num_channels(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     return g_music[music_handle].num_ch;
+}
+
+int kiln_music_first_channel(int music_handle)
+{
+    if (music_handle < 0 || music_handle >= g_music_count) return -1;
+    if (g_music[music_handle].is_xm < 0) return -1;
+    return g_music[music_handle].first_ch;
+}
+
+void kiln_music_tell(int music_handle, int *pattern, int *row, float *secs)
+{
+    if (pattern) *pattern = -1;
+    if (row) *row = -1;
+    if (secs) *secs = 0.0f;
+    if (music_handle < 0 || music_handle >= g_music_count) return;
+    if (g_music[music_handle].is_xm != 1) return;
+    xm64player_tell(&g_music[music_handle].xm, pattern, row, secs);
+}
+
+void kiln_music_seek(int music_handle, int pattern, int row)
+{
+    if (music_handle < 0 || music_handle >= g_music_count) return;
+    if (g_music[music_handle].is_xm != 1) return;
+    xm64player_seek(&g_music[music_handle].xm, pattern, row, 0);
 }
 
 /* ── Room-based audio routing ──────────────────────────────────────── */

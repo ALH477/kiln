@@ -116,7 +116,10 @@ int kiln_sound_play(const char *name, fm_vec3_t world_pos, float pitch)
     c->pos = world_pos;
     c->pitch = pitch;
     c->active = 1;
-    if (pitch != 1.0f) kiln_sfx_set_freq(ch, pitch);
+    /* A RATIO. This passed `pitch` to kiln_sfx_set_freq, which takes Hz, so
+     * any pitch other than exactly 1 played its sample at a couple of samples
+     * per second — silence that never ended. Every caller so far passes 1. */
+    if (pitch != 1.0f) kiln_sfx_set_pitch(ch, pitch);
     apply_positional(idx);
     return ch;
 }

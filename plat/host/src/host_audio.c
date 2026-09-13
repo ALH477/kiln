@@ -38,6 +38,8 @@
 static struct {
     int   playing;
     float lvol, rvol, freq;
+    float max_freq;        /* mixer_ch_set_limits; the output rate by default */
+    int   sub;             /* CH_FLAGS_STEREO_SUB: right half of ch-1's stereo */
     const waveform_t *wave;
     double pos;            /* play cursor, in source samples */
 } g_ch[MAX_CH];
@@ -120,7 +122,9 @@ void mixer_init(int num_channels)
             "mixer_init(%d): the RSP mixer has %d channels", num_channels, MAX_CH);
     g_nch = num_channels;
     memset(g_ch, 0, sizeof g_ch);
+    for (int i = 0; i < MAX_CH; i++) g_ch[i].max_freq = (float)(g_freq > 0 ? g_freq : 32000);
 }
+
 void mixer_close(void) { g_nch = 0; }
 void mixer_set_vol(float vol) { g_master = vol; }
 
@@ -131,9 +135,34 @@ static void check_ch(int ch, const char *who)
             who, ch, g_nch);
 }
 
+/* libdragon's default limit is the output rate, and mixer_ch_set_freq ASSERTS
+ * above it (mixer.c, with a 1% rounding margin). The host did not, so a game
+ * pitching a 32 kHz sample up an octave ran here and died on the console. */
+void mixer_ch_set_limits(int ch, int max_bits, float max_frequency, int max_buf_sz)
+{
+    (void)max_bits; (void)max_buf_sz;
+    check_ch(ch, "mixer_ch_set_limits");
+    g_ch[ch].max_freq = max_frequency > 0.0f ? max_frequency
+                                             : (float)(g_freq > 0 ? g_freq : 32000);
+}
+
 void mixer_ch_play(int ch, waveform_t *wave)
 {
     check_ch(ch, "mixer_ch_play");
+    /* libdragon marks ch+1 the SECONDARY of a stereo waveform and asserts on
+     * play / set_vol / set_freq through it. The host mixes stereo on one
+     * channel and used to let all three through, so a game that played onto a
+     * secondary ran here and died on the console (kiln_audio's allocator did
+     * exactly that; see kiln-audio-check.c). */
+    assertf(!g_ch[ch].sub, "mixer_ch_play: cannot call on secondary stereo channel %d", ch);
+    if (wave && wave->channels == 2) {
+        assertf(ch != g_nch - 1, "cannot configure last channel (%d) as stereo", ch);
+        assertf(!mixer_ch_playing(ch + 1) || g_ch[ch + 1].sub,
+                "cannot play stereo waveform on channel %d because channel %d is active", ch, ch + 1);
+        g_ch[ch + 1].sub = 1;
+    } else if (ch != g_nch - 1) {
+        g_ch[ch + 1].sub = 0;
+    }
     /* Reset the playback frequency whenever the WAVEFORM changes, which is
      * what libdragon does — mixer.c calls mixer_ch_set_freq(ch,
      * wave->frequency) unconditionally inside its "configure the waveform"
@@ -148,7 +177,16 @@ void mixer_ch_play(int ch, waveform_t *wave)
      * whichever landed first. That is the pitch-and-time-drift class
      * mkN64Rom's audioRate cross-check exists to catch, arriving silently
      * through the back door. */
-    if (g_ch[ch].wave != wave && wave) g_ch[ch].freq = (float)wave->frequency;
+    /* libdragon does this through mixer_ch_set_freq, so the limit assert
+     * applies to the asset's own rate too: a 44.1 kHz wav64 on a 32 kHz
+     * output dies here on the console unless the channel's limit is raised. */
+    if (g_ch[ch].wave != wave && wave) {
+        assertf((float)wave->frequency <= g_ch[ch].max_freq * 1.01f,
+                "frequency %.1f exceeds configured limit %.1f on channel %d; use "
+                "mixer_ch_set_limit to change the limit for this channel",
+                (float)wave->frequency, g_ch[ch].max_freq, ch);
+        g_ch[ch].freq = (float)wave->frequency;
+    }
     g_ch[ch].playing = 1;
     g_ch[ch].wave = wave;
     g_ch[ch].pos = 0.0;
@@ -157,6 +195,7 @@ void mixer_ch_play(int ch, waveform_t *wave)
 void mixer_ch_set_vol(int ch, float lvol, float rvol)
 {
     check_ch(ch, "mixer_ch_set_vol");
+    assertf(!g_ch[ch].sub, "mixer_ch_set_vol: cannot call on secondary stereo channel %d", ch);
     g_ch[ch].lvol = lvol; g_ch[ch].rvol = rvol;
 }
 void mixer_ch_set_vol_pan(int ch, float vol, float pan)
@@ -165,24 +204,57 @@ void mixer_ch_set_vol_pan(int ch, float vol, float pan)
      * computes pan from the listener basis, so getting this backwards would
      * put every positional sound on the wrong side. */
     check_ch(ch, "mixer_ch_set_vol_pan");
+    assertf(!g_ch[ch].sub, "mixer_ch_set_vol: cannot call on secondary stereo channel %d", ch);
     g_ch[ch].lvol = vol * (1.0f - pan);
     g_ch[ch].rvol = vol * pan;
 }
 void mixer_ch_set_freq(int ch, float frequency)
 {
     check_ch(ch, "mixer_ch_set_freq");
+    assertf(!g_ch[ch].sub, "cannot call on secondary stereo channel %d", ch);
+    assertf(frequency >= 0, "cannot set negative frequency on channel %d: %f", ch, frequency);
+    assertf(frequency <= g_ch[ch].max_freq * 1.01f,
+            "frequency %.1f exceeds configured limit %.1f on channel %d; use "
+            "mixer_ch_set_limit to change the limit for this channel",
+            frequency, g_ch[ch].max_freq, ch);
     g_ch[ch].freq = frequency;
 }
 void mixer_ch_stop(int ch)
 {
     check_ch(ch, "mixer_ch_stop");
+    /* Stopping a stereo owner releases its secondary (mixer.c does the same). */
+    if (g_ch[ch].playing && g_ch[ch].wave && g_ch[ch].wave->channels == 2 && ch + 1 < MAX_CH)
+        g_ch[ch + 1].sub = 0;
     g_ch[ch].playing = 0;
     g_ch[ch].wave = NULL;
     g_c.ch_stops++;
 }
+/* Position in source samples, which is what the host cursor already counts.
+ * Both assert on a secondary, as mixer.c does. */
+void mixer_ch_set_pos(int ch, double pos)
+{
+    check_ch(ch, "mixer_ch_set_pos");
+    assertf(!g_ch[ch].sub, "mixer_ch_set_pos: cannot call on secondary stereo channel %d", ch);
+    g_ch[ch].pos = pos;
+}
+double mixer_ch_get_pos(int ch)
+{
+    check_ch(ch, "mixer_ch_get_pos");
+    assertf(!g_ch[ch].sub, "mixer_ch_get_pos: cannot call on secondary stereo channel %d", ch);
+    return g_ch[ch].pos;
+}
+waveform_t *mixer_ch_playing_waveform(int ch)
+{
+    if (ch < 0 || ch >= g_nch) return NULL;
+    if (g_ch[ch].sub && ch > 0) ch--;
+    return g_ch[ch].playing ? (waveform_t *)g_ch[ch].wave : NULL;
+}
+
 bool mixer_ch_playing(int ch)
 {
     if (ch < 0 || ch >= g_nch) return false;
+    /* A secondary answers for its owner, as mixer_ch_playing_waveform does. */
+    if (g_ch[ch].sub && ch > 0) return g_ch[ch - 1].playing != 0;
     return g_ch[ch].playing != 0;
 }
 
@@ -248,6 +320,9 @@ void mixer_poll(int16_t *out, int nsamples)
                     g_ch[c].pos = start + fmod(g_ch[c].pos - w->samples, (double)w->loop_len);
                     idx = (long)g_ch[c].pos;
                 } else {
+                    /* A one-shot's end is a mixer_ch_stop on the console
+                     * (mixer_update_loops), which releases a secondary. */
+                    if (w->channels == 2 && c + 1 < MAX_CH) g_ch[c + 1].sub = 0;
                     g_ch[c].playing = 0;
                     g_ch[c].wave = NULL;
                     break;
@@ -363,6 +438,20 @@ void xm64player_close(xm64player_t *p) { if (p) memset(p, 0, sizeof *p); }
 void xm64player_set_loop(xm64player_t *p, bool loop) { if (p) p->loop = loop; }
 void xm64player_set_vol(xm64player_t *p, float volume) { if (p) p->vol = volume; }
 int  xm64player_num_channels(xm64player_t *p) { return p ? p->channels : 0; }
+/* No notes are played, so there is no cursor to move: the host reports the
+ * start of the tune, which is what a real player reports before its first
+ * tick, and accepts a seek without pretending it went anywhere. */
+void xm64player_tell(xm64player_t *p, int *patidx, int *row, float *secs)
+{
+    (void)p;
+    if (patidx) *patidx = 0;
+    if (row) *row = 0;
+    if (secs) *secs = 0.0f;
+}
+void xm64player_seek(xm64player_t *p, int patidx, int row, int tick)
+{
+    (void)p; (void)patidx; (void)row; (void)tick;
+}
 
 void ym64player_open(ym64player_t *p, const char *fn, ym64player_songinfo_t *info)
 {

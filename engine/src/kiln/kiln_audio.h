@@ -84,7 +84,13 @@ int kiln_sfx_load(const char *dfs_path);
 /** Play a loaded SFX. If `channel` < 0, auto-allocates from the SFX
  *  channel range, stealing the lowest-priority playing channel if all
  *  are busy. `priority` is used only for voice stealing (0 = never steal).
- *  Returns the channel used, or -1 if no channel was available. */
+ *  Returns the channel used, or -1 if no channel was available.
+ *
+ *  A STEREO wav64 occupies two channels, the returned one and the next, as
+ *  libdragon's mixer requires; the allocator finds (or steals) a pair, and
+ *  every kiln_sfx_* call made through the second half is routed to the first.
+ *  Bake mono (`mono = true` in mkSound / mkBakedInstrument) when the two sides
+ *  are the same signal — it halves the channels and the ROM bytes. */
 int kiln_sfx_play(int sfx_handle, int channel, int priority);
 
 /** Play a loaded SFX with stereo volume and pan.
@@ -102,8 +108,19 @@ void kiln_sfx_stop(int channel);
 /** Set a channel's volume and pan. */
 void kiln_sfx_set_vol_pan(int channel, float vol, float pan);
 
-/** Set a channel's playback frequency (pitch shift). */
+/** Set a channel's playback frequency in Hz (samples per second of source).
+ *  This is ABSOLUTE: 1.0 means one sample a second, not "unchanged". */
 void kiln_sfx_set_freq(int channel, float freq);
+
+/** Pitch a playing SFX by a ratio of the rate its wav64 was encoded at: 1.0 is
+ *  unchanged, 2.0 an octave up. Call after kiln_sfx_play*, which resets pitch.
+ *
+ *  libdragon's mixer ASSERTS when a channel's frequency exceeds its limit, and
+ *  the default limit is the output rate — so an octave up on a 32 kHz asset at
+ *  32 kHz output needs `mixer_ch_set_limits(ch, 16, 64000, 0)` first. Raising
+ *  it grows that channel's sample buffer, which is why this layer does not do
+ *  it for every channel on your behalf. */
+void kiln_sfx_set_pitch(int channel, float ratio);
 
 /* ── Music (XM64/YM64) ──────────────────────────────────────────────── */
 
@@ -124,11 +141,41 @@ void kiln_music_set_volume(int music_handle, float vol);
 /** Set whether a music track loops. */
 void kiln_music_set_loop(int music_handle, int loop);
 
-/** Is a music track playing? */
+/** Is a music track playing?
+ *
+ *  For XM64 this is the PLAYER's state, not a mixer channel's. It used to ask
+ *  whether the track's first mixer channel was playing, and libxm stops a
+ *  channel on every tick that channel has no sample (xm64.c's sync loop), so a
+ *  tune whose first column rests read as stopped for the length of the rest. */
 int kiln_music_playing(int music_handle);
 
 /** Number of channels a music track uses. */
 int kiln_music_num_channels(int music_handle);
+
+/** First mixer channel a playing track occupies, or -1 when it is not playing.
+ *  For a visualiser reading mixer_ch_playing / mixer_ch_get_pos per channel. */
+int kiln_music_first_channel(int music_handle);
+
+/** Where an XM64 track is: pattern index, row, and seconds played. Any output
+ *  may be NULL. A YM64 track reports -1 for pattern and row. */
+void kiln_music_tell(int music_handle, int *pattern, int *row, float *secs);
+
+/** Move an XM64 track's cursor (libdragon's xm64player_seek: effects active at
+ *  that point are NOT reconstructed). kiln_music_play resumes from the cursor,
+ *  so stop + seek(0, 0) + play is a restart and stop + play is a resume. */
+void kiln_music_seek(int music_handle, int pattern, int row);
+
+/* ── Output tap ─────────────────────────────────────────────────────── */
+
+/** Called by kiln_audio_update with every buffer it mixes, after mixer_poll
+ *  returns (mixer_poll is synchronous) and before the buffer is handed to the
+ *  AI: `samples` is `frames` interleaved stereo pairs. READ-ONLY by contract —
+ *  it is the buffer the speaker gets. For meters and oscilloscopes that show
+ *  what was actually mixed rather than a model of it. */
+typedef void (*KilnAudioTap)(const int16_t *samples, int frames, void *ctx);
+
+/** Install (or with NULL, remove) the output tap. One at a time. */
+void kiln_audio_set_tap(KilnAudioTap tap, void *ctx);
 
 /* ── Room-based audio routing ───────────────────────────────────────── */
 

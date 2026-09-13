@@ -1812,6 +1812,17 @@
             inherit pkgs;
             renderer = faust.mkOfflineRenderer { name = "ksvoice"; src = ./dsp/ks.dsp; };
           };
+          # kiln_music_playing follows the player; kiln_audio's output tap.
+          kiln-audio = import ./nix/checks/kiln-audio.nix {
+            inherit pkgs; target = hostNative; sound = demoSound;
+            # A stereo wav64 (every committed .wav is mono): ks.dsp's two
+            # outputs, baked without `mono`, short.
+            stereo = faust.mkBakedInstrument {
+              name = "ksstereo"; src = ./dsp/ks.dsp; sampleRate = 32000; duration = 0.5;
+              params = { freq = 220; gain = 0.25; };
+              gate = { param = "gate"; on = 0.0; off = 0.02; };
+            };
+          };
           # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
           # examples/cinematic-demo's shots: camlint-clean, no eye inside the
           # cast or the hangar across the whole loop, bounds match the models.
