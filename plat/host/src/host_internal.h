@@ -64,6 +64,12 @@ int kiln_hostfb_zwrite(void);
  *  through the same call the engine makes so the two cannot disagree. */
 color_t kiln_hostfb_fog_color(void);
 
+/** The caller's last rdpq_mode_fog, 0 when off. Reset by rdpq_set_mode_standard
+ *  (which t3d_frame_start calls) as libdragon resets it. Fog is two halves: the
+ *  RSP writes the factor into shade alpha at vertex load, and only this, the
+ *  RDP half, makes the blender read it. */
+rdpq_blender_t kiln_hostfb_fog_mode(void);
+
 /** The combiner the caller last selected. The 3D pass needs it to know whether
  *  a sampled texel actually reaches the framebuffer — see host_tex.c. */
 rdpq_combiner_t kiln_hostfb_combiner(void);

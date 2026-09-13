@@ -66,6 +66,7 @@ static KilnHostCounters g_cnt;
 /* ── rdpq mode state ───────────────────────────────────────────────────── */
 static rdpq_combiner_t g_comb;
 static rdpq_blender_t  g_blend;
+static rdpq_blender_t  g_fogmode;
 static color_t         g_prim  = { 255, 255, 255, 255 };
 static color_t         g_fog   = { 0, 0, 0, 255 };
 static int             g_attached;
@@ -189,8 +190,9 @@ void rdpq_set_mode_standard(void)
      * resetting the combiner it sets afterwards. */
     g_comb  = RDPQ_COMBINER_FLAT;
     g_blend = 0;
+    g_fogmode = 0;
 }
-void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_prim = c; }
+void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_fogmode = 0; g_prim = c; }
 void rdpq_mode_combiner(rdpq_combiner_t comb) { g_comb = comb; }
 rdpq_combiner_t kiln_hostfb_combiner(void) { return g_comb; }
 void rdpq_mode_blender(rdpq_blender_t b)      { g_blend = b; }
@@ -204,7 +206,8 @@ int  kiln_hostfb_zwrite(void) { return g_zwrite; }
  * was flat and opaque, and kiln_gui_begin sets 0. */
 static int g_alphacmp;
 void rdpq_mode_alphacompare(int t)      { g_alphacmp = t; }
-void rdpq_mode_fog(rdpq_blender_t f)    { (void)f; }
+void rdpq_mode_fog(rdpq_blender_t f)    { g_fogmode = f; }
+rdpq_blender_t kiln_hostfb_fog_mode(void) { return g_fogmode; }
 void rdpq_mode_antialias(int m)         { (void)m; }
 void rdpq_set_prim_color(color_t c)     { g_prim = c; }
 void rdpq_set_fog_color(color_t c)      { g_fog = c; }

@@ -20,6 +20,12 @@
  *               child, as the ucode's push multiplies). A box offset +70 on X
  *               under a parent turned 180 degrees must land at -70; the host
  *               once multiplied the other way round and put it at +70.
+ *   fog         a white quad at a known view depth comes out at the fraction
+ *               Tiny3D's ucode computes, measured against Ares: the range
+ *               lands on CLIP z with near doubled, so it depends on the
+ *               camera's near plane, and it needs rdpq_mode_fog as well as
+ *               t3d_fog_set_enabled. The host once fogged linearly from near
+ *               to far over view depth, far too close to the camera.
  */
 #include <kiln_engine.h>
 #include <kiln_gui.h>
@@ -100,6 +106,92 @@ static unsigned check_quads(const char *what, const KilnPrim *p)
         }
     }
     return axes;
+}
+
+/* ── fog, as the console maps a range onto depth ──────────────────────────
+ * Tiny3D's ucode does not fog linearly over view depth from near to far.
+ * t3d_fog_set_range stores offset = -2*near (s16.16) and scale =
+ * floor(16384 / (far - near)); per vertex the RSP takes CLIP-space z, adds the
+ * offset, keeps the integer lane, multiplies by the scale (saturating), and
+ * writes (32767 - that) >> 7 into shade alpha. Clip z is
+ * cam_far * (d - 2*cam_near) / (cam_far - cam_near), so the fogged fraction is
+ * about (clip_z - 2*near) / (2*(far - near)) and moves with the CAMERA's near
+ * plane too. The blender then lerps IN toward the fog colour by shade alpha.
+ *
+ * The expected values below are that integer arithmetic, and each was measured
+ * in Ares with white quads under black fog (examples/fogprobe, not committed):
+ * the capture's patch mean over its fog-off calibration, times 255, is quoted
+ * beside each. They agree to within 4 of 255. The host used to fog linearly
+ * from near to far over view depth, which gives 51 / 0 / 0 for case A. */
+static T3DVertPacked g_fq[6];
+static const float FOG_NDCX[3] = { -0.6f, 0.0f, 0.6f };
+
+static void fog_quad(int q, float ndcx, int d)
+{
+    const float sx = (float)d * 0.57735f * (320.0f / 240.0f), sy = (float)d * 0.57735f;
+    const int16_t x0 = (int16_t)((ndcx - 0.15f) * sx), x1 = (int16_t)((ndcx + 0.15f) * sx);
+    const int16_t y0 = (int16_t)(-0.15f * sy), y1 = (int16_t)(0.15f * sy), z = (int16_t)-d;
+    const int16_t P[4][3] = { { x0, y0, z }, { x1, y0, z }, { x1, y1, z }, { x0, y1, z } };
+    T3DVec3 n = {{ 0, 0, 1 }};
+    const uint16_t pn = t3d_vert_pack_normal(&n);
+    for (int c = 0; c < 4; c++) {
+        const int vi = q * 4 + c;
+        T3DVertPacked *e = &g_fq[vi / 2];
+        if (vi & 1) {
+            memcpy(e->posB, P[c], sizeof P[c]); e->normB = pn; e->rgbaB = 0xFFFFFFFF;
+            e->stB[0] = e->stB[1] = 0;
+        } else {
+            memcpy(e->posA, P[c], sizeof P[c]); e->normA = pn; e->rgbaA = 0xFFFFFFFF;
+            e->stA[0] = e->stA[1] = 0;
+        }
+    }
+}
+
+typedef struct {
+    const char *what;
+    float fog_near, fog_far, cam_near, cam_far;
+    int rdp_fog;            /* 0: the RSP half only, as if rdpq_mode_fog were never called */
+    int d[3], want[3];
+} FogCase;
+
+static void fog_case(const FogCase *c)
+{
+    KilnScene s;
+    kiln_scene_init(&s);
+    s.fov_deg = 60.0f;
+    s.near_z = c->cam_near;
+    s.far_z = c->cam_far;
+    s.cam_pos = (fm_vec3_t){{ 0, 0, 0 }};
+    s.cam_target = (fm_vec3_t){{ 0, 0, -100 }};
+    s.cam_up = (fm_vec3_t){{ 0, 1, 0 }};
+    s.ambient[0] = s.ambient[1] = s.ambient[2] = s.ambient[3] = 0xFF;
+    s.light_count = 0;
+    s.clear_color = RGBA32(0, 0, 0, 0xFF);
+    kiln_scene_set_fog(&s, RGBA32(0, 0, 0, 0xFF), c->fog_near, c->fog_far);
+    kiln_scene_update(&s);
+    for (int i = 0; i < 3; i++) fog_quad(i, FOG_NDCX[i], c->d[i]);
+
+    kiln_frame_begin();
+      kiln_scene_begin(&s);
+        if (!c->rdp_fog) rdpq_mode_fog(0);
+        t3d_vert_load(g_fq, 0, 12);
+        for (uint32_t i = 0; i < 3; i++) {
+            t3d_tri_draw(i * 4, i * 4 + 1, i * 4 + 2);
+            t3d_tri_draw(i * 4, i * 4 + 2, i * 4 + 3);
+        }
+        t3d_tri_sync();
+      kiln_gui_begin();
+      kiln_gui_end();
+    kiln_frame_end();
+
+    for (int i = 0; i < 3; i++) {
+        const int x = (int)((FOG_NDCX[i] + 1.0f) * 160.0f);
+        const int got = g_frame_w == 320 ? g_frame[(120 * 320 + x) * 4] : -1;
+        printf("  fog %s: depth %d -> %d (console %d)\n", c->what, c->d[i], got, c->want[i]);
+        CHECK(got >= c->want[i] - 3 && got <= c->want[i] + 3,
+              "fog %s: a white quad at view depth %d came out %d; the console's "
+              "ucode gives %d", c->what, c->d[i], got, c->want[i]);
+    }
 }
 
 int main(void)
@@ -242,6 +334,31 @@ int main(void)
         kiln_transform_free(&outer);
         kiln_transform_free(&inner);
         kiln_prim_free(&marker);
+    }
+
+    /* ── fog: see fog_case above ── */
+    {
+        /* Ares, as patch mean / fog-off mean * 255: 207.7 130.6 52.5 */
+        const FogCase a = { "100..400 cam 10..2000", 100, 400, 10, 2000, 1,
+                            { 340, 520, 700 }, { 204, 128, 52 } };
+        /* The same range under a camera near plane of 60 fogs LESS at the same
+         * depth. Ares: 204.5 122.4 35.0. A mapping over view depth alone —
+         * 2*near..2*far included — cannot produce this row and row A both. */
+        const FogCase b = { "100..400 cam 60..1000", 100, 400, 60, 1000, 1,
+                            { 430, 610, 800 }, { 201, 120, 35 } };
+        /* The RSP half without rdpq_mode_fog: the ucode writes the factor into
+         * shade alpha and the blender never reads it. No fog, as kiln_engine.c
+         * found on console. */
+        const FogCase d = { "RSP only", 100, 400, 10, 2000, 0,
+                            { 340, 520, 700 }, { 255, 255, 255 } };
+        /* (0,0) is Tiny3D's "fog off": offset 0 and scale 0, so alpha stays
+         * 255 at every depth. Last, because the old host asserted on it. */
+        const FogCase z = { "range 0..0", 0, 0, 10, 2000, 1,
+                            { 150, 700, 1500 }, { 255, 255, 255 } };
+        fog_case(&a);
+        fog_case(&b);
+        fog_case(&d);
+        fog_case(&z);
     }
 
     kiln_transform_free(&t);

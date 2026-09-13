@@ -90,7 +90,10 @@ static int        g_light_count;
 static struct { uint8_t color[4]; fm_vec3_t dir; } g_lights[8];
 
 static int        g_fog_on;
-static float      g_fog_near = 0.0f, g_fog_far = 1.0f;
+/* What t3d_fog_set_range uploads to the RSP, in the ucode's own formats:
+ * FOG_SCALE_OFFSET's s16.16 offset and s16 integer scale. (0,0) is off. */
+static int32_t    g_fog_offset;
+static int16_t    g_fog_scale;
 
 static KilnHostT3DCounters g_c;
 
@@ -349,11 +352,37 @@ void t3d_light_set_directional(int index, const uint8_t *color, const T3DVec3 *d
 /* ── fog ──────────────────────────────────────────────────────────────── */
 
 void t3d_fog_set_enabled(bool enabled) { g_fog_on = enabled; }
+/* Ported from Tiny3D's t3d.c line for line, formats included, because the
+ * obvious reading — "linear from near to far over view depth" — is not what
+ * the console does, and a host that fogged that way put every demo's fog
+ * about twice as close as the Ares captures that tuned it. See transform_vertex
+ * for what the RSP does with these two numbers. */
 void t3d_fog_set_range(float near, float far)
 {
+    if (near == 0.0f && far == 0.0f) {     /* Tiny3D's "off": alpha stays 255 */
+        g_fog_offset = 0;
+        g_fog_scale = 0;
+        return;
+    }
+    /* Stricter than Tiny3D, which accepts it and fogs inverted. Nothing here
+     * means to, and kiln_prim_stage already refuses such a range. */
     assertf(far > near, "t3d_fog_set_range: far %f <= near %f",
             (double)far, (double)near);
-    g_fog_near = near; g_fog_far = far;
+
+    float diff = far - near;
+    if (fabsf(diff) < 1.5f) diff = 1.5f;
+    float scale = floorf(16384.0f / diff);
+    if (scale < -32768.0f) scale = -32768.0f;
+    if (scale >  32767.0f) scale =  32767.0f;
+    g_fog_scale  = (int16_t)scale;
+    g_fog_offset = (int32_t)(-near * 2.0f * 65536.0f);   /* T3D_F32_TO_FIXED */
+}
+
+/* An s16.16 value's integer lane: floor, not truncation toward zero, which is
+ * what the RSP's separate int/fraction lanes mean for a negative number. */
+static inline int64_t floor_shr16(int64_t v)
+{
+    return v >= 0 ? v / 65536 : -((-v + 65535) / 65536);
 }
 
 /* ── vertices ─────────────────────────────────────────────────────────── */
@@ -519,14 +548,47 @@ static void transform_vertex(const fm_vec3_t *pos, const fm_vec3_t *nrm,
 
     shade(&n, rgba, o);
 
+    /* ── fog: the RSP half ──
+     * rsp_tiny3d.rspl, lane for lane. Fog does not touch the colour here: the
+     * ucode REPLACES shade alpha with a factor and the RDP blender lerps toward
+     * the fog colour by it, per pixel (t3d_tri_draw). The factor comes from
+     * CLIP-space z, not view depth:
+     *
+     *   posClip *= normScaleW     z lane scale is 0xFFFF (w gets 2/(n+f))
+     *   fog      = posClip + offset         s16.16, offset = -2*near
+     *   fog:sint *= scale                   vmudh: integer lane, saturating
+     *   VTEMP    = 32767 - fog.z            vsub, saturating -> 0..32767
+     *   VTEMP  <<= 1; store 16 bits at alpha, so alpha = VTEMP >> 7
+     *
+     * With Tiny3D's projection, clip z = f*(d - 2n)/(f - n) for view depth d
+     * and camera planes n, f, so the fogged fraction is close to
+     * (clip_z - 2*near) / (2*(far - near)): fog 100..400 under a 10..2000
+     * camera starts near d = 219 and is total near d = 816. Measured in Ares
+     * against this arithmetic to within 2% (nix/checks/kiln-prim-check.c). */
     if (g_fog_on) {
-        const float d = -ez;
-        float f = (d - g_fog_near) / (g_fog_far - g_fog_near);
-        f = fminf(fmaxf(f, 0.0f), 1.0f);
-        const color_t fc = kiln_hostfb_fog_color();
-        o->r = (uint8_t)(o->r + (fc.r - o->r) * f);
-        o->g = (uint8_t)(o->g + (fc.g - o->g) * f);
-        o->b = (uint8_t)(o->b + (fc.b - o->b) * f);
+        /* Tiny3D's OWN clip z, not o->z: t3d_mat4_perspective's z row is
+         * f/(n-f) and -2fn/(f-n), while t3d_viewport_set_projection above
+         * builds GL's (f+n)/(n-f) and 2fn/(n-f). The two agree when the
+         * camera's near plane is tiny against its far plane and part ways as
+         * it grows — a 60..1000 camera put this 12 alpha steps off at d=430.
+         * Only the fog reads the console's row; depth keeps the host's, which
+         * is a separate mismatch. Each coefficient is quantised to s16.16 as
+         * t3d_mat4_to_fixed quantises it. */
+        const float cn = g_vp->near_z, cf = g_vp->far_z;
+        const int32_t m22 = (int32_t)(cf / (cn - cf) * 65536.0f);
+        const int32_t m32 = (int32_t)(-2.0f * (cf * cn) / (cf - cn) * 65536.0f);
+        int64_t zc = (int64_t)floor((double)m22 * (double)ez) + m32;
+        const int64_t lim_lo = -((int64_t)32768 << 16), lim_hi = ((int64_t)32768 << 16) - 1;
+        if (zc < lim_lo) zc = lim_lo;
+        if (zc > lim_hi) zc = lim_hi;
+        zc = floor_shr16(zc * 0xFFFF);
+        int64_t lane = floor_shr16(zc + g_fog_offset);
+        lane = lane < -32768 ? -32768 : lane > 32767 ? 32767 : lane;
+        int64_t fs = lane * g_fog_scale;
+        fs = fs < -32768 ? -32768 : fs > 32767 ? 32767 : fs;
+        int64_t v = 32767 - fs;
+        if (v > 32767) v = 32767;
+        o->a = (uint8_t)(v >> 7);
     }
 
     const float iw = (o->w > 1e-6f) ? (1.0f / o->w) : 0.0f;
@@ -651,6 +713,18 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
                 col = (color_t){ o[0].r, o[0].g, o[0].b, o[0].a };
             }
 
+            /* ── fog: the RDP half ──
+             * RDPQ_FOG_STANDARD is IN_RGB*SHADE_ALPHA + FOG_RGB*(1-SHADE_ALPHA),
+             * and with it on rdpq takes shade alpha OUT of the SHADE and
+             * TEX_SHADE combiners, so the factor fogs and does not also fade.
+             * Without rdpq_mode_fog the factor the RSP wrote is never read.
+             * The hardware blender works in 5-bit alpha; Ares' captures show
+             * no 32-step banding once its dither averages out, so this is the
+             * plain 8-bit lerp they measure as. */
+            const rdpq_blender_t fogmode = kiln_hostfb_fog_mode();
+            const uint8_t shade_alpha = col.a;
+            if (fogmode) col.a = 255;
+
             const rdpq_combiner_t comb = kiln_hostfb_combiner();
             if (have_tex) {
                 if (comb == RDPQ_COMBINER_TEX) {
@@ -668,6 +742,14 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
                 /* SHADE and FLAT: the texel is discarded, exactly as on
                  * console. Counted so it is at least visible in the numbers. */
                 else g_c.texels_discarded++;
+            }
+
+            if (fogmode) {
+                const color_t fc = kiln_hostfb_fog_color();
+                const unsigned a = shade_alpha, ia = 255u - a;
+                col.r = (uint8_t)((col.r * a + fc.r * ia + 127) / 255);
+                col.g = (uint8_t)((col.g * a + fc.g * ia + 127) / 255);
+                col.b = (uint8_t)((col.b * a + fc.b * ia + 127) / 255);
             }
 
             kiln_hostfb_put_z(x, y, (uint16_t)(z * 65535.0f), col, ztest, zwrite);
