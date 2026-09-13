@@ -989,6 +989,9 @@
           romTitle = "Kiln Bass Synth";
           assets = bassWavFlat;
           audioRate = 32000;
+          # The patch is saved through kiln_store: SD card on a flashcart that
+          # has one, else this 32 KB save chip (and what an emulator gives).
+          saveType = "sram256k";
         };
         bass-synth = mkN64Rom bassSynthArgs;
 
