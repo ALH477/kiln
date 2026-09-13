@@ -68,7 +68,10 @@ KilnContextAction kiln_context_scan(fm_vec3_t player_pos, float yaw,
             best_dist = dist;
             best = kiln_actor_handle_of(a);
             best_act = act_map[c];
-            if (c == KILN_ACTOR_CAT_DOOR) {
+            /* cats[c], not c: `c` is an index into cats[] (0..4) and the
+             * DOOR category is 6, so comparing the index meant this branch
+             * never ran and every door reported OPEN, locked or not. */
+            if (cats[c] == KILN_ACTOR_CAT_DOOR) {
                 if (a->health == 0) best_act = KILN_CTX_OPEN;
                 else if (a->health > 0) best_act = KILN_CTX_UNLOCK;
             }

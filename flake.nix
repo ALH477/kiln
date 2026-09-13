@@ -1643,6 +1643,10 @@
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_context's A-button scan: locked doors UNLOCK, open ones OPEN.
+          kiln-context = import ./nix/checks/kiln-context.nix {
+            inherit pkgs; target = hostNative;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is
