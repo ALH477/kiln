@@ -669,11 +669,12 @@
         # Scene/room streaming — a 2×2 grid of rooms, camera starts in room A.
         # The kiln_room module loads the room under the camera and its
         # neighbours; HUD reports current room + loaded count.
-        rooms-demo = mkN64Rom {
+        roomsDemoArgs = {
           name = "rooms-demo";
           src = ./examples/rooms-demo;
           romTitle = "Kiln Rooms";
         };
+        rooms-demo = mkN64Rom roomsDemoArgs;
 
         # Phase B completion: kiln_camera (OoT-style spring-arm follow) +
         # kiln_skel (skeletal animation, idle/swing blend) + kiln_audio
@@ -979,7 +980,8 @@
         jumpRoms =
           mkJumpRoms clipDemoArgs [ "CORNER" ]
           // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
-          // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ];
+          // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
+          // mkJumpRoms roomsDemoArgs [ "ROOM_D" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1187,6 +1189,17 @@
             sources = [ ./examples/physics-demo/main.c ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_BP" ];
             meta.description = "physics-demo-bp, on this machine";
+          };
+          pc-rooms-demo = hostNative.mkGame {
+            pname = "kiln-rooms-demo";
+            sources = [ ./examples/rooms-demo/main.c ];
+            meta.description = "rooms-demo, on this machine";
+          };
+          pc-rooms-demo-room-d = hostNative.mkGame {
+            pname = "kiln-rooms-demo-room-d";
+            sources = [ ./examples/rooms-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_ROOM_D" ];
+            meta.description = "rooms-demo-room-d, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
