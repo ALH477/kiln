@@ -227,7 +227,7 @@ beside `libdragon.a`) and Nix store paths are immutable.
 
 ## The engine — the whole inventory
 
-**54 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
+**55 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
 lines, ~290 public `kiln_*` functions. The sections below this one describe
 Phases B/C/D in detail and do NOT cover everything — this table does. Anyone
 (or anything) planning against the Phase sections alone will conclude the engine
@@ -248,7 +248,7 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 52 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 53 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
@@ -267,7 +267,7 @@ libdragon's `exception_t`, which has no host analogue, so
 | cluster | modules |
 |---|---|
 | frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line), `kiln_prim` (24-vertex flat-shaded boxes, checker floors, `kiln_prim_stage` key+rim+fog preset — what examples draw with instead of hand-packed cubes) |
-| runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel` |
+| runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel`, `kiln_pose` (the masked bone blend and quaternion ops, pure and host-checked) |
 | feel (Phase D) | `kiln_input`, `kiln_clip`, `kiln_dict`, `kiln_map`, `kiln_surface`, `kiln_sound`, `kiln_event`, `kiln_target`, `kiln_player` |
 | streaming (Phase C/E/F) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass`, `kiln_stream`, `kiln_streamio` |
 | first person + shooting | `kiln_fpscam`, `kiln_weapon`, `kiln_weapons`, `kiln_projectile`, `kiln_inventory`, `kiln_trigger`, `kiln_context`, `kiln_dialogue` |
@@ -300,9 +300,10 @@ Worth stating, because absence is invisible and each of these gets proposed:
 - **No occlusion culling, PVS or portals.** `kiln_map.h`: "No BSP / PVS /
   portals." Room streaming is residency, not visibility.
 - **No particle system**, no billboard/sprite-in-3D helper.
-- **No scene graph and no bone sockets.** `KilnTransform` has no parent pointer,
-  and there is no way to hang a weapon off a hand bone through the engine
-  despite `kiln_skel` holding a full `T3DSkeleton`.
+- **No scene graph.** `KilnTransform` has no parent pointer. Bone sockets DO
+  exist now — `kiln_skel_bone_push` pushes a bone's matrix so a prop drawn next
+  rides it (camera-skel-demo's sword, oot-demo's sword and buckler) — but that
+  is a draw-time push, not a hierarchy.
 - **No material / texture / light API.** Lighting is four fields on `KilnScene`
   (max 4 of Tiny3D's 7 directional lights, no point or spot, no shadows).
   "Material" exists only as `KilnSurfaceDef` (gameplay: friction + footstep SFX;
@@ -417,13 +418,25 @@ out. The summary, so it's in one place:
   own TRS hierarchy), just `skins[].joints` naming a node chain and
   `JOINTS_0`/`WEIGHTS_0` mesh attributes; that generator is the reference
   for what a hand-built (non-Blender) skinned test asset needs to contain.
+  **Three slots now, and a clip cache.** BASE and BLEND are the locomotion
+  pair above; `KILN_SKEL_OVERLAY` is a third pose-only clone blended over the
+  result for a bone mask (`kiln_skel_mask_bone("torso")`), because a one-shot
+  over a walk — a sword swing at a run — cannot live in two slots: putting it in
+  BLEND stops the legs. The masked blend is the engine's own arithmetic, in the
+  pure `kiln_pose` module that `nix/checks/kiln-pose.nix` runs natively over the
+  console's own `T3DBone` layout. Also: `kiln_skel_crossfade` (into the lighter
+  slot), per-slot `set_speed`/`time`/`length`/`set_phase` (phase-matching a run
+  to the walk it replaces), `kiln_skel_bone_rotate` (look-at), and sockets.
+  Clips are created once and re-attached on a swap, because `t3d_anim_create`
+  opens the `.sdata` sidecar. A one-shot overlay fades out BEFORE its end:
+  Tiny3D stops a finished clip without applying its last pose.
 
 Verified: `nix build .#camera-skel-demo` links clean (300 KB text, matching
 the other actor-system demos' size class) and passes the `audioRate = 32000`
-check. It now captures correctly in Ares (the earlier "surface never
-composites" note is obsolete): the goblin walks a `kiln_prim` courtyard
-blending Idle and Walk by distance covered, and the hand-built 2-bone rig
-above lives on as the `camera-skel-demo-rig` jump ROM.
+check. It captures in Ares: the goblin walks, runs, jumps and swings a
+socketed sword over the torso-masked overlay in a `kiln_prim` courtyard, with
+an inspector (`camera-skel-demo-insp`) showing every slot's clip, weight and
+playhead; the hand-built 2-bone rig above lives on as `camera-skel-demo-rig`.
 
 ## Phase C — runtime asset streaming (engine/src/kiln/kiln_asset.*, examples/streamdb-demo)
 
@@ -1289,6 +1302,26 @@ is ever going into a golden-image test.
   top at bare ambient on console — read for a long time as "the console is
   darker". Only an Ares A/B settled it. `kiln-prim` samples a floor pixel
   under `kiln_prim_stage` so the sign cannot flip back unnoticed.
+- **libdragon's `fm_mat4_from_axis_angle` turns the other way from
+  `fm_atan2f(x, z)`.** About +Y it maps -Z to (sin a, 0, -cos a) and +Z to
+  (-sin a, 0, cos a) — measured natively against the host build of libdragon's
+  own fast math. So a yaw from `fm_atan2f(dx, dz)` goes into
+  `KilnTransform.rot_angle` as `PI - yaw` for a model whose nose is -Z (every
+  `tools/blender` character) and as `-yaw` for one whose front is +Z. `yaw + PI`
+  and `yaw` are right ONLY along the Z axis, which is why nobody saw it: a demo
+  walking straight looks correct, and one circling faces the camera.
+  camera-skel-demo, oot-demo (and `kiln_player` itself) and cinematic-demo's
+  `cine_yaw_to` all had it; actors-demo, debug-demo, fps, physics-demo,
+  event-demo and board-demo still set `rot_angle` from an atan2 and have not
+  been checked.
+- **A clip's length is real seconds at Blender's 24 fps, which nothing sets.**
+  goblin.py's "40-frame" Walk is 1.667 s, not 0.667 s; cinematic-demo stepped
+  2.5x faster than its feet for exactly this reason. And a locomotion clip has
+  a GROUND SPEED — how fast its planted foot passes backwards — that a game
+  must divide its travel speed by, or the feet skate. `tools/blender/gait.py`
+  measures it by forward kinematics over the shipped glTF (Walk 0.642 m/s, Run
+  2.293 m/s); `nix/checks/goblin-gait.nix` holds the clips and every demo's
+  `GOBLIN_*_MPS` to it.
 - **A nested matrix push was multiplied child * parent on the host.**
   `mat_mul` indexed column-major `fm_mat4_t` data row-major, computing `b*a`;
   the ucode's push is `previous * new`. A single push cannot tell. `kiln-prim`
@@ -1542,7 +1575,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (90 checks, 26 implementations)
+### The full check list (112 checks, 39 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1683,6 +1716,17 @@ worth knowing by name:
   failure) and `kiln_clip`'s broadphase populating grid cells with the wrong
   brushes (so a player walked through two of four walls). Compiling natively at
   `-Werror` is also a free second opinion on the engine's own `-Wno-error`.
+- **`kiln-pose`** runs `kiln_pose` — kiln_skel's masked overlay blend, subtree
+  masks and quaternion ops — natively over the console's `T3DBone` layout. The
+  host cannot run a skeleton; it can run this. Verified firing on three
+  mutations (a subtree boundary, a dropped short-path negation, unmasked bones
+  not copied).
+- **`goblin-gait`** measures goblin.py's clips the way the floor sees them
+  (`tools/blender/gait.py`): every clip's duration at 24 fps, Walk and Run
+  ground speed and swing clearance, source keys agreeing with the export within
+  5% (it caught Run keyed every other frame losing 5.2%), Attack keying only
+  bones under the torso mask, and every `GOBLIN_WALK_MPS` / `GOBLIN_RUN_MPS` /
+  `GOBLIN_ROLL_PIVOT_M` an example publishes matching the measurement.
 **A gate should be verified to fire in both directions.** The no-libm gate and
 the cycle budget both have been (a clean voice passes, a voice using `ma.tanh`
 or emitting a double-precision instruction fails with an actionable message);
