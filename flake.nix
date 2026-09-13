@@ -1938,6 +1938,11 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
+          kiln-pose = import ./nix/checks/kiln-pose.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
           inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
