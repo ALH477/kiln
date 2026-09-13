@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "What nix/checks/studio-manifest.nix accepts as NOT a game artifact.",
+    "`tools` are packages with no kiln record that are not meant to have one:",
+    "toolchains, libraries, emulators, images and standalone assets. A name",
+    "matches if it equals an entry, or starts with an entry ending in '-'.",
+    "`examples_without_rom` are directories under examples/ that are not built",
+    "as a ROM. Adding to either list is a statement that the studio should not",
+    "show the thing as a game; say why in the commit."
+  ],
+  "tools": [
+    "ares-bin",
+    "audio-kiln-jingle",
+    "dev-image",
+    "engine",
+    "host-",
+    "ks-baked",
+    "ks-voice",
+    "libdragon",
+    "map-render",
+    "model-",
+    "n64Inst",
+    "sc64deployer",
+    "streamdb",
+    "textures",
+    "tiny3d",
+    "toolchain",
+    "unfloader"
+  ],
+  "examples_without_rom": []
+}

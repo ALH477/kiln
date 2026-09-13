@@ -1,0 +1,5 @@
+result
+result-*
+mygame/build/
+mygame/*.z64
+.studio/

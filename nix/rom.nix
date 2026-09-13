@@ -50,6 +50,21 @@
 let
   lib = pkgs.lib;
 
+  flagValue = prefix:
+    let hit = lib.findFirst (f: lib.hasPrefix prefix f) null makeFlags;
+    in if hit == null then null else lib.removePrefix prefix hit;
+  jump = let j = flagValue "KILN_JUMP="; in if j != null then j else flagValue "FORGE_MODE=";
+  jumpSuffix = if jump == null then "" else "-" + lib.toLower (lib.replaceStrings [ "_" ] [ "-" ] jump);
+  kilnRecord = {
+    kind = if jump == null then "rom" else "jump";
+    example = baseNameOf (toString src);
+    inherit name romTitle saveType jump debugConsole;
+    # A DERIVATION name, which is not always the package attribute (`music-demo`
+    # builds a derivation called `music`); mkStudioManifest resolves it.
+    base = if jump == null then null else lib.removeSuffix jumpSuffix name;
+    platforms = [ "linux" ];
+  };
+
   # n64.mk interpolates these unquoted (`n64tool -t $(N64_ROM_TITLE)`), so a
   # title containing spaces has to carry its own literal double quotes — which
   # is exactly what libdragon's own examples do (`N64_ROM_TITLE = "Audio
@@ -217,6 +232,12 @@ ${lib.optionalString (assets != [ ]) ''
   passthru = (args.passthru or { }) // {
     inherit n64Inst toolchain;
     romFile = "${placeholder "out"}/${name}.z64";
+    # Kiln Studio's project record (lib.mkStudioManifest reads it). Derived
+    # from what this call already has, so no ROM's call site changes: the
+    # example is the source directory's name, and a jump ROM is recognised by
+    # the KILN_JUMP / FORGE_MODE make flag mkJumpRoms and forgeModeRoms pass.
+    # passthru is not part of the derivation, so adding a field rebuilds nothing.
+    kiln = kilnRecord;
   };
 
   meta = (args.meta or { }) // {

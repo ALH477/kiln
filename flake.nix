@@ -1098,6 +1098,15 @@
         # jump ROM. `.#forge-geo` now exists so the claim is true and so the set
         # is uniform to anyone scripting over it.
         forgeModes = [ "GEO" "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
+        # The fast loops `./dev cheap` builds: host, GUI, logic and Python
+        # checks only, no ROMs. Kept here, not in `dev`, so the studio's
+        # validation panel and the CLI run the same list.
+        studioCheapChecks = [
+          "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
+          "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
+          "studio-manifest"
+        ];
+
         forgeModeRoms = pkgs.lib.listToAttrs (map
           (m: pkgs.lib.nameValuePair "forge-${pkgs.lib.toLower m}" (mkN64Rom {
             name = "forge-${pkgs.lib.toLower m}";
@@ -1557,6 +1566,20 @@
           # what it refuses to let default.
           mkAssetBudgetCheck = args:
             import ./nix/checks/asset-budget.nix ({ inherit pkgs; } // args);
+
+          # Kiln Studio's project model: every ROM, jump ROM, PC and web build
+          # grouped by game, from the `kiln` records the builders attach. A
+          # downstream game calls it on its own packages. See
+          # nix/studio-manifest.nix.
+          mkStudioManifest = import ./nix/studio-manifest.nix { lib = pkgs.lib; };
+        };
+
+        # `nix eval --json .#studioManifest.<system>` — what tools/studio reads.
+        studioManifest = import ./nix/studio-manifest.nix { lib = pkgs.lib; } {
+          inherit system;
+          packages = self.packages.${system};
+          checks = self.checks.${system};
+          cheap = studioCheapChecks;
         };
 
         checks = {
@@ -1983,6 +2006,19 @@
             toolsDir = ./tools;
             examplesDir = ./examples;
           };
+          # The game template builds against this flake's own lib, so
+          # `nix flake init -t .#game` cannot hand anyone a broken starting point.
+          template-game = (import ./templates/game/game.nix {
+            kiln = { lib.${system} = self.lib.${system}; };
+            inherit system;
+          }).rom;
+          studio-manifest = import ./nix/checks/studio-manifest.nix {
+            inherit pkgs;
+            manifest = self.studioManifest.${system};
+            examplesDir = ./examples;
+            checker = ./tools/studio/manifest_check.py;
+            allow = ./tools/studio/manifest_allow.json;
+          };
           kiln-pose = import ./nix/checks/kiln-pose.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;
@@ -2173,5 +2209,21 @@
       }) // {
       # ── NixOS modules (system-independent) ────────────────────────────
       nixosModules.n64-flashcart = import ./nix/udev.nix;
+
+      # ── Templates ─────────────────────────────────────────────────────
+      # `nix flake init -t github:ALH477/kiln#game` (or `./dev new <name>` from
+      # a checkout). nix/rom.nix's header has pointed at #hello for a long time;
+      # it exists now.
+      templates = {
+        game = {
+          path = ./templates/game;
+          description = "A game on the Kiln engine: a flake, a ROM, and Kiln Studio's manifest";
+        };
+        hello = {
+          path = ./examples/hello;
+          description = "Plain libdragon, no Kiln engine: the smallest ROM";
+        };
+        default = self.templates.game;
+      };
     };
 }

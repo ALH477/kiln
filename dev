@@ -46,7 +46,11 @@ usage() {
   check                    nix flake check (the pre-push gate)
   cheap                    the fast host gates: geometry, logic, gui, the
                            level vocabulary and the .map path (no ROMs)
-  doctor                   toolchain, libdragon, cart presence, versions
+  doctor [--json]          toolchain, libdragon, cart presence, versions
+  new <name> [--in-repo] [--out DIR]
+                           start a game from templates/game: a new flake in
+                           ./<name> (or DIR), or with --in-repo an example in
+                           examples/<name> plus nix/demos/<name>.nix
   mapmaker                 three.js .map editor on :8000
   map-validate <file.map>  round-trip through quake_map.py (+ --json)
   map-emit <spec.json> [out.map]
@@ -102,6 +106,8 @@ case "${1:-}" in
   # that.
   map-validate | map-emit | map-dump | map-canon | map-render | mcp)
     DEV_IN_NIX=1 ;;
+  # Scaffolding copies files; it builds nothing.
+  new) DEV_IN_NIX=1 ;;
 esac
 
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
@@ -474,17 +480,13 @@ PY
 
   cheap)
     # The fast loops. Not `flake check`: that builds every demo ROM.
-    # Host/gui/logic/python only — safe on the laptop.
+    # Host/gui/logic/python only — safe on the laptop. The list lives in the
+    # flake (studioCheapChecks), so Kiln Studio runs the same set.
     SYS="$(nix eval --raw --impure --expr builtins.currentSystem)"
-    nix build --print-out-paths \
-      ".#checks.${SYS}.blender-tests" \
-      ".#checks.${SYS}.kiln-logic" \
-      ".#checks.${SYS}.kiln-gui" \
-      ".#checks.${SYS}.level-vocab" \
-      ".#checks.${SYS}.mapmaker-roundtrip" \
-      ".#checks.${SYS}.forge-roundtrip" \
-      ".#checks.${SYS}.kiln-map" \
-      ".#checks.${SYS}.kiln-maprender"
+    mapfile -t CHEAP < <(nix eval --raw ".#studioManifest.${SYS}.cheap" \
+      --apply 'l: builtins.concatStringsSep "\n" l')
+    [ "${#CHEAP[@]}" -gt 0 ] || die "studioManifest.${SYS}.cheap is empty"
+    nix build --print-out-paths "${CHEAP[@]/#/.#checks.${SYS}.}"
     ;;
 
   check)
@@ -691,7 +693,91 @@ PY
     echo "git diff assets/$name.map to review the change."
     ;;
 
+  new)
+    # The dispatcher has already shifted the command name off.
+    name="" in_repo=0 outdir=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --in-repo) in_repo=1 ;;
+        --out) shift; outdir="${1:-}" ;;
+        -*) die "new: unknown option $1" ;;
+        *) [ -z "$name" ] || die "new: one name only"; name="$1" ;;
+      esac
+      shift
+    done
+    [ -n "$name" ] || die "usage: ./dev new <name> [--in-repo] [--out DIR]"
+    # A package attribute, a directory and a .z64 file name all at once.
+    [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "new: name must be lowercase letters, digits and -, starting with a letter"
+    # The ROM header title: 20 ASCII characters, from the name.
+    title="$(echo "$name" | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)} 1')"
+    title="${title:0:20}"
+    tpl="$REPO/templates/game"
+    subst() { sed -e "s/mygame/$name/g" -e "s/My Game/$title/g" -e "s/MY GAME/${title^^}/g" "$1"; }
+
+    if [ "$in_repo" = 1 ]; then
+      dest="$REPO/examples/$name"
+      [ ! -e "$dest" ] || die "new: $dest already exists"
+      [ ! -e "$REPO/nix/demos/$name.nix" ] || die "new: nix/demos/$name.nix already exists"
+      mkdir -p "$dest"
+      subst "$tpl/mygame/Makefile" > "$dest/Makefile"
+      subst "$tpl/mygame/main.c" > "$dest/main.c"
+      cat > "$REPO/nix/demos/$name.nix" <<NIX
+# SPDX-License-Identifier: MIT
+#
+# $name — created by \`./dev new $name --in-repo\`. Add jump ROMs with
+# mkJumpRoms and a host build with hostNative.mkGame; see nix/demos/README.md.
+ctx: with ctx;
+{
+  $name = mkN64Rom {
+    name = "$name";
+    src = ../../examples/$name;
+    romTitle = "$title";
+  };
+}
+NIX
+      # Flakes only see files git knows about.
+      git -C "$REPO" add -N "examples/$name" "nix/demos/$name.nix"
+      echo "created examples/$name and nix/demos/$name.nix"
+      echo "  nix build .#$name        ./dev run $name"
+    else
+      dest="${outdir:-$PWD/$name}"
+      [ ! -e "$dest" ] || die "new: $dest already exists"
+      mkdir -p "$dest/$name"
+      subst "$tpl/flake.nix" > "$dest/flake.nix"
+      subst "$tpl/game.nix" > "$dest/game.nix"
+      subst "$tpl/.gitignore" > "$dest/.gitignore"
+      subst "$tpl/mygame/Makefile" > "$dest/$name/Makefile"
+      subst "$tpl/mygame/main.c" > "$dest/$name/main.c"
+      git -C "$dest" init -q && git -C "$dest" add -A
+      echo "created $dest"
+      echo "  cd $dest && nix build && nix run github:ALH477/kiln#ares -- result/$name.z64"
+    fi
+    ;;
+
   doctor)
+    if [ "${1:-}" = "--json" ]; then
+      # Machine-readable, for Kiln Studio's capability detection. Presence
+      # only; the human form below says what to do about an absence.
+      jbool() { if eval "$1" >/dev/null 2>&1; then echo true; else echo false; fi; }
+      tools=""
+      for t in n64tool mkdfs audioconv64 n64sym; do
+        tools="$tools\"$t\":$(jbool "[ -x \"\${N64_INST:-}/bin/$t\" ]"),"
+      done
+      printf '{"system":"%s","nix":"%s","toolchain":%s,"libdragon":{%s},' \
+        "$(nix eval --raw --impure --expr builtins.currentSystem 2>/dev/null)" \
+        "$(nix --version 2>/dev/null | awk '{print $NF}')" \
+        "$(jbool 'command -v mips64-elf-gcc')" "${tools%,}"
+      printf '"hyprland":%s,"grim":%s,"ares":%s,"sc64":%s,"ed64":%s,"blender":%s,"chromium":%s,"tailscale":%s}\n' \
+        "$(jbool '[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl')" \
+        "$(jbool 'command -v grim')" \
+        "$(jbool 'command -v ares')" \
+        "$(jbool 'lsusb | grep -qi 0403:6014')" \
+        "$(jbool 'lsusb | grep -qi 0403:6001')" \
+        "$(jbool 'command -v blender')" \
+        "$(jbool 'command -v chromium')" \
+        "$(jbool 'command -v tailscale')"
+      exit 0
+    fi
     echo "── toolchain ──"
     if command -v mips64-elf-gcc >/dev/null 2>&1; then
       mips64-elf-gcc --version | head -1
