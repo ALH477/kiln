@@ -32,6 +32,24 @@ static size_t packed_size(int vert_count)
     return sizeof(T3DVertPacked) * packed_count(vert_count);
 }
 
+static float clamp01(float w)
+{
+    return w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w);
+}
+
+/* Round to nearest, no libm. */
+static int16_t round_i16(float x)
+{
+    return (int16_t)(x < 0.0f ? x - 0.5f : x + 0.5f);
+}
+
+static uint8_t round_u8(float x)
+{
+    if (x <= 0.0f) return 0;
+    if (x >= 255.0f) return 255;
+    return (uint8_t)(x + 0.5f);
+}
+
 /* Patch all objects in a model to read vertices from a segment instead of
  * the model's baked vertex buffer. This must be done once at init. */
 static void patch_objects(const T3DModel *model, uint8_t segment_id)
@@ -86,50 +104,75 @@ void kiln_morph_update(KilnMorph *m, float dt)
     (void)dt;
     if (!m->initialised) return;
 
-    /* Normalise weights so they sum to 1. */
+    /* Normalise the CLAMPED weights. The sum used to be taken over clamped
+     * weights while the blend divided the raw ones, so a weight of 3 pushed
+     * the shape three times past its target. */
     float sum = 0.0f;
-    for (int i = 0; i < m->target_count; i++) {
-        float w = m->weights[i];
-        if (w < 0.0f) w = 0.0f;
-        if (w > 1.0f) w = 1.0f;
+    int dominant = 0;
+    float best = -1.0f;
+    for (int t = 0; t < m->target_count; t++) {
+        const float w = clamp01(m->weights[t]);
         sum += w;
+        if (w > best) { best = w; dominant = t; }
     }
-    if (sum < 1e-6f) {
-        /* All-zero: use first target (base shape). */
-        sum = 1.0f;
-        m->weights[0] = 1.0f;
-    }
+    const int all_zero = sum < 1e-6f;   /* then the base shape, target 0 */
 
     int pc = packed_count(m->model->totalVertCount);
     T3DVertPacked *dst = &m->work_buffers[m->current_buffer * pc];
+    const T3DVertPacked *dom = m->targets[all_zero ? 0 : dominant];
 
-    /* Lerp: dst = sum(weights[i] * targets[i]). Since T3DVertPacked packs
-     * two verts per struct, we blend entire structs (pos, norm, rgba, uv
-     * all lerp together — positions and colours blend linearly, normals
-     * should be renormalised but on N64 the 5.6.5 precision makes that a
-     * no-op for practical purposes). */
-    memset(dst, 0, sizeof(T3DVertPacked) * pc);
-    for (int t = 0; t < m->target_count; t++) {
-        float w = m->weights[t] / sum;
-        if (w == 0.0f) continue;
-        const T3DVertPacked *src = m->targets[t];
-        for (int i = 0; i < pc; i++) {
+    /* dst = sum(w[t] * targets[t]), accumulated in float per vertex and
+     * rounded ONCE. Truncating each target's share separately lost up to one
+     * unit per target — three identical targets came out three units short.
+     *
+     * Colour is RGBA8, four 8-bit channels in one uint32, so it is blended
+     * per channel. It used to scale the packed word by a float, which carries
+     * between channels: red + green at a half each came out (127,255,128).
+     *
+     * Normals are not blended: a sum of 5.6.5 packed normals is not a normal,
+     * and renormalising per vertex per frame is not worth it for poses whose
+     * normals are close. They are taken from the most-weighted target. They
+     * used to be left at the memset's zero despite a comment promising the
+     * first target's — and a zero normal lights nothing. */
+    for (int i = 0; i < pc; i++) {
+        float pa[3] = { 0 }, pb[3] = { 0 }, ca[4] = { 0 }, cb[4] = { 0 };
+        float sa[2] = { 0 }, sb[2] = { 0 };
+        for (int t = 0; t < m->target_count; t++) {
+            const float w = all_zero ? (t == 0 ? 1.0f : 0.0f)
+                                     : clamp01(m->weights[t]) / sum;
+            if (w == 0.0f) continue;
+            const T3DVertPacked *src = &m->targets[t][i];
             for (int j = 0; j < 3; j++) {
-                dst[i].posA[j] += (int16_t)(src[i].posA[j] * w);
-                dst[i].posB[j] += (int16_t)(src[i].posB[j] * w);
+                pa[j] += src->posA[j] * w;
+                pb[j] += src->posB[j] * w;
             }
-            dst[i].rgbaA += (uint32_t)(src[i].rgbaA * w);
-            dst[i].rgbaB += (uint32_t)(src[i].rgbaB * w);
-            dst[i].stA[0] += (int16_t)(src[i].stA[0] * w);
-            dst[i].stA[1] += (int16_t)(src[i].stA[1] * w);
-            dst[i].stB[0] += (int16_t)(src[i].stB[0] * w);
-            dst[i].stB[1] += (int16_t)(src[i].stB[1] * w);
+            for (int c = 0; c < 4; c++) {
+                ca[c] += (float)((src->rgbaA >> (24 - 8 * c)) & 0xFF) * w;
+                cb[c] += (float)((src->rgbaB >> (24 - 8 * c)) & 0xFF) * w;
+            }
+            for (int j = 0; j < 2; j++) {
+                sa[j] += src->stA[j] * w;
+                sb[j] += src->stB[j] * w;
+            }
         }
+        for (int j = 0; j < 3; j++) {
+            dst[i].posA[j] = round_i16(pa[j]);
+            dst[i].posB[j] = round_i16(pb[j]);
+        }
+        uint32_t rgba_a = 0, rgba_b = 0;
+        for (int c = 0; c < 4; c++) {
+            rgba_a |= (uint32_t)round_u8(ca[c]) << (24 - 8 * c);
+            rgba_b |= (uint32_t)round_u8(cb[c]) << (24 - 8 * c);
+        }
+        dst[i].rgbaA = rgba_a;
+        dst[i].rgbaB = rgba_b;
+        for (int j = 0; j < 2; j++) {
+            dst[i].stA[j] = round_i16(sa[j]);
+            dst[i].stB[j] = round_i16(sb[j]);
+        }
+        dst[i].normA = dom[i].normA;
+        dst[i].normB = dom[i].normB;
     }
-    /* Normals: just take the first target's for now. Renormalising a 5.6.5
-     * packed normal after blending is more work than it's worth on this
-     * hardware — the visual difference for a morph between two poses with
-     * similar normals is imperceptible. */
 
     data_cache_hit_writeback(dst, sizeof(T3DVertPacked) * pc);
     m->current_buffer = (m->current_buffer + 1) % m->buffer_count;

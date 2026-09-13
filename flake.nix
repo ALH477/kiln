@@ -1747,6 +1747,10 @@
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_morph's CPU blend: colour per channel, normals kept.
+          kiln-vanim = import ./nix/checks/kiln-vanim.nix {
+            inherit pkgs; target = hostNative;
+          };
           # kiln_context's A-button scan: locked doors UNLOCK, open ones OPEN.
           kiln-context = import ./nix/checks/kiln-context.nix {
             inherit pkgs; target = hostNative;
