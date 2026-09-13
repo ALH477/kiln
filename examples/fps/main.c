@@ -19,8 +19,14 @@
 // kiln_actor kiln_event kiln_surface kiln_sound kiln_audio kiln_gui kiln_target
 // kiln_inventory kiln_projectile kiln_trigger kiln_context kiln_dialogue
 //
-// Jump ROM: .#fps-switch boots in the corridor facing the switch and presses it,
-// so the gate rising is on screen with no controller.
+// Left alone for two seconds it plays itself: walks into the hall, turns onto the
+// grunts and shoots them, and heads for the corridor doorway. Any input takes
+// the pad back.
+//
+// Jump ROMs (nix/demos/fps.nix):
+//   .#fps-switch   in the corridor facing the switch, pressed: the gate rises
+//   .#fps-combat   two grunts ahead, the pistol firing into them, held there
+//   .#fps-door     at the arena's red door with the red key: A, and it rises
 
 #include <libdragon.h>
 #include <kiln/kiln_engine.h>
@@ -49,7 +55,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { JUMP_NONE, JUMP_SWITCH };
+enum { JUMP_NONE, JUMP_SWITCH, JUMP_COMBAT, JUMP_DOOR };
 #ifndef KILN_JUMP
 #define KILN_JUMP JUMP_NONE
 #endif
@@ -106,6 +112,8 @@ static void model_draw(const Model *m)
 static Model M_GRUNT, M_HEAVY, M_HEALTH, M_AMMO, M_ARMOR, M_KEY, M_NPC;
 static Model M_CHEST_SHUT, M_CHEST_OPEN, M_DOOR, M_GATE, M_SWITCH_OFF, M_SWITCH_ON, M_BARREL;
 static Model M_GUN, M_FLASH, M_STRIPE[4];
+#define GUN_K     8.0f
+#define GUN_SCALE (0.25f / GUN_K)
 
 // ── Globals ────────────────────────────────────────────────────────────
 static KilnFpsCam g_fpscam;
@@ -116,7 +124,7 @@ static KilnScene g_scene;
 static int g_player_health = 100;
 static int g_player_armor = 0;
 static int g_score = 0;
-static int g_won = 0, g_gate_open = 0;
+static int g_won = 0, g_gate_open = 0, g_exit_open = 0;
 static float g_level_time = 0;
 static fm_vec3_t g_spawn_pos = {{ 0, 40, -170 }};
 static float g_spawn_yaw = 0;
@@ -280,7 +288,7 @@ static void door_event(KilnActor *s, uint16_t eid, const int32_t*a, uint8_t c){
     if(eid!=EV_DOOR_OPEN)return;
     DoorState*d=(void*)s->state;if(d->open)return;
     d->open=1;s->health=-1;                    /* no context action once open */
-    if(d->key_id==0)g_gate_open=1;
+    if(d->key_id==0)g_gate_open=1; else g_exit_open=1;
     kiln_sound_play("door_open",s->xform.pos,1);
 }
 
@@ -506,6 +514,54 @@ static const KilnInputKey SWITCH_KEYS[] = {
     { .frame = 46 },
 };
 static const KilnInputTape SWITCH_TAPE = { SWITCH_KEYS, 3, KILN_INPUT_NO_LOOP };
+/* COMBAT: the pistol held down from the moment the grunts are placed. */
+static const KilnInputKey COMBAT_KEYS[] = {
+    { .frame = 0 },
+    { .frame = 20, .buttons = KILN_BTN_A },
+    { .frame = 21, .buttons = KILN_BTN_A },
+};
+static const KilnInputTape COMBAT_TAPE = { COMBAT_KEYS, 3, KILN_INPUT_NO_LOOP };
+
+/* DOOR: one press of A at the red door, with the key already carried. */
+static const KilnInputKey DOOR_KEYS[] = {
+    { .frame = 0 },
+    { .frame = 40, .buttons = KILN_BTN_A },   /* one frame: held, A would fire */
+    { .frame = 41 },
+    { .frame = 70, .sy = -60 },               /* step back to see it risen */
+    { .frame = 88 },
+};
+static const KilnInputTape DOOR_TAPE = { DOOR_KEYS, 5, KILN_INPUT_NO_LOOP };
+
+/* Attract, from the frame it takes over (boot + 2 s idle). Sticks are raw
+ * counts: +sx strafes right, +sy walks forward, +cx turns right, -cy looks
+ * down. */
+static const KilnInputKey ATTRACT_KEYS[] = {
+    { .frame = 0,   .cx = 85, .cy = -85 },                            /* onto the right grunt */
+    { .frame = 10,  .cx = 85 },
+    { .frame = 13,  .buttons = KILN_BTN_Z },                          /* lock */
+    { .frame = 16,  .buttons = KILN_BTN_Z | KILN_BTN_A },             /* and fire */
+    { .frame = 52 },
+    { .frame = 55,  .cx = -85 },                                      /* round to the other */
+    { .frame = 80,  .buttons = KILN_BTN_Z, .cy = 85 },
+    { .frame = 86,  .buttons = KILN_BTN_Z | KILN_BTN_A, .sy = -40, .sx = 60 },   /* kite, firing */
+    { .frame = 180, .buttons = KILN_BTN_Z | KILN_BTN_CD, .sy = -40, .sx = -60 }, /* reload */
+    { .frame = 182, .buttons = KILN_BTN_Z, .sy = -40, .sx = -60 },
+    { .frame = 280, .buttons = KILN_BTN_Z | KILN_BTN_A, .sy = -40, .sx = 60 },
+    { .frame = 380, .buttons = KILN_BTN_Z | KILN_BTN_CD, .sy = -40, .sx = -60 },
+    { .frame = 382, .buttons = KILN_BTN_Z, .sy = -40, .sx = -60 },
+    { .frame = 420, .buttons = KILN_BTN_Z | KILN_BTN_A, .sy = -40, .sx = 60 },
+    { .frame = 520, .buttons = KILN_BTN_Z | KILN_BTN_A, .cy = -85 },  /* aim low: finish it */
+    { .frame = 526, .buttons = KILN_BTN_Z | KILN_BTN_A },
+    { .frame = 580, .cy = 85 },                                       /* level the view */
+    { .frame = 590, .cx = -85 },                                      /* face the doorway */
+    { .frame = 626 },
+    { .frame = 630, .sy = 85 },                                       /* and go */
+    { .frame = 684, .sy = 85, .cx = 85 },
+    { .frame = 694, .sy = 85 },
+    { .frame = 715 },            /* stop short of the corridor's ambush trigger */
+};
+static const KilnInputTape ATTRACT_TAPE = { ATTRACT_KEYS, sizeof ATTRACT_KEYS / sizeof ATTRACT_KEYS[0], KILN_INPUT_NO_LOOP };
+
 
 static void build_models(void)
 {
@@ -564,42 +620,112 @@ static void build_models(void)
     model_box(&M_BARREL, 0, -4, 0, 9, 1, 9, 0x303030FF, 0x282828FF);
     model_box(&M_BARREL, 0, 4, 0, 9, 1, 9, 0x303030FF, 0x282828FF);
     model_box(&M_BARREL, 0, 9, 0, 6, 1, 6, 0x484848FF, 0x383838FF);
-    /* The gun, in the camera's frame: -X is screen-right, +Z is forward. */
-    model_box(&M_GUN, -7, -6, 14, 2, 2, 7, 0x60646CFF, 0x40444CFF);
-    model_box(&M_GUN, -7, -5, 23, 1, 1, 3, 0x30343CFF, 0x202428FF);
-    model_box(&M_GUN, -7, -10, 10, 1, 3, 2, 0x503828FF, 0x382818FF);
-    model_box(&M_FLASH, -7, -5, 28, 3, 3, 1, 0xFFFFE0FF, 0xFFE080FF);
+    /* The gun, in the camera's frame: -X is screen-right, +Z is forward, in
+     * GUN_K-times units so its sub-unit parts survive kiln_prim's integer
+     * positions. Laid out 17..35 ahead and 9 right of the eye, it projects to
+     * a pistol in the bottom-right quarter; draw_viewmodel shrinks the whole
+     * thing about the eye, which changes nothing on screen. */
+    #define GB(m, x, y, z, hx, hy, hz, top, side) model_box((m), (x)*GUN_K, (y)*GUN_K, (z)*GUN_K, \
+                                                   (hx)*GUN_K, (hy)*GUN_K, (hz)*GUN_K, (top), (side))
+    GB(&M_GUN, -9.0f, -6.6f, 22.0f, 1.6f, 1.4f, 5.0f, 0xA8B0C0FF, 0x707888FF);   /* slide  */
+    GB(&M_GUN, -9.0f, -5.8f, 31.0f, 0.7f, 0.7f, 4.0f, 0x8890A0FF, 0x586070FF);   /* barrel */
+    GB(&M_GUN, -9.0f, -10.0f, 18.8f, 1.1f, 2.6f, 1.4f, 0x9A7050FF, 0x6A4A34FF);  /* grip   */
+    GB(&M_GUN, -9.0f, -4.9f, 33.5f, 0.3f, 0.5f, 0.3f, 0xE0E4F0FF, 0xA0A4B0FF);   /* sight  */
+    GB(&M_FLASH, -9.0f, -5.8f, 35.6f, 1.6f, 1.6f, 0.4f, 0xFFFFE0FF, 0xFFE080FF);
     /* One stripe colour per weapon slot, so a switch reads on the gun itself. */
     static const uint32_t STRIPE[4] = { 0xFFD94CFF, 0xFF8844FF, 0xFF4444FF, 0x44FFFFFF };
-    for (int i = 0; i < 4; i++) model_box(&M_STRIPE[i], -7, -4, 14, 2, 1, 4, STRIPE[i], STRIPE[i]);
+    for (int i = 0; i < 4; i++) GB(&M_STRIPE[i], -9.0f, -5.1f, 22.0f, 0.9f, 0.2f, 3.2f, STRIPE[i], STRIPE[i]);
+    #undef GB
 }
 
-/* The first-person gun: pushed at the eye, turned by yaw and then by pitch, so
- * it stays in the same place on screen however the view moves. */
+/* The first-person gun, in the view's own frame, so it stays in the same place
+ * on screen however the view moves.
+ *
+ * It was laid out 7..21 units ahead at 1x. The near end of its barrel was
+ * closer to the eye than the barrel was wide, so it ran off the bottom-right
+ * corner as a slab across a quarter of the screen — the same size on the host
+ * and in Ares at yaw 0; the console's dark top face only made it read bigger.
+ * It is now laid out 17..35 ahead in build_models and drawn at GUN_SCALE about
+ * the eye. Scaling about the eye changes nothing that projects to the screen,
+ * but it puts the gun's nearest point 4.4 units away (just past near_z 4) and
+ * its muzzle 8.9, inside the player's 10-unit collision box, so no wall can
+ * come between the eye and the gun.
+ *
+ * One matrix built from the view basis, not a yaw KilnTransform pushed under a
+ * pitch one. kiln_transform_push rotates with fm_mat4_from_axis_angle, which
+ * builds the transpose of fm_mat4_from_srt's rotation (it turns by -angle), and
+ * the host backend composes a nested push child x parent where Tiny3D's ucode
+ * composes parent x child. So the gun left its place as soon as the view turned
+ * or pitched, and differently on each renderer: gone on the host, a misplaced
+ * slab in Ares. */
 static void draw_viewmodel(void)
 {
-    static KilnTransform yaw_xf, pitch_xf;
-    static int ready;
-    if (!ready) {
-        kiln_transform_init(&yaw_xf); kiln_transform_init(&pitch_xf);
-        yaw_xf.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
-        pitch_xf.rot_axis = (fm_vec3_t){{ 1, 0, 0 }};
-        ready = 1;
+    static T3DMat4FP *mtx;
+    if (!mtx) {
+        mtx = malloc_uncached(sizeof *mtx);
+        assertf(mtx, "fps: out of memory for the viewmodel matrix");
     }
-    const float kick = g_muzzle_flash > 0 ? -2.0f : 0.0f;
-    yaw_xf.pos = g_scene.cam_pos;
-    yaw_xf.rot_angle = g_fpscam.yaw;
-    pitch_xf.pos = (fm_vec3_t){{ 0, 0, kick }};
-    pitch_xf.rot_angle = -g_fpscam.pitch;     /* +pitch looks up; +X rotation tips +Z down */
-    kiln_transform_push(&yaw_xf);
-    kiln_transform_push(&pitch_xf);
+    /* The view's own basis, built the way t3d_viewport_look_at builds it:
+     * side = forward x up is screen-right. The gun's -X is screen-right, so
+     * its X column is -side; Y is the view's up and Z its forward. */
+    const fm_vec3_t f = kiln_fpscam_forward(&g_fpscam);
+    fm_vec3_t side = {{ -f.v[2], 0, f.v[0] }};
+    fm_vec3_norm(&side, &side);
+    fm_vec3_t up;
+    fm_vec3_cross(&up, &side, &f);
+    const float kick = g_muzzle_flash > 0 ? -0.25f : 0.0f;
+    fm_mat4_t m;
+    memset(&m, 0, sizeof m);
+    for (int i = 0; i < 3; i++) {
+        m.m[0][i] = -side.v[i] * GUN_SCALE;
+        m.m[1][i] = up.v[i] * GUN_SCALE;
+        m.m[2][i] = f.v[i] * GUN_SCALE;
+        m.m[3][i] = g_scene.cam_pos.v[i] + f.v[i] * kick;
+    }
+    m.m[3][3] = 1.0f;
+    t3d_mat4_to_fixed(mtx, &m);
+    t3d_matrix_push(mtx);
     model_draw(&M_GUN);
     const KilnWeaponDef *wd = kiln_weapons_active_def(&g_wset);
     const int wi = wd ? (int)(wd - WEAPON_DEFS) : 0;
     if (wi >= 0 && wi < 4) model_draw(&M_STRIPE[wi]);
     if (g_muzzle_flash > 0) model_draw(&M_FLASH);
-    kiln_transform_pop();
-    kiln_transform_pop();
+    t3d_matrix_pop(1);
+}
+
+/* Jump ROMs place their state once the rooms have spawned their actors — the
+ * first frame, not before the loop — and COMBAT holds it there: the grunts
+ * cannot die, the player cannot, and the magazine never runs dry, so a capture
+ * at any boot time finds the same fight. */
+static void jump_setup(void)
+{
+    if (KILN_JUMP == JUMP_COMBAT) {
+        static const fm_vec3_t AT[2] = { {{ 0, 12, -95 }}, {{ -26, 12, -104 }} };
+        int i = 0;
+        for (KilnActor *e = kiln_actor_first(KILN_ACTOR_CAT_ENEMY); e && i < 2; e = kiln_actor_next(e), i++) {
+            e->xform.pos = AT[i];
+            ((EnemyState *)e->state)->speed = 0;
+        }
+    } else if (KILN_JUMP == JUMP_DOOR) {
+        /* The arena already cleared: the heavy stands where the player does. */
+        for (KilnActor *e = kiln_actor_first(KILN_ACTOR_CAT_ENEMY); e; ) {
+            KilnActor *next = kiln_actor_next(e);
+            kiln_actor_despawn(kiln_actor_handle_of(e));
+            e = next;
+        }
+        kiln_inventory_add(&g_inv, ITEM_KEY_RED, 1);
+        g_gate_open = 1;
+    }
+}
+
+static void jump_latch(void)
+{
+    if (KILN_JUMP != JUMP_COMBAT) return;
+    g_player_health = 100;
+    for (KilnActor *e = kiln_actor_first(KILN_ACTOR_CAT_ENEMY); e; e = kiln_actor_next(e))
+        if (e->health < 100) e->health = 100;
+    KilnWeapon *w = kiln_weapons_active_state(&g_wset);
+    if (w) { w->magazine = w->magazine_size; w->ammo = 36; }
 }
 
 static void respawn(void)
@@ -612,6 +738,9 @@ static const char *objective(void)
 {
     if (g_won) return "level complete";
     if (!g_gate_open) return "find the switch in the corridor";
+    /* The key is spent opening the door: without this the objective went back
+     * to "find the red key" the moment the door rose. */
+    if (g_exit_open) return "the red door is open: reach the exit";
     if (!kiln_inventory_has(&g_inv, ITEM_KEY_RED)) return "find the red key";
     return "open the red door and reach the exit";
 }
@@ -738,6 +867,16 @@ int main(void)
         kiln_fpscam_snap(&g_fpscam, (fm_vec3_t){{ -18, 40, 184 }}, fm_atan2f(-22, 12), -0.35f);
         kiln_input_play(1, &SWITCH_TAPE);
     }
+    if (KILN_JUMP == JUMP_COMBAT) {
+        /* Down the hall from the spawn, pitched so the shot meets a grunt. */
+        kiln_fpscam_snap(&g_fpscam, (fm_vec3_t){{ 0, 40, -150 }}, 0, -0.41f);
+        kiln_input_play(1, &COMBAT_TAPE);
+    }
+    if (KILN_JUMP == JUMP_DOOR) {
+        kiln_fpscam_snap(&g_fpscam, (fm_vec3_t){{ 0, 40, 450 }}, 0, 0.25f);
+        kiln_input_play(1, &DOOR_TAPE);
+    }
+    if (KILN_JUMP == JUMP_NONE) kiln_input_set_attract(1, &ATTRACT_TAPE, 120);
 
     kiln_weapons_init(&g_wset, WEAPON_DEFS, 4);
     kiln_scene_init(&g_scene);
@@ -747,6 +886,7 @@ int main(void)
     build_models();
 
     uint32_t frames = 0; float fps = 0; uint32_t last_ticks = get_ticks(); float ta = 0;
+    int jump_ready = 0;
 
     for (;;) {
         kiln_input_update();
@@ -754,6 +894,8 @@ int main(void)
         float dt = 1.0f/60.0f; ta += dt;
 
         kiln_room_system_update(&g_room_sys, g_fpscam.pos);
+        if (!jump_ready) { jump_setup(); jump_ready = 1; }
+        jump_latch();
         compose_world();
 
         int dialogue_active = kiln_dialogue_active(&g_dialogue);
@@ -940,6 +1082,11 @@ int main(void)
         kiln_gui_text(hb_x, 28, ink, "AR");
         kiln_gui_bar(hb_x+18, 22, hb_w-18, 8, (float)g_player_armor/100, RGBA32(68,136,255,255), RGBA32(40,40,40,255));
         if (kiln_inventory_has(&g_inv, ITEM_KEY_RED)) kiln_gui_text(hb_x, 42, RGBA32(255,80,80,255), "RED KEY");
+        /* Under the bars, not bottom-right: the gun lives there. */
+        if (kiln_input_scripted(1)) {
+            kiln_gui_panel(SCREEN_W - 58, 50, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            kiln_gui_text(SCREEN_W - 49, 62, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        }
 
         if (dialogue_active) kiln_dialogue_draw(&g_dialogue);
 

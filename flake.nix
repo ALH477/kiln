@@ -1025,7 +1025,6 @@
           // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
           // mkJumpRoms ootDemoArgs [ "TARGET" ]
           // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
-          // mkJumpRoms fpsArgs [ "SWITCH" ]
           // mkJumpRoms actorsDemoArgs [ "FULL" ]
           // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ]
           // mkJumpRoms debugDemoArgs [ "CONSOLE" ];
@@ -1297,19 +1296,6 @@
             assets = [ demoSound doorOpenSfx ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_QUEUED" ];
             meta.description = "event-demo-queued, on this machine";
-          };
-          pc-fps = hostNative.mkGame {
-            pname = "kiln-fps";
-            sources = [ ./examples/fps/main.c ];
-            assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
-            meta.description = "fps, on this machine";
-          };
-          pc-fps-switch = hostNative.mkGame {
-            pname = "kiln-fps-switch";
-            sources = [ ./examples/fps/main.c ];
-            assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
-            extraCFlags = [ "-DKILN_JUMP=JUMP_SWITCH" ];
-            meta.description = "fps-switch, on this machine";
           };
           pc-actors-demo = hostNative.mkGame {
             pname = "kiln-actors-demo";
