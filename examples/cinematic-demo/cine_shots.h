@@ -85,7 +85,7 @@ static const CineShot CINE_SHOTS[] = {
     CINE_SHOT(15.0f,  7.0f, CINE_SHOT_DROIDS,  "SERVICE DROIDS"),
     CINE_SHOT(22.0f,  8.0f, CINE_SHOT_DOOR,    "BAY DOOR"),
     CINE_SHOT(30.0f,  8.0f, CINE_SHOT_CONTACT, "CONTACT"),
-    CINE_SHOT(38.0f,  9.0f, CINE_SHOT_WIDE,    NULL),
+    CINE_SHOT(38.0f,  9.0f, CINE_SHOT_WIDE,    "TRUCE"),
     CINE_SHOT(47.0f, 13.0f, CINE_SHOT_BACK,    "STAND DOWN"),
 };
 #undef CINE_SHOT
@@ -99,12 +99,44 @@ static inline int cine_shot_at(const CineShot *shots, int n, float t)
     return i;
 }
 
-/* Eye and look at time t, flown through the live shot. */
+/* Camera shake: a short decaying jolt on each impact — the crates going over,
+ * the door slamming open and shut. A pure function of t, and applied HERE
+ * rather than in the ROM, so nix/checks/cinematic-cam.nix flies the shaken eye
+ * and its clearance test covers the shake too. */
+typedef struct { float at, amp; } CineJolt;
+static const CineJolt CINE_JOLTS[] = {
+    {  9.6f, 0.9f },   /* stack A */
+    { 22.5f, 0.6f },   /* door opens */
+    { 29.5f, 0.8f },   /* stack B */
+    { 55.0f, 0.5f },   /* door closes */
+};
+#define CINE_JOLT_LEN 0.6f
+
+static inline fm_vec3_t cine_shake(float t)
+{
+    fm_vec3_t o = {{ 0, 0, 0 }};
+    for (int i = 0; i < (int)(sizeof(CINE_JOLTS) / sizeof(CINE_JOLTS[0])); i++) {
+        const float u = (t - CINE_JOLTS[i].at) / CINE_JOLT_LEN;
+        if (u < 0.0f || u >= 1.0f) continue;
+        const float k = CINE_JOLTS[i].amp * (1.0f - u) * (1.0f - u);
+        o.v[0] += k * fm_sinf(t * 57.0f);
+        o.v[1] += k * 0.6f * fm_sinf(t * 43.0f + 1.3f);
+        o.v[2] += k * fm_cosf(t * 51.0f);
+    }
+    return o;
+}
+
+/* Eye and look at time t, flown through the live shot, shaken. */
 static inline void cine_camera(const CineShot *shots, int n, float t,
                                fm_vec3_t *eye, fm_vec3_t *look)
 {
     const CineShot *s = &shots[cine_shot_at(shots, n, t)];
     kiln_camkey_sample(s->keys, s->n, 0, t - s->start, eye, look);
+    const fm_vec3_t k = cine_shake(t);
+    for (int i = 0; i < 3; i++) {
+        eye->v[i] += k.v[i];
+        look->v[i] += k.v[i] * 0.4f;
+    }
 }
 
 #endif // CINE_SHOTS_H

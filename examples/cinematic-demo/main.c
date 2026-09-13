@@ -16,14 +16,19 @@
 //   kiln_clip      the map's brushes are the world the crates fall in
 //   kiln_physics   crate stacks; the goblin and an alien knock one each over
 //   kiln_prim      crates and the door as 24-vertex flat-shaded boxes
-//   kiln_skel      goblin Idle/Walk, droid Idle/Wave, alien Idle/Approach —
-//                  one skeleton per actor, blended by how fast it moves
+//   kiln_skel      goblin Idle/Walk at the rate his path covers ground, with
+//                  Wave and Taunt played over it on the overlay slot (the wave
+//                  masked to the torso, so he keeps walking); droid Idle/Wave;
+//                  alien Idle/Approach; heads that turn to look at each other;
+//                  footsteps on the clip's own contacts
 //   kiln_actor     profiles, category draw order
 //   kiln_event     the door's 500 ms-delayed OPEN and CLOSE
 //   kiln_target    the reticle on the lead alien, 30-36 s
 //   kiln_camera    CUTSCENE mode, fed by cine_shots.h: seven kiln_camkey
 //                  shots cut together, kiln_camlint-checked in the flake
-//   kiln_gui       letterbox, caption cards, timecode
+//   kiln_gui       letterbox (and a wipe at the loop), caption cards, typed
+//                  subtitles, timecode; the rim light pulses red while the
+//                  bay door alarm sounds, and the camera jolts on impacts
 //   kiln_audio     music bed; kiln_sound positional footsteps and thumps
 
 #include <libdragon.h>
@@ -55,8 +60,8 @@
 // timeline to that second at boot and HOLD it there, since Ares' boot time
 // varies by a second or two. BOXES runs the loop with every actor's measured
 // bounds drawn over it, which shows a model at the wrong size, or standing in
-// the floor, in one capture.
-enum { JUMP_NONE, JUMP_T10, JUMP_T22, JUMP_T30, JUMP_T38, JUMP_BOXES };
+// the floor, in one capture. T33 lands on the captain's taunt with its subtitle.
+enum { JUMP_NONE, JUMP_T10, JUMP_T22, JUMP_T30, JUMP_T33, JUMP_T38, JUMP_BOXES };
 #ifndef KILN_JUMP
 #define KILN_JUMP JUMP_NONE
 #endif
@@ -67,6 +72,7 @@ static float jump_time(void)
     case JUMP_T10: return 10.0f;
     case JUMP_T22: return 22.0f;
     case JUMP_T30: return 30.0f;
+    case JUMP_T33: return 33.8f;
     case JUMP_T38: return 38.0f;
     default:       return -1.0f;
     }
@@ -75,6 +81,10 @@ static float jump_time(void)
 #define SCREEN_W        320
 #define SCREEN_H        240
 #define DT              (1.0f / 60.0f)
+
+/* The goblin Walk clip's ground speed, m/s of clip time — measured by
+ * tools/blender/gait.py and held to it by nix/checks/goblin-gait.nix. */
+#define GOBLIN_WALK_MPS 0.642f
 
 enum { EV_DOOR_OPEN = 1, EV_DOOR_CLOSE = 2 };
 
@@ -100,6 +110,8 @@ static T3DModel *g_ship_model, *g_goblin_model, *g_droid_model, *g_alien_model;
 static KilnSkel g_goblin_skel;
 static KilnSkel g_droid_skel[DROID_MAX];
 static KilnSkel g_alien_skel[ALIEN_MAX];
+static int g_gob_neck = -1, g_gob_head = -1, g_alien_head = -1;
+static uint32_t g_gob_upper;
 
 static int g_music = -1, g_music_ch = -1;
 
@@ -160,31 +172,82 @@ static void apply_pose(KilnActor *self, const CinePose *p)
     self->xform.rot_angle = p->yaw;
 }
 
+/* Turn `bone` about +Y by `a` radians, split with its parent for a neck. */
+static void look_turn(KilnSkel *sk, int neck, int head, float a)
+{
+    T3DQuat q;
+    if (neck >= 0) {
+        kiln_quat_axis_angle(&q, 0, 1, 0, a * 0.4f);
+        kiln_skel_bone_rotate(sk, neck, &q);
+        a *= 0.6f;
+    }
+    kiln_quat_axis_angle(&q, 0, 1, 0, a);
+    kiln_skel_bone_rotate(sk, head, &q);
+}
+
+static float slot_phase(const KilnSkel *sk, KilnSkelSlot slot)
+{
+    const float len = kiln_skel_length(sk, slot);
+    return len > 0.0f ? kiln_skel_time(sk, slot) / len : 0.0f;
+}
+
+/* A foot contact: the phase crossed 0 or 1/2 since last frame. */
+static int contact(float last, float now)
+{
+    return (last < 0.5f && now >= 0.5f) || now < last;
+}
+
 // ── Goblin ──────────────────────────────────────────────────────────────
-typedef struct { float last_step; } GoblinState;
+typedef struct { float last_phase; int beat; } GoblinState;
 
 static void goblin_init(KilnActor *self, const KilnDict *args)
 {
     (void)args;
-    ((GoblinState *)self->state)->last_step = 0.0f;
+    GoblinState *s = (GoblinState *)self->state;
+    s->last_phase = 0.0f;
+    s->beat = -1;
 }
 
 static void goblin_update(KilnActor *self, float dt)
 {
     (void)dt;
+    GoblinState *s = (GoblinState *)self->state;
     const CinePose p = cine_goblin(g_t);
     apply_pose(self, &p);
     kiln_skel_set_blend(&g_goblin_skel, p.walk);
 
-    // A footstep every third of a second of walking: the Walk clip is 40
-    // frames, two steps. Keyed on walked time, so a stopped goblin is silent.
-    GoblinState *s = (GoblinState *)self->state;
-    const float w = cine_goblin_walked(g_t);
-    if (w < s->last_step) s->last_step = w;               // loop wrapped
-    if (w - s->last_step >= 0.333f) {
-        s->last_step = w;
-        if (g_audible) kiln_sound_play("step_stone", p.pos, 1.0f);
+    /* Walk at the rate his path covers ground (1.66x at full pace). Never
+     * quite stopped, or an easing-in stride would freeze mid-step. */
+    const float rate = cine_goblin_speed(g_t) / (GOBLIN_WALK_MPS * CINE_UNITS_PER_M);
+    kiln_skel_set_speed(&g_goblin_skel, KILN_SKEL_BLEND, rate < 0.4f ? 0.4f : rate);
+
+    /* The beats: a window of t starts its clip at the matching point in it,
+     * and restarts it if a held jump ROM outlasts it. */
+    const int b = cine_beat_at(CINE_GOBLIN_BEATS, CINE_GOBLIN_BEAT_COUNT, g_t);
+    if (b >= 0 && (b != s->beat || !kiln_skel_overlay_active(&g_goblin_skel))) {
+        const CineBeat *bt = &CINE_GOBLIN_BEATS[b];
+        kiln_skel_set_overlay_mask(&g_goblin_skel, bt->upper ? g_gob_upper : KILN_POSE_MASK_ALL);
+        kiln_skel_overlay(&g_goblin_skel, bt->clip, false, 0.25f);
+        kiln_skel_set_phase(&g_goblin_skel, KILN_SKEL_OVERLAY, (g_t - bt->start) / bt->len);
     }
+    s->beat = b;
+
+    /* While he stands off, his head follows the lead alien. */
+    const float look = cine_smooth(CINE_GOB_LOOK_ON, CINE_GOB_LOOK_ON + 1.0f, g_t)
+                     * (1.0f - cine_smooth(CINE_GOB_LOOK_OFF - 1.0f, CINE_GOB_LOOK_OFF, g_t));
+    KilnActor *lead = kiln_actor_resolve(g_alien_h[0]);
+    if (look > 0.01f && lead) {
+        const float to = fm_atan2f(lead->xform.pos.v[0] - p.pos.v[0], lead->xform.pos.v[2] - p.pos.v[2]);
+        float a = cine_wrap(to - cine_facing(p.yaw, CINE_FWD_NEG_Z));
+        a = a > 1.1f ? 1.1f : (a < -1.1f ? -1.1f : a);
+        look_turn(&g_goblin_skel, g_gob_neck, g_gob_head, a * look);
+    }
+
+    /* Footsteps on the Walk clip's own contacts, so they land with the feet. */
+    const float ph = slot_phase(&g_goblin_skel, KILN_SKEL_BLEND);
+    if (p.walk > 0.3f && contact(s->last_phase, ph) && g_audible)
+        kiln_sound_play("step_stone", p.pos, 1.0f);
+    s->last_phase = ph;
 }
 
 static void goblin_draw(KilnActor *self) { (void)self; kiln_skel_draw(&g_goblin_skel); }
@@ -217,29 +280,49 @@ static void droid_draw(KilnActor *self)
 }
 
 // ── Aliens ──────────────────────────────────────────────────────────────
-typedef struct { int idx; float last_step; } AlienState;
+typedef struct { int idx; float last_phase; } AlienState;
 
 static void alien_init(KilnActor *self, const KilnDict *args)
 {
     AlienState *s = (AlienState *)self->state;
     const char *path = kiln_dict_get_str(args, "path", "approach");
     s->idx = (strcmp(path, "approach_late") == 0) ? 1 : 0;
-    s->last_step = 0.0f;
+    s->last_phase = 0.0f;
 }
 
 static void alien_update(KilnActor *self, float dt)
 {
+    (void)dt;
     AlienState *s = (AlienState *)self->state;
     const CinePose g = cine_goblin(g_t);
     const CinePose p = cine_alien(s->idx, g_t, g.pos);
     apply_pose(self, &p);
-    kiln_skel_set_blend(&g_alien_skel[s->idx], p.walk);
+    KilnSkel *sk = &g_alien_skel[s->idx];
+    kiln_skel_set_blend(sk, p.walk);
 
-    s->last_step += dt * p.walk;
-    if (s->last_step >= 0.5f) {                      // Approach is 30 frames
-        s->last_step -= 0.5f;
-        if (g_audible) kiln_sound_play("step_alien", p.pos, 1.0f);
+    /* Stood off, the head tracks the captain a beat ahead of the body; when
+     * stack B goes over at 29.5 it snaps round to the noise first. */
+    const CineAlienPath *a = &CINE_ALIEN_PATHS[s->idx];
+    float target_x = g.pos.v[0], target_z = g.pos.v[2];
+    float w = cine_smooth(a->out1 - 2.0f, a->out1 - 1.0f, g_t) * (1.0f - cine_smooth(a->back0, a->back0 + 0.8f, g_t));
+    const float startle = cine_smooth(29.5f, 29.7f, g_t) * (1.0f - cine_smooth(30.6f, 31.4f, g_t));
+    if (startle > 0.0f) {
+        target_x = CINE_STACK_B_X;
+        target_z = CINE_STACK_B_Z;
+        w = startle;
     }
+    if (w > 0.01f && g_alien_head >= 0) {
+        const float to = fm_atan2f(target_x - p.pos.v[0], target_z - p.pos.v[2]);
+        float d = cine_wrap(to - cine_facing(p.yaw, CINE_FWD_POS_Z));
+        d = d > 1.2f ? 1.2f : (d < -1.2f ? -1.2f : d);
+        look_turn(sk, -1, g_alien_head, d * w);
+    }
+
+    /* Steps on Approach's half-cycles. */
+    const float ph = slot_phase(sk, KILN_SKEL_BLEND);
+    if (p.walk > 0.3f && contact(s->last_phase, ph) && g_audible)
+        kiln_sound_play("step_alien", p.pos, 1.0f);
+    s->last_phase = ph;
 }
 
 static void alien_draw(KilnActor *self)
@@ -418,15 +501,35 @@ static void draw_boxes(void)
 static void draw_hud(void)
 {
     const color_t bar = RGBA32(0, 0, 0, 255);
-    kiln_gui_rect(0, 0, SCREEN_W, LETTERBOX_H, bar);
-    kiln_gui_rect(0, SCREEN_H - LETTERBOX_H, SCREEN_W, LETTERBOX_H, bar);
-    kiln_gui_text(12, 18, RGBA32(0, 245, 212, 255), "KILN ENGINE");
-    kiln_gui_text(SCREEN_W - 12 - 6 * 11, 18, RGBA32(120, 128, 150, 255), "HANGAR BAY");
+    /* At the loop's seam the bars close to a black frame and open again: a
+     * cut to the top of the loop, not a jump. Opaque, so it costs two rects. */
+    const float shut = cine_smooth(59.3f, 59.95f, g_t) + (1.0f - cine_smooth(0.0f, 0.7f, g_t));
+    const int h = LETTERBOX_H + (int)((SCREEN_H * 0.5f - LETTERBOX_H + 1.0f) * cine_clamp01(shut));
+    kiln_gui_rect(0, 0, SCREEN_W, h, bar);
+    kiln_gui_rect(0, SCREEN_H - h, SCREEN_W, h, bar);
+    if (shut > 0.95f) return;
 
+    /* Top bar: the engine, and the shot's caption card for its first three
+     * seconds (or the room's name). */
+    kiln_gui_text(12, 18, RGBA32(0, 245, 212, 255), "KILN ENGINE");
     const CineShot *s = &CINE_SHOTS[cine_shot_at(CINE_SHOTS, CINE_SHOT_COUNT, g_t)];
-    if (s->title && g_t - s->start < 3.0f) {
-        kiln_gui_rect(12, SCREEN_H - 20, 3, 11, RGBA32(245, 180, 60, 255));
-        kiln_gui_text(20, SCREEN_H - 11, RGBA32(232, 232, 240, 255), "%s", s->title);
+    const int card = s->title && g_t - s->start < 3.0f;
+    const char *right = card ? s->title : "HANGAR BAY";
+    const int rw = 6 * (int)strlen(right);
+    if (card) kiln_gui_rect(SCREEN_W - 20 - rw, 8, 3, 11, RGBA32(245, 180, 60, 255));
+    kiln_gui_text(SCREEN_W - 12 - rw, 18, card ? RGBA32(232, 232, 240, 255) : RGBA32(120, 128, 150, 255),
+                  "%s", right);
+
+    /* Bottom bar: the line being spoken, typed out at 30 characters a second. */
+    for (int i = 0; i < CINE_LINE_COUNT; i++) {
+        const CineLine *l = &CINE_LINES[i];
+        if (g_t < l->start || g_t >= l->end) continue;
+        const int who = (int)strlen(l->who);
+        int n = (int)((g_t - l->start) * 30.0f);
+        const int len = (int)strlen(l->line);
+        if (n > len) n = len;
+        kiln_gui_text(12, SCREEN_H - 11, RGBA32(245, 180, 60, 255), "%s", l->who);
+        kiln_gui_text(12 + 6 * (who + 2), SCREEN_H - 11, RGBA32(232, 232, 240, 255), "%.*s", n, l->line);
     }
     int sec = (int)g_t;
     kiln_gui_text(SCREEN_W - 12 - 6 * 5, SCREEN_H - 11, RGBA32(120, 128, 150, 255),
@@ -485,6 +588,9 @@ int main(void)
     kiln_skel_create(&g_goblin_skel, g_goblin_model);
     kiln_skel_play(&g_goblin_skel, "Idle", true);
     kiln_skel_play_blend(&g_goblin_skel, "Walk", true);
+    g_gob_neck = kiln_skel_bone(&g_goblin_skel, "neck");
+    g_gob_head = kiln_skel_bone(&g_goblin_skel, "head");
+    g_gob_upper = kiln_skel_mask_bone(&g_goblin_skel, "torso");
     for (int i = 0; i < DROID_MAX; i++) {
         kiln_skel_create(&g_droid_skel[i], g_droid_model);
         kiln_skel_play(&g_droid_skel[i], "Wave", true);
@@ -495,6 +601,7 @@ int main(void)
         kiln_skel_play(&g_alien_skel[i], "Idle", true);
         kiln_skel_play_blend(&g_alien_skel[i], "Approach", true);
     }
+    g_alien_head = kiln_skel_bone(&g_alien_skel[0], "head");
 
     kiln_prim_box(&g_door_prim,
                   (fm_vec3_t){{ CINE_DOOR_W * 0.5f, CINE_DOOR_H * 0.5f, 0 }},
@@ -549,6 +656,10 @@ int main(void)
     g_scene.fov_deg = 62.0f;
     g_scene.near_z = 4.0f;
     g_scene.far_z = 360.0f;
+    uint8_t rim_base[4], amb_base[4];
+    memcpy(rim_base, g_scene.lights[0].color, 4);
+    memcpy(amb_base, g_scene.ambient, 4);
+    const color_t fog_base = g_scene.fog_color;
 
     kiln_camera_init(&g_cam);
     kiln_camera_push(&g_cam, KILN_CAM_CUTSCENE);
@@ -575,7 +686,25 @@ int main(void)
 
     for (;;) {
         kiln_input_update();
+        /* Held jump ROMs still run the actors each frame at dt 0: the beats
+         * and head turns are requests made per frame, and would drop out. */
         if (jump_t < 0.0f) sim_step(DT);
+        else kiln_actor_update_all(0.0f);
+
+        /* The bay-door alarm: the rim light goes red, the ambient warms, and
+         * the haze the room ends in turns the colour of the light. */
+        const float alarm = cine_alarm(g_t);
+        const uint8_t red[4] = { 0xFF, 0x28, 0x18, 0xFF };
+        const uint8_t warm[3] = { 0x70, 0x14, 0x10 };
+        for (int c = 0; c < 3; c++) {
+            g_scene.lights[0].color[c] = (uint8_t)(rim_base[c] + (red[c] - rim_base[c]) * alarm);
+            g_scene.ambient[c] = (uint8_t)(amb_base[c] + (warm[c] - amb_base[c]) * alarm * 0.7f);
+        }
+        const float fa = alarm * 0.8f;
+        g_scene.fog_color = RGBA32((int)(fog_base.r + (0x6A - fog_base.r) * fa),
+                                   (int)(fog_base.g + (0x10 - fog_base.g) * fa),
+                                   (int)(fog_base.b + (0x14 - fog_base.b) * fa), 0xFF);
+        g_scene.clear_color = g_scene.fog_color;
 
         kiln_skel_update(&g_goblin_skel, DT);
         for (int i = 0; i < DROID_MAX; i++) kiln_skel_update(&g_droid_skel[i], DT);

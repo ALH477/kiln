@@ -79,11 +79,31 @@ static inline float cine_smooth(float a, float b, float t)
 }
 
 /* Yaw for kiln_transform (rotation about +Y) that turns a model whose face is
- * at `fwd` (CINE_FWD_*) toward direction (dx, dz). Rotating -Z by `a` about Y
- * gives (-sin a, 0, -cos a). */
+ * at `fwd` (CINE_FWD_*) toward direction (dx, dz).
+ *
+ * libdragon's fm_mat4_from_axis_angle about +Y maps -Z to (sin a, 0, -cos a)
+ * and +Z to (-sin a, 0, cos a) — measured natively against the host build of
+ * libdragon's own fast math. This used to assume (-sin a, 0, -cos a), the
+ * right-hand rule, which is right only along the Z axis: the whole cast faced
+ * mirrored whenever it moved sideways, the captain walking his circle with his
+ * nose pointing out of it. */
 static inline float cine_yaw_to(float dx, float dz, float fwd)
 {
-    return fm_atan2f(-dx, -dz) + fwd;
+    return fm_atan2f(dx, -dz) + fwd;
+}
+
+/* The direction a transform yaw from cine_yaw_to actually faces, as an
+ * fm_atan2f(x, z) angle — what a head turn is measured against. */
+static inline float cine_facing(float yaw, float fwd)
+{
+    return fwd == CINE_FWD_NEG_Z ? CINE_PI - yaw : -yaw;
+}
+
+static inline float cine_wrap(float a)
+{
+    while (a >  CINE_PI) a -= 2.0f * CINE_PI;
+    while (a < -CINE_PI) a += 2.0f * CINE_PI;
+    return a;
 }
 
 /* Shortest-way blend between two angles. */
@@ -141,6 +161,17 @@ static inline float cine_goblin_walked(float t)
         hold = 13.0f + 2.0f * (u - (u * u * u - 0.5f * u * u * u * u));
     } else hold = 14.0f;
     return t - hold;
+}
+
+/* How fast he is covering ground at t, units/s: his arc speed times the rate
+ * walked time is passing. The Walk clip plays at this over its measured ground
+ * speed, or his feet skate. */
+static inline float cine_goblin_speed(float t)
+{
+    const float h = 0.02f;
+    const float lo = t - h < 0.0f ? 0.0f : t - h;
+    const float dw = (cine_goblin_walked(t + h) - cine_goblin_walked(lo)) / (t + h - lo);
+    return CINE_GOB_R * CINE_GOB_OMEGA * dw;
 }
 
 static inline CinePose cine_goblin(float t)
@@ -256,6 +287,59 @@ static inline CinePose cine_alien(int which, float t, fm_vec3_t goblin)
     p.yaw = cine_angle_lerp(path_yaw, face_yaw, facing);
     return p;
 }
+
+/* ── Acting ────────────────────────────────────────────────────────────── */
+// One-shot clips played over the walk on kiln_skel's overlay slot, as windows
+// of t, so a jump ROM that lands inside one is mid-gesture. `upper` masks the
+// clip to the torso's subtree: a wave does not stop the legs.
+typedef struct {
+    const char *clip;
+    float start, len;
+    unsigned char upper;
+} CineBeat;
+
+static const CineBeat CINE_GOBLIN_BEATS[] = {
+    { "Wave",  16.0f, 50.0f / 24.0f, 1 },   /* to the droids, still walking  */
+    { "Taunt", 33.0f, 60.0f / 24.0f, 0 },   /* at the aliens, stood off       */
+    { "Wave",  49.0f, 50.0f / 24.0f, 1 },   /* see you round                  */
+};
+#define CINE_GOBLIN_BEAT_COUNT ((int)(sizeof(CINE_GOBLIN_BEATS) / sizeof(CINE_GOBLIN_BEATS[0])))
+
+static inline int cine_beat_at(const CineBeat *b, int n, float t)
+{
+    for (int i = 0; i < n; i++)
+        if (t >= b[i].start && t < b[i].start + b[i].len) return i;
+    return -1;
+}
+
+/* Where the captain's head looks while he stands off, and how much. */
+#define CINE_GOB_LOOK_ON   24.0f
+#define CINE_GOB_LOOK_OFF  43.5f
+
+/* ── Staging ───────────────────────────────────────────────────────────── */
+/* The alarm light: red from the door opening until the stand-off settles,
+ * pulsing at 1.6 Hz between a third and full. Never to zero, or a frame caught
+ * in the trough (t = 30, say, which is 48 whole cycles) shows no alarm. 0..1. */
+static inline float cine_alarm(float t)
+{
+    const float on = cine_smooth(22.4f, 22.9f, t) * (1.0f - cine_smooth(30.5f, 32.0f, t));
+    const float s = 0.5f + 0.5f * fm_sinf(t * 2.0f * CINE_PI * 1.6f);
+    return on * (0.35f + 0.65f * s);
+}
+
+/* Timed subtitles, typed out in the lower letterbox bar. */
+typedef struct {
+    float start, end;
+    const char *who, *line;
+} CineLine;
+
+static const CineLine CINE_LINES[] = {
+    { 33.2f, 36.4f, "CAPTAIN", "Easy. Nobody reach for anything." },
+    { 36.8f, 40.2f, "ALIEN",   "This dock is ours, small one." },
+    { 41.0f, 44.0f, "CAPTAIN", "Then we both leave. Slowly." },
+    { 50.0f, 53.5f, "CAPTAIN", "Log it. Nothing happened here." },
+};
+#define CINE_LINE_COUNT ((int)(sizeof(CINE_LINES) / sizeof(CINE_LINES[0])))
 
 /* ── Door ──────────────────────────────────────────────────────────────── */
 #define CINE_DOOR_OPEN_T    22.0f   /* event posted; lands 500 ms later */

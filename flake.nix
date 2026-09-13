@@ -457,8 +457,8 @@
           script = "interceptor.py";
         };
 
-        # Cinematic-demo extras: a service droid (rigged+animated, two bones
-        # driving a wave animation), an approaching alien (taller, six-legged
+        # Cinematic-demo extras: a service droid (rigged+animated, six bones,
+        # Wave and Idle), an approaching alien (taller, six-legged
         # silhouette, head-bob animation), and the hangar.map that lays out
         # the room. Same mkBlenderModel path as goblinModel / interceptorModel.
         droidModel = blenderLib.mkBlenderModel {
@@ -936,9 +936,10 @@
         };
         texanim-demo = mkN64Rom texanimDemoArgs;
 
-        # Cinematic-demo: a 60-second single-shot scene of the Interceptor in
-        # its hangar with the goblin captain walking the perimeter, droids
-        # servicing the ship, and aliens approaching from the back. Exercises
+        # Cinematic-demo: a 60-second scene of seven cut shots — the Interceptor
+        # in its hangar, the goblin captain walking the perimeter (waving,
+        # taunting, tracking the aliens with his head), droids servicing the
+        # ship, aliens coming out of the back, an alarm, subtitles. Exercises
         # every engine subsystem in one ROM — input, player, clip, target,
         # surface, sound, event, dict, map, room, camera (CUTSCENE mode), skel
         # (goblin walk-cycle), audio (music + SFX). Assets:
