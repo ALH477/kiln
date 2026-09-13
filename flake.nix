@@ -941,6 +941,29 @@
           }))
           forgeModes);
 
+        # ── Jump ROMs for the examples ─────────────────────────────────
+        # forgeModeRoms' pattern, for any example: `mkJumpRoms args [ "CORNER" ]`
+        # yields `<name>-corner`, the same ROM built with KILN_JUMP=CORNER
+        # (engine/kiln-inst.mk turns that into -DKILN_JUMP=JUMP_CORNER), which
+        # boots straight into one state so `./dev shot` can capture it with no
+        # controller. An example declares its args once, builds its own ROM from
+        # them, and lists its jumps in `jumpRoms` below. Packages, not checks:
+        # the base ROM is what the gate builds.
+        mkJumpRoms = args: jumps: pkgs.lib.listToAttrs (map (j:
+          let
+            suffix = pkgs.lib.replaceStrings [ "_" ] [ "-" ] (pkgs.lib.toLower j);
+            title = "${args.romTitle} ${j}";
+          in
+          assert pkgs.lib.assertMsg (pkgs.lib.stringLength title <= 20)
+            "mkJumpRoms: ROM title '${title}' exceeds the header's 20 characters";
+          pkgs.lib.nameValuePair "${args.name}-${suffix}" (mkN64Rom (args // {
+            name = "${args.name}-${suffix}";
+            romTitle = title;
+            makeFlags = (args.makeFlags or [ ]) ++ [ "KILN_JUMP=${j}" ];
+          }))) jumps);
+
+        jumpRoms = { };
+
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
         # through the cart, so with no save type in the ROM header there is
@@ -1138,6 +1161,7 @@
           inherit dev-image;
         }
         // forgeModeRoms
+        // jumpRoms
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
@@ -1344,6 +1368,21 @@
             inherit pkgs;
             rom = board-demo;
             name = "board-demo";
+          };
+          rom-camera-skel-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = camera-skel-demo;
+            name = "camera-skel-demo";
+          };
+          rom-openworld-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = openworld-demo;
+            name = "openworld-demo";
+          };
+          rom-exsec-streamdb-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = exsec-streamdb-demo;
+            name = "exsec-streamdb-demo";
           };
           # rom.nix globs for *.z64 rather than taking a filename, which is
           # what makes this work for Forge: the Makefile emits `forge.z64` no
@@ -1563,7 +1602,7 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a
