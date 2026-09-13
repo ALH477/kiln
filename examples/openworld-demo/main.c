@@ -316,12 +316,13 @@ int main(void)
     build_map_runs();
 
     kiln_scene_init(&g_scene);
-    /* Fog 160..280 is chosen for the CONSOLE, where it closes at ~560 of
-     * depth: Tiny3D's ucode applies t3d_fog_set_range as offset -2*near on
-     * clip z with scale 16384/(far-near), which in Ares ramps over about
-     * [2*near, 2*far]. plat/host ramps over [near, far], so host renders of
-     * this demo are far foggier than the ROM. Measured, not derived: a 300..540
-     * range showed no visible fog in Ares at all. */
+    /* Fog 160..280 is chosen in Ares. Tiny3D ramps fog over CLIP z, not view
+     * depth: fog = (clip_z - 2*near) / (2*(far - near)), with clip_z =
+     * f*(d - 2n)/(f - n) for the camera's own near/far planes, so the range
+     * closes well beyond 280 of depth and moves with the camera's near plane.
+     * plat/host computes the same ramp now (kiln-prim pins it against probe
+     * measurements), so a host render of this demo shows the island as the
+     * ROM does. */
     kiln_prim_stage(&g_scene, RGBA32(0x9C, 0xB8, 0xD4, 0xFF), 160.0f, 280.0f);
     /* Sun and sky light, set explicitly. A direction points TOWARD the
      * source (Tiny3D lights by +dot(normal, dir)): a high sun, a weaker cool
