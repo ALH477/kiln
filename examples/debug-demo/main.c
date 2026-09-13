@@ -319,9 +319,11 @@ int main(void)
             kiln_gui_text(120, y, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%.1f", ms);
         }
 
+        /* Bottom-right, above the hint line: kiln_console's closed log panel
+         * owns the top-right corner and covered the badge on console. */
         if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+            kiln_gui_panel(SCREEN_W - 58, SCREEN_H - 34, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            kiln_gui_text(SCREEN_W - 49, SCREEN_H - 22, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
         kiln_gui_text(8, SCREEN_H - 6, RGBA32(0x8B, 0x5C, 0xF6, 0xFF), "Start + C-U C-L C-D C-R: console   Z: overlay");
 
