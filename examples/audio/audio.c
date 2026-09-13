@@ -19,8 +19,10 @@
 // resamples whatever the core produces to its fixed 48 kHz HDMI output.
 #define SAMPLE_RATE 32000
 
-// One channel is enough for a single one-shot. libdragon's mixer supports 32.
-#define NUM_CHANNELS 1
+// Two, because ksvoice.wav64 is baked stereo (mkBakedInstrument's default)
+// and a stereo wav64 plays on channel ch AND ch+1. With one channel the mixer
+// asserts "cannot play stereo VADPCM on last channel" at the first wav64_play.
+#define NUM_CHANNELS 2
 #define CH_INSTRUMENT 0
 
 int main(void)
