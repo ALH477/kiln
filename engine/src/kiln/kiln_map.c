@@ -189,8 +189,12 @@ static void update_aabb(fm_vec3_t *minv, fm_vec3_t *maxv, fm_vec3_t pt)
  * AABB for collision, and 16 vertices on one face is a 16-gon. Both overflows
  * are reported rather than clamped silently -- a brush that loses a plane
  * loses a wall you can walk through. */
-#define MAX_BRUSH_PLANES 32
-#define MAX_FACE_VERTS   16
+/* Both from tools/schema/level_vocab.json via kiln_levelvocab.h, exactly as
+ * MAX_BRUSHES is: tools/mapmaker/mapfmt.py refuses a brush past either, so a
+ * brush this parser would silently truncate never reaches a ROM. They were
+ * literals here when real CSG landed, which AGENTS.md forbids. */
+#define MAX_BRUSH_PLANES KILN_LEVEL_MAX_BRUSH_PLANES
+#define MAX_FACE_VERTS   KILN_LEVEL_MAX_FACE_VERTS
 
 #define CSG_EPS_INSIDE   0.03125f   /* 1/32 unit: "on or behind" a plane      */
 #define CSG_EPS_ONPLANE  0.03125f   /* 1/32 unit: this vertex lies on it      */

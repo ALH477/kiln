@@ -5,7 +5,9 @@
     "spawns": 64,
     "classnames": 32,
     "entities": 64,
-    "coord": 32767
+    "coord": 32767,
+    "brush_planes": 32,
+    "face_verts": 16
   },
   "forge_epair_slots": 3,
   "forge_generic_epairs": [

@@ -97,7 +97,9 @@ check(len(known) <= level_vocab.limits()["classnames"],
 # ── B4: the engine did not re-hardcode its limits ──────────────────────
 print("B4 the engine's limits come from the generated header")
 src = Path(a.kiln_map).read_text()
-for m in re.finditer(r'#define\s+(MAX_(?:BRUSHES|FACES|SPAWNS|CLASSNAMES|ENTITIES))\s+(.+)',
+# BRUSH_PLANES and FACE_VERTS joined the vocabulary after real CSG landed with
+# both as C literals -- the drift this check exists to catch, one limit over.
+for m in re.finditer(r'#define\s+(MAX_(?:BRUSHES|FACES|SPAWNS|CLASSNAMES|ENTITIES|BRUSH_PLANES|FACE_VERTS))\s+(.+)',
                      src):
     name, val = m.group(1), m.group(2).strip()
     check("KILN_LEVEL_" in val,

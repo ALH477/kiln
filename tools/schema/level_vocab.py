@@ -338,7 +338,9 @@ def emit_engine():
             f"#define KILN_LEVEL_MAX_SPAWNS     {lim['spawns']}",
             f"#define KILN_LEVEL_MAX_CLASSNAMES {lim['classnames']}",
             f"#define KILN_LEVEL_MAX_ENTITIES   {lim['entities']}",
-            f"#define KILN_LEVEL_MAX_COORD      {lim['coord']}", "",
+            f"#define KILN_LEVEL_MAX_COORD      {lim['coord']}",
+            f"#define KILN_LEVEL_MAX_BRUSH_PLANES {lim['brush_planes']}",
+            f"#define KILN_LEVEL_MAX_FACE_VERTS   {lim['face_verts']}", "",
             "#endif /* KILN_LEVELVOCAB_H */", ""]
     return "\n".join(out)
 

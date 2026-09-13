@@ -374,6 +374,7 @@ def analyse(entities):
     bad_origin = []
     bad_angle = []
     bad_coord = []
+    over_limit = []
 
     for ent in entities:
         if ent["brushes"]:
@@ -385,7 +386,19 @@ def analyse(entities):
                     if abs(mn[i]) > LIMITS["coord"] or abs(mx[i]) > LIMITS["coord"]:
                         bad_coord.append({"brush": n_brushes, "mins": mn, "maxs": mx})
                         break
-                n_surv = csg_face_count(brush)
+                # ONE CSG pass, for both the face count and the per-face vertex
+                # count. kiln_map.c holds at most `brush_planes` planes per brush
+                # and `face_verts` vertices per face, and drops the excess: past
+                # the first the solid is OPEN (walk out of it), past the second a
+                # face loses a corner. Both only debugf on the console -- so
+                # refuse such a brush here, where the author can still see why.
+                polys = [p for ps in quake_map.brush_to_faces(brush).values()
+                         for p in ps]
+                n_surv = len(polys)
+                most_verts = max((len(p) for p in polys), default=0)
+                if len(brush) > LIMITS["brush_planes"] or most_verts > LIMITS["face_verts"]:
+                    over_limit.append({"brush": n_brushes, "planes": len(brush),
+                                       "max_face_verts": most_verts})
                 if n_surv < 6:
                     cause, detail = diagnose_brush(brush)
                     degenerate.append({"brush": n_brushes, "faces": n_surv,
@@ -420,6 +433,8 @@ def analyse(entities):
         problems.append("origin")
     if bad_angle:
         problems.append("angle")
+    if over_limit:
+        problems.append("brush plane/vertex limit")
     if n_brushes > LIMITS["brushes"]:
         problems.append("brush limit")
     if n_faces > LIMITS["faces"]:
@@ -438,6 +453,7 @@ def analyse(entities):
         "limits": LIMITS,
         "degenerate": degenerate,
         "bad_coord": bad_coord,
+        "over_limit": over_limit,
         "bad_origin": bad_origin,
         "bad_angle": bad_angle,
         "fps_warnings": _fps_warnings(entities),
