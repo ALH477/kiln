@@ -497,19 +497,22 @@
           compress = 0;
         };
         # SFX for the FPS: gunfire, wall impact, enemy hit, pickup, metal impact.
+        # The NAME IS THE FILENAME: examples/fps/main.c opens
+        # rom:/sfx/enemy_hit.wav64 and friends, and nine of these were named
+        # with hyphens, so none of those nine ever loaded.
         gunshotSfx = assetLib.mkSound { name = "gunshot"; src = ./assets/gunshot.wav; };
         impactSfx  = assetLib.mkSound { name = "impact";  src = ./assets/impact.wav; };
-        enemyHitSfx = assetLib.mkSound { name = "enemy-hit"; src = ./assets/enemy_hit.wav; };
+        enemyHitSfx = assetLib.mkSound { name = "enemy_hit"; src = ./assets/enemy_hit.wav; };
         pickupSfx  = assetLib.mkSound { name = "pickup";  src = ./assets/pickup.wav; };
-        impactMetalSfx = assetLib.mkSound { name = "impact-metal"; src = ./assets/impact_metal.wav; };
-        doorOpenSfx = assetLib.mkSound { name = "door-open"; src = ./assets/door_open.wav; };
-        doorLockedSfx = assetLib.mkSound { name = "door-locked"; src = ./assets/door_locked.wav; };
-        chestOpenSfx = assetLib.mkSound { name = "chest-open"; src = ./assets/chest_open.wav; };
+        impactMetalSfx = assetLib.mkSound { name = "impact_metal"; src = ./assets/impact_metal.wav; };
+        doorOpenSfx = assetLib.mkSound { name = "door_open"; src = ./assets/door_open.wav; };
+        doorLockedSfx = assetLib.mkSound { name = "door_locked"; src = ./assets/door_locked.wav; };
+        chestOpenSfx = assetLib.mkSound { name = "chest_open"; src = ./assets/chest_open.wav; };
         explosionSfx = assetLib.mkSound { name = "explosion"; src = ./assets/explosion.wav; };
-        rocketFireSfx = assetLib.mkSound { name = "rocket-fire"; src = ./assets/rocket_fire.wav; };
-        plasmaFireSfx = assetLib.mkSound { name = "plasma-fire"; src = ./assets/plasma_fire.wav; };
-        shotgunFireSfx = assetLib.mkSound { name = "shotgun-fire"; src = ./assets/shotgun_fire.wav; };
-        npcTalkSfx = assetLib.mkSound { name = "npc-talk"; src = ./assets/npc_talk.wav; };
+        rocketFireSfx = assetLib.mkSound { name = "rocket_fire"; src = ./assets/rocket_fire.wav; };
+        plasmaFireSfx = assetLib.mkSound { name = "plasma_fire"; src = ./assets/plasma_fire.wav; };
+        shotgunFireSfx = assetLib.mkSound { name = "shotgun_fire"; src = ./assets/shotgun_fire.wav; };
+        npcTalkSfx = assetLib.mkSound { name = "npc_talk"; src = ./assets/npc_talk.wav; };
 
         quakeTestModel = blenderLib.mkQuakeMapModel {
           name = "quake-test";
