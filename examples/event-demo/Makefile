@@ -12,6 +12,12 @@ all: event-demo.z64
 
 $(BUILD_DIR)/event-demo.elf: $(OBJS)
 
+# THE FILESYSTEM. Without these two lines n64.mk never builds a DragonFS and
+# this ROM's mkN64Rom `assets` (the switch click and the door) are silently
+# left out. See clip-demo's Makefile and Forge/Makefile for the same story.
+$(BUILD_DIR)/event-demo.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
+event-demo.z64: $(BUILD_DIR)/event-demo.dfs
+
 event-demo.z64: N64_ROM_TITLE = "Kiln Event"
 
 clean:

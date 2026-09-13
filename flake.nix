@@ -768,11 +768,13 @@
         # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
         # the queued-event count so the 500 ms gap is visible.
-        event-demo = mkN64Rom {
+        eventDemoArgs = {
           name = "event-demo";
           src = ./examples/event-demo;
           romTitle = "Kiln Event";
+          assets = [ demoSound doorOpenSfx ];
         };
+        event-demo = mkN64Rom eventDemoArgs;
 
         # Phase 6: the OoT + id Tech 4 integration proof. A player actor
         # (kiln_player locomotion) walks an oot_test.map room, slides via
@@ -986,7 +988,8 @@
           // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
           // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
           // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
-          // mkJumpRoms ootDemoArgs [ "TARGET" ];
+          // mkJumpRoms ootDemoArgs [ "TARGET" ]
+          // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1218,6 +1221,26 @@
             assets = [ ootMap stepSound impactSfx ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_TARGET" ];
             meta.description = "oot-demo-target, on this machine";
+          };
+          pc-event-demo = hostNative.mkGame {
+            pname = "kiln-event-demo";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            meta.description = "event-demo, on this machine";
+          };
+          pc-event-demo-open = hostNative.mkGame {
+            pname = "kiln-event-demo-open";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_OPEN" ];
+            meta.description = "event-demo-open, on this machine";
+          };
+          pc-event-demo-queued = hostNative.mkGame {
+            pname = "kiln-event-demo-queued";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_QUEUED" ];
+            meta.description = "event-demo-queued, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
