@@ -993,7 +993,8 @@
           // mkJumpRoms ootDemoArgs [ "TARGET" ]
           // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
           // mkJumpRoms fpsArgs [ "SWITCH" ]
-          // mkJumpRoms actorsDemoArgs [ "FULL" ];
+          // mkJumpRoms actorsDemoArgs [ "FULL" ]
+          // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1016,11 +1017,12 @@
         # end-to-end. 4 tokens, 5 rounds, a 10-node branching path, an
         # auto-advancing state machine. No assets — the proof is the
         # topology and the turn transitions, drawn as a 2D HUD schematic.
-        board-demo = mkN64Rom {
+        boardDemoArgs = {
           name = "board-demo";
           src = ./examples/board-demo;
           romTitle = "Kiln Board";
         };
+        board-demo = mkN64Rom boardDemoArgs;
 
         # ── The Kiln boot splash ──────────────────────────────────────────
         # A parody of the Nintendo 64's boot, and a publisher mark rather
@@ -1269,6 +1271,23 @@
             sources = [ ./examples/actors-demo/main.c ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_FULL" ];
             meta.description = "actors-demo-full, on this machine";
+          };
+          pc-board-demo = hostNative.mkGame {
+            pname = "kiln-board-demo";
+            sources = [ ./examples/board-demo/main.c ];
+            meta.description = "board-demo, on this machine";
+          };
+          pc-board-demo-fork = hostNative.mkGame {
+            pname = "kiln-board-demo-fork";
+            sources = [ ./examples/board-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_FORK" ];
+            meta.description = "board-demo-fork, on this machine";
+          };
+          pc-board-demo-results = hostNative.mkGame {
+            pname = "kiln-board-demo-results";
+            sources = [ ./examples/board-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_RESULTS" ];
+            meta.description = "board-demo-results, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
