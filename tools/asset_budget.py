@@ -49,6 +49,7 @@ Nothing here guesses. An asset type this does not know how to measure is a
 FAILURE, not a zero — see MEASURERS and `measure_any`.
 """
 import argparse
+import io
 import json
 import os
 import re
@@ -514,6 +515,8 @@ def main(argv=None):
     p.add_argument("--budget", required=True)
     p.add_argument("--root", required=True,
                    help="directory holding <kind>/<name> resolved assets")
+    p.add_argument("--json", action="store_true",
+                   help="print a tools/schema/report.schema.json report instead")
 
     sub.add_parser("selftest", help="prove every assertion here fires")
 
@@ -532,6 +535,21 @@ def main(argv=None):
         # <root>/<kind>/<name> — the nix wrapper stages assets into that
         # shape so this file never has to know about store paths.
         return os.path.join(a.root, kind, ref)
+
+    if a.json:
+        # The same check, its human output kept as the log and its FAIL lines
+        # turned into findings — one implementation of the rules, not two.
+        buf = io.StringIO()
+        n = check(budget, resolve, out=buf)
+        text = buf.getvalue()
+        errors = [{"code": "BUDGET", "msg": line.strip()[len("FAIL"):].strip()}
+                  for line in text.splitlines() if line.strip().startswith("FAIL")]
+        if n and not errors:
+            errors = [{"code": "BUDGET", "msg": f"{n} failure(s)"}]
+        print(json.dumps({"tool": "asset-budget", "version": 1, "ok": n == 0, "errors": errors,
+                          "notes": [], "subject": a.budget, "metrics": {"failures": n, "log": text}},
+                         indent=1))
+        return 1 if n else 0
 
     n = check(budget, resolve)
     print()

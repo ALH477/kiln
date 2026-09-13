@@ -36,6 +36,7 @@ sys.path.insert(0, str(HERE))
 from studio.auth import Auth, load_or_create_token  # noqa: E402
 from studio.jobs import JobError, Runner  # noqa: E402
 from studio.project import Project  # noqa: E402
+from studio.validators import registry as validator_registry  # noqa: E402
 
 GUARDS = ("host", "origin", "token", "identity-source", "argv", "traversal", "cancel-group")
 MAX_BODY = 1 << 20
@@ -58,8 +59,9 @@ class Studio:
                          args.trusted_proxy or ("127.0.0.1", "::1"), breaks)
         self.project = Project(self.repo, args.nix, args.manifest_file, args.caps_file)
         self.project.load()
+        self.validators = validator_registry(self.repo, sys.executable, args.nix)
         self.runner = Runner(self.repo, args.nix, lambda: self.project.manifest, self.state,
-                             args.max_jobs, breaks)
+                             args.max_jobs, breaks, self.validators)
         self.static_root = HERE
 
 
@@ -144,6 +146,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(202, {"reloading": True})
             if method == "GET" and parts == ["caps"]:
                 return self.caps()
+            if method == "GET" and parts == ["validators"]:
+                return self.json(200, {"validators": [
+                    {"id": vid, "label": spec["label"], "args": spec["args"]()}
+                    for vid, spec in self.studio.validators.items()]})
             if method == "GET" and parts == ["jobs"]:
                 return self.json(200, {"jobs": self.studio.runner.list()})
             if method == "POST" and parts == ["jobs"]:
@@ -190,7 +196,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def submit(self):
         body = self.body_json()
-        job = self.studio.runner.submit(str(body.get("kind", "")), body.get("target", ""), self.user)
+        arg = body.get("arg")
+        job = self.studio.runner.submit(str(body.get("kind", "")), body.get("target", ""), self.user,
+                                        arg=arg if isinstance(arg, str) else None)
         return self.json(201, job.snapshot())
 
     def events(self, job):

@@ -3,6 +3,7 @@
 
     python3 tools/blender/gait.py <model.gltf> [Clip ...]     # what ships
     python3 tools/blender/gait.py --source goblin [Clip ...]   # goblin.py's keys
+    add --json for a tools/schema/report.schema.json report (Kiln Studio reads it)
 
 A walk cycle is judged by its feet, and every defect that matters in one is
 invisible in a table of angles:
@@ -282,6 +283,25 @@ def measure(rig, local_at, duration, feet=("foot_l", "foot_r")):
 
 
 def main(argv):
+    as_json = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
+    results = {}
+    emit = (lambda name, r: results.__setitem__(name, r)) if as_json else report
+    subject = None
+    status = _main(argv, emit)
+    if as_json:
+        subject = argv[1] if argv and argv[0] == "--source" else (argv[0] if argv else "")
+        import json
+        # Measurements, not verdicts: goblin-gait.nix owns the thresholds, so
+        # this reports what a floor sees and fails nothing.
+        print(json.dumps({"tool": "gait", "version": 1, "ok": True, "errors": [], "notes": [],
+                          "subject": str(subject),
+                          "metrics": {n: {k: round(v, 4) for k, v in r.items()} for n, r in results.items()}},
+                         indent=1))
+    return status
+
+
+def _main(argv, report):
     if argv and argv[0] == "--source":
         model = argv[1]
         names = argv[2:]

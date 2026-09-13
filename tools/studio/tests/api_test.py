@@ -193,6 +193,18 @@ def suite(server):
         expect(st == 400, f"build target {target!r} gave {st}, want 400")
     st, _, _ = server.request("POST", "/api/jobs", body={"kind": "shell", "target": "demo"})
     expect(st == 400, f"job type 'shell' gave {st}, want 400")
+    st, _, _ = server.request("POST", "/api/jobs", body={"kind": "validate", "target": "rm"})
+    expect(st == 400, f"validator 'rm' gave {st}, want 400")
+    for arg in ("../../etc/passwd", "assets/not-there.map", "/etc/passwd"):
+        st, _, _ = server.request("POST", "/api/jobs", body={"kind": "validate", "target": "map-validate", "arg": arg})
+        expect(st == 400, f"map-validate of {arg!r} gave {st}, want 400")
+    st, _, body = server.request("GET", "/api/validators")
+    listed = {v["id"]: v["args"] for v in json.loads(body or b"{}").get("validators", [])}
+    expect(st == 200 and listed.get("map-validate") == ["assets/level.map"],
+           f"validators list gave {st} {listed.get('map-validate')}")
+    st, _, _ = server.request("POST", "/api/jobs", body={"kind": "validate", "target": "map-validate",
+                                                          "arg": "assets/level.map"})
+    expect(st == 201, f"map-validate of a listed map gave {st}, want 201")
 
     # ── a build, streamed ────────────────────────────────────────────────
     st, _, body = server.request("POST", "/api/jobs", body={"kind": "build", "target": "demo"})
@@ -245,6 +257,8 @@ def suite(server):
 
 def setup(work):
     (work / "repo").mkdir()
+    (work / "repo" / "assets").mkdir()
+    (work / "repo" / "assets" / "level.map").write_text("{\n\"classname\" \"worldspawn\"\n}\n")
     (work / "manifest.json").write_text(json.dumps(MANIFEST))
     (work / "caps.json").write_text(json.dumps({"system": "x86_64-linux", "ares": False}))
     nix = work / "nix"

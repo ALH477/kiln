@@ -6,8 +6,9 @@
 import { AuthError, bootstrap, el, get } from "./api.js";
 import * as hub from "./panels/hub.js";
 import * as jobs from "./panels/jobs.js";
+import * as validate from "./panels/validate.js";
 
-const PANELS = { hub, jobs };
+const PANELS = { hub, jobs, validate };
 const root = document.getElementById("panel");
 let cleanup = null;
 

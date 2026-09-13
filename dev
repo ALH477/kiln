@@ -49,6 +49,9 @@ usage() {
   studio [--port N] [--host ADDR]
                            Kiln Studio: every game, builds and checks with live
                            logs, in one local web app (http://localhost:8420)
+  cine-lint <shot.json> [--json]
+                           validate a camera shot with kiln_camlint (see
+                           tools/camlint/camlint.c for the JSON shape)
   doctor [--json]          toolchain, libdragon, cart presence, versions
   new <name> [--in-repo] [--out DIR]
                            start a game from templates/game: a new flake in
@@ -110,7 +113,7 @@ case "${1:-}" in
   map-validate | map-emit | map-dump | map-canon | map-render | mcp)
     DEV_IN_NIX=1 ;;
   # Scaffolding copies files; the studio is a python server that calls nix.
-  new | studio) DEV_IN_NIX=1 ;;
+  new | studio | cine-lint) DEV_IN_NIX=1 ;;
 esac
 
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
@@ -698,6 +701,12 @@ PY
 
   studio)
     KILN_REPO="$REPO" exec nix run "$REPO#studio" -- "$@"
+    ;;
+
+  cine-lint)
+    # kiln_camlint on a shot file: `./dev cine-lint shot.json [--json]`.
+    [ $# -ge 1 ] || die "usage: ./dev cine-lint <shot.json> [--json]"
+    exec nix run "$REPO#camlint" -- "$@"
     ;;
 
   new)

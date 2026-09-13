@@ -28,7 +28,7 @@ from pathlib import Path
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,99}$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 MAX_LINES = 100_000
-KINDS = ("build", "check", "cheap")
+KINDS = ("build", "check", "cheap", "validate")
 
 
 class JobError(ValueError):
@@ -36,9 +36,14 @@ class JobError(ValueError):
 
 
 class Job:
-    def __init__(self, kind, target, argv, user):
+    def __init__(self, kind, target, steps, user, arg=None, adapt=None):
         self.id = uuid.uuid4().hex[:12]
-        self.kind, self.target, self.argv, self.user = kind, target, argv, user
+        self.kind, self.target, self.user, self.arg = kind, target, user, arg
+        self.steps = steps            # [argv, ...]; "{out}" = the previous step's output
+        self.argv = steps[-1]
+        self.adapt = adapt
+        self.report = None
+        self.stdout = []
         self.state = "queued"
         self.created = time.time()
         self.started = self.ended = None
@@ -81,7 +86,8 @@ class Job:
             "id": self.id, "kind": self.kind, "target": self.target, "user": self.user,
             "state": self.state, "exit": self.exit, "outputs": list(self.outputs),
             "created": self.created, "started": self.started, "ended": self.ended,
-            "lines": self.seq, "argv": list(self.argv),
+            "lines": self.seq, "argv": list(self.argv), "arg": self.arg,
+            "steps": [list(s) for s in self.steps], "report": self.report,
         }
 
 
@@ -105,7 +111,7 @@ def parse_nix_line(line):
 
 
 class Runner:
-    def __init__(self, repo, nix, manifest, state_dir, max_jobs=2, breaks=()):
+    def __init__(self, repo, nix, manifest, state_dir, max_jobs=2, breaks=(), validators=None):
         self.repo = Path(repo)
         self.nix = nix
         self.manifest = manifest       # callable -> manifest dict
@@ -113,10 +119,22 @@ class Runner:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.sem = threading.Semaphore(max_jobs)
         self.breaks = set(breaks)
+        self.validators = validators or {}
         self.jobs = {}
         self.lock = threading.Lock()
 
     # ── argv, from a fixed menu ───────────────────────────────────────────
+    def steps(self, kind, target, arg=None):
+        """[argv, ...] for a job, and the adapter for its report (or None)."""
+        if kind == "validate":
+            spec = self.validators.get(target) if isinstance(target, str) else None
+            if spec is None:
+                raise JobError(f"no validator {target!r}")
+            if "argv" not in self.breaks and arg not in spec["args"]():
+                raise JobError(f"{arg!r} is not something {target} can validate here")
+            return spec["steps"](arg), (spec["adapt"] or (lambda parsed: parsed))
+        return [self.argv(kind, target)], None
+
     def argv(self, kind, target):
         m = self.manifest()
         if m is None:
@@ -143,8 +161,9 @@ class Runner:
         raise JobError(f"unknown job type {kind!r}")
 
     # ── lifecycle ─────────────────────────────────────────────────────────
-    def submit(self, kind, target, user):
-        job = Job(kind, target, self.argv(kind, target), user)
+    def submit(self, kind, target, user, arg=None):
+        steps, adapt = self.steps(kind, target, arg)
+        job = Job(kind, target, steps, user, arg=arg, adapt=adapt)
         with self.lock:
             self.jobs[job.id] = job
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
@@ -161,44 +180,65 @@ class Runner:
 
     def _run(self, job):
         job.log_file = open(self.state_dir / f"{job.id}.log", "w")
-        job.add(f"$ {' '.join(job.argv)}")
         with self.sem:
             if job.state == "cancelled":
                 return self._finish(job)
             job.set_state("running")
-            try:
-                job.proc = subprocess.Popen(
-                    job.argv, cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, bufsize=1, start_new_session="cancel-group" not in self.breaks)
-            except OSError as e:
-                job.add(f"could not start: {e}")
-                job.exit = 127
-                job.set_state("failed")
-                return self._finish(job)
-
-            def pump_out():
-                for line in job.proc.stdout:
-                    line = line.strip()
-                    if line:
-                        job.outputs.append(line)
-                        job.add("→ " + line)
-
-            def pump_err():
-                for line in job.proc.stderr:
-                    text = parse_nix_line(line)
-                    if text:
-                        job.add(text)
-
-            readers = [threading.Thread(target=pump_out, daemon=True),
-                       threading.Thread(target=pump_err, daemon=True)]
-            for r in readers:
-                r.start()
-            job.exit = job.proc.wait()
-            for r in readers:
-                r.join(timeout=5)
+            last_out = None
+            for i, step in enumerate(job.steps):
+                final = i == len(job.steps) - 1
+                argv = [a.replace("{out}", last_out or "") for a in step]
+                job.add(f"$ {' '.join(argv)}")
+                code = self._step(job, argv, capture=final and job.adapt is not None)
+                job.exit = code
+                if job.state == "cancelled" or code != 0 and not (final and job.adapt):
+                    break
+                last_out = job.outputs[-1] if job.outputs else last_out
+            if job.adapt is not None and job.stdout:
+                try:
+                    job.report = job.adapt(json.loads("\n".join(job.stdout)))
+                except ValueError as e:
+                    job.add(f"the validator's output was not JSON: {e}")
             if job.state != "cancelled":
-                job.set_state("ok" if job.exit == 0 else "failed")
+                ok = job.exit == 0 if job.report is None else bool(job.report.get("ok"))
+                job.set_state("ok" if ok and job.exit in (0, 1) and (job.report is not None or job.exit == 0)
+                              else "failed")
         self._finish(job)
+
+    def _step(self, job, argv, capture):
+        try:
+            job.proc = subprocess.Popen(
+                argv, cwd=self.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, bufsize=1, start_new_session="cancel-group" not in self.breaks)
+        except OSError as e:
+            job.add(f"could not start: {e}")
+            return 127
+
+        def pump_out():
+            for line in job.proc.stdout:
+                if capture:
+                    job.stdout.append(line.rstrip("\n"))
+                    job.add(line.rstrip("\n"))
+                    continue
+                line = line.strip()
+                if line:
+                    job.outputs.append(line)
+                    job.add("→ " + line)
+
+        def pump_err():
+            for line in job.proc.stderr:
+                text = parse_nix_line(line)
+                if text:
+                    job.add(text)
+
+        readers = [threading.Thread(target=pump_out, daemon=True),
+                   threading.Thread(target=pump_err, daemon=True)]
+        for r in readers:
+            r.start()
+        code = job.proc.wait()
+        for r in readers:
+            r.join(timeout=5)
+        return code
 
     def _finish(self, job):
         job.add(f"── {job.state} (exit {job.exit})")

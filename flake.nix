@@ -1104,7 +1104,7 @@
         studioCheapChecks = [
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
-          "studio-manifest" "studio-api"
+          "studio-manifest" "studio-api" "camlint-cli"
         ];
 
         forgeModeRoms = pkgs.lib.listToAttrs (map
@@ -1469,6 +1469,16 @@
           # the real engine, with no ROM and no compositor. Shares its whole
           # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to
           # the same reference image. See tools/maprender/map_render.h.
+          # kiln_camlint over a camera shot written as JSON — the engine's own
+          # validator, natively, on data. `./dev cine-lint shot.json [--json]`.
+          camlint = hostNative.mkProgram {
+            pname = "camlint";
+            sources = [ ./tools/camlint/camlint.c ];
+            meta = {
+              description = "validate a camera shot (JSON) with kiln_camlint";
+              mainProgram = "camlint";
+            };
+          };
           map-render = hostNative.mkProgram {
             pname = "maprender";
             sources = [ ./tools/maprender/main.c ./tools/maprender/map_render.c ];
@@ -2012,6 +2022,18 @@
             kiln = { lib.${system} = self.lib.${system}; };
             inherit system;
           }).rom;
+          camlint-cli = import ./nix/checks/camlint-cli.nix {
+            inherit pkgs;
+            camlint = self.packages.${system}.camlint;
+            fixtures = ./tools/camlint/fixtures;
+            reportCheck = ./tools/schema/report_check.py;
+          };
+          studio-reports = import ./nix/checks/studio-reports.nix {
+            inherit pkgs goblinModel;
+            toolsDir = ./tools;
+            camlint = self.packages.${system}.camlint;
+            quakeMap = ./assets/quake_test.map;
+          };
           studio-api = import ./nix/checks/studio-api.nix {
             inherit pkgs;
             studioDir = ./tools/studio;

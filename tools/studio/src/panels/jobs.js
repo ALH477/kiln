@@ -6,6 +6,7 @@
 // loses lines.
 
 import { el, get, post } from "../api.js";
+import { reportView } from "./validate.js";
 
 const fmtTime = (t) => (t ? new Date(t * 1000).toLocaleTimeString() : "");
 const duration = (j) => (j.started ? `${Math.round(((j.ended || Date.now() / 1000) - j.started))} s` : "");
@@ -39,6 +40,7 @@ async function detail(root, id) {
   const job = await get(`/api/jobs/${id}`);
   const state = el("span", { class: `state-${job.state}`, text: job.state });
   const outputs = el("div", { class: "chips" });
+  const report = el("div", {});
   const log = el("pre", { class: "log" });
   const cancel = el("button", { onclick: () => post(`/api/jobs/${id}/cancel`) }, "cancel");
   cancel.disabled = ["ok", "failed", "cancelled"].includes(job.state);
@@ -47,6 +49,7 @@ async function detail(root, id) {
     el("div", { class: "row" }, el("h1", { text: `${job.kind} ${job.target || ""}` }), state, cancel),
     el("div", { class: "dim" }, `started by ${job.user} at ${fmtTime(job.created)} · `, el("code", { text: job.argv.join(" ") })),
     outputs,
+    report,
     log);
 
   const es = new EventSource(`/api/jobs/${id}/events`);
@@ -61,6 +64,7 @@ async function detail(root, id) {
     state.textContent = snap.state;
     cancel.disabled = true;
     outputs.replaceChildren(...snap.outputs.map((o) => el("code", { text: o })));
+    if (snap.report) report.replaceChildren(reportView(snap.report));
     es.close();
   });
   return () => es.close();
