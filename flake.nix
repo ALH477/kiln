@@ -719,15 +719,17 @@
         };
         rooms-demo = mkN64Rom roomsDemoArgs;
 
-        # Phase B completion: the goblin walks a lit courtyard — kiln_camera
-        # (OoT-style spring arm, collision on) + kiln_skel (Idle<->Walk blended
-        # by speed) + kiln_clip (floor, walls, pillars) + kiln_audio (step.wav64
-        # footfalls). Jump ROMs in nix/demos/camera-skel-demo.nix. skelModel is
-        # here for the RIG jump; the base ROM carries it so the two share args.
+        # Phase B completion: the goblin in a lit courtyard — kiln_camera
+        # (OoT-style spring arm, collision on) + kiln_skel (Idle/Walk/Run at
+        # stride-matched rates, Jump/Fall/Land, a torso-masked sword overlay, a
+        # bone socket) + kiln_clip (floor, walls, pillars, plinths) + kiln_audio
+        # (step.wav64 on each foot contact). Jump ROMs in
+        # nix/demos/camera-skel-demo.nix. skelModel is here for the RIG jump;
+        # the base ROM carries it so the two share args.
         cameraSkelDemoArgs = {
           name = "camera-skel-demo";
           src = ./examples/camera-skel-demo;
-          romTitle = "Kiln Courtyard";
+          romTitle = "Kiln Skel";
           assets = [ goblinModel skelModel stepSound ];
           audioRate = 32000;
         };
