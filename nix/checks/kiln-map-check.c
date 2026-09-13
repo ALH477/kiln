@@ -180,6 +180,44 @@ int main(int argc, char **argv)
     CHECK(t->tris_submitted > 0, "no geometry submitted");
     CHECK(t->tris_drawn > 0, "geometry submitted but nothing rasterised");
 
+    /* ── kiln_map_tint, read back ──────────────────────────────────────
+     * After the capture, so the reference image is the untinted map. Every
+     * class gets a distinct colour; the cube's top must carry `top` (floor_y
+     * is far below it), its bottom `underside`, and each wall `wall_low` at
+     * y = -64 and `wall_high` at y = 64 — the ends of the map's own height. */
+    {
+        const KilnMapTint tint = {
+            .floor = 0x111111FF, .floor_edge = 0x222222FF, .floor_y = -1000.0f, .floor_radius = 100.0f,
+            .top = 0xE0C088FF, .wall_low = 0x402000FF, .wall_high = 0xC08040FF,
+            .z_face_shade = 1.0f, .underside = 0x303030FF,
+        };
+        kiln_map_tint(&m, &tint);
+        int tops = 0, unders = 0, lows = 0, highs = 0, wrong = 0;
+        for (int fi = 0; fi < m.face_count; fi++) {
+            const KilnMapFace *fc = &m.faces[fi];
+            for (int vi = 0; vi < fc->vert_count; vi++) {
+                const T3DVertPacked *e = &fc->verts[vi / 2];
+                const int16_t *p = (vi & 1) ? e->posB : e->posA;
+                const uint16_t n = (vi & 1) ? e->normB : e->normA;
+                const unsigned yf = (n >> 5) & 0x3Fu;
+                const int ny = (yf & 0x20u) ? (int)yf - 64 : (int)yf;
+                const uint32_t c = (vi & 1) ? e->rgbaB : e->rgbaA;
+                if (ny > 20)       { tops++;   wrong += c != tint.top; }
+                else if (ny < -20) { unders++; wrong += c != tint.underside; }
+                else if (p[1] == -64) { lows++;  wrong += c != tint.wall_low; }
+                else if (p[1] == 64)  { highs++; wrong += c != tint.wall_high; }
+            }
+        }
+        printf("  tint: %d top, %d underside, %d wall-low, %d wall-high vertices, %d wrong\n",
+               tops, unders, lows, highs, wrong);
+        CHECK(tops == 4 && unders == 4 && lows == 8 && highs == 8,
+              "kiln_map_tint classified %d/%d/%d/%d vertices, expected 4/4/8/8",
+              tops, unders, lows, highs);
+        CHECK(wrong == 0, "kiln_map_tint wrote %d vertex colours that do not match their class", wrong);
+        CHECK(m.faces[0].rgba == m.faces[0].verts[0].rgbaA,
+              "kiln_map_tint left a face's rgba out of step with its vertices");
+    }
+
     kiln_map_free(&m);
 
     /* ── One face wound backwards: the collision box must keep its volume ──

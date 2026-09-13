@@ -1188,7 +1188,10 @@ is ever going into a golden-image test.
   and plain arithmetic, so the vertex ORDER is identical on every architecture
   sharing one reference image.
   Still true: the faces carry **no texture coordinates** and draw white.
-  `kiln_map` parses no UV data.
+  `kiln_map` parses no UV data. `kiln_map_tint` is the cheap answer until it
+  does: one pass at load writes per-vertex colours by normal and height
+  (floor, raised tops, walls dark at the foot, undersides), and `kiln-map`
+  reads them back after its capture so the reference image stays untinted.
 
 - **`.t3dm` is three traps and a render will not find them all.** Writing the
   host reader turned up, in order of how quietly they fail:

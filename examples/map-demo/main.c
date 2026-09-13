@@ -7,11 +7,10 @@
 // and every non-worldspawn entity becomes a KilnRoomSpawn whose epairs sit in a
 // KilnDict. The player spawns from `info_player_start`'s origin and angle.
 //
-// kiln_map faces carry no texture coordinates, so they arrive flat white. This
-// demo shades them itself, once, after load: floors by distance, raised tops
+// kiln_map faces carry no texture coordinates, so they arrive flat white.
+// kiln_map_tint colours them once after load: floors by distance, raised tops
 // warm, walls dark at the base and light at the top. It is the cheapest thing
-// that makes brush geometry read as a place, and it writes only the vertex
-// colours kiln_map_draw already submits.
+// that makes brush geometry read as a place.
 //
 //   stick   walk (camera-relative)      A     jump — steps climb on their own
 //   C < >   swing the camera            Z     brush + entity overlay
@@ -69,56 +68,6 @@ static const KilnInputKey ATTRACT_KEYS[] = {
 };
 static const KilnInputTape ATTRACT = { ATTRACT_KEYS, 10, 0 };
 
-static int sext(unsigned v, int bits)
-{
-    const unsigned sign = 1u << (bits - 1);
-    return (v & sign) ? (int)v - (int)(sign << 1) : (int)v;
-}
-
-static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
-
-static uint32_t rgb_scaled(int r, int g, int b, float k)
-{
-    return kiln_prim_rgba((uint8_t)clampf(r * k, 0, 255), (uint8_t)clampf(g * k, 0, 255),
-                          (uint8_t)clampf(b * k, 0, 255));
-}
-
-/* Shade every face vertex by its normal and position. Runs once after load. */
-static void shade_map(KilnMap *m)
-{
-    const float top_y = m->world_aabb_max.v[1] > 1.0f ? m->world_aabb_max.v[1] : 1.0f;
-    for (int f = 0; f < m->face_count; f++) {
-        KilnMapFace *face = &m->faces[f];
-        const int pairs = (face->vert_count + 1) / 2;
-        for (int vi = 0; vi < pairs * 2; vi++) {
-            T3DVertPacked *e = &face->verts[vi / 2];
-            const int16_t *p = (vi & 1) ? e->posB : e->posA;
-            const uint16_t n = (vi & 1) ? e->normB : e->normA;
-            const float nx = sext((n >> 11) & 0x1Fu, 5) / 15.5f;
-            const float ny = sext((n >> 5)  & 0x3Fu, 6) / 31.5f;
-            uint32_t c;
-            if (ny > 0.7f) {
-                if (p[1] <= 1) {
-                    /* The arena floor: darker toward the walls. */
-                    const float d = (float)(p[0] * p[0] + p[2] * p[2]) / (256.0f * 256.0f * 2.0f);
-                    c = rgb_scaled(0x64, 0x78, 0x5C, 1.05f - 0.45f * d);
-                } else {
-                    c = rgb_scaled(0xE0, 0xC0, 0x88, 1.0f);   /* raised tops: sandstone */
-                }
-            } else if (ny < -0.7f) {
-                c = rgb_scaled(0x30, 0x2C, 0x28, 1.0f);
-            } else {
-                /* Walls: dark at the foot, lit at the top — cheap occlusion. */
-                const float k = 0.45f + 0.55f * clampf((float)p[1] / top_y, 0.0f, 1.0f);
-                c = (nx > 0.7f || nx < -0.7f) ? rgb_scaled(0xA8, 0x94, 0x7C, k)
-                                              : rgb_scaled(0x94, 0x84, 0x74, k);
-            }
-            if (vi & 1) e->rgbaB = c; else e->rgbaA = c;
-        }
-        data_cache_hit_writeback(face->verts, sizeof(T3DVertPacked) * (size_t)pairs);
-    }
-}
-
 /* A spawn point placed inside a brush is unrecoverable for the player — kiln_clip
  * ignores a brush a trace STARTS inside, so they would walk out through its
  * faces. Lift it to the top of whatever brush contains it. */
@@ -156,7 +105,14 @@ int main(void)
     KilnMap map = { 0 };
     const int loaded = kiln_map_load(&map, path) == 0;
     if (!loaded) debugf("map-demo: kiln_map_load(%s) failed\n", path);
-    else shade_map(&map);
+    else kiln_map_tint(&map, &(KilnMapTint){
+        .floor = kiln_prim_rgba(0x68, 0x7E, 0x60), .floor_edge = kiln_prim_rgba(0x3C, 0x48, 0x38),
+        .floor_y = 1.0f, .floor_radius = 362.0f,
+        .top = kiln_prim_rgba(0xE0, 0xC0, 0x88),
+        .wall_low = kiln_prim_rgba(0x4C, 0x42, 0x38), .wall_high = kiln_prim_rgba(0xA8, 0x94, 0x7C),
+        .z_face_shade = 0.9f,
+        .underside = kiln_prim_rgba(0x30, 0x2C, 0x28),
+    });
     kiln_clip_set_world(map.brushes, map.brush_count);
 
     int start = -1;
