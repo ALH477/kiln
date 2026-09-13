@@ -66,8 +66,10 @@ nix flake check        # the pre-push gate — see "The gates" below
                                           #   hold/stick/shot). tools/drive/*.txt
 ./dev rec <rom> [out.mp4] [dur]           # record a clip, Ares-only audio
 ./dev inspect <rom>                       # Ares + GDB server, prints the attach line
-./dev mapmaker                            # three.js .map editor on :8000
-./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001
+./dev mapmaker                            # three.js .map editor on :8000/mapmaker/
+./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001/poser/
+./dev studio                              # both editors saving in place, builds, checks,
+                                          #   validators, presence — tools/studio/
 ./dev map-validate <file.map> [--json]     # round-trip through quake_map.py
 ./dev map-emit <spec.json> [out.map]      # author a level from JSON, no browser
 ./dev map-dump <file.map> [out.json]      # read one back (round-trips with emit)
@@ -816,8 +818,9 @@ unfamiliar cart.** A Minecraft-shaped voxel builder whose save button emits the
 content formats this engine already consumes.
 
 Every other authoring tool here runs on the host — `./dev mapmaker` (:8000),
-`./dev poser` (:8001), `tools/blender/*` — and all three round-trip through a
-browser download and a human moving a file. Forge exists because the judgements
+`./dev poser` (:8001), `tools/blender/*` — and all three sit one hop from the
+ROM: a browser download and a human moving a file, or, inside `./dev studio`, a
+save in place followed by a rebuild. Forge exists because the judgements
 that matter on this hardware cannot be made two hops away: fill rate, whether a
 palette still separates once the veil discards hue, whether a corridor reads as
 a corridor.

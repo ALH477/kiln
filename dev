@@ -57,7 +57,7 @@ usage() {
                            start a game from templates/game: a new flake in
                            ./<name> (or DIR), or with --in-repo an example in
                            examples/<name> plus nix/demos/<name>.nix
-  mapmaker                 three.js .map editor on :8000
+  mapmaker                 three.js .map editor on :8000/mapmaker/
   map-validate <file.map>  round-trip through quake_map.py (+ --json)
   map-emit <spec.json> [out.map]
                            author a level from JSON, no browser needed
@@ -68,7 +68,7 @@ usage() {
                            draw a level to a PNG — no ROM, no emulator
   mcp [--build]            the tools/blender-mcp server (agents use .mcp.json)
   poser / poser-stage / poser-verify
-                           three.js animation editor on :8001
+                           three.js animation editor on :8001/poser/
 
   Forge — the on-console voxel level editor (.#forge). The flashcart's SD card
   is the transport in BOTH directions, because an ED64 Plus has no USB:
@@ -91,7 +91,7 @@ Examples:
   ./dev web --serve        the same demo in a browser
   ./dev arch riscv64       prove the renderer agrees on another architecture
   ./dev inspect hello      ./dev debug
-  ./dev mapmaker                        three.js .map maker on http://localhost:8000
+  ./dev mapmaker                        three.js .map maker on http://localhost:8000/mapmaker/
   ./dev map-validate <file.map>          round-trip through quake_map.py + limits check
   ./dev forge-push assets/oot_test.map     edit an existing level on the console
   ./dev forge-pull                       and bring it back
@@ -500,9 +500,9 @@ PY
     ;;
 
   mapmaker)
-    # Launch the three.js .map maker (tools/mapmaker/) on http://localhost:8000.
+    # Launch the three.js .map maker (tools/mapmaker/) on http://localhost:8000/mapmaker/.
     # Dev-only — outside the hermetic build, same split as tools/blender-mcp/.
-    echo "dev: map maker on http://localhost:8000  (ctrl-c to stop)"
+    echo "dev: ctrl-c to stop. Inside ./dev studio the same editor saves in place."
     echo "     export with the button; then ./dev map-validate <file.map>"
     echo "     no browser? ./dev map-emit authors the same format from JSON."
     nix run .#mapmaker

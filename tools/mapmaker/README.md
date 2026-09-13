@@ -5,7 +5,7 @@ Two front ends, one format, one implementation of that format.
 
 | you have | use | command |
 |---|---|---|
-| a browser and a mouse | the three.js editor | `./dev mapmaker` → http://localhost:8000 |
+| a browser and a mouse | the three.js editor | `./dev mapmaker` → http://localhost:8000/mapmaker/ (or `./dev studio`, which saves in place) |
 | a shell (a script, a test, an agent) | JSON in, `.map` out | `./dev map-emit spec.json out.map` |
 | a `.map` you want to read | `.map` out, JSON in | `./dev map-dump level.map` |
 | a `.map` you want to check | the CSG + the limits | `./dev map-validate level.map [--json]` |

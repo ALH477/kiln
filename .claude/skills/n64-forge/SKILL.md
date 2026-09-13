@@ -29,7 +29,7 @@ description: Author levels, cinematics and textures ON the console with Forge (.
 doing"; this file is about *authoring*.
 
 Three authoring tools already existed here and all three run on the host:
-`./dev mapmaker` (:8000), `./dev poser` (:8001), `tools/blender/*`. Forge exists
+`./dev mapmaker` (:8000/mapmaker/), `./dev poser` (:8001/poser/), `tools/blender/*`. Forge exists
 because the judgements that decide whether a level is good on this hardware
 cannot be made two hops away — fill rate, whether a palette still separates once
 the veil discards hue, whether a corridor reads as a corridor at 320x240.

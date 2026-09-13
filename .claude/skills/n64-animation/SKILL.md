@@ -183,7 +183,7 @@ degrees; more reads as a limp.
 ## The poser
 
 ```bash
-./dev poser          # three.js editor on :8001
+./dev poser          # three.js editor on :8001/poser/ (./dev studio saves in place)
 ./dev poser-stage    # rebuild the models it loads + re-dump their keyframes
 ./dev poser-verify   # prove its Euler convention against Blender's export
 ```

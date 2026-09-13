@@ -4,9 +4,10 @@
 // binding, import/export, client-side validation, undo/redo.
 
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import { createViewport } from 'webcommon/viewport.js';
+import { StudioFile, describeSaveError, download, saveOrAsk, studioParams } from 'webcommon/io.js';
 
 import { allocId as allocBrushId, makeBrushMesh, syncBrushMesh } from './brush.js';
 import { allocId as allocSpawnId, makeSpawnGroup, syncSpawnGroup, KNOWN_CLASSNAMES, ENTITY_PALETTE } from './entity.js';
@@ -37,24 +38,18 @@ const viewport = document.getElementById('viewport');
 const W = () => viewport.clientWidth;
 const H = () => viewport.clientHeight;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(W(), H());
-viewport.appendChild(renderer.domElement);
+const view = createViewport(viewport, {
+  background: 0x1c2228, fov: 50, near: 1, far: 20000,
+  eye: [200, 200, 200], target: [0, 16, 0], damping: 0.1,
+});
+const { renderer, scene, camera, orbit } = view;
 
 const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(W(), H());
 labelRenderer.domElement.style.position = 'absolute';
 labelRenderer.domElement.style.top = '0';
 labelRenderer.domElement.style.pointerEvents = 'none';
 viewport.appendChild(labelRenderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1c2228);
-
-const camera = new THREE.PerspectiveCamera(50, W() / H(), 1, 20000);
-camera.position.set(200, 200, 200);
-camera.lookAt(0, 0, 0);
+view.overlay(labelRenderer);
 
 const gridHelper = new THREE.GridHelper(2048, 128, 0x445566, 0x2a3338);
 scene.add(gridHelper);
@@ -67,11 +62,6 @@ scene.add(amb);
 const dir = new THREE.DirectionalLight(0xffffff, 0.8);
 dir.position.set(100, 200, 80);
 scene.add(dir);
-
-const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.enableDamping = true;
-orbit.dampingFactor = 0.1;
-orbit.target.set(0, 16, 0);
 
 const transform = new TransformControls(camera, renderer.domElement);
 transform.addEventListener('dragging-changed', e => {
@@ -367,21 +357,25 @@ $('undo').addEventListener('click', doUndo);
 $('redo').addEventListener('click', doRedo);
 
 $('import').addEventListener('click', () => $('import-file').click());
+function loadMapText(text) {
+  const s = parseEditorState(text);
+  // Map editor ids onto imported items.
+  s.brushes.forEach(b => b.id = allocBrushId());
+  s.spawns.forEach(sp => sp.id = allocSpawnId());
+  pushUndo();
+  state.brushes = s.brushes;
+  state.spawns = s.spawns;
+  state.selection = null;
+  rebuildScene();
+  syncSidebar();
+}
+
 $('import-file').addEventListener('change', ev => {
   const f = ev.target.files[0];
   if (!f) return;
   f.text().then(text => {
     try {
-      const s = parseEditorState(text);
-      // Map editor ids onto imported items.
-      s.brushes.forEach(b => b.id = allocBrushId());
-      s.spawns.forEach(sp => sp.id = allocSpawnId());
-      pushUndo();
-      state.brushes = s.brushes;
-      state.spawns = s.spawns;
-      state.selection = null;
-      rebuildScene();
-      syncSidebar();
+      loadMapText(text);
     } catch (e) {
       alert('import failed: ' + e.message);
     }
@@ -389,16 +383,32 @@ $('import-file').addEventListener('change', ev => {
   ev.target.value = '';
 });
 
-$('export').addEventListener('click', () => {
+// Standalone, export is a download. Opened from Kiln Studio (?studio=1&file=),
+// the same button saves the file in place — refused if someone else saved it
+// since it was opened — and the studio runs map-validate on the result.
+const studio = studioParams();
+const studioFile = studio && studio.file ? new StudioFile(studio.file) : null;
+const fileOut = (msg, cls = '') => { $('file-out').textContent = msg || ''; $('file-out').className = `hint ${cls}`; };
+
+$('export').addEventListener('click', async () => {
   const text = emitMap(state);
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'level.map';
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!studioFile) return download('level.map', text);
+  try {
+    const r = await saveOrAsk(studioFile, text);
+    fileOut(`saved ${studioFile.path}` + (r.job ? ' — map-validate is running (Jobs)' : ''), 'ok');
+  } catch (e) {
+    fileOut(describeSaveError(e), 'bad');
+  }
 });
+
+if (studioFile) {
+  $('export').textContent = 'save';
+  studioFile.open().then(d => {
+    if (d.text != null) loadMapText(d.text);
+    fileOut(d.text == null ? `${studioFile.path} is new — save creates it` : `editing ${studioFile.path}`);
+    studioFile.hold(err => { if (err) fileOut(err.message + ' — saving will ask before taking it over', 'bad'); });
+  }, e => fileOut(`could not open ${studioFile.path}: ${e.message}`, 'bad'));
+}
 
 $('validate').addEventListener('click', () => {
   const report = clientValidate();
@@ -707,12 +717,6 @@ function animate() {
 }
 animate();
 
-window.addEventListener('resize', () => {
-  camera.aspect = W() / H();
-  camera.updateProjectionMatrix();
-  renderer.setSize(W(), H());
-  labelRenderer.setSize(W(), H());
-});
 
 // keyboard
 window.addEventListener('keydown', ev => {

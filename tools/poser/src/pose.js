@@ -51,7 +51,8 @@
 // exactly like tools/uipreview and tools/kartsim: the value is not that the
 // second implementation is faster, it is that a disagreement is visible.
 
-import * as THREE from "../vendor/three.module.min.js";
+import * as THREE from "three";
+import { LAG } from "./lag.gen.js";
 
 const DEG = Math.PI / 180;
 const _e = new THREE.Euler();
@@ -91,13 +92,11 @@ export function ease(t, mode) {
   return t * t * (3 - 2 * t); // inout / smoothstep
 }
 
-// Secondary-motion lag, mirroring goblin.py's LAG table: floppy parts sample
-// the timeline a few frames in the past so they arrive after the body that
-// threw them. Left and right differ on purpose.
-export const LAG = {
-  ear_l: 3, ear_r: 4, nose: 2, jaw: 2,
-  hand_l: 2, hand_r: 3, forearm_l: 1, forearm_r: 1,
-};
+// Secondary-motion lag: floppy parts sample the timeline a few frames in the
+// past so they arrive after the body that threw them. The table is goblin.py's
+// own, generated into lag.gen.js (tools/poser/gen_lag.py) and held to it by
+// nix/checks/poser-lag.nix — it used to be a hand copy here.
+export { LAG };
 
 const ZERO = [0, 0, 0];
 

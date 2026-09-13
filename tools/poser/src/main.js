@@ -6,9 +6,10 @@
 // panel of controls, no build step, no framework, ES modules straight from
 // the served directory.
 
-import * as THREE from "../vendor/three.module.min.js";
-import { OrbitControls } from "../vendor/addons/controls/OrbitControls.js";
-import { TransformControls } from "../vendor/addons/controls/TransformControls.js";
+import * as THREE from "three";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
+import { createViewport } from "webcommon/viewport.js";
+import { StudioFile, describeSaveError, download, saveOrAsk, studioParams } from "webcommon/io.js";
 import { loadGltf, readNodes, readMesh, readSkin, readAnimations } from "./gltf.js";
 import { poseToQuat, quatToPose, applyAction, actionBones, boneAt, verify }
   from "./pose.js";
@@ -28,19 +29,11 @@ const state = {
 
 // ── scene ─────────────────────────────────────────────────────────────────
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-$("viewport").appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x141024);
-
-const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 200);
-camera.position.set(3.4, 2.2, 4.6);
-
-const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.target.set(0, 1.1, 0);
-orbit.enableDamping = true;
+const view = createViewport($("viewport"), {
+  background: 0x141024, fov: 42, near: 0.05, far: 200,
+  eye: [3.4, 2.2, 4.6], target: [0, 1.1, 0], maxPixelRatio: 2, updateStyle: false,
+});
+const { renderer, scene, camera, orbit } = view;
 
 const gizmo = new TransformControls(camera, renderer.domElement);
 gizmo.setMode("rotate");
@@ -60,13 +53,6 @@ scene.add(key);
 const grid = new THREE.GridHelper(8, 16, 0x4a3f78, 0x2a2444);
 scene.add(grid);
 
-function resize() {
-  const el = $("viewport");
-  renderer.setSize(el.clientWidth, el.clientHeight, false);
-  camera.aspect = el.clientWidth / Math.max(1, el.clientHeight);
-  camera.updateProjectionMatrix();
-}
-addEventListener("resize", resize);
 
 // ── loading ───────────────────────────────────────────────────────────────
 
@@ -141,11 +127,31 @@ async function loadModel(name) {
          `${mesh.position.length / 3} verts, ${anims.length} baked actions`);
 }
 
+// Inside Kiln Studio each action is opened as a studio file, so its save is a
+// compare-and-swap against the version loaded here and the editor holds the
+// action's advisory lock while it is selected.
+const studio = studioParams();
+let actionFiles = {};
+
+function holdAction(name) {
+  for (const f of Object.values(actionFiles)) f.release();
+  const f = actionFiles[name];
+  if (f) f.hold((err) => { if (err) status(`${err.message} — saving will ask before taking it over`); });
+}
+
 async function loadActions(name) {
   const index = await (await fetch(`data/${name}.index.json`)).json();
   state.actions = {};
+  for (const f of Object.values(actionFiles)) f.release();
+  actionFiles = {};
   for (const a of index.actions) {
-    state.actions[a.name] = await (await fetch(`data/${a.file}`)).json();
+    if (studio) {
+      const f = new StudioFile(`tools/poser/data/${a.file}`);
+      state.actions[a.name] = JSON.parse((await f.open()).text);
+      actionFiles[a.name] = f;
+    } else {
+      state.actions[a.name] = await (await fetch(`data/${a.file}`)).json();
+    }
   }
   const sel = $("action");
   sel.innerHTML = "";
@@ -153,6 +159,7 @@ async function loadActions(name) {
     sel.append(new Option(n, n));
   }
   selectAction(index.actions[0].name);
+  holdAction(index.actions[0].name);
 }
 
 // ── editing ───────────────────────────────────────────────────────────────
@@ -316,33 +323,39 @@ function runVerify() {
 }
 
 // ── save ──────────────────────────────────────────────────────────────────
-// No server round trip: this is a static page served by python -m http.server,
-// exactly like tools/mapmaker, so writing goes through the browser's download
-// and the file lands where anim_io.py reads it from.
+// Standalone this is a static page with nothing to write to, so saving is a
+// download of the file anim_io.py reads. Inside Kiln Studio it writes
+// tools/poser/data/ in place (tools/webcommon/io.js).
 
-function save() {
+async function save() {
   const a = state.action;
   a.keys.sort((x, y) => x.frame - y.frame);
   a.length = +$("length").value || a.length;
   a.loop = $("loop").checked;
-  const blob = new Blob([JSON.stringify(a, null, 1) + "\n"],
-                        { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${state.model.name}.${a.name}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const text = JSON.stringify(a, null, 1) + "\n";
+  const filename = `${state.model.name}.${a.name}.json`;
+  const file = actionFiles[a.name];
+  if (file) {
+    try {
+      await saveOrAsk(file, text);
+      status(`saved ${file.path} — rebuild the model to bake it`);
+    } catch (e) {
+      status(describeSaveError(e));
+      return;
+    }
+  } else {
+    download(filename, text, "application/json");
+    status(`saved ${filename} — drop it in tools/poser/data/ and rebuild`);
+  }
   state.dirty = false;
   $("save").classList.remove("dirty");
-  status(`saved ${link.download} — drop it in tools/poser/data/ and rebuild`);
 }
 
 function status(msg) { $("status").textContent = msg; }
 
 // ── wiring ────────────────────────────────────────────────────────────────
 
-$("action").onchange = (e) => selectAction(e.target.value);
+$("action").onchange = (e) => { selectAction(e.target.value); holdAction(e.target.value); };
 $("scrub").oninput = (e) => { state.frame = +e.target.value; refresh(); };
 $("play").onclick = () => {
   state.playing = !state.playing;
@@ -398,7 +411,10 @@ function tick(now) {
 }
 
 (async function boot() {
-  resize();
+  view.resize();
+  if (studio && studio.model && [...$("model").options].some((o) => o.value === studio.model)) {
+    $("model").value = studio.model;
+  }
   requestAnimationFrame(tick);
   try {
     const name = $("model").value;

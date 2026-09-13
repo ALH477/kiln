@@ -41,3 +41,9 @@ pre.log { background: #0a0d13; border: 1px solid var(--line); border-radius: 8px
 details summary { cursor: pointer; color: var(--dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 code { font-family: var(--mono); font-size: 12.5px; }
+.editor-frame { width: 100%; height: calc(100vh - 90px); border: 1px solid var(--line); border-radius: 8px;
+  background: #000; margin-top: 8px; }
+#people { font-size: 12px; margin: 0 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+#people .person .dim { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+input { background: #0a0d13; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+a { color: var(--blue); }

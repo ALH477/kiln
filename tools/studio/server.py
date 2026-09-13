@@ -9,7 +9,9 @@
 
 It serves the studio page and a small JSON API over the repository's real tools:
 the project manifest the flake generates, builds and checks run as jobs with
-streamed logs, and the machine's capabilities. It reimplements none of them.
+streamed logs, the machine's capabilities, and the map maker and poser with
+compare-and-swap saves, advisory locks and presence for a shared session. It
+reimplements none of them.
 
 Binds 127.0.0.1 by default. For a shared session over a tailnet, run
 `tailscale serve` in front of it and pass --tailscale-login for each person; the
@@ -21,32 +23,61 @@ says so loudly on stderr when any is set.
 """
 
 import argparse
+import base64
+import hashlib
 import json
 import mimetypes
 import os
+import re
 import sys
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from studio.auth import Auth, load_or_create_token  # noqa: E402
+from studio.fsapi import Files, FsError  # noqa: E402
 from studio.jobs import JobError, Runner  # noqa: E402
+from studio.presence import Presence  # noqa: E402
 from studio.project import Project  # noqa: E402
 from studio.validators import registry as validator_registry  # noqa: E402
 
-GUARDS = ("host", "origin", "token", "identity-source", "argv", "traversal", "cancel-group")
-MAX_BODY = 1 << 20
+GUARDS = ("host", "origin", "token", "identity-source", "argv", "traversal", "cancel-group",
+          "fs-allow", "fs-escape", "stale-write", "lock")
+MAX_BODY = 3 << 20
 SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; connect-src 'self'; "
-                               "frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'",
+                               "frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
+                               "frame-ancestors 'self'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "SAMEORIGIN",
 }
+
+# What the server hands out without an API call. The studio's own page and
+# modules; the editors' code, from the tools/ directory this server lives in;
+# and, signed in only, the poser's staged data from the repository being edited.
+STUDIO_STATIC = ("index.html", "src/")
+EDITOR_STATIC = ("tools/mapmaker/index.html", "tools/mapmaker/src/", "tools/mapmaker/vendor/",
+                 "tools/poser/index.html", "tools/poser/src/", "tools/webcommon/")
+REPO_STATIC = ("tools/poser/data/",)
+
+
+def _under(rel, prefixes):
+    return any(rel == p or (p.endswith("/") and rel.startswith(p)) for p in prefixes)
+
+
+def editor_csp(html):
+    """The editors' pages carry an inline importmap and inline styles. Rather
+    than allow inline script, allow exactly the inline scripts this page has, by
+    hash; anything injected later matches no hash and does not run."""
+    hashes = " ".join("'sha256-" + base64.b64encode(hashlib.sha256(m.group(1)).digest()).decode() + "'"
+                      for m in re.finditer(rb"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S))
+    return ("default-src 'self'; script-src 'self' " + hashes + "; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
+            "form-action 'self'; frame-ancestors 'self'")
 
 
 class Studio:
@@ -60,6 +91,8 @@ class Studio:
         self.project = Project(self.repo, args.nix, args.manifest_file, args.caps_file)
         self.project.load()
         self.validators = validator_registry(self.repo, sys.executable, args.nix)
+        self.files = Files(self.repo, HERE / "allow.json", breaks)
+        self.presence = Presence()
         self.runner = Runner(self.repo, args.nix, lambda: self.project.manifest, self.state,
                              args.max_jobs, breaks, self.validators)
         self.static_root = HERE
@@ -82,12 +115,10 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(body, str):
             body = body.encode()
         self.send_response(code)
-        for k, v in SECURITY_HEADERS.items():
+        for k, v in {**SECURITY_HEADERS, **(headers or {})}.items():
             self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        for k, v in (headers or {}).items():
-            self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -127,6 +158,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not path.startswith("/api/"):
             return self.static(path) if method == "GET" else self.error(405, "method not allowed")
+        query = parse_qs(urlparse(self.path).query)
         if path == "/api/session" and method == "POST":
             return self.session()
 
@@ -152,6 +184,14 @@ class Handler(BaseHTTPRequestHandler):
                     for vid, spec in self.studio.validators.items()]})
             if method == "GET" and parts == ["jobs"]:
                 return self.json(200, {"jobs": self.studio.runner.list()})
+            if parts[:1] == ["fs"]:
+                return self.fs(method, parts[1:], query)
+            if method == "GET" and parts == ["presence"]:
+                return self.json(200, {"people": self.studio.presence.list()})
+            if method == "POST" and parts == ["presence"]:
+                body = self.body_json()
+                self.studio.presence.beat(self.user, body.get("client"), body.get("panel"), body.get("file"))
+                return self.json(200, {"people": self.studio.presence.list()})
             if method == "POST" and parts == ["jobs"]:
                 return self.submit()
             if len(parts) >= 2 and parts[0] == "jobs":
@@ -165,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
                 if method == "POST" and parts[2:] == ["cancel"]:
                     return self.json(200, {"cancelled": self.studio.runner.cancel(job)})
             return self.error(404, "no such endpoint")
+        except FsError as e:
+            return self.json(e.status, {"error": str(e), **e.extra})
         except (ValueError, JobError) as e:
             return self.error(400, str(e))
 
@@ -201,6 +243,31 @@ class Handler(BaseHTTPRequestHandler):
                                         arg=arg if isinstance(arg, str) else None)
         return self.json(201, job.snapshot())
 
+    def fs(self, method, parts, query):
+        files = self.studio.files
+        if method == "GET" and parts == ["list"]:
+            return self.json(200, {"files": files.list()})
+        if method == "GET" and parts == ["read"]:
+            return self.json(200, files.read((query.get("path") or [None])[0]))
+        if method != "POST" or parts not in (["write"], ["lock"], ["unlock"]):
+            return self.error(404, "no such endpoint")
+        body = self.body_json()
+        rel, take = body.get("path"), body.get("take") is True
+        if parts == ["lock"]:
+            return self.json(200, {"lock": files.lock(rel, self.user, take=take)})
+        if parts == ["unlock"]:
+            return self.json(200, {"released": files.unlock(rel, self.user)})
+        result = files.write(rel, body.get("text"), body.get("baseSha256"), self.user, take=take)
+        # A save is followed by the file's validator, so whoever saved — and
+        # whoever else is watching the jobs — sees at once whether it still holds.
+        spec = self.studio.validators.get(result.get("validator") or "")
+        if spec and rel in spec["args"]():
+            try:
+                result["job"] = self.studio.runner.submit("validate", result["validator"], self.user, arg=rel).id
+            except JobError as e:
+                result["validate_error"] = str(e)
+        return self.json(200, result)
+
     def events(self, job):
         try:
             last = int(self.headers.get("Last-Event-ID") or 0)
@@ -235,21 +302,34 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def static(self, path):
-        root = self.studio.static_root
+        studio = self.studio
         rel = unquote(path).lstrip("/") or "index.html"
-        if "traversal" not in self.studio.breaks:
-            if ".." in rel.split("/") or not (rel == "index.html" or rel.startswith("src/")):
+        if rel in ("tools/mapmaker/", "tools/poser/"):
+            rel += "index.html"
+        if _under(rel, REPO_STATIC):
+            root = studio.repo
+            if studio.auth.identify(self.client_address[0], self.headers) is None:
+                return self.error(401, "not signed in")
+        elif _under(rel, EDITOR_STATIC):
+            root = HERE.parent.parent
+        else:
+            root = studio.static_root
+        if "traversal" not in studio.breaks:
+            if ".." in rel.split("/") or not _under(rel, STUDIO_STATIC + EDITOR_STATIC + REPO_STATIC):
                 return self.error(404, "not found")
         target = (root / rel).resolve()
-        if "traversal" not in self.studio.breaks and root not in target.parents:
+        if "traversal" not in studio.breaks and root.resolve() not in target.parents:
             return self.error(404, "not found")
         if not target.is_file():
             return self.error(404, "not found")
         ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        if target.suffix == ".js":
+        if target.suffix in (".js", ".mjs"):
             ctype = "text/javascript"
-        self.send(200, target.read_bytes(), ctype=ctype + ("; charset=utf-8" if ctype.startswith("text") else ""),
-                  headers={"Cache-Control": "no-cache"})
+        body = target.read_bytes()
+        headers = {"Cache-Control": "no-cache"}
+        if rel.startswith("tools/") and target.suffix == ".html":
+            headers["Content-Security-Policy"] = editor_csp(body)
+        self.send(200, body, ctype=ctype + ("; charset=utf-8" if ctype.startswith("text") else ""), headers=headers)
 
 
 def main(argv):

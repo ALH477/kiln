@@ -17,7 +17,12 @@ manifest, and checks:
   * a build job streams its log over SSE in order, ends ok, and reports its output
     path; a reconnect with Last-Event-ID resumes exactly after that line
   * cancelling a job kills the whole process tree, not only `nix`
-  * static paths cannot climb out of the studio directory
+  * the editors' files: only allowlisted paths, never through a symlink; a save
+    at a stale hash is a 409 that changes nothing; a file open in someone else's
+    editor is a 423 until it is explicitly taken over; a save starts the file's
+    validator; presence shows who has what open
+  * static paths cannot climb out of the studio directory, the editors' pages
+    carry a hash-pinned CSP, and repository data needs a session
   * every response carries the security headers
 
 Then it proves the tests are what they claim: it restarts the server once per
@@ -35,10 +40,15 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
 SERVER = HERE.parent / "server.py"
-GUARDS = ("host", "origin", "token", "identity-source", "argv", "traversal", "cancel-group")
+GUARDS = ("host", "origin", "token", "identity-source", "argv", "traversal", "cancel-group",
+          "fs-allow", "fs-escape", "stale-write", "lock")
+MAP_V1 = '{\n"classname" "worldspawn"\n}\n'
+MAP_V2 = '{\n"classname" "worldspawn"\n"message" "two"\n}\n'
+MAP_V3 = '{\n"classname" "worldspawn"\n"message" "three"\n}\n'
 ALICE = "alice@example.com"
 
 FAKE_NIX = r'''#!@PYTHON@
@@ -206,6 +216,66 @@ def suite(server):
                                                           "arg": "assets/level.map"})
     expect(st == 201, f"map-validate of a listed map gave {st}, want 201")
 
+    # ── the editors' files ───────────────────────────────────────────────
+    alice = {"Tailscale-User-Login": ALICE}
+
+    def fs_read(path):
+        st, _, body = server.request("GET", "/api/fs/read?path=" + quote(path, safe=""))
+        return st, json.loads(body or b"{}")
+
+    def fs_write(path, text, base, headers=None, **extra):
+        st, _, body = server.request("POST", "/api/fs/write", body={"path": path, "text": text, "baseSha256": base, **extra},
+                                     headers=headers, auth=headers is None)
+        return st, json.loads(body or b"{}")
+
+    st, _, body = server.request("GET", "/api/fs/list")
+    listed = [f["path"] for f in json.loads(body or b"{}").get("files", [])]
+    expect(st == 200 and listed == ["assets/level.map"], f"the editable file list gave {st} {listed}")
+    for path, want in (("notes.txt", 403), ("tools/studio/server.py", 403), ("assets/../notes.txt", 400),
+                       ("/etc/passwd", 400), ("assets/escape.map", 403)):
+        st, _ = fs_read(path)
+        expect(st == want, f"reading {path!r} gave {st}, want {want}")
+    st, _ = fs_write("notes.txt", "overwritten", None)
+    expect(st in (403, 409) and (server.work / "repo" / "notes.txt").read_text() == "notes",
+           f"writing notes.txt gave {st}, want 403")
+
+    st, opened = fs_read("assets/level.map")
+    expect(st == 200 and opened.get("text") == MAP_V1, f"reading assets/level.map gave {st}")
+    st, saved = fs_write("assets/level.map", MAP_V2, opened.get("sha256"))
+    expect(st == 200 and saved.get("sha256") not in (None, opened.get("sha256")), f"a save at the opened hash gave {st} {saved}")
+    expect(bool(saved.get("job")), f"a save did not start the map's validator: {saved}")
+    st, stale = fs_write("assets/level.map", MAP_V3, opened.get("sha256"), headers=alice)
+    expect(st == 409 and stale.get("sha256") == saved.get("sha256"),
+           f"a save at a stale hash gave {st} {stale}, want 409 with the current hash")
+    expect(fs_read("assets/level.map")[1].get("text") == MAP_V2, "a save at a stale hash changed the file")
+    st, _ = fs_write("assets/new.map", MAP_V1, None)
+    expect(st == 200, f"creating assets/new.map gave {st}")
+    st, _ = fs_write("assets/new.map", MAP_V2, None)
+    expect(st == 409, f"creating assets/new.map a second time gave {st}, want 409")
+
+    current = saved.get("sha256")
+    st, _, _ = server.request("POST", "/api/fs/lock", body={"path": "assets/level.map"}, headers=alice, auth=False)
+    expect(st == 200, f"alice opening assets/level.map gave {st}")
+    st, locked = fs_write("assets/level.map", MAP_V3, current)
+    expect(st == 423 and (locked.get("lock") or {}).get("user") == ALICE,
+           f"saving a file open in someone else's editor gave {st} {locked}, want 423 naming them")
+    st, _, _ = server.request("POST", "/api/fs/lock", body={"path": "assets/level.map"})
+    expect(st == 423, f"locking a file someone else has open gave {st}, want 423")
+    st, taken = fs_write("assets/level.map", MAP_V3, current, take=True)
+    expect(st == 200, f"an explicit take-over save gave {st} {taken}")
+    st, _, body = server.request("GET", "/api/fs/list")
+    lock = next((f["lock"] for f in json.loads(body or b"{}").get("files", []) if f["path"] == "assets/level.map"), None)
+    expect((lock or {}).get("user") == "local", f"after a take-over the lock is {lock}")
+
+    st, _, _ = server.request("POST", "/api/presence", body={"client": "alice-tab-0001", "panel": "map",
+                                                              "file": "assets/level.map"}, headers=alice, auth=False)
+    expect(st == 200, f"a presence heartbeat gave {st}")
+    st, _, body = server.request("GET", "/api/presence")
+    people = [(p["user"], p["panel"], p["file"]) for p in json.loads(body or b"{}").get("people", [])]
+    expect((ALICE, "map", "assets/level.map") in people, f"presence shows {people}")
+    st, _, _ = server.request("POST", "/api/presence", body={"client": "x", "panel": "map"})
+    expect(st == 400, f"a malformed heartbeat gave {st}, want 400")
+
     # ── a build, streamed ────────────────────────────────────────────────
     st, _, body = server.request("POST", "/api/jobs", body={"kind": "build", "target": "demo"})
     job = json.loads(body or b"{}")
@@ -248,6 +318,18 @@ def suite(server):
     for path in ("/src/../server.py", "/src/%2e%2e/%2e%2e/%2e%2e/etc/passwd", "/../../etc/passwd", "/server.py"):
         st, _, body = server.request("GET", path, auth=False)
         expect(st == 404, f"static {path} gave {st}, want 404")
+    for path in ("/tools/studio/server.py", "/tools/mapmaker/mapfmt.py", "/tools/poser/verify.py"):
+        st, _, _ = server.request("GET", path, auth=False)
+        expect(st == 404, f"static {path} gave {st}, want 404")
+    st, _, _ = server.request("GET", "/tools/poser/data/dank.index.json", auth=False)
+    expect(st == 401, f"repository data without a session gave {st}, want 401")
+    st, _, _ = server.request("GET", "/tools/poser/data/dank.index.json")
+    expect(st == 200, f"repository data with a session gave {st}")
+    st, hdrs, body = server.request("GET", "/tools/mapmaker/index.html", auth=False)
+    csp = hdrs.get("Content-Security-Policy", "")
+    script_src = csp.split("script-src", 1)[-1].split(";", 1)[0]
+    expect(st == 200 and "'sha256-" in script_src and "unsafe-inline" not in script_src,
+           f"the map maker page gave {st} with script-src {script_src!r}")
     st, hdrs, body = server.request("GET", "/", auth=False)
     expect(st == 200 and b"Kiln Studio" in body, f"the page itself gave {st}")
     expect("default-src 'self'" in hdrs.get("Content-Security-Policy", "") and hdrs.get("X-Content-Type-Options") == "nosniff",
@@ -258,7 +340,12 @@ def suite(server):
 def setup(work):
     (work / "repo").mkdir()
     (work / "repo" / "assets").mkdir()
-    (work / "repo" / "assets" / "level.map").write_text("{\n\"classname\" \"worldspawn\"\n}\n")
+    (work / "repo" / "assets" / "level.map").write_text(MAP_V1)
+    (work / "repo" / "notes.txt").write_text("notes")
+    (work / "outside.txt").write_text("a file outside the repository")
+    (work / "repo" / "assets" / "escape.map").symlink_to(work / "outside.txt")
+    (work / "repo" / "tools" / "poser" / "data").mkdir(parents=True)
+    (work / "repo" / "tools" / "poser" / "data" / "dank.index.json").write_text('{"actions": []}')
     (work / "manifest.json").write_text(json.dumps(MANIFEST))
     (work / "caps.json").write_text(json.dumps({"system": "x86_64-linux", "ares": False}))
     nix = work / "nix"

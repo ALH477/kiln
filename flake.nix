@@ -1104,7 +1104,7 @@
         studioCheapChecks = [
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
-          "studio-manifest" "studio-api" "camlint-cli"
+          "studio-manifest" "studio-api" "camlint-cli" "studio-modules" "poser-lag"
         ];
 
         forgeModeRoms = pkgs.lib.listToAttrs (map
@@ -2036,7 +2036,17 @@
           };
           studio-api = import ./nix/checks/studio-api.nix {
             inherit pkgs;
-            studioDir = ./tools/studio;
+            toolsDir = ./tools;
+          };
+          studio-modules = import ./nix/checks/studio-modules.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+          };
+          poser-lag = import ./nix/checks/poser-lag.nix {
+            inherit pkgs;
+            genLag = ./tools/poser/gen_lag.py;
+            poserSrc = ./tools/poser/src;
+            goblin = ./tools/blender/goblin.py;
           };
           studio-manifest = import ./nix/checks/studio-manifest.nix {
             inherit pkgs;
@@ -2111,11 +2121,14 @@
           # outside the hermetic build — same authoring/outside-build vs.
           # consume/inside-build split as tools/blender-mcp/. Exports canonical
           # .map text the existing mkQuakeMapModel + kiln_map.c pipeline already
-          # consumes; validate via ./dev map-validate.
+          # consumes; validate via ./dev map-validate. Serves all of tools/ so
+          # the page reaches tools/webcommon/ by a relative path — the same one
+          # that works when Kiln Studio serves it under /tools/.
           mapmaker = {
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-mapmaker" ''
-              cd "''${KILN_REPO:-$PWD}/tools/mapmaker"
+              cd "''${KILN_REPO:-$PWD}/tools"
+              echo "map maker on http://localhost:8000/mapmaker/"
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8000
             '');
           };
@@ -2132,8 +2145,8 @@
                 echo "staging models for the poser (first run)…"
                 ./tools/poser/stage.sh dank
               fi
-              cd tools/poser
-              echo "poser on http://localhost:8001"
+              cd tools
+              echo "poser on http://localhost:8001/poser/"
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8001
             '');
           };

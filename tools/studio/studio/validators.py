@@ -16,7 +16,9 @@ from pathlib import Path
 
 
 def _rel(repo, paths):
-    return sorted(str(Path(p).relative_to(repo)) for p in paths)
+    # A symlink is never offered: `assets/x.map -> /somewhere/else` would have a
+    # validator read, and print, a file outside the repository.
+    return sorted(str(Path(p).relative_to(repo)) for p in paths if not Path(p).is_symlink())
 
 
 def adapt_map(native):
