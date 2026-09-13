@@ -66,6 +66,14 @@ static void resolve(char *out, size_t n, const char *path)
 int dfs_open(const char *const path)
 {
     if (!path) return DFS_EBADINPUT;
+    /* Loud, and stricter than the console on purpose. On hardware rom:/ is not
+     * mounted until the game calls dfs_init, and the first wav64_open or
+     * t3d_model_load asserts "File not found" — while this host, with its
+     * directory always there, used to load the same file happily. Two demos
+     * shipped that way and only an Ares boot noticed. Every loader here
+     * (wav64, xm64, ym64, sprites, models, maps) comes through this line. */
+    assertf(g_dfs_ready, "dfs_open('%s') before dfs_init(DFS_DEFAULT_LOCATION): "
+            "on console rom:/ is not mounted yet and this load fails", path);
     if (!g_dfs_ready) return DFS_ENOINIT;
 
     char full[1024];
