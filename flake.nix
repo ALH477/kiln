@@ -708,12 +708,13 @@
         # slides along walls, HUD reports the last trace's fraction / normal /
         # surface. No assets, no actors — the proof stays focused on the
         # collision primitive.
-        clip-demo = mkN64Rom {
+        clipDemoArgs = {
           name = "clip-demo";
           src = ./examples/clip-demo;
           romTitle = "Kiln Clip";
           assets = [ demoSound stepSound ];
         };
+        clip-demo = mkN64Rom clipDemoArgs;
 
         # Phase E: kiln_room brush auto-install + kiln_clip broadphase toggle
         # + kiln_physics HL2-style rigid bodies. One room (floor + 4 walls,
@@ -962,7 +963,8 @@
             makeFlags = (args.makeFlags or [ ]) ++ [ "KILN_JUMP=${j}" ];
           }))) jumps);
 
-        jumpRoms = { };
+        jumpRoms =
+          mkJumpRoms clipDemoArgs [ "CORNER" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1127,6 +1129,19 @@
             pname = "kiln-engine-demo";
             sources = [ ./examples/engine/main.c ];
             meta.description = "engine-demo, playable in a browser";
+          };
+          pc-clip-demo = hostNative.mkGame {
+            pname = "kiln-clip-demo";
+            sources = [ ./examples/clip-demo/main.c ];
+            assets = [ demoSound stepSound ];
+            meta.description = "clip-demo, playable on this machine";
+          };
+          pc-clip-demo-corner = hostNative.mkGame {
+            pname = "kiln-clip-demo-corner";
+            sources = [ ./examples/clip-demo/main.c ];
+            assets = [ demoSound stepSound ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_CORNER" ];
+            meta.description = "clip-demo's CORNER jump, on this machine";
           };
 
           # `./dev map-render` — a level, through the real kiln_map.c, drawn by
