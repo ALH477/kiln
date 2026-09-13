@@ -304,6 +304,27 @@
           ];
         };
 
+        # The container examples/exsec-streamdb-demo opens with a StreamDB reader
+        # written in Exsecutor and, beside it, with streamdb-embedded -- the ROM
+        # shows whether the two agree. Small on purpose: that reader's buffer is
+        # a fixed 65,536 bytes. Packed by the same upstream C writer as every
+        # other .streamdb here.
+        exsecAve = assetLib.mkRawAsset {
+          name = "ave";
+          src = pkgs.writeText "ave.txt"
+            "Ave, Kiln. This document was found by a StreamDB reader written in Exsecutor.\n";
+          dest = "data";
+          compress = 0;
+          extension = "txt";
+        };
+        exsecStreamdb = assetLib.mkStreamdb {
+          name = "exsec";
+          entries = [
+            { key = "levels/intro.bin"; asset = sdLevel; }
+            { key = "data/ave.txt";     asset = exsecAve; }
+          ];
+        };
+
         # assets-demo's StreamDB pak: reuses sdModel/sdSprite (the same
         # compress=0 twins demoStreamdb already packs) via mkAssetPak instead
         # of mkStreamdb's hand-typed `entries` — demonstrating the auto-keyed
@@ -668,6 +689,17 @@
           src = ./examples/streamdb-demo;
           romTitle = "Kiln StreamDB";
           assets = [ demoStreamdb ];
+        };
+
+        # A StreamDB reader written in Exsecutor (github.com/ALH477/exsecutor),
+        # compiled to C by that language's compiler and checked in as
+        # lector_streamdb.gen.c. It runs on a 32 KB kthread and is compared,
+        # key by key, against streamdb-embedded on the same container.
+        exsec-streamdb-demo = mkN64Rom {
+          name = "exsec-streamdb-demo";
+          src = ./examples/exsec-streamdb-demo;
+          romTitle = "Kiln Exsecutor";
+          assets = [ exsecStreamdb ];
         };
 
         # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
@@ -1098,7 +1130,7 @@
           host-backend      = hostNative.backend;
           host-vadpcm       = hostNative.vadpcm;
 
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
