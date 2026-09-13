@@ -1,360 +1,208 @@
 #!/usr/bin/env python3
-"""Generate a minimal 4-channel, 2-pattern, looping XM file.
+# SPDX-License-Identifier: MIT
+"""Generate examples/music/test.xm: a short, looping, four-channel XM.
 
-A simple ascending arpeggio on channel 1, bass on channel 2,
-silence on 3-4. 8 rows per pattern, 125 BPM, 6 ticks per row.
+usage: gen_xm.py [out.xm]
+
+Lead arpeggio, bass, a slow counter-line and a noise hat, two 16-row patterns
+in a loop, 125 BPM at speed 6. Every instrument is a tiny synthesised sample,
+so the file stays around 2 KB.
+
+── Why this was rewritten ─────────────────────────────────────────────
+The previous generator wrote a file that parsed as an EMPTY module:
+audioconv64 converted it to "ctx:0, patterns:0, samples:0", and the music
+example booted in Ares reporting 0 channels and a flat scope while its HUD
+said PLAY. Three layout errors, each enough on its own:
+  * no 0x1A byte between the song and tracker names, so every field after
+    offset 37 was read one byte early;
+  * header_size left out its own four bytes and was written twice;
+  * the instrument header size left out its own four bytes and the sample
+    header size inside it was zero.
+The layout below follows tools/midi_to_xm.py, whose output has been played
+on console, and verify() reads the fields back before the file is written.
 """
+import math
+import struct
+import sys
 
-import struct, sys
+CYCLE = 32          # samples per cycle; C-4 plays at 8363 Hz -> 261 Hz
+NOTE_OFF = 97
+ROWS = 16
+SPEED, BPM = 6, 125
+CHANNELS = 4
+NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
 
 
-def xm_make(outpath):
-    # XM header
-    id = b"Extended Module: "
-    name = b"kiln-test\x00" * (20 - 9) + b"\x00"  # 20 bytes, null-padded
-    name = b"kiln-test\x00" * 1
-    name = b"kiln-test" + b"\x00" * 11  # 20 bytes total
-    tracker = b"kiln-gen\x00" + b"\x00" * 13  # 20 bytes
+def note(n):
+    """'C-4' -> XM note number (1 = C-0). Kept at or below B-5: at CYCLE 32 a
+    B-5 plays its sample at ~31.6 kHz, under libdragon's default per-channel
+    mixer limit of the output rate (32 kHz), which the mixer asserts on."""
+    v = NAMES.index(n[:2]) + 12 * int(n[2]) + 1
+    assert v <= NAMES.index("B-") + 12 * 5 + 1, n
+    return v
 
-    # We'll generate a very simple XM with no instruments that have samples.
-    # Actually XM requires at least 1 instrument. Let's make a minimal one
-    # with a sine-wave-ish sample.
 
-    # Header fields
-    version = 0x0104  # XM 1.4
-    header_size = 20 + 20 + 20  # id + name + tracker... no, header_size is
-    # the size of the header AFTER the 60-byte preamble.
-    # XM format: 60 bytes preamble, then header_size bytes of song data.
-    # header_size = 4 (song length) + 2 (restart) + 2*256 (pattern order) + ...
-    # Actually: after the 60-byte preamble, the next 4 bytes are header_size,
-    # then header_size bytes of: song_length(2), restart(2), order_table(256),
-    # num_channels(2), num_patterns(2), num_instruments(2), flags(2), tempo(2), bpm(2)
+def delta(samples):
+    out, prev = bytearray(), 0
+    for s in samples:
+        out.append((s - prev) & 0xFF)
+        prev = s
+    return bytes(out)
 
-    num_channels = 4
-    num_patterns = 1
-    num_instruments = 1
-    flags = 0  # amiga freq table = 0, linear = 1
-    tempo = 6
-    bpm = 125
-    song_length = 1
-    restart = 0
 
-    # Pattern order table: 256 bytes, first entry = 0
-    order_table = bytes(256)
-    order_table = bytes([0]) + bytes(255)
+def wave_pulse():
+    return [96 if k < CYCLE // 4 else -96 for k in range(CYCLE)]
 
-    # Header data (after the 4-byte header_size field)
-    header_data = (
-        struct.pack("<HH", song_length, restart)
-        + order_table
-        + struct.pack("<HHHHHHH", num_channels, num_patterns, num_instruments, flags, tempo, bpm, 0)
-    )  # extra 2 bytes padding? no.
-    # Actually the header is: song_length(2), restart(2), order_table(256),
-    # num_channels(2), num_patterns(2), num_instruments(2), flags(2), tempo(2), bpm(2)
-    # = 2+2+256+2+2+2+2+2+2 = 272 bytes
-    header_data = (
-        struct.pack("<HH", song_length, restart)
-        + order_table
-        + struct.pack("<HHHHHH", num_channels, num_patterns, num_instruments, flags, tempo, bpm)
-    )
-    header_size = len(header_data)
 
-    # Preamble: id(17) + name(20) + tracker(20) + version(2) + header_size(4) = 63
-    # Wait, the XM format is:
-    # id_text: 17 bytes ("Extended Module: ")
-    # song_name: 20 bytes
-    # tracker_name: 20 bytes
-    # version: 2 bytes (LE)
-    # header_size: 4 bytes (LE)
-    # = 63 bytes preamble
-    preamble = id + name + tracker + struct.pack("<H", version) + struct.pack("<I", header_size)
+def wave_saw():
+    return [int(round(-110 + 220 * k / (CYCLE - 1))) for k in range(CYCLE)]
 
-    # Pattern: header + data
-    # Pattern header: header_length(4), packing_type(1), num_rows(2), data_size(2)
-    num_rows = 8
-    # Pattern data: we need to encode notes for each channel for each row.
-    # XM pattern data uses a compact format:
-    # If bit 7 of first byte is 0: it's a full note (5 bytes: note, inst, vol, effect, param)
-    # If bit 7 is set: it's a packed note, bits 0-6 indicate which fields follow.
 
-    pattern_data = bytearray()
+def wave_triangle():
+    return [int(round(110 * (1 - 4 * abs(k / CYCLE - 0.5)))) for k in range(CYCLE)]
 
-    # Simple pattern: 8 rows, 4 channels
-    # Channel 1: ascending notes C-4, E-4, G-4, C-5, E-4, G-4, C-5, E-5
-    # XM note values: 1=C-0, 13=C-1, 25=C-2, 37=C-3, 49=C-4, 61=C-5
-    # C-4=49, E-4=53, G-4=56, C-5=61, E-5=65
-    notes_ch1 = [49, 53, 56, 61, 53, 56, 61, 65]
-    # Channel 2: bass C-2, C-2, G-2, G-2, C-2, C-2, G-2, G-2
-    # C-2=25, G-2=32
-    notes_ch2 = [25, 25, 32, 32, 25, 25, 32, 32]
 
-    for row in range(num_rows):
-        for ch in range(num_channels):
-            note = 0  # 0 = no note, 97 = note off
-            inst = 1  # instrument 1
-            vol = 0x40  # max volume in vol column (0x40 = 64 = max)
-            effect = 0
-            eparam = 0
+def wave_noise(n=1024):
+    x, out = 0x1234, []
+    for _ in range(n):
+        x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        out.append(((x >> 16) & 0xFF) - 128)
+    return out
 
-            if ch == 0:
-                note = notes_ch1[row]
-            elif ch == 1:
-                note = notes_ch2[row]
+
+def instrument(name, samples, loop, env, sustain):
+    """One instrument, one sample. `env` is [(frame, level 0..64)]."""
+    e = bytearray()
+    for x, y in env:
+        e += struct.pack("<HH", x, y)
+    e += bytes(4 * (12 - len(env)))
+
+    h = struct.pack("<I", 263)                       # counts itself: 29 + 234
+    h += name.encode("latin-1")[:22].ljust(22, b"\0")
+    h += struct.pack("<BH", 0, 1)                    # type, one sample
+    h += struct.pack("<I", 40)                       # sample header size
+    h += bytes(96)                                   # all notes -> sample 0
+    h += bytes(e) + bytes(48)                        # volume, panning envelopes
+    h += struct.pack("<BB", len(env), 0)
+    h += struct.pack("<BBB", sustain if sustain is not None else 0, 0, 0)
+    h += struct.pack("<BBB", 0, 0, 0)
+    h += struct.pack("<BB", 0b001 | (0b010 if sustain is not None else 0), 0)
+    h += struct.pack("<BBBB", 0, 0, 0, 0)            # vibrato
+    h += struct.pack("<H", 1024)                     # fadeout on key-off
+    h += bytes(22)
+    assert len(h) == 263, len(h)
+
+    n = len(samples)
+    s = struct.pack("<III", n, 0, n if loop else 0)
+    s += struct.pack("<Bb", 64, 0)
+    s += struct.pack("<BB", 0x01 if loop else 0x00, 128)   # 8-bit; panning
+    s += struct.pack("<bB", 0, 0)                           # relative note
+    s += name.encode("latin-1")[:22].ljust(22, b"\0")
+    assert len(s) == 40, len(s)
+    return h + s + delta(samples)
+
+
+# rows: per channel, 16 entries of None, a note name, or "off".
+# Instruments: 1 lead, 2 bass, 3 counter, 4 hat.
+PATTERNS = [
+    {
+        0: ["C-5", None, "E-5", None, "G-5", None, "E-5", None,
+            "C-5", None, "E-5", None, "G-5", None, "A-5", None],
+        1: ["C-3", None, None, None, "C-3", None, "G-2", None,
+            "C-3", None, None, None, "G-2", None, "off", None],
+        2: ["E-4", None, None, None, None, None, None, None,
+            "G-4", None, None, None, None, None, None, None],
+        3: ["C-4", None, "C-4", None, "C-4", None, "C-4", None,
+            "C-4", None, "C-4", None, "C-4", None, "C-4", "C-4"],
+    },
+    {
+        0: ["A-4", None, "C-5", None, "E-5", None, "C-5", None,
+            "F-4", None, "A-4", None, "C-5", None, "B-4", None],
+        1: ["A-2", None, None, None, "A-2", None, "E-2", None,
+            "F-2", None, None, None, "G-2", None, "off", None],
+        2: ["C-4", None, None, None, None, None, None, None,
+            "D-4", None, None, None, None, None, None, None],
+        3: ["C-4", None, "C-4", None, "C-4", None, "C-4", None,
+            "C-4", None, "C-4", None, "C-4", "C-4", "C-4", "C-4"],
+    },
+]
+CHANNEL_VOL = [44, 56, 36, 20]   # volume column level per channel, 0..64
+
+
+def pack(pattern):
+    out = bytearray()
+    for row in range(ROWS):
+        for ch in range(CHANNELS):
+            cell = pattern[ch][row]
+            if cell is None:
+                out.append(0x80)
+            elif cell == "off":
+                out += bytes([0x80 | 0x01, NOTE_OFF])
             else:
-                note = 0  # no note
-                inst = 0
-                vol = 0
+                vol = CHANNEL_VOL[ch] + (8 if ch == 3 and row % 4 == 0 else 0)
+                out += bytes([0x80 | 0x01 | 0x02 | 0x04, note(cell), ch + 1, 0x10 + min(vol, 64)])
+    return bytes(out)
 
-            if note == 0 and inst == 0 and vol == 0 and effect == 0:
-                # Empty note: pack as flag byte 0x80 (no fields)
-                pattern_data.append(0x80)
-            else:
-                # Full 5-byte note
-                pattern_data.append(note & 0x7F)
-                pattern_data.append(inst & 0x7F)
-                pattern_data.append(vol & 0x7F)
-                pattern_data.append(effect & 0x7F)
-                pattern_data.append(eparam & 0x7F)
 
-    data_size = len(pattern_data)
-    pattern_header = struct.pack("<IBH", 9, 0, num_rows) + struct.pack("<H", data_size)
-    # header_length=9 is the standard minimum
+def build():
+    npat = len(PATTERNS)
+    header = struct.pack("<HH", npat, 0)                  # song length, restart
+    header += struct.pack("<HHH", CHANNELS, npat, 4)       # channels, patterns, instruments
+    header += struct.pack("<HHH", 1, SPEED, BPM)           # linear frequencies
+    header += bytes(range(npat)) + bytes(256 - npat)       # order table
 
-    # Instrument: header + sample header
-    # Instrument header: size(4), name(22), type(1), num_samples(2)
-    # Then num_samples sample headers, each 18 bytes... actually the instrument
-    # header is more complex. Let me use the simplest possible instrument.
+    out = bytearray()
+    out += b"Extended Module: "
+    out += b"kiln test".ljust(20, b" ")
+    out += b"\x1a"
+    out += b"gen_xm.py".ljust(20, b"\0")
+    out += struct.pack("<H", 0x0104)
+    out += struct.pack("<I", len(header) + 4)              # counts itself
+    out += header
+    for p in PATTERNS:
+        data = pack(p)
+        out += struct.pack("<IBHH", 9, 0, ROWS, len(data)) + data
+    out += instrument("lead", wave_pulse(), True, [(0, 64), (6, 40), (24, 30)], 2)
+    out += instrument("bass", wave_saw(), True, [(0, 64), (12, 48)], 1)
+    out += instrument("counter", wave_triangle(), True, [(0, 0), (6, 50), (40, 40)], 2)
+    out += instrument("hat", wave_noise(), False, [(0, 64), (2, 18), (6, 0)], None)
+    return bytes(out)
 
-    # For a single-sample instrument:
-    # Instrument header: data_size(4), name(22), type(1), num_samples(2) = 29 bytes
-    # Then if num_samples > 0:
-    #   Sample header (18 bytes per sample) for each sample
-    #   Then sample data
 
-    # Actually the XM instrument format is:
-    # 4 bytes: instrument data size (the size of the instrument header following this field)
-    # 22 bytes: name
-    # 1 byte: type
-    # 2 bytes: number of samples
-    # If num_samples > 0:
-    #   Then the instrument header continues with:
-    #   4 bytes: sample mapping size (usually 33)
-    #   96 bytes: note-to-sample mapping
-    #   ... etc (envelope data)
-    #   Then for each sample:
-    #     18+3 bytes: sample header (actually 18 bytes in older format, but header says size)
+def verify(xm):
+    """Read back the fields a loader reads, at the offsets it reads them."""
+    assert xm[:17] == b"Extended Module: "
+    assert xm[37] == 0x1A, "missing 0x1A at offset 37"
+    assert struct.unpack_from("<H", xm, 58)[0] == 0x0104
+    hsize = struct.unpack_from("<I", xm, 60)[0]
+    assert hsize == 276, hsize
+    songlen, restart, ch, npat, nins, flags, speed, bpm = struct.unpack_from("<HHHHHHHH", xm, 64)
+    assert (ch, npat, nins, speed, bpm) == (CHANNELS, len(PATTERNS), 4, SPEED, BPM)
+    off = 60 + hsize
+    for _ in range(npat):
+        plen, _, rows, dsize = struct.unpack_from("<IBHH", xm, off)
+        assert plen == 9 and rows == ROWS
+        off += plen + dsize
+    for _ in range(nins):
+        isize = struct.unpack_from("<I", xm, off)[0]
+        nsmp = struct.unpack_from("<H", xm, off + 27)[0]
+        shsize = struct.unpack_from("<I", xm, off + 29)[0]
+        assert isize == 263 and nsmp == 1 and shsize == 40, (isize, nsmp, shsize)
+        slen = struct.unpack_from("<I", xm, off + isize)[0]
+        off += isize + shsize + slen
+    assert off == len(xm), (off, len(xm))
+    return ch, npat, nins
 
-    # This is getting complex. Let me use a simpler approach: num_samples=0,
-    # which makes a dummy instrument (no sound). The XM will still play,
-    # just silently. That's fine for a pipeline test.
 
-    # Actually, that won't work — XM players need samples to produce sound.
-    # Let me create a proper instrument with one sample.
-
-    # Minimal instrument with 1 sample:
-    # Instrument header: size=33+29=... no. Let me just hardcode the bytes.
-
-    # Instrument header (29 bytes for the basic part):
-    inst_data_size = 33  # extended instrument header size (after the basic 29 bytes)
-    inst_name = b"test-inst\x00" * 1
-    inst_name = b"test-inst" + b"\x00" * 13  # 22 bytes
-    inst_type = 0
-    num_samples = 1
-
-    inst_basic = (
-        struct.pack("<I", inst_data_size) + inst_name + struct.pack("<BH", inst_type, num_samples)
-    )
-
-    # Extended instrument header (33 bytes):
-    # This is the part after the basic 29 bytes, sized by inst_data_size
-    # It contains: sample_number_for_notes(96), envelope points, etc.
-    # For simplicity, let's use 33 bytes of zeros (no envelope, all notes map to sample 0)
-    # Actually, 33 is too small. The standard extended header is:
-    # 4 bytes: sample mapping size (usually 33, but the actual data is more)
-    # Wait, I'm confusing things. Let me re-read the XM format.
-
-    # XM Instrument header:
-    # 4 bytes: instrument size (this includes everything after this 4-byte field,
-    #          up to but not including sample headers and sample data)
-    # 22 bytes: name
-    # 1 byte: type
-    # 2 bytes: num_samples
-    # --- if num_samples > 0, the following is part of the instrument header ---
-    # 4 bytes: sample mapping size (e.g. 33, but actual mapping data follows)
-    # Hmm, actually the standard says:
-    # The "instrument size" field tells how many bytes follow in the instrument header.
-    # For instruments WITH samples, instrument size = 29 + 33 + 96 + 48 + 12 = ...
-    # Actually let me just look at what size value to use.
-
-    # From the XM spec:
-    # Instrument header (instruments with samples):
-    #   4: Instrument size (should be 29 + 33 = 62 for older, but standard is larger)
-    # Actually, the common value is:
-    #   instrument_size = 33 + 96 + 48 + 12 = 189? No...
-    # Let me just use the values from OpenMPT's export:
-    # instrument_size = 29 + 33 = ... no.
-
-    # The XM format is:
-    # 4 bytes: ins_size (total bytes following this field, including the 22+1+2)
-    # If ins_size >= 29:
-    #   22 bytes: name
-    #   1 byte: type
-    #   2 bytes: num_samples
-    # If num_samples > 0:
-    #   (ins_size - 29) bytes: extended instrument data
-    #     which is: 4 bytes (sample map size, usually 96)... no
-    # Actually from the FastTracker2 docs:
-    #   if num_samples > 0:
-    #     4 bytes: number of sample mappings (not size, but... confusing)
-    #     The rest is: 96 bytes note-to-sample table, then envelope data
-
-    # Let me just use what works: ins_size = 263 (the standard for a full instrument header)
-    # 263 - 29 = 234 bytes of extended data
-    # Extended data = 96 (note mapping) + 48 (volume envelope) + 48 (panning envelope) + 12 (various) + 1 (vibrato) + 1 (vib_depth) + 1 (vib_sweep) + 1 (vib_type) + 2 (fadeout) + 2 (reserved) + 4 (sample_mapping_size) = hmm
-
-    # Actually: after the basic 29 bytes (4+22+1+2), the extended part is:
-    # 4 bytes: number of sample headers that follow (this is NOT the note mapping)
-    # Wait no. Let me just use the well-known structure:
-    #
-    # Extended instrument header (when num_samples > 0):
-    # 4 bytes: instrument header size after this point (should be 33, but actually
-    #          it's the size of the rest = 96 + 48 + 48 + 12 + ... total 234)
-    # Actually the 4 bytes here are NOT the size, they're something else.
-    # OK I'll just hardcode it from a known-good minimal XM.
-
-    # Let me take a totally different approach: generate the XM as raw bytes
-    # from a known-good template. A minimal XM with 1 instrument, 1 sample,
-    # 1 pattern, 8 rows, 4 channels.
-
-    # I'll construct it piece by piece.
-
-    # Actually, the simplest valid XM with sound is quite involved.
-    # Let me just generate a 16-byte sine wave sample at 8363 Hz (A-4 freq).
-    # The XM sample format is delta-encoded.
-
-    import math
-
-    sample_len = 256
-    sample_rate_xm = 8363  # XM middle C sample rate
-
-    # Generate a simple sine-like sample (8-bit signed)
-    raw_sample = bytearray()
-    prev = 0
-    for i in range(sample_len):
-        val = int(127 * math.sin(2 * math.pi * i / sample_len * 4))  # 4 cycles
-        raw_sample.append((val - prev) & 0xFF)  # delta encode
-        prev = val
-
-    # Sample header (18 bytes per sample in older XM, but actually it's 40 bytes in 1.04)
-    # XM 1.04 sample header: 18 bytes? No.
-    # Sample header fields:
-    # 4: sample length
-    # 4: sample loop start
-    # 4: sample loop length
-    # 1: volume
-    # 1: finetune (signed)
-    # 1: type (0=no loop, 1=forward loop, 2=ping-pong)
-    # 1: panning
-    # 1: relative note (signed)
-    # 1: reserved
-    # 22: sample name
-    # Total = 4+4+4+1+1+1+1+1+1+1+22 = 40 bytes... wait that's not right either.
-    # Actually: the sample header in XM 1.04 is:
-    # 4: length, 4: loop_start, 4: loop_len, 1: vol, 1: finetune, 1: type,
-    # 1: pan, 1: rel_note, 1: reserved, 22: name = 40 bytes
-
-    smp_name = b"square\x00" + b"\x00" * 15  # 22 bytes
-    sample_header = (
-        struct.pack("<III", sample_len, 0, sample_len)
-        + struct.pack("<BBBBBB", 64, 0, 1, 128, 0, 0)
-        + b"\x00"
-        + smp_name
-    )  # 1 reserved + 22 name = 40 bytes total
-
-    # Wait, that's: 4+4+4 + 1+1+1+1+1+1 + 1+22 = 12 + 6 + 23 = 41. Not 40.
-    # Let me recount: length(4) + loop_start(4) + loop_len(4) + vol(1) + finetune(1) +
-    # type(1) + pan(1) + rel_note(1) + reserved(1) + name(22) = 4+4+4+1+1+1+1+1+1+22 = 40. Yes.
-
-    sample_header = (
-        struct.pack("<III", sample_len, 0, sample_len) + bytes([64, 0, 1, 128, 0, 0]) + smp_name
-    )  # 12 + 6 + 22 = 40
-
-    # Extended instrument header data (after basic 29 bytes):
-    # The standard structure is:
-    # 4 bytes: "number of sample headers" = 96? No, this is the size of the
-    #   note-to-sample mapping region = ... I'll use the known value.
-    # Actually from reading several XM docs:
-    # After the 29-byte basic header, for instruments with samples:
-    # 4 bytes: ins_header_size (the size of extended instrument data, should be 33)
-    #   But 33 doesn't include the 96-byte note table...
-    # OK, I think the 4 bytes are NOT a size, they're something else.
-    # From the FT2 source: the next 4 bytes after the basic header
-    # (when num_samples > 0) are just the first 4 bytes of a 234-byte block.
-    # The 234-byte block is:
-    #   4 bytes: (unused/reserved, sometimes the "sample size" for mapping)
-    #   96 bytes: note-to-sample mapping table (each byte = sample index for that note)
-    #   48 bytes: volume envelope points (12 points * 3 bytes + 2 bytes counter... actually 12*(2+2)+2 = 50? no)
-    #   Actually: volume envelope = 12 points * (x:2, y:1) = 36 bytes + 3 bytes (num points, sustain, loop start, loop end) = 39?
-    #   This is getting really messy. Let me just use 234 bytes of mostly zeros,
-    #   with the note-to-sample table filled in.
-
-    ext_data = bytearray(234)
-    # Note-to-sample table: bytes 4..99 (96 bytes), all map to sample 0
-    for i in range(4, 100):
-        ext_data[i] = 0  # all notes use sample 0
-    # Volume envelope: bytes 100..147 (48 bytes) - disabled (all zeros)
-    # Panning envelope: bytes 148..195 (48 bytes) - disabled
-    # Remaining: bytes 196..233 (38 bytes) - misc settings
-
-    # Set volume envelope flag to "disabled" by leaving it zero
-    # The volume fadeout is at offset 192+... this varies by implementation.
-    # Let me just leave everything zeroed. The XM player should handle a
-    # disabled envelope by using the instrument volume directly.
-
-    # Set the fadeout to a non-zero value so sound doesn't cut off
-    # Fadeout is at offset... in the extended header, after the envelopes.
-    # Offset: 4 (map size) + 96 (note map) + 48 (vol env) + 48 (pan env) = 196
-    # Then: 1 (num_vol_points), 1 (num_pan_points), 1 (vol_sus), 1 (vol_loop_start),
-    #   1 (vol_loop_end), 1 (pan_sus), 1 (pan_loop_start), 1 (pan_loop_end),
-    #   1 (vol_type), 1 (pan_type), 1 (vib_type), 1 (vib_sweep), 1 (vib_depth),
-    #   1 (vib_rate), 2 (vol_fadeout), 2 (reserved)
-    # = 14 + 2 + 2 = 18 bytes
-    # Total: 4 + 96 + 48 + 48 + 18 = 214. But I used 234.
-    # The extra 20 bytes are just reserved/padding.
-
-    # Actually, the standard "ins_size" for a full instrument is 29 + 234 = 263.
-    # But wait, the "ins_size" field in the basic header is the size of
-    # everything after the 4-byte ins_size field itself.
-    # So ins_size = 22 (name) + 1 (type) + 2 (num_samples) + 234 (extended) = 259.
-
-    ins_size = 22 + 1 + 2 + len(ext_data)  # = 259
-
-    instrument = (
-        struct.pack("<I", ins_size)
-        + inst_name
-        + struct.pack("<BH", inst_type, num_samples)
-        + bytes(ext_data)
-        + sample_header
-        + bytes(raw_sample)
-    )
-
-    # Assemble the full XM
-    xm = (
-        preamble
-        + struct.pack("<I", header_size)
-        + header_data
-        + pattern_header
-        + bytes(pattern_data)
-        + instrument
-    )
-
-    with open(outpath, "wb") as f:
+def main():
+    out = sys.argv[1] if len(sys.argv) > 1 else "test.xm"
+    xm = build()
+    ch, npat, nins = verify(xm)
+    with open(out, "wb") as f:
         f.write(xm)
-
-    print(f"Generated {outpath}: {len(xm)} bytes")
-    print(f"  {num_channels} channels, {num_patterns} pattern, {num_rows} rows")
-    print(f"  {num_instruments} instrument, {sample_len} sample bytes")
+    print(f"gen_xm: {out}: {len(xm)} bytes, {ch} channels, {npat} patterns x {ROWS} rows, "
+          f"{nins} instruments, {BPM} bpm")
 
 
 if __name__ == "__main__":
-    xm_make(sys.argv[1] if len(sys.argv) > 1 else "test.xm")
+    main()

@@ -670,7 +670,8 @@
           name = "music";
           src = ./examples/music;
           romTitle = "Kiln Music";
-          assets = [ test-music ];
+          # Track 1 is the XM module, track 2 the looping VADPCM bed.
+          assets = [ test-music cine-music ];
           audioRate = 32000;
         };
         music-demo = mkN64Rom musicDemoArgs;
