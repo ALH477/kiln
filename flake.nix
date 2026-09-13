@@ -844,7 +844,10 @@
           name = "oot-demo";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT";
-          assets = [ ootMap stepSound impactSfx ];
+          # goblinModel: the skinned hero (kiln_skel). The pc-* builds below
+          # leave it out and set KILN_OOT_PRIM_BODY, because plat/host cannot
+          # run a skeleton.
+          assets = [ ootMap stepSound impactSfx goblinModel ];
         };
         oot-demo = mkN64Rom ootDemoArgs;
 
@@ -854,7 +857,7 @@
           name = "oot-demo-debug";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT Debug";
-          assets = [ ootMap stepSound impactSfx ];
+          assets = [ ootMap stepSound impactSfx goblinModel ];
           debugConsole = true;
         };
 
@@ -1096,7 +1099,7 @@
           // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
           // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
           // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
-          // mkJumpRoms ootDemoArgs [ "TARGET" ]
+          // mkJumpRoms ootDemoArgs [ "TARGET" "ROLL" "ATTACK" ]
           // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
           // mkJumpRoms actorsDemoArgs [ "FULL" ]
           // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ]
@@ -1341,13 +1344,14 @@
             pname = "kiln-oot-demo";
             sources = [ ./examples/oot-demo/main.c ];
             assets = [ ootMap stepSound impactSfx ];
+            extraCFlags = [ "-DKILN_OOT_PRIM_BODY=1" ];
             meta.description = "oot-demo, on this machine";
           };
           pc-oot-demo-target = hostNative.mkGame {
             pname = "kiln-oot-demo-target";
             sources = [ ./examples/oot-demo/main.c ];
             assets = [ ootMap stepSound impactSfx ];
-            extraCFlags = [ "-DKILN_JUMP=JUMP_TARGET" ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_TARGET" "-DKILN_OOT_PRIM_BODY=1" ];
             meta.description = "oot-demo-target, on this machine";
           };
           pc-event-demo = hostNative.mkGame {

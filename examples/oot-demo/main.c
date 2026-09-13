@@ -4,6 +4,10 @@
 // a swordsman driven by kiln_player, two creatures to fight, Z-targeting, and a
 // camera that opens with an orbit and then follows like Ocarina's.
 //
+//   kiln_skel     -> the goblin hero: Idle/Run crossfades at a stride-matched rate,
+//                    Jump/Fall, a Land overlay, Roll spun about its pivot, the
+//                    sword swing masked to the torso, a head that tracks the
+//                    Z-target, and a sword and shield riding his hands
 //   kiln_map      -> assets/oot_test.map -> brushes, faces, spawns; kiln_map_tint
 //   kiln_dict     -> spawn args (origin, angle) read at spawn
 //   kiln_clip     -> swept-AABB vs the parsed brushes plus two torch pillars
@@ -17,10 +21,17 @@
 //   stick move   Z target   A sword   B jump   L roll   R run
 //   idle 3 s: the demo locks on, closes in and fights
 //
-// Jump ROM: .#oot-demo-target boots beside a creature with Z held, so the
-// TARGETING camera and reticle are on screen with no controller.
+// Jump ROMs: .#oot-demo-target boots beside a creature with Z held, so the
+// TARGETING camera and reticle are on screen with no controller;
+// .#oot-demo-attack does the same and keeps swinging; .#oot-demo-roll runs and
+// dodge-rolls.
+//
+// The host builds (pc-oot-demo, pc-oot-demo-target) set KILN_OOT_PRIM_BODY and
+// keep the five-box hero: plat/host cannot run a skeleton, and a host that
+// silently drew nothing would be worse than one drawing boxes.
 
 #include <libdragon.h>
+#include <t3d/t3dmodel.h>
 #include <kiln/kiln_engine.h>
 #include <kiln/kiln_gui.h>
 #include <kiln/kiln_input.h>
@@ -37,14 +48,18 @@
 #include <kiln/kiln_audio.h>
 #include <kiln/kiln_prim.h>
 #include <kiln/kiln_debugdraw.h>
+#include <kiln/kiln_skel.h>
 #ifdef KILN_DEBUG
 #include <kiln/kiln_console.h>
 #include <kiln/kiln_prof.h>
 #endif
 
-enum { JUMP_NONE, JUMP_TARGET };
+enum { JUMP_NONE, JUMP_TARGET, JUMP_ROLL, JUMP_ATTACK };
 #ifndef KILN_JUMP
 #define KILN_JUMP JUMP_NONE
+#endif
+#ifndef KILN_OOT_PRIM_BODY
+#define KILN_OOT_PRIM_BODY 0
 #endif
 
 #define SCREEN_W 320
@@ -52,6 +67,22 @@ enum { JUMP_NONE, JUMP_TARGET };
 #define ACTOR_POOL_CAP 16
 #define ENEMY_HP 3
 #define ATTACK_TIME 0.4f   /* kiln_player.c's ATTACK_TIME; the swing is drawn over it */
+#define ROLL_TIME   0.45f  /* kiln_player.c's ROLL_TIME                               */
+#define PI          3.14159265f
+
+/* The goblin hero. kiln_player's box is 32 tall; goblin.py's rig is 2.19 m at
+ * 64 units a metre, so 0.30 stands him a little over it — head above the box,
+ * which reads better than a goblin shrunk to fit a collision volume. */
+#define GOBLIN_SCALE        0.30f
+#define UNITS_PER_M         (64.0f * GOBLIN_SCALE)
+/* Measured by tools/blender/gait.py, held to it by nix/checks/goblin-gait.nix. */
+#define GOBLIN_RUN_MPS      2.293f
+#define GOBLIN_ROLL_PIVOT_M 0.45f
+#define ANKLE_REST          (0.20f * 64.0f)
+/* Clip lengths, seconds at goblin.py's 24 fps: the attack and roll windows
+ * kiln_player enforces are shorter, so the clips play faster to fit. */
+#define ATTACK_CLIP_S       0.5f
+#define ROLL_CLIP_S         (14.0f / 24.0f)
 
 enum { PROFILE_PLAYER, PROFILE_ENEMY, PROFILE_COUNT };
 
@@ -60,6 +91,23 @@ static KilnPrim g_tunic, g_head, g_cap, g_shield, g_sword;
 static KilnPrim g_enemy_body, g_enemy_flash, g_enemy_eye, g_shadow;
 static KilnPrim g_pillar, g_flame;
 static KilnTransform g_sword_xf, g_eye_xf[2], g_shadow_xf, g_deco_xf;
+
+/* The skinned hero, console only (see KILN_OOT_PRIM_BODY). */
+static T3DModel *g_goblin;
+static KilnSkel g_skel;
+static KilnPrim g_blade, g_guard, g_buckler;
+static KilnTransform g_pivot_xf, g_body_xf;
+static int g_b_hand_r = -1, g_b_hand_l = -1, g_b_foot_l = -1, g_b_foot_r = -1, g_b_neck = -1, g_b_head = -1;
+static uint32_t g_upper;
+typedef struct {
+    int state;           /* the KilnPlayerState last animated         */
+    fm_vec3_t prev;      /* for the speed actually covered            */
+    float lift;          /* the body lowered by the feet's rise       */
+    float look_w;
+} Hero;
+static Hero g_hero = { .state = -1 };
+/* Defined with the other globals below; the hero's head tracks it. */
+static KilnActorHandle g_lock_h;
 
 /* The map's brushes plus two torch pillars, as one clip world. */
 static KilnBrush g_world[32];
@@ -101,8 +149,18 @@ static void enemy_update(KilnActor *self, float dt)
     s->hop += s->hop_v * dt;
     if (s->hop < 0) { s->hop = 0; s->hop_v = 0; }
     self->xform.pos.v[1] = s->centre.v[1] + s->hop + 2.0f * fm_sinf(s->angle * 5.0f);
-    /* Face along the orbit: the tangent of (cos a, sin a) is (-sin a, cos a). */
-    self->xform.rot_angle = fm_atan2f(-fm_sinf(s->angle), fm_cosf(s->angle));
+    /* Face along the orbit: the tangent of (cos a, sin a) is (-sin a, cos a).
+     * libdragon's axis-angle about +Y maps +Z to (-sin t, cos t), so the
+     * angle that points the eyes (+Z) along that tangent is `a` itself; the
+     * atan2 this used to take mirrored them off the Z axis. */
+    self->xform.rot_angle = s->angle;
+    /* Squash and stretch: long on the way up, flat on landing, and a shudder
+     * for the length of a hit flash. */
+    const float k = s->hop_v / 900.0f;
+    const float shake = s->flash > 0 ? 0.12f * fm_sinf(s->flash * 60.0f) : 0.0f;
+    const float sy = 1.0f + (k > 0.25f ? 0.25f : (k < -0.2f ? -0.2f : k)) + shake;
+    const float sxz = 1.0f / (sy > 0.5f ? sy : 0.5f);
+    self->xform.scale = (fm_vec3_t){{ sxz, sy, sxz }};
     if (s->flash > 0) s->flash -= dt;
 }
 
@@ -127,19 +185,127 @@ static void player_init(KilnActor *self, const KilnDict *spawn_args)
     self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 }
 
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+static float wrap_pi(float a)
+{
+    while (a > PI) a -= 2.0f * PI;
+    while (a < -PI) a += 2.0f * PI;
+    return a;
+}
+
+/* Which of BASE/BLEND is playing `clip`, or -1. */
+static int slot_of(const char *clip)
+{
+    for (int s = KILN_SKEL_BASE; s <= KILN_SKEL_BLEND; s++) {
+        const char *c = kiln_skel_clip(&g_skel, (KilnSkelSlot)s);
+        if (c && c[0] == clip[0] && c[1] == clip[1]) return s;
+    }
+    return -1;
+}
+
+/* kiln_player owns the state; this turns each state into animation. */
+static void hero_animate(KilnActor *self, const KilnPlayer *p, float dt)
+{
+    const int st = (int)p->state;
+    const int air = st == KILN_PLAYER_JUMP || st == KILN_PLAYER_FALL;
+    const int was_air = g_hero.state == KILN_PLAYER_JUMP || g_hero.state == KILN_PLAYER_FALL;
+    fm_vec3_t d = {{ self->xform.pos.v[0] - g_hero.prev.v[0], 0, self->xform.pos.v[2] - g_hero.prev.v[2] }};
+    const float speed = g_hero.state < 0 ? 0.0f : fm_vec3_len(&d) / dt;
+    g_hero.prev = self->xform.pos;
+
+    if (st != g_hero.state) {
+        switch (st) {
+        case KILN_PLAYER_ROLL:
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BASE, ROLL_CLIP_S / ROLL_TIME);
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BLEND, ROLL_CLIP_S / ROLL_TIME);
+            kiln_skel_crossfade(&g_skel, "Roll", false, 0.05f);
+            break;
+        case KILN_PLAYER_JUMP:
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BASE, 1.0f);
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BLEND, 1.0f);
+            kiln_skel_crossfade(&g_skel, "Jump", false, 0.06f);
+            break;
+        case KILN_PLAYER_FALL:
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BASE, 1.0f);
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_BLEND, 1.0f);
+            kiln_skel_crossfade(&g_skel, "Fall", true, 0.2f);
+            break;
+        case KILN_PLAYER_ATTACK:
+            /* Masked to the torso: the legs keep whatever they were doing. */
+            kiln_skel_set_overlay_mask(&g_skel, g_upper);
+            kiln_skel_set_speed(&g_skel, KILN_SKEL_OVERLAY, ATTACK_CLIP_S / ATTACK_TIME);
+            kiln_skel_overlay(&g_skel, "Attack", false, 0.04f);
+            break;
+        default:
+            if (was_air) {
+                kiln_skel_set_overlay_mask(&g_skel, KILN_POSE_MASK_ALL);
+                kiln_skel_set_speed(&g_skel, KILN_SKEL_OVERLAY, 1.2f);
+                kiln_skel_overlay(&g_skel, "Land", false, 0.05f);
+            }
+            break;
+        }
+        g_hero.state = st;
+    }
+
+    /* Grounded: Idle or Run, at the rate that keeps a planted foot planted.
+     * kiln_player's WALK is 60 units/s, which the goblin's own Walk clip could
+     * only match at 4.2x, so both of its moving states use Run (1.4x at a
+     * walk, 3.2x flat out) — a jog and a sprint. */
+    if (st == KILN_PLAYER_IDLE || st == KILN_PLAYER_WALK || st == KILN_PLAYER_RUN || st == KILN_PLAYER_ATTACK) {
+        const int moving = (st == KILN_PLAYER_WALK || st == KILN_PLAYER_RUN) && speed > 1.0f;
+        kiln_skel_crossfade(&g_skel, moving ? "Run" : "Idle", true, 0.12f);
+        const int rs = slot_of("Run"), is = slot_of("Idle");
+        if (rs >= 0)
+            kiln_skel_set_speed(&g_skel, (KilnSkelSlot)rs, clampf(speed / (GOBLIN_RUN_MPS * UNITS_PER_M), 0.6f, 3.6f));
+        if (is >= 0) kiln_skel_set_speed(&g_skel, (KilnSkelSlot)is, 1.0f);
+    }
+
+    /* The head follows the Z-target, the way Link's does. */
+    KilnActor *lock = kiln_actor_resolve(g_lock_h);
+    const int look = lock && !air && st != KILN_PLAYER_ROLL;
+    g_hero.look_w += ((look ? 1.0f : 0.0f) - g_hero.look_w) * 0.12f;
+    if (g_hero.look_w > 0.01f && lock) {
+        const float to = fm_atan2f(lock->xform.pos.v[0] - self->xform.pos.v[0],
+                                   lock->xform.pos.v[2] - self->xform.pos.v[2]);
+        const float a = clampf(wrap_pi(to - p->yaw), -1.1f, 1.1f) * g_hero.look_w;
+        T3DQuat q;
+        kiln_quat_axis_angle(&q, 0, 1, 0, a * 0.4f);
+        kiln_skel_bone_rotate(&g_skel, g_b_neck, &q);
+        kiln_quat_axis_angle(&q, 0, 1, 0, a * 0.6f);
+        kiln_skel_bone_rotate(&g_skel, g_b_head, &q);
+    }
+
+    kiln_skel_update(&g_skel, dt);
+
+    /* A crouch raises the feet (no root translation in the rig): lower him. */
+    const T3DVec3 fl = kiln_skel_bone_pos(&g_skel, g_b_foot_l), fr = kiln_skel_bone_pos(&g_skel, g_b_foot_r);
+    const float rise = (fl.v[1] < fr.v[1] ? fl.v[1] : fr.v[1]) - ANKLE_REST;
+    const float want = !air && st != KILN_PLAYER_ROLL && rise > 0.0f ? -rise * GOBLIN_SCALE : 0.0f;
+    g_hero.lift += (want - g_hero.lift) * 0.5f;
+}
+
 static void player_update(KilnActor *self, float dt)
 {
     kiln_player_update(self, 1, dt);
     const KilnPlayer *p = kiln_player_of(self);
-    self->xform.rot_angle = p->yaw;
-    /* A roll reads as a tuck: the body squashes while kiln_player moves it. */
-    const float sy = p->state == KILN_PLAYER_ROLL ? 0.6f : 1.0f;
-    self->xform.scale = (fm_vec3_t){{ 1, sy, 1 }};
+    if (KILN_OOT_PRIM_BODY) {
+        /* The box hero's front is +Z: libdragon's axis-angle turns +Z to
+         * (-sin t, cos t), so -yaw faces (sin yaw, cos yaw). */
+        self->xform.rot_angle = -p->yaw;
+        /* A roll reads as a tuck: the body squashes while kiln_player moves it. */
+        const float sy = p->state == KILN_PLAYER_ROLL ? 0.6f : 1.0f;
+        self->xform.scale = (fm_vec3_t){{ 1, sy, 1 }};
+        return;
+    }
+    /* The goblin's nose is model -Z, so PI - yaw. */
+    self->xform.rot_angle = PI - p->yaw;
+    self->xform.scale = (fm_vec3_t){{ 1, 1, 1 }};
+    hero_animate(self, p, dt);
 }
 
-static void player_draw(KilnActor *self)
+static void prim_hero_draw(const KilnPlayer *p)
 {
-    const KilnPlayer *p = kiln_player_of(self);
     kiln_prim_draw(&g_tunic);
     kiln_prim_draw(&g_head);
     kiln_prim_draw(&g_cap);
@@ -156,6 +322,43 @@ static void player_draw(KilnActor *self)
     g_sword_xf.rot_angle = swing;
     kiln_transform_push(&g_sword_xf);
     kiln_prim_draw(&g_sword);
+    kiln_transform_pop();
+}
+
+static void player_draw(KilnActor *self)
+{
+    const KilnPlayer *p = kiln_player_of(self);
+    if (KILN_OOT_PRIM_BODY) {
+        prim_hero_draw(p);
+        return;
+    }
+    /* kiln_actor_draw_all has pushed the actor: its origin is the middle of
+     * kiln_player's box, 16 above the feet. Two more levels: a pivot at the
+     * tucked ball's centre that the roll turns about (+X turns +Y to -Z, his
+     * forward), and the model, back down to its feet and scaled. */
+    float roll = 0.0f;
+    if (p->state == KILN_PLAYER_ROLL) {
+        const float k = clampf(p->state_t / ROLL_TIME, 0.0f, 1.0f);
+        roll = 2.0f * PI * k * k * (3.0f - 2.0f * k);
+    }
+    const float pivot = GOBLIN_ROLL_PIVOT_M * UNITS_PER_M;
+    g_pivot_xf.pos = (fm_vec3_t){{ 0, KILN_PLAYER_MINS.v[1] + pivot + g_hero.lift, 0 }};
+    g_pivot_xf.rot_angle = roll;
+    g_body_xf.pos = (fm_vec3_t){{ 0, -pivot, 0 }};
+    kiln_transform_push(&g_pivot_xf);
+    kiln_transform_push(&g_body_xf);
+    kiln_skel_draw(&g_skel);
+    /* Model units from here: the bone matrices carry goblin.py's x64. hand_r's
+     * +Y runs out along the fingers, so the blade does; hand_l's +X points out
+     * of the left hand, so the buckler is thin along it. */
+    kiln_skel_bone_push(&g_skel, g_b_hand_r);
+    kiln_prim_draw(&g_guard);
+    kiln_prim_draw(&g_blade);
+    kiln_transform_pop();
+    kiln_skel_bone_push(&g_skel, g_b_hand_l);
+    kiln_prim_draw(&g_buckler);
+    kiln_transform_pop();
+    kiln_transform_pop();
     kiln_transform_pop();
 }
 
@@ -214,6 +417,27 @@ static const KilnInputKey TARGET_KEYS[] = {
     { .frame =  86, .buttons = KILN_BTN_Z },
 };
 static const KilnInputTape TARGET = { TARGET_KEYS, 4, KILN_INPUT_NO_LOOP };
+
+/* Lock on, then keep swinging: the torso-masked Attack overlay on repeat. */
+static const KilnInputKey ATTACK_KEYS[] = {
+    { .frame =   0 },
+    { .frame =  20, .buttons = KILN_BTN_Z },
+    { .frame =  60, .buttons = KILN_BTN_Z | KILN_BTN_A },
+    { .frame =  66, .buttons = KILN_BTN_Z },
+    { .frame = 100, .buttons = KILN_BTN_Z },
+};
+static const KilnInputTape ATTACK_T = { ATTACK_KEYS, 5, 60 };
+
+/* A tight circle at a run, dodge-rolling every 70 frames: a roll lasts 27, so
+ * any moment is ~40% likely to be mid-spin. Tight so it stays off the walls,
+ * and no jump, because kiln_player's jump clears the room's walls. */
+static const KilnInputKey ROLL_KEYS[] = {
+    { .frame =  0, .sx = 60, .sy = 85 },
+    { .frame = 30, .buttons = KILN_BTN_L, .sx = 60, .sy = 85 },
+    { .frame = 34, .sx = 60, .sy = 85 },
+    { .frame = 70 },
+};
+static const KilnInputTape ROLL_T = { ROLL_KEYS, 4, 0 };
 
 static fm_vec3_t cam_fwd(void)
 {
@@ -288,6 +512,18 @@ static void build_geometry(void)
     }
     kiln_transform_init(&g_shadow_xf);
     kiln_transform_init(&g_deco_xf);
+
+    /* The goblin's props, in MODEL units (bone matrices carry the x64). */
+    kiln_prim_box(&g_blade, (fm_vec3_t){{ 0, 34, 0 }}, (fm_vec3_t){{ 1.4f, 24, 3.2f }},
+                  kiln_prim_rgba(0xF4, 0xF6, 0xFF), kiln_prim_rgba(0xB8, 0xC4, 0xD8), kiln_prim_rgba(0x70, 0x78, 0x88));
+    kiln_prim_box(&g_guard, (fm_vec3_t){{ 0, 9, 0 }}, (fm_vec3_t){{ 2.0f, 1.6f, 8.0f }},
+                  kiln_prim_rgba(0xF0, 0xC0, 0x40), kiln_prim_rgba(0xB0, 0x80, 0x20), kiln_prim_rgba(0x60, 0x40, 0x10));
+    kiln_prim_box(&g_buckler, (fm_vec3_t){{ 4, 2, 0 }}, (fm_vec3_t){{ 1.4f, 12, 11 }},
+                  kiln_prim_rgba(0x60, 0x80, 0xE0), kiln_prim_rgba(0x40, 0x58, 0xC0), kiln_prim_rgba(0x30, 0x40, 0x80));
+    kiln_transform_init(&g_pivot_xf);
+    g_pivot_xf.rot_axis = (fm_vec3_t){{ 1, 0, 0 }};
+    kiln_transform_init(&g_body_xf);
+    g_body_xf.scale = (fm_vec3_t){{ GOBLIN_SCALE, GOBLIN_SCALE, GOBLIN_SCALE }};
 }
 
 int main(void)
@@ -309,6 +545,26 @@ int main(void)
     kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
     kiln_event_init();
     build_geometry();
+
+    if (!KILN_OOT_PRIM_BODY) {
+#if !KILN_OOT_PRIM_BODY
+        /* mkBlenderModel compresses the .t3dm (mkasset -c 2). Preprocessed out
+         * rather than faked on the host: plat/host has no decompressor, and a
+         * pc-* build ships no skinned model to decompress. */
+        asset_init_compression(2);
+#endif
+        g_goblin = t3d_model_load("rom:/models/goblin.t3dm");
+        kiln_skel_create(&g_skel, g_goblin);
+        kiln_skel_play(&g_skel, "Idle", true);
+        /* By NAME: the exporter's bone order is not goblin.py's. */
+        g_b_hand_r = kiln_skel_bone(&g_skel, "hand_r");
+        g_b_hand_l = kiln_skel_bone(&g_skel, "hand_l");
+        g_b_foot_l = kiln_skel_bone(&g_skel, "foot_l");
+        g_b_foot_r = kiln_skel_bone(&g_skel, "foot_r");
+        g_b_neck = kiln_skel_bone(&g_skel, "neck");
+        g_b_head = kiln_skel_bone(&g_skel, "head");
+        g_upper = kiln_skel_mask_bone(&g_skel, "torso");
+    }
 
 #ifdef KILN_DEBUG
     kiln_prof_init();
@@ -354,7 +610,7 @@ int main(void)
     }
     /* Beside the +X creature, with the torch pillar at (64,-64) off the line
      * from the targeting camera to the player. */
-    if (KILN_JUMP == JUMP_TARGET) ppos = (fm_vec3_t){{ 40, 16, 10 }};
+    if (KILN_JUMP == JUMP_TARGET || KILN_JUMP == JUMP_ATTACK) ppos = (fm_vec3_t){{ 40, 16, 10 }};
     ppos = lift_out(ppos);
     g_player_h = kiln_actor_spawn(PROFILE_PLAYER, ppos, pyaw, NULL);
 
@@ -378,6 +634,10 @@ int main(void)
     const float CUTSCENE_LEN = 2.6f;
     if (KILN_JUMP == JUMP_TARGET) {
         kiln_input_play(1, &TARGET);
+    } else if (KILN_JUMP == JUMP_ATTACK) {
+        kiln_input_play(1, &ATTACK_T);
+    } else if (KILN_JUMP == JUMP_ROLL) {
+        kiln_input_play(1, &ROLL_T);
     } else {
         kiln_camera_push(&g_cam, KILN_CAM_CUTSCENE);
         cutscene_t = CUTSCENE_LEN;
@@ -527,13 +787,22 @@ int main(void)
         const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
         const char *mode_s = g_cam.mode == KILN_CAM_TARGETING ? "target"
                            : g_cam.mode == KILN_CAM_CUTSCENE ? "cutscene" : "follow";
-        kiln_gui_panel(8, 8, 150, 66, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
+        kiln_gui_panel(8, 8, 150, 78, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
         kiln_gui_text(14, 21, teal, "KILN OOT");
         kiln_gui_text(14, 34, ink, "cam %-8s %s", mode_s, pl ? state_name(pl->state) : "-");
         kiln_gui_text(14, 46, ink, "hits %d  defeated %d", hits, defeated);
         kiln_gui_text(14, 58, ink, "pos %4.0f %4.0f", pnow.v[0], pnow.v[2]);
-        kiln_gui_text(14, 70, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
-        if (!loaded) kiln_gui_text(14, 90, RGBA32(0xFF, 0x50, 0x50, 0xFF), "MAP DID NOT LOAD");
+        if (KILN_OOT_PRIM_BODY) {
+            kiln_gui_text(14, 70, RGBA32(0x90, 0x98, 0xB0, 0xFF), "box hero (host)");
+        } else {
+            const int heavy = g_skel.blend_factor >= 0.5f ? KILN_SKEL_BLEND : KILN_SKEL_BASE;
+            const char *clip = kiln_skel_clip(&g_skel, (KilnSkelSlot)heavy);
+            const char *over = kiln_skel_clip(&g_skel, KILN_SKEL_OVERLAY);
+            kiln_gui_text(14, 70, RGBA32(0xFF, 0xC8, 0x60, 0xFF), "anim %s x%.1f%s%s", clip ? clip : "-",
+                          (double)g_skel.slot_speed[heavy], over ? " +" : "", over ? over : "");
+        }
+        kiln_gui_text(14, 82, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
+        if (!loaded) kiln_gui_text(14, 100, RGBA32(0xFF, 0x50, 0x50, 0xFF), "MAP DID NOT LOAD");
 
         if (g_lock_h != KILN_ACTOR_HANDLE_NONE) {
             KilnActor *t = kiln_actor_resolve(g_lock_h);
