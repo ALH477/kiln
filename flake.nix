@@ -1792,6 +1792,13 @@
             inherit pkgs; target = hostNative;
           };
           # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
+          # examples/cinematic-demo's shots: camlint-clean, no eye inside the
+          # cast or the hangar across the whole loop, bounds match the models.
+          cinematic-cam = import ./nix/checks/cinematic-cam.nix {
+            inherit pkgs; target = hostNative;
+            models = { interceptor = interceptorModel; goblin = goblinModel;
+                       droid = droidModel; alien = alienModel; };
+          };
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;
           };

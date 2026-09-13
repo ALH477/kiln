@@ -21,7 +21,9 @@
 //   kiln_actor     profiles, category draw order
 //   kiln_event     the door's 500 ms-delayed OPEN and CLOSE
 //   kiln_target    the reticle on the lead alien, 30-36 s
-//   kiln_camera    CUTSCENE mode, fed by a keyframe table
+//   kiln_camera    CUTSCENE mode, fed by cine_shots.h: seven kiln_camkey
+//                  shots cut together, kiln_camlint-checked in the flake
+//   kiln_gui       letterbox, caption cards, timecode
 //   kiln_audio     music bed; kiln_sound positional footsteps and thumps
 
 #include <libdragon.h>
@@ -47,14 +49,28 @@
 #include <string.h>
 
 #include "cine_script.h"
+#include "cine_shots.h"
 
-// Jump ROMs (nix/demos/cinematic-demo.nix): BOXES runs the loop with every
-// actor's measured bounds drawn over it, which is how a model that is the
-// wrong size, or standing in the floor, shows up in one capture.
-enum { JUMP_NONE, JUMP_BOXES };
+// Jump ROMs (nix/demos/cinematic-demo.nix). T10/T22/T30/T38 fast-forward the
+// timeline to that second at boot and HOLD it there, since Ares' boot time
+// varies by a second or two. BOXES runs the loop with every actor's measured
+// bounds drawn over it, which shows a model at the wrong size, or standing in
+// the floor, in one capture.
+enum { JUMP_NONE, JUMP_T10, JUMP_T22, JUMP_T30, JUMP_T38, JUMP_BOXES };
 #ifndef KILN_JUMP
 #define KILN_JUMP JUMP_NONE
 #endif
+
+static float jump_time(void)
+{
+    switch (KILN_JUMP) {
+    case JUMP_T10: return 10.0f;
+    case JUMP_T22: return 22.0f;
+    case JUMP_T30: return 30.0f;
+    case JUMP_T38: return 38.0f;
+    default:       return -1.0f;
+    }
+}
 
 #define SCREEN_W        320
 #define SCREEN_H        240
@@ -108,6 +124,7 @@ static KilnTransform g_crate_xf[CRATE_MAX];
 static float g_crate_ang[CRATE_MAX];
 static fm_vec3_t g_crate_axis[CRATE_MAX];
 static uint8_t g_crate_ground[CRATE_MAX];
+static float g_crate_air[CRATE_MAX];
 
 static const fm_vec3_t CRATE_START[CRATE_MAX] = {
     {{ CINE_STACK_A_X, CINE_FLOOR_Y + CINE_CRATE_HALF + 0.1f,  CINE_STACK_A_Z }},
@@ -278,41 +295,6 @@ static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
         .init = door_init, .update = door_update, .event = door_event, .draw = door_draw },
 };
 
-// ── Camera ──────────────────────────────────────────────────────────────
-// One key per beat, authored against where cine_script.h puts the subject at
-// that key's time. Linear between keys for now.
-typedef struct { float t; fm_vec3_t eye, look; } CamKey;
-
-static const CamKey CAM_KEYS[] = {
-    {  0.0f, {{  80.0f, 40.0f,  80.0f }}, {{  10.0f,  8.0f,  10.0f }} },  // establishing, high corner
-    {  5.0f, {{  60.0f, 14.0f,  74.0f }}, {{  22.0f,  8.0f,  44.0f }} },  // down onto the captain
-    {  9.5f, {{  18.0f,  9.0f,  84.0f }}, {{  -9.0f,  8.0f,  56.0f }} },  // the crate stack
-    { 13.0f, {{ -12.0f, 12.0f,  88.0f }}, {{ -26.0f,  8.0f,  44.0f }} },
-    { 15.0f, {{   0.0f, 10.0f,  50.0f }}, {{   0.0f,  9.0f,   0.0f }} },  // ship nose, droids at work
-    { 20.0f, {{ -34.0f, 14.0f,  40.0f }}, {{   0.0f,  8.0f,   0.0f }} },
-    { 22.0f, {{ -20.0f, 22.0f, -30.0f }}, {{ -65.0f, 12.0f, -98.0f }} },  // the bay door
-    { 27.0f, {{ -10.0f, 18.0f, -50.0f }}, {{ -60.0f, 10.0f, -88.0f }} },  // aliens come through
-    { 30.0f, {{  -2.0f, 12.0f, -34.0f }}, {{ -44.0f, 11.0f, -64.0f }} },  // stand-off two-shot
-    { 36.0f, {{  -6.0f, 20.0f, -18.0f }}, {{ -50.0f, 10.0f, -62.0f }} },
-    { 38.0f, {{ -84.0f, 46.0f,  84.0f }}, {{ -20.0f,  5.0f, -30.0f }} },  // hangar wide
-    { 44.0f, {{ -40.0f, 46.0f,  88.0f }}, {{   0.0f,  5.0f, -20.0f }} },
-    { 47.0f, {{  30.0f, 10.0f, -80.0f }}, {{   8.0f,  8.0f, -48.0f }} },  // the walk back
-    { 52.0f, {{  70.0f, 12.0f, -60.0f }}, {{  38.0f,  8.0f, -30.0f }} },
-    { 56.0f, {{  80.0f, 20.0f,  20.0f }}, {{  46.0f,  8.0f,  -5.0f }} },
-    { 60.0f, {{  80.0f, 40.0f,  80.0f }}, {{  10.0f,  8.0f,  10.0f }} },  // = key 0
-};
-#define CAM_KEY_COUNT ((int)(sizeof(CAM_KEYS) / sizeof(CAM_KEYS[0])))
-
-static void cam_sample(float t, fm_vec3_t *eye, fm_vec3_t *look)
-{
-    int i = 0;
-    while (i < CAM_KEY_COUNT - 2 && t >= CAM_KEYS[i + 1].t) i++;
-    const CamKey *a = &CAM_KEYS[i], *b = &CAM_KEYS[i + 1];
-    const float u = cine_clamp01((t - a->t) / (b->t - a->t));
-    fm_vec3_lerp(eye, &a->eye, &b->eye, u);
-    fm_vec3_lerp(look, &a->look, &b->look, u);
-}
-
 // ── Crates ──────────────────────────────────────────────────────────────
 static void crates_reset(void)
 {
@@ -324,6 +306,7 @@ static void crates_reset(void)
         g_crate_ang[i] = 0.0f;
         g_crate_axis[i] = (fm_vec3_t){{ 1, 0, 0 }};
         g_crate_ground[i] = 1;
+        g_crate_air[i] = 0.0f;
     }
 }
 
@@ -333,7 +316,11 @@ static void crates_update(float dt)
         KilnPhysicsBody *b = &g_bodies[i];
         const float vx = b->vel.v[0], vz = b->vel.v[2];
         const float h2 = vx * vx + vz * vz;
-        if (!b->on_ground && h2 > 25.0f) {
+        // Airborne time bounds the tumble. A crate that ends up wedged
+        // against a wall or another crate, never reporting on_ground, still
+        // settles to a quarter-turn and does not stay a 45-degree plank.
+        g_crate_air[i] = b->on_ground ? 0.0f : g_crate_air[i] + dt;
+        if (!b->on_ground && h2 > 25.0f && g_crate_air[i] < 0.6f) {
             // Tip over toward the direction of travel: axis = up x velocity.
             g_crate_axis[i] = (fm_vec3_t){{ vz, 0.0f, -vx }};
             fm_vec3_norm(&g_crate_axis[i], &g_crate_axis[i]);
@@ -421,12 +408,29 @@ static void draw_boxes(void)
     kiln_dd_end();
 }
 
-// ── HUD ────────────────────────────────────────────────────────────────
+// ── HUD: letterbox and caption cards ───────────────────────────────────
+// Opaque bars, because kiln_gui draws with the blender off and would ignore
+// any alpha. The picture between them is 320x184, a 1.74:1 frame. A shot's
+// caption shows for its first three seconds, in the lower bar where it can
+// never cover the subject.
+#define LETTERBOX_H 28
+
 static void draw_hud(void)
 {
-    kiln_gui_panel(8, 8, 152, 42, RGBA32(10, 10, 24, 255), RGBA32(0, 245, 212, 255));
-    kiln_gui_text(14, 22, RGBA32(0, 245, 212, 255), "KILN ENGINE");
-    kiln_gui_text(14, 36, RGBA32(232, 232, 240, 255), "OoT cam + idTech4");
+    const color_t bar = RGBA32(0, 0, 0, 255);
+    kiln_gui_rect(0, 0, SCREEN_W, LETTERBOX_H, bar);
+    kiln_gui_rect(0, SCREEN_H - LETTERBOX_H, SCREEN_W, LETTERBOX_H, bar);
+    kiln_gui_text(12, 18, RGBA32(0, 245, 212, 255), "KILN ENGINE");
+    kiln_gui_text(SCREEN_W - 12 - 6 * 11, 18, RGBA32(120, 128, 150, 255), "HANGAR BAY");
+
+    const CineShot *s = &CINE_SHOTS[cine_shot_at(CINE_SHOTS, CINE_SHOT_COUNT, g_t)];
+    if (s->title && g_t - s->start < 3.0f) {
+        kiln_gui_rect(12, SCREEN_H - 20, 3, 11, RGBA32(245, 180, 60, 255));
+        kiln_gui_text(20, SCREEN_H - 11, RGBA32(232, 232, 240, 255), "%s", s->title);
+    }
+    int sec = (int)g_t;
+    kiln_gui_text(SCREEN_W - 12 - 6 * 5, SCREEN_H - 11, RGBA32(120, 128, 150, 255),
+                  "00:%02d", sec);
 }
 
 int main(void)
@@ -556,16 +560,29 @@ int main(void)
         if (g_music_ch >= 0) kiln_sfx_set_vol_pan(g_music_ch, 0.55f, 0.5f);
     }
 
+    // A jump ROM runs the real timeline up to its second, silently and
+    // undrawn: events, physics and actor updates all go through sim_step, so
+    // the door has swung and the crates have landed exactly as they would
+    // have. The loop below then holds time still.
+    const float jump_t = jump_time();
+    if (jump_t >= 0.0f) {
+        g_audible = 0;
+        for (int f = 0; f < (int)(jump_t * 60.0f + 0.5f); f++) sim_step(DT);
+        g_t = jump_t;
+        kiln_actor_update_all(0.0f);
+        g_audible = 1;
+    }
+
     for (;;) {
         kiln_input_update();
-        sim_step(DT);
+        if (jump_t < 0.0f) sim_step(DT);
 
         kiln_skel_update(&g_goblin_skel, DT);
         for (int i = 0; i < DROID_MAX; i++) kiln_skel_update(&g_droid_skel[i], DT);
         for (int i = 0; i < ALIEN_MAX; i++) kiln_skel_update(&g_alien_skel[i], DT);
 
         fm_vec3_t eye, look;
-        cam_sample(g_t, &eye, &look);
+        cine_camera(CINE_SHOTS, CINE_SHOT_COUNT, g_t, &eye, &look);
         kiln_camera_set_cutscene(&g_cam, eye, look);
         kiln_camera_update(&g_cam, (fm_vec3_t){{ 0, 0, 0 }}, 0.0f, DT);
         kiln_camera_apply(&g_cam, &g_scene);
