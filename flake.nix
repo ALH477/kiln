@@ -1938,6 +1938,11 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
+          goblin-gait = import ./nix/checks/goblin-gait.nix {
+            inherit pkgs goblinModel;
+            toolsDir = ./tools;
+            examplesDir = ./examples;
+          };
           kiln-pose = import ./nix/checks/kiln-pose.nix {
             inherit pkgs hostMath;
             engineSrc = ./engine;

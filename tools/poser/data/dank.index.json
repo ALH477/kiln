@@ -31,6 +31,48 @@
    "file": "dank.Taunt.json"
   },
   {
+   "name": "Run",
+   "length": 16,
+   "loop": true,
+   "keys": 9,
+   "file": "dank.Run.json"
+  },
+  {
+   "name": "Jump",
+   "length": 12,
+   "loop": false,
+   "keys": 3,
+   "file": "dank.Jump.json"
+  },
+  {
+   "name": "Fall",
+   "length": 24,
+   "loop": true,
+   "keys": 3,
+   "file": "dank.Fall.json"
+  },
+  {
+   "name": "Land",
+   "length": 14,
+   "loop": false,
+   "keys": 4,
+   "file": "dank.Land.json"
+  },
+  {
+   "name": "Attack",
+   "length": 12,
+   "loop": false,
+   "keys": 5,
+   "file": "dank.Attack.json"
+  },
+  {
+   "name": "Roll",
+   "length": 14,
+   "loop": false,
+   "keys": 4,
+   "file": "dank.Roll.json"
+  },
+  {
    "name": "Pose",
    "length": 72,
    "loop": true,
