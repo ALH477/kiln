@@ -861,11 +861,19 @@
         # The single-screen showcase: title + 3-mode flight + engine streaks +
         # credit HUD. Loads the hand-authored Interceptor starfighter through
         # the same mkBlenderModel path tools/blender/interceptor.py documents.
+        # The demo ships the ship UNCOMPRESSED: a 360-triangle model is a few
+        # KB either way, and the host reader has no asset decompressor, so a
+        # compressed copy would make pc-interceptor-demo impossible.
+        interceptorModelRaw = blenderLib.mkBlenderModel {
+          name = "interceptor";
+          script = "interceptor.py";
+          compress = 0;
+        };
         interceptorDemoArgs = {
           name = "interceptor-demo";
           src = ./examples/interceptor-demo;
           romTitle = "Kiln Interceptor";
-          assets = [ interceptorModel demoSound test-music ];
+          assets = [ interceptorModelRaw demoSound test-music ];
           audioRate = 32000;
         };
         interceptor-demo = mkN64Rom interceptorDemoArgs;

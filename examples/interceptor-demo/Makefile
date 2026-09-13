@@ -25,6 +25,7 @@ OBJS = $(BUILD_DIR)/main.o
 
 all: interceptor-demo.z64
 
+$(BUILD_DIR)/interceptor-demo.dfs: $(wildcard filesystem/*) $(wildcard filesystem/*/*)
 $(BUILD_DIR)/interceptor-demo.elf: $(OBJS)
 
 interceptor-demo.z64: N64_ROM_TITLE = "Kiln Interceptor"
