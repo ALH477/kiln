@@ -43,6 +43,7 @@
 #include <kiln/kiln_context.h>
 #include <kiln/kiln_dialogue.h>
 #include <kiln/kiln_weapons.h>
+#include <kiln/kiln_prim.h>
 
 #include <malloc.h>
 #include <stdio.h>
@@ -82,49 +83,29 @@ enum {
     PROFILE_START = 0x100, PROFILE_TRIGGER,
 };
 
-// ── Cube helper ─────────────────────────────────────────────────────────
-static const uint8_t CUBE_TRIS[12][3] = {
-    {0,1,2},{2,3,0}, {4,6,5},{6,4,7},
-    {0,4,5},{5,1,0}, {1,5,6},{6,2,1},
-    {2,6,7},{7,3,2}, {3,7,4},{4,0,3},
-};
+// ── Models ─────────────────────────────────────────────────────────────
+// Every actor is a handful of kiln_prim boxes at real size, positioned
+// relative to the actor's origin — the flat-shaded cubes this used to draw
+// gave a grunt, a door and a health pack the same silhouette.
+#define MODEL_PARTS 8
+typedef struct { KilnPrim part[MODEL_PARTS]; int n; } Model;
 
-static T3DVertPacked *make_color_cube(int16_t half, uint32_t rgba)
+static void model_box(Model *m, float ox, float oy, float oz, float hx, float hy, float hz,
+                      uint32_t top, uint32_t side)
 {
-    T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
-    const int16_t s = half;
-    const int16_t c[8][3] = {
-        {-s,-s,-s},{ s,-s,-s},{ s, s,-s},{-s, s,-s},
-        {-s,-s, s},{ s,-s, s},{ s, s, s},{-s, s, s},
-    };
-    for (int i = 0; i < 8; i += 2) {
-        fm_vec3_t na = {{ (float)c[i][0],   (float)c[i][1],   (float)c[i][2]   }};
-        fm_vec3_t nb = {{ (float)c[i+1][0], (float)c[i+1][1], (float)c[i+1][2] }};
-        fm_vec3_norm(&na, &na);
-        fm_vec3_norm(&nb, &nb);
-        v[i / 2] = (T3DVertPacked){
-            .posA = { c[i][0],   c[i][1],   c[i][2]   }, .rgbaA = rgba,
-            .normA = t3d_vert_pack_normal(&na),
-            .posB = { c[i+1][0], c[i+1][1], c[i+1][2] }, .rgbaB = rgba,
-            .normB = t3d_vert_pack_normal(&nb),
-        };
-    }
-    return v;
+    if (m->n >= MODEL_PARTS) return;
+    kiln_prim_box(&m->part[m->n++], (fm_vec3_t){{ ox, oy, oz }}, (fm_vec3_t){{ hx, hy, hz }},
+                  top, side, kiln_prim_shade(side, 0.4f));
 }
 
-static void draw_cube(T3DVertPacked *v)
+static void model_draw(const Model *m)
 {
-    t3d_vert_load(v, 0, 8);
-    for (int i = 0; i < 12; i++)
-        t3d_tri_draw(CUBE_TRIS[i][0], CUBE_TRIS[i][1], CUBE_TRIS[i][2]);
-    t3d_tri_sync();
+    for (int i = 0; i < m->n; i++) kiln_prim_draw(&m->part[i]);
 }
 
-static T3DVertPacked *g_cube_grunt, *g_cube_heavy, *g_cube_health, *g_cube_ammo;
-static T3DVertPacked *g_cube_armor, *g_cube_key, *g_cube_npc;
-static T3DVertPacked *g_cube_chest_c, *g_cube_chest_o;
-static T3DVertPacked *g_cube_door_c, *g_cube_gate_c;
-static T3DVertPacked *g_cube_switch_off, *g_cube_switch_on, *g_cube_barrel;
+static Model M_GRUNT, M_HEAVY, M_HEALTH, M_AMMO, M_ARMOR, M_KEY, M_NPC;
+static Model M_CHEST_SHUT, M_CHEST_OPEN, M_DOOR, M_GATE, M_SWITCH_OFF, M_SWITCH_ON, M_BARREL;
+static Model M_GUN, M_FLASH, M_STRIPE[4];
 
 // ── Globals ────────────────────────────────────────────────────────────
 static KilnFpsCam g_fpscam;
@@ -233,8 +214,8 @@ static void enemy_event(KilnActor *self, uint16_t eid, const int32_t *a, uint8_t
     }
 }
 
-static void grunt_draw(KilnActor *s){(void)s;draw_cube(g_cube_grunt);}
-static void heavy_draw(KilnActor *s){(void)s;draw_cube(g_cube_heavy);}
+static void grunt_draw(KilnActor *s){(void)s;model_draw(&M_GRUNT);}
+static void heavy_draw(KilnActor *s){(void)s;model_draw(&M_HEAVY);}
 
 // ── Pickups ─────────────────────────────────────────────────────────────
 typedef struct { float bob_t; fm_vec3_t home; } PickupState;
@@ -251,20 +232,20 @@ static void ammo_update(KilnActor *s, float dt){ if(pickup_touch(s,dt)){KilnWeap
 /* Armor caps at 100 — it used to reset to 0 when it passed 100. */
 static void armor_update(KilnActor *s, float dt){ if(pickup_touch(s,dt)&&g_player_armor<100){g_player_armor+=25;if(g_player_armor>100)g_player_armor=100;toast("+25 armor");take(s);} }
 static void key_update(KilnActor *s, float dt){ if(pickup_touch(s,dt)){kiln_inventory_add(&g_inv,ITEM_KEY_RED,1);toast("red key");take(s);} }
-static void health_draw(KilnActor*s){(void)s;draw_cube(g_cube_health);}
-static void ammo_draw(KilnActor*s){(void)s;draw_cube(g_cube_ammo);}
-static void armor_draw(KilnActor*s){(void)s;draw_cube(g_cube_armor);}
-static void key_draw(KilnActor*s){(void)s;draw_cube(g_cube_key);}
+static void health_draw(KilnActor*s){(void)s;model_draw(&M_HEALTH);}
+static void ammo_draw(KilnActor*s){(void)s;model_draw(&M_AMMO);}
+static void armor_draw(KilnActor*s){(void)s;model_draw(&M_ARMOR);}
+static void key_draw(KilnActor*s){(void)s;model_draw(&M_KEY);}
 
 // ── NPC ────────────────────────────────────────────────────────────────
 typedef struct { const char *line; } NpcState;
 static void npc_init(KilnActor *s, const KilnDict *a){NpcState*n=(void*)s->state;n->line=kiln_dict_get_str(a,"dialogue","...");}
-static void npc_draw(KilnActor *s){(void)s;draw_cube(g_cube_npc);}
+static void npc_draw(KilnActor *s){(void)s;model_draw(&M_NPC);}
 
 // ── Chest ──────────────────────────────────────────────────────────────
 typedef struct { uint8_t open; int contents; } ChestState;
 static void chest_init(KilnActor *s, const KilnDict *a){ChestState*c=(void*)s->state;c->open=0;c->contents=kiln_dict_get_int(a,"contents",0);}
-static void chest_draw(KilnActor *s){ChestState*c=(void*)s->state;draw_cube(c->open?g_cube_chest_o:g_cube_chest_c);}
+static void chest_draw(KilnActor *s){ChestState*c=(void*)s->state;model_draw(c->open?&M_CHEST_OPEN:&M_CHEST_SHUT);}
 static void chest_event(KilnActor *s, uint16_t eid, const int32_t*a, uint8_t c){
     (void)a;(void)c;
     ChestState*cs=(void*)s->state;
@@ -287,14 +268,13 @@ static void door_init(KilnActor *s, const KilnDict *a){
     d->key_id=kiln_dict_get_int(a,"key_id",0);d->door_index=kiln_dict_get_int(a,"door_index",-1);
     d->base_y=s->xform.pos.v[1];
     s->health=d->key_id;                       /* kiln_context: >0 UNLOCK, 0 OPEN */
-    s->xform.scale=(fm_vec3_t){{24.0f/14,36.0f/14,4.0f/14}};
 }
 static void door_update(KilnActor *s, float dt){
     DoorState*d=(void*)s->state;float t=3*dt;if(t>1)t=1;
     d->cur+=((d->open?1.0f:0.0f)-d->cur)*t;
     s->xform.pos.v[1]=d->base_y+d->cur*DOOR_RISE;
 }
-static void door_draw(KilnActor *s){DoorState*d=(void*)s->state;draw_cube(d->key_id==0?g_cube_gate_c:g_cube_door_c);}
+static void door_draw(KilnActor *s){DoorState*d=(void*)s->state;model_draw(d->key_id==0?&M_GATE:&M_DOOR);}
 static void door_event(KilnActor *s, uint16_t eid, const int32_t*a, uint8_t c){
     (void)a;(void)c;
     if(eid!=EV_DOOR_OPEN)return;
@@ -314,12 +294,12 @@ static KilnActor *find_door(int door_index)
 // ── Switch ─────────────────────────────────────────────────────────────
 typedef struct { int target_door; uint8_t activated; } SwitchState;
 static void switch_init(KilnActor *s, const KilnDict *a){SwitchState*sw=(void*)s->state;sw->target_door=kiln_dict_get_int(a,"target_door",-1);sw->activated=0;}
-static void switch_draw(KilnActor *s){SwitchState*sw=(void*)s->state;draw_cube(sw->activated?g_cube_switch_on:g_cube_switch_off);}
+static void switch_draw(KilnActor *s){SwitchState*sw=(void*)s->state;model_draw(sw->activated?&M_SWITCH_ON:&M_SWITCH_OFF);}
 
 // ── Barrel ─────────────────────────────────────────────────────────────
 typedef struct { float hp; } BarrelState;
 static void barrel_init(KilnActor *s, const KilnDict *a){BarrelState*b=(void*)s->state;b->hp=30;s->health=30;(void)a;}
-static void barrel_draw(KilnActor *s){(void)s;draw_cube(g_cube_barrel);}
+static void barrel_draw(KilnActor *s){(void)s;model_draw(&M_BARREL);}
 static void barrel_event(KilnActor *s, uint16_t eid, const int32_t *a, uint8_t c){
     if(eid!=EV_ENEMY_ATTACK||c<1)return;
     BarrelState*b=(void*)s->state;b->hp-=(float)a[0];s->health=(int)b->hp;
@@ -389,6 +369,16 @@ static void on_room_load(KilnRoom *room, void *user)
     room->brushes = g_room_maps[room->id].brushes;
     room->brush_count = g_room_maps[room->id].brush_count;
     room->user_mesh = &g_room_maps[room->id];
+    /* Each room its own material: warm stone hall, steel corridor, rust arena. */
+    static const KilnMapTint TINT[ROOM_COUNT] = {
+        { .floor = 0x7A6A58FF, .floor_edge = 0x5A4C40FF, .floor_y = 0.5f, .floor_radius = 400,
+          .top = 0xC8B898FF, .wall_low = 0x4A4038FF, .wall_high = 0xB0A088FF, .z_face_shade = 0.85f, .underside = 0x282420FF },
+        { .floor = 0x5A6470FF, .floor_edge = 0x3C444EFF, .floor_y = 0.5f, .floor_radius = 400,
+          .top = 0xA8B4C4FF, .wall_low = 0x343C48FF, .wall_high = 0x8C98A8FF, .z_face_shade = 0.85f, .underside = 0x202428FF },
+        { .floor = 0x7A5040FF, .floor_edge = 0x4C3028FF, .floor_y = 0.5f, .floor_radius = 700,
+          .top = 0xD0A070FF, .wall_low = 0x4A2C24FF, .wall_high = 0xB07858FF, .z_face_shade = 0.85f, .underside = 0x281814FF },
+    };
+    kiln_map_tint(&g_room_maps[room->id], &TINT[room->id]);
     g_room_loaded[room->id] = 1;
 }
 static void on_room_unload(KilnRoom *room, void *user)
@@ -516,6 +506,101 @@ static const KilnInputKey SWITCH_KEYS[] = {
     { .frame = 46 },
 };
 static const KilnInputTape SWITCH_TAPE = { SWITCH_KEYS, 3, KILN_INPUT_NO_LOOP };
+
+static void build_models(void)
+{
+    const uint32_t GLOW = kiln_prim_rgba(0xFF, 0xF0, 0x60);
+    /* Grunt: origin at its centre, 10 above the floor. */
+    model_box(&M_GRUNT, 0, -1, 0, 8, 9, 6, 0xD83030FF, 0xA02020FF);
+    model_box(&M_GRUNT, 0, 12, 0, 6, 4, 6, 0x802020FF, 0x601818FF);
+    model_box(&M_GRUNT, -3, 12, 6, 2, 1, 1, GLOW, GLOW);
+    model_box(&M_GRUNT,  3, 12, 6, 2, 1, 1, GLOW, GLOW);
+    /* Heavy: bigger, darker, armoured shoulders. */
+    model_box(&M_HEAVY, 0, -2, 0, 12, 12, 9, 0x804040FF, 0x582828FF);
+    model_box(&M_HEAVY, 0, 14, 0, 7, 5, 7, 0x484850FF, 0x303038FF);
+    model_box(&M_HEAVY, -15, 6, 0, 4, 4, 7, 0x9098A8FF, 0x606878FF);
+    model_box(&M_HEAVY,  15, 6, 0, 4, 4, 7, 0x9098A8FF, 0x606878FF);
+    model_box(&M_HEAVY, -3, 15, 7, 2, 1, 1, 0xFF6040FF, 0xFF6040FF);
+    model_box(&M_HEAVY,  3, 15, 7, 2, 1, 1, 0xFF6040FF, 0xFF6040FF);
+    /* Pickups. */
+    model_box(&M_HEALTH, 0, 0, 0, 6, 6, 6, 0xF8F8F8FF, 0xD8D8D8FF);
+    model_box(&M_HEALTH, 0, 0, 0, 4, 2, 7, 0xE02020FF, 0xE02020FF);
+    model_box(&M_HEALTH, 0, 0, 0, 2, 4, 7, 0xE02020FF, 0xE02020FF);
+    model_box(&M_AMMO, 0, 0, 0, 7, 4, 5, 0x6A7040FF, 0x505430FF);
+    model_box(&M_AMMO, 0, 1, 0, 8, 1, 6, 0xF0D040FF, 0xD0B030FF);
+    model_box(&M_ARMOR, 0, 0, 0, 6, 7, 2, 0x4070E0FF, 0x3050B0FF);
+    model_box(&M_ARMOR, 0, 1, 0, 4, 5, 3, 0x90B8FFFF, 0x7090D0FF);
+    model_box(&M_KEY, 0, 4, 0, 3, 3, 1, 0xFF5050FF, 0xD03030FF);
+    model_box(&M_KEY, 0, -2, 0, 1, 4, 1, 0xFFD060FF, 0xD0A040FF);
+    model_box(&M_KEY, 2, -5, 0, 2, 1, 1, 0xFFD060FF, 0xD0A040FF);
+    /* NPC: robe, belt, head, hood. */
+    model_box(&M_NPC, 0, 0, 0, 7, 12, 6, 0x88B8E8FF, 0x5888C0FF);
+    model_box(&M_NPC, 0, -2, 0, 8, 1, 7, 0xD0A050FF, 0xA07830FF);
+    model_box(&M_NPC, 0, 16, 0, 5, 5, 5, 0xF0C8A0FF, 0xD8B088FF);
+    model_box(&M_NPC, 0, 21, -1, 6, 2, 6, 0x5888C0FF, 0x406898FF);
+    /* Chest: body, band, and a lid that stands up when opened. */
+    model_box(&M_CHEST_SHUT, 0, -5, 0, 12, 7, 8, 0x8B5A2BFF, 0x6A4020FF);
+    model_box(&M_CHEST_SHUT, 0, -4, 0, 13, 1, 9, 0xF0C040FF, 0xC89830FF);
+    model_box(&M_CHEST_SHUT, 0, 4, 0, 13, 3, 9, 0xA06A38FF, 0x7A5028FF);
+    model_box(&M_CHEST_OPEN, 0, -5, 0, 12, 7, 8, 0x8B5A2BFF, 0x6A4020FF);
+    model_box(&M_CHEST_OPEN, 0, -4, 0, 13, 1, 9, 0xF0C040FF, 0xC89830FF);
+    model_box(&M_CHEST_OPEN, 0, 11, -9, 13, 9, 2, 0xA06A38FF, 0x7A5028FF);
+    model_box(&M_CHEST_OPEN, 0, 2, 0, 10, 1, 6, GLOW, GLOW);
+    /* The red door and the corridor's portcullis, at their doorway's size. */
+    model_box(&M_DOOR, 0, 0, 0, 24, 36, 3, 0xB83030FF, 0x902020FF);
+    model_box(&M_DOOR, 0, 0, 4, 5, 5, 1, 0xF0C040FF, 0xC89830FF);
+    model_box(&M_DOOR, -16, 24, 4, 2, 2, 1, 0x505050FF, 0x404040FF);
+    model_box(&M_DOOR,  16, 24, 4, 2, 2, 1, 0x505050FF, 0x404040FF);
+    for (int i = -2; i <= 2; i++) model_box(&M_GATE, i * 10.0f, 0, 0, 2, 36, 3, 0x8890A0FF, 0x586070FF);
+    model_box(&M_GATE, 0, 20, 0, 24, 2, 3, 0x8890A0FF, 0x586070FF);
+    model_box(&M_GATE, 0, -20, 0, 24, 2, 3, 0x8890A0FF, 0x586070FF);
+    /* Switch: a pedestal with a button that goes teal once pressed. */
+    model_box(&M_SWITCH_OFF, 0, -12, 0, 6, 8, 6, 0xB0B4C0FF, 0x787C88FF);
+    model_box(&M_SWITCH_OFF, 0, -2, 0, 4, 2, 4, 0xFF4466FF, 0xC02040FF);
+    model_box(&M_SWITCH_ON, 0, -12, 0, 6, 8, 6, 0xB0B4C0FF, 0x787C88FF);
+    model_box(&M_SWITCH_ON, 0, -3, 0, 4, 1, 4, 0x40FFD8FF, 0x20C0A0FF);
+    /* Barrel: orange drum, dark hoops, a cap. */
+    model_box(&M_BARREL, 0, 0, 0, 8, 8, 8, 0xFF8C20FF, 0xD06010FF);
+    model_box(&M_BARREL, 0, -4, 0, 9, 1, 9, 0x303030FF, 0x282828FF);
+    model_box(&M_BARREL, 0, 4, 0, 9, 1, 9, 0x303030FF, 0x282828FF);
+    model_box(&M_BARREL, 0, 9, 0, 6, 1, 6, 0x484848FF, 0x383838FF);
+    /* The gun, in the camera's frame: -X is screen-right, +Z is forward. */
+    model_box(&M_GUN, -7, -6, 14, 2, 2, 7, 0x60646CFF, 0x40444CFF);
+    model_box(&M_GUN, -7, -5, 23, 1, 1, 3, 0x30343CFF, 0x202428FF);
+    model_box(&M_GUN, -7, -10, 10, 1, 3, 2, 0x503828FF, 0x382818FF);
+    model_box(&M_FLASH, -7, -5, 28, 3, 3, 1, 0xFFFFE0FF, 0xFFE080FF);
+    /* One stripe colour per weapon slot, so a switch reads on the gun itself. */
+    static const uint32_t STRIPE[4] = { 0xFFD94CFF, 0xFF8844FF, 0xFF4444FF, 0x44FFFFFF };
+    for (int i = 0; i < 4; i++) model_box(&M_STRIPE[i], -7, -4, 14, 2, 1, 4, STRIPE[i], STRIPE[i]);
+}
+
+/* The first-person gun: pushed at the eye, turned by yaw and then by pitch, so
+ * it stays in the same place on screen however the view moves. */
+static void draw_viewmodel(void)
+{
+    static KilnTransform yaw_xf, pitch_xf;
+    static int ready;
+    if (!ready) {
+        kiln_transform_init(&yaw_xf); kiln_transform_init(&pitch_xf);
+        yaw_xf.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
+        pitch_xf.rot_axis = (fm_vec3_t){{ 1, 0, 0 }};
+        ready = 1;
+    }
+    const float kick = g_muzzle_flash > 0 ? -2.0f : 0.0f;
+    yaw_xf.pos = g_scene.cam_pos;
+    yaw_xf.rot_angle = g_fpscam.yaw;
+    pitch_xf.pos = (fm_vec3_t){{ 0, 0, kick }};
+    pitch_xf.rot_angle = -g_fpscam.pitch;     /* +pitch looks up; +X rotation tips +Z down */
+    kiln_transform_push(&yaw_xf);
+    kiln_transform_push(&pitch_xf);
+    model_draw(&M_GUN);
+    const KilnWeaponDef *wd = kiln_weapons_active_def(&g_wset);
+    const int wi = wd ? (int)(wd - WEAPON_DEFS) : 0;
+    if (wi >= 0 && wi < 4) model_draw(&M_STRIPE[wi]);
+    if (g_muzzle_flash > 0) model_draw(&M_FLASH);
+    kiln_transform_pop();
+    kiln_transform_pop();
+}
 
 static void respawn(void)
 {
@@ -657,15 +742,9 @@ int main(void)
     kiln_weapons_init(&g_wset, WEAPON_DEFS, 4);
     kiln_scene_init(&g_scene);
     g_scene.far_z = 700; g_scene.near_z = 4; g_scene.fov_deg = 70;
-    g_scene.ambient[3] = 255; g_scene.clear_color = RGBA32(8,8,16,255);
+    kiln_prim_stage(&g_scene, RGBA32(0x18, 0x14, 0x1C, 0xFF), 220.0f, 680.0f);
 
-    g_cube_grunt=make_color_cube(10,0xC81E1EFF); g_cube_heavy=make_color_cube(16,0x8B0000FF);
-    g_cube_health=make_color_cube(6,0x00C853FF); g_cube_ammo=make_color_cube(6,0xFFD600FF);
-    g_cube_armor=make_color_cube(6,0x4488FFFF); g_cube_key=make_color_cube(5,0xFF4444FF);
-    g_cube_npc=make_color_cube(10,0x88CCFFFF); g_cube_chest_c=make_color_cube(12,0x8B4513FF);
-    g_cube_chest_o=make_color_cube(12,0xC89040FF); g_cube_door_c=make_color_cube(14,0xB02020FF);
-    g_cube_gate_c=make_color_cube(14,0x707888FF); g_cube_switch_off=make_color_cube(6,0xFF4466FF);
-    g_cube_switch_on=make_color_cube(6,0x00F5D4FF); g_cube_barrel=make_color_cube(8,0xFF8800FF);
+    build_models();
 
     uint32_t frames = 0; float fps = 0; uint32_t last_ticks = get_ticks(); float ta = 0;
 
@@ -814,6 +893,7 @@ int main(void)
         kiln_room_draw_all(&g_room_sys);
         kiln_actor_draw_all();
         kiln_projectile_draw_all();
+        if (!g_won) draw_viewmodel();
 
         /* ── 2D ───────────────────────────────────────────── */
         kiln_gui_begin();
