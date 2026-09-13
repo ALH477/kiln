@@ -9,7 +9,10 @@
     "looked at rather than absorbed.",
     "Note alien and checker both ship 2.0 vertices per triangle where cone",
     "ships 1.07. That ratio is the thing a triangle count hides, and it is",
-    "why `verts` is a first-class ceiling here rather than a derived note."
+    "why `verts` is a first-class ceiling here rather than a derived note.",
+    "demo-interior's resident_bytes went 2656 -> 2685 when cinematic-demo gave",
+    "alien.py an Idle clip to blend against Approach: +29 bytes of animation",
+    "data, with tris and verts unchanged, so the geometry pins still hold."
   ],
   "platform": {
     "tmem_bytes": 4096,
@@ -22,7 +25,7 @@
   ],
   "scenes": {
     "demo-interior": {
-      "ceiling": { "tris": 244, "verts": 488, "resident_bytes": 2656 },
+      "ceiling": { "tris": 244, "verts": 488, "resident_bytes": 2685 },
       "assets": [
         { "kind": "model", "name": "alien" },
         { "kind": "model", "name": "checker" }
