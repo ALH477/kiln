@@ -395,6 +395,29 @@ void rdpq_mode_filter(int filter);
 void rdpq_mode_dithering(int dither);
 void rdpq_set_lookup_address(uint8_t index, void *rdram_addr);
 
+/* A sprite's pixels into a tile: libdragon's rdpq_sprite_upload. The host
+ * accepts the direct-colour formats only — a CI sprite's palette lives in the
+ * extended header sprite_get_palette cannot parse yet, and uploading the
+ * indices without it would draw them as intensity. */
+struct sprite_s;
+int  rdpq_sprite_upload(rdpq_tile_t tile, struct sprite_s *sprite,
+                        const rdpq_texparms_t *parms);
+
+/* TEXTURE_RECTANGLE. libdragon's are macros over 1/4-pixel and 1/32-texel
+ * fixed point; these take the same arguments in the same units as those
+ * macros do (pixels, texels), and sample point-filtered at each pixel's
+ * top-left corner. Whether the texel reaches the framebuffer is the
+ * combiner's decision, exactly as for triangles — see host_tex.c. */
+void rdpq_texture_rectangle_scaled(rdpq_tile_t tile, float x0, float y0,
+                                   float x1, float y1, float s0, float t0,
+                                   float s1, float t1);
+static inline void rdpq_texture_rectangle(rdpq_tile_t tile, float x0, float y0,
+                                          float x1, float y1, float s, float t)
+{
+    rdpq_texture_rectangle_scaled(tile, x0, y0, x1, y1, s, t,
+                                  s + (x1 - x0), t + (y1 - y0));
+}
+
 #define FILTER_POINT     0
 #define FILTER_BILINEAR  1
 #define AA_STANDARD      1

@@ -1748,6 +1748,10 @@
           kiln-input = import ./nix/checks/kiln-input.nix {
             inherit pkgs; target = hostNative;
           };
+          # rdpq_sprite_upload + rdpq_texture_rectangle on the host.
+          kiln-texrect = import ./nix/checks/kiln-texrect.nix {
+            inherit pkgs; target = hostNative;
+          };
           # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;

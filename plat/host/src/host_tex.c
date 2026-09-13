@@ -82,6 +82,19 @@ int rdpq_tex_upload(rdpq_tile_t tile, const surface_t *tex,
     return bytes;
 }
 
+int rdpq_sprite_upload(rdpq_tile_t tile, sprite_t *sprite,
+                       const rdpq_texparms_t *parms)
+{
+    assertf(sprite != NULL, "rdpq_sprite_upload: NULL sprite");
+    const tex_format_t fmt = sprite_get_format(sprite);
+    assertf(fmt != FMT_CI4 && fmt != FMT_CI8,
+            "rdpq_sprite_upload: a CI sprite needs its palette, and the host "
+            "does not parse the .sprite extended header yet (%dx%d)",
+            sprite->width, sprite->height);
+    surface_t surf = sprite_get_pixels(sprite);
+    return rdpq_tex_upload(tile, &surf, parms);
+}
+
 void rdpq_tex_upload_tlut(uint16_t *tlut, int color_idx, int num_colors)
 {
     assertf(tlut != NULL, "rdpq_tex_upload_tlut: NULL palette");
@@ -133,6 +146,11 @@ static inline int wrap_coord(float c, int size, float repeats)
         if (i < 0) i += size;
         return i;
     }
+    /* libdragon's rdpq_tex.c: a repeat count that truncates to 0 — the NULL
+     * parms default among them — means once, not never. Taken literally it
+     * clamps every coordinate to the last texel, and the texture draws as one
+     * flat colour. */
+    if ((int)repeats <= 0) repeats = 1.0f;
     const int limit = (int)(repeats * (float)size);
     if (i < 0) i = 0;
     if (i >= limit) i = limit - 1;
