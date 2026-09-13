@@ -204,6 +204,10 @@ int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
     joypad_init();
+    /* Mount the ROM's DragonFS before anything opens rom:/. The host resolves
+     * rom:/ paths without it, so host renders never noticed; on console the
+     * first kiln_sfx_load asserted "File not found". */
+    dfs_init(DFS_DEFAULT_LOCATION);
     kiln_input_init();
     kiln_audio_init(KILN_AUDIO_DEFAULT);
     g_door_open_sfx = kiln_sfx_load("rom:/sfx/door_open.wav64");

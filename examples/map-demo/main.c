@@ -146,7 +146,10 @@ int main(void)
     kiln_transform_init(&shadow_xf);
 
     int overlay = (KILN_JUMP == JUMP_OVERLAY);
-    kiln_input_set_attract(1, &ATTRACT, KILN_JUMP == JUMP_OVERLAY ? 0 : 120);
+    /* quake_test is one cube in a void: the tape would walk the player off it
+     * and they would fall until the respawn, so that jump holds still. */
+    if (KILN_JUMP != JUMP_QUAKE_TEST)
+        kiln_input_set_attract(1, &ATTRACT, KILN_JUMP == JUMP_OVERLAY ? 0 : 120);
 
     /* The camera heading starts behind the spawn's facing. Quake's `angle` is
      * degrees about +Y from +X; our heading is radians from +Z. */
