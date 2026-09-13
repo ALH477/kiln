@@ -227,9 +227,19 @@ static inline void slab_test_brush(uint16_t i,
         if (delta.v[a] > -CLIP_EPS && delta.v[a] < CLIP_EPS) {
             /* Parallel to this slab. If the start center is outside the
              * expanded slab on this axis, the box never overlaps the
-             * brush on this axis → no hit. */
-            if (start.v[a] < emins.v[a] - CLIP_EPS ||
-                start.v[a] > emaxs.v[a] + CLIP_EPS) {
+             * brush on this axis → no hit.
+             *
+             * TOUCHING is outside. A box standing on a floor sits exactly on
+             * its face (the slide's CLIP_EPS nudge leaves it there), and this
+             * used to widen the slab by CLIP_EPS instead of narrowing it, so
+             * resting contact counted as overlap. The moving axes then all
+             * entered at t <= 0, which left tmin at 0 and the normal at zero:
+             * a fraction-0 hit that kiln_clip_slide cannot clip anything off,
+             * so a box on a floor could not move along it at all. kiln_fpscam
+             * lands with a vertical slide and walks with a flat one, so the
+             * fps player could turn but never take a step. kiln-logic pins it. */
+            if (start.v[a] <= emins.v[a] + CLIP_EPS ||
+                start.v[a] >= emaxs.v[a] - CLIP_EPS) {
                 return; /* no hit on this brush */
             }
             continue;

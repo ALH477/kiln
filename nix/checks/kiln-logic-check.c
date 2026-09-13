@@ -165,6 +165,29 @@ static void test_clip(void)
     p = kiln_clip_slide(V(0, 20, 0), V(200, 0, 0), BOX_MINS, BOX_MAXS, 4);
     ok(p.v[0] >= 0.0f, "slide: a blocked move never goes backwards (%.3f)", p.v[0]);
 
+    /* ── Resting contact ────────────────────────────────────────────────
+     * A box standing on a floor, or flush against a wall, is TOUCHING it: its
+     * face sits on the brush's face, within the contact epsilon the slide's
+     * own nudge leaves. A move along that face must go the whole way.
+     *
+     * It did not. On an axis the move does not travel, touching counted as
+     * overlapping, so the brush reported a hit at fraction 0 with a zero
+     * normal — and a zero normal clips nothing off the move, so every
+     * SlideMove iteration retried the same blocked trace. kiln_fpscam lands
+     * on the floor with a vertical slide and then moves horizontally with a
+     * flat one, so the fps player could look around and never take a step. */
+    fm_vec3_t rest = kiln_clip_slide(V(0, 40, 0), V(0, -40, 0), BOX_MINS, BOX_MAXS, 2);
+    ok(NEAR(rest.v[1], FLOOR_TOP + 16.0f, 1e-2f), "landing: box rests on the floor (y=%.4f)", rest.v[1]);
+    p = kiln_clip_slide(rest, V(30, 0, 20), BOX_MINS, BOX_MAXS, 4);
+    ok(NEAR(p.v[0], 30.0f, 1e-2f) && NEAR(p.v[2], 20.0f, 1e-2f),
+       "resting on the floor: a flat move goes the whole way (%.3f, %.3f of 30, 20)", p.v[0], p.v[2]);
+    p = kiln_clip_slide(V(0, FLOOR_TOP + 16.0f, 0), V(0, 0, -25), BOX_MINS, BOX_MAXS, 4);
+    ok(NEAR(p.v[2], -25.0f, 1e-2f),
+       "exactly on the floor: a flat move goes the whole way (z=%.3f of -25)", p.v[2]);
+    p = kiln_clip_slide(V(WALL_X - 8.0f, 20, 0), V(0, 0, 30), BOX_MINS, BOX_MAXS, 4);
+    ok(NEAR(p.v[2], 30.0f, 1e-2f) && p.v[0] <= WALL_X - 8.0f + 1e-2f,
+       "flush against a wall: a move along it goes the whole way (z=%.3f of 30, x=%.3f)", p.v[2], p.v[0]);
+
     /* ── Broadphase equivalence ─────────────────────────────────────────
      * The grid is an optimisation, so its only correctness requirement is
      * that it changes nothing. This is the check that makes turning it on
