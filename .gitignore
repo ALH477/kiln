@@ -26,3 +26,7 @@ __pycache__/
 # ROM consumes is the small welded-and-coloured .glb committed under assets/.
 # See tools/blender/meshy_bake.py.
 archives/
+
+# tools/meshy.py reads its API key from here and tells the user to create it.
+# A paid key; never commit it.
+.meshy_key
