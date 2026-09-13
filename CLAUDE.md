@@ -1307,6 +1307,20 @@ is ever going into a golden-image test.
 - **An f3d_inject material built with the default `fog=False` turns the RSP's
   fog off for everything drawn after it**, not just that model. Build scene
   models with `fog=true`.
+- **Fog is a ramp over clip z, not over the depth range you asked for.**
+  `t3d_fog_set_range(near, far)` uploads offset −2·near and scale
+  16384/(far−near); the ucode writes `1 − clamp((clip_z − 2·near) /
+  (2·(far − near)))` into shade alpha, and Tiny3D's clip z is
+  f·(d − 2n)/(f − n) for the CAMERA's near/far planes. So fog closes much
+  further out than `far`, and moving the camera's near plane moves the fog.
+  Measured in Ares with a probe to within ~1.5% at 13 depths over four
+  settings. It also needs `rdpq_mode_fog` set on the RDP side; the RSP half
+  alone fogs nothing. The host used to ramp over plain view depth from `near`
+  to `far`, which drew openworld-demo as solid fog; it now ports the integer
+  arithmetic, and `kiln-prim` checks three depths per case. Still open: the
+  host's projection z row is GL's ((f+n)/(n−f), 2fn/(n−f)), not Tiny3D's
+  (f/(n−f), −2fn/(f−n)). Fog computes Tiny3D's z itself, but host depth
+  values still come from the GL row.
 
 Each cost real build time to discover. `nix/toolchain.nix` documents them inline.
 
