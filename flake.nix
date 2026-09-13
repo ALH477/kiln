@@ -598,6 +598,10 @@
           # ratios of it, so changing this retunes that demo.
           params = { freq = 220; gain = 0.25; };
           gate = { param = "gate"; on = 0.0; off = 0.02; };
+          # Mono: ks.dsp's two outputs are the same signal (`<: _, _`), and a
+          # stereo wav64 occupies TWO mixer channels — ch and ch+1 — so every
+          # note of examples/audio cost a pair for nothing.
+          mono = true;
         };
 
         # Report Stage 1 proved end to end: bake -> DFS -> RSP mixer -> ROM.
