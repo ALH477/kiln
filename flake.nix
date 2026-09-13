@@ -663,11 +663,12 @@
         # with one profile per category that matters here — spawn, handle-based
         # despawn, an actor despawning itself mid-update, and the fixed
         # category draw order all exercised in one ROM.
-        actors-demo = mkN64Rom {
+        actorsDemoArgs = {
           name = "actors-demo";
           src = ./examples/actors-demo;
           romTitle = "Kiln Actors";
         };
+        actors-demo = mkN64Rom actorsDemoArgs;
 
         # Scene/room streaming — a 2×2 grid of rooms, camera starts in room A.
         # The kiln_room module loads the room under the camera and its
@@ -991,7 +992,8 @@
           // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
           // mkJumpRoms ootDemoArgs [ "TARGET" ]
           // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
-          // mkJumpRoms fpsArgs [ "SWITCH" ];
+          // mkJumpRoms fpsArgs [ "SWITCH" ]
+          // mkJumpRoms actorsDemoArgs [ "FULL" ];
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -1256,6 +1258,17 @@
             assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
             extraCFlags = [ "-DKILN_JUMP=JUMP_SWITCH" ];
             meta.description = "fps-switch, on this machine";
+          };
+          pc-actors-demo = hostNative.mkGame {
+            pname = "kiln-actors-demo";
+            sources = [ ./examples/actors-demo/main.c ];
+            meta.description = "actors-demo, on this machine";
+          };
+          pc-actors-demo-full = hostNative.mkGame {
+            pname = "kiln-actors-demo-full";
+            sources = [ ./examples/actors-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_FULL" ];
+            meta.description = "actors-demo-full, on this machine";
           };
           pc-clip-demo-corner = hostNative.mkGame {
             pname = "kiln-clip-demo-corner";
