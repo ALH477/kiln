@@ -6,4 +6,4 @@
 # No pc-* build: every exhibit here is something the host cannot draw — tile
 # callbacks do nothing there, and vertex FX and vertex placeholders abort.
 ctx: with ctx;
-mkJumpRoms args.texanimDemoArgs [ "SCROLL" "ENVMAP" "CEL" "FLAG" "MORPH" ]
+mkJumpRoms args.texanimDemoArgs [ "SCROLL" "ENVMAP" "CEL" "FLAG" "MORPH" "FLIP" "PAL" "OFFSCR" ]

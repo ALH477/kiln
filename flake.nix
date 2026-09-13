@@ -904,9 +904,23 @@
         # fog=False becomes T3D_FOG_MODE_DISABLED (materialParser.cpp: g_fog+1),
         # and t3d_model_draw then turns the RSP's fog OFF and leaves it off for
         # everything drawn after the model — the scene's fog silently stops at
-        # the first model. The textures derivation ships the sprites the two
-        # textured models name: gltf_to_t3d bakes assets/textures/x.png as
-        # rom:/textures/x.sprite, and TMEM holds checker.i8 + grid.rgba16 = 3 KB.
+        # the first model. texanimTextures ships the sprites the textured models
+        # name — gltf_to_t3d bakes assets/textures/x.png as rom:/textures/x.sprite
+        # — plus the fire flipbook and the sky, from its own generator so no other
+        # ROM carries them. TMEM is spent per material upload (rdpq_tex.c), not
+        # summed across a ROM: the largest here is one 32x32 RGBA16, 2 KB of 4.
+        #
+        # firewall / lavapool / monitors are texture REFERENCE materials
+        # (useRef): Tiny3D uploads nothing for them and kiln_texanim's
+        # dynTextureCb uploads the flipbook frame, the CI4 surface or the
+        # offscreen render, matched by refAddress. refSize is the runtime
+        # surface's size, because the UVs are baked against it. firewall and
+        # monitors are the checker model, whose two quads share a number on
+        # purpose: they show one image.
+        texanimTextures = assetLib.mkTextures {
+          name = "texanim";
+          extraGenerators = [ ./tools/gen_texanim_textures.py ];
+        };
         texanimFloor = mkTestModel "tilefloor" {
           inherit textures; bvh = false;
           materials = [ "FloorMat=tex0_shade,tex=textures/checker.i8.png,size=32,fog=true" ];
@@ -917,8 +931,26 @@
         };
         texanimEnvSphere = mkTestModel "uvsphere" {
           name = "envsphere"; model = "uvsphere";
-          inherit textures; bvh = false;
-          materials = [ "GridMat=tex0_shade,tex=textures/grid.rgba16.png,size=32,fog=true" ];
+          textures = texanimTextures; bvh = false;
+          materials = [ "GridMat=tex0_shade,tex=textures/sky.rgba16.png,size=32,fog=true" ];
+        };
+        texanimFirewall = mkTestModel "checker" {
+          name = "firewall"; model = "checker"; bvh = false;
+          materials = [
+            "CheckerWrapMat=tex0_shade,useRef=1,refAddress=0x01,refSize=32:32,fog=true"
+            "CheckerMirrorMat=tex0_shade,useRef=1,refAddress=0x01,refSize=32:32,fog=true"
+          ];
+        };
+        texanimLavapool = mkTestModel "tilefloor" {
+          name = "lavapool"; model = "tilefloor"; bvh = false;
+          materials = [ "FloorMat=tex0_shade,useRef=1,refAddress=0x02,refSize=32:32,fog=true" ];
+        };
+        texanimMonitors = mkTestModel "checker" {
+          name = "monitors"; model = "checker"; bvh = false;
+          materials = [
+            "CheckerWrapMat=tex0_shade,useRef=1,refAddress=0x03,refSize=32:32,fog=true"
+            "CheckerMirrorMat=tex0_shade,useRef=1,refAddress=0x03,refSize=32:32,fog=true"
+          ];
         };
         texanimTorus = mkTestModel "torus" {
           name = "celtorus"; model = "torus"; bvh = false;
@@ -932,7 +964,8 @@
           name = "texanim-demo";
           src = ./examples/texanim-demo;
           romTitle = "Kiln TexAnim";
-          assets = [ texanimFloor texanimFlag texanimEnvSphere texanimTorus texanimBlob textures ];
+          assets = [ texanimFloor texanimFlag texanimEnvSphere texanimTorus texanimBlob
+                     texanimFirewall texanimLavapool texanimMonitors texanimTextures ];
         };
         texanim-demo = mkN64Rom texanimDemoArgs;
 
