@@ -337,15 +337,32 @@
           ];
         };
 
-        # assets-demo's StreamDB pak: reuses sdModel/sdSprite (the same
-        # compress=0 twins demoStreamdb already packs) via mkAssetPak instead
-        # of mkStreamdb's hand-typed `entries` — demonstrating the auto-keyed
-        # helper on real, already-defined assets rather than new content.
-        # demoSound stays loose DFS: see CLAUDE.md's "Datafiles: StreamDB vs
-        # loose DFS" for why audio can't go through StreamDB at all today.
+        # assets-demo's StreamDB pak, auto-keyed by mkAssetPak: five vertex-
+        # coloured models and the logo sprite. The models are twins of the test
+        # set and the interceptor with two changes, both required here:
+        #   compress = 0  kiln_asset_load hands t3d_model_load_buf the payload
+        #                 verbatim, with no asset_load to decompress it (see
+        #                 the sdModel comment above);
+        #   fog=true      f3d_inject's default fog=False becomes
+        #                 T3D_FOG_MODE_DISABLED, and drawing the model would turn
+        #                 the scene's fog off for everything after it.
+        # Each twin's `name` is its key: models/<name>.t3dm, which main.c's
+        # PAK table names. demoSound stays loose DFS: see CLAUDE.md's
+        # "Datafiles: StreamDB vs loose DFS" for why audio cannot be in a pak.
+        assetsPakModel = n: mkTestModel n {
+          compress = 0;
+          materials = [ "*=shade,fog=true" ];
+        };
+        assetsPakShip = blenderLib.mkBlenderModel {
+          name = "interceptor";
+          script = "interceptor.py";
+          compress = 0;
+          materials = [ "*=shade,fog=true" ];
+        };
         assetsDemoPak = assetLib.mkAssetPak {
           name = "assets-demo";
-          assets = [ sdModel sdSprite ];
+          assets = [ assetsPakShip (assetsPakModel "torus") (assetsPakModel "sphere")
+                     (assetsPakModel "cone") (assetsPakModel "cube") sdSprite ];
         };
 
         # openworld-demo's tile mesh, StreamDB-packed so kiln_streamio can
