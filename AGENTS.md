@@ -18,7 +18,11 @@ You are in the **engine** repo (libkiln + Nix + `./dev`). Games are siblings, no
    `./dev map-canon` repairs one.
 6. To just *play* it: `./dev pc` (native window) or `./dev web --serve`
    (browser). Both run the real engine — no emulator, no ROM.
-7. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
+7. Kiln Studio (`./dev studio`, `:8420`) is the unified UI: builds, checks,
+   the editors saving in place, a live game view. To drive it the way a person
+   would — from an agent — `.mcp.json`'s **kiln-browser** server is a
+   headless-Chromium MCP front-end confined to the studio's origin.
+8. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
 
 ## Do not
 

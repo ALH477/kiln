@@ -67,6 +67,8 @@ usage() {
   map-render <file.map> [out.png]
                            draw a level to a PNG — no ROM, no emulator
   mcp [--build]            the tools/blender-mcp server (agents use .mcp.json)
+  browser                  the UI agent's browser tool, selftest only —
+                           the MCP server is .mcp.json's kiln-browser
   poser / poser-stage / poser-verify
                            three.js animation editor on :8001/poser/
 
@@ -113,7 +115,9 @@ case "${1:-}" in
   map-validate | map-emit | map-dump | map-canon | map-render | mcp)
     DEV_IN_NIX=1 ;;
   # Scaffolding copies files; the studio is a python server that calls nix.
-  new | studio | cine-lint) DEV_IN_NIX=1 ;;
+  # Scaffolding copies files; the studio is a python server that calls nix.
+  # browser is the UI agent's selftest — python, builds nothing for the N64.
+  new | studio | cine-lint | browser) DEV_IN_NIX=1 ;;
 esac
 
 have_toolchain() { command -v mips64-elf-gcc >/dev/null 2>&1 && [ -n "${N64_INST:-}" ]; }
@@ -540,27 +544,37 @@ PY
     ;;
 
   mcp)
-    # tools/blender-mcp/'s MCP server. Agents reach it through .mcp.json at the
-    # repo root, which runs `nix run .#blender-mcp` DIRECTLY and never through
+    # tools/blender-mcp/'s and tools/agents/browser_mcp.py's MCP servers.
+    # Agents reach them through .mcp.json at the repo root, which runs
+    # `nix run .#blender-mcp` / `.#browser-mcp` DIRECTLY and never through
     # this script: dev auto-execs `nix develop`, whose shellHook echoes a banner
     # to stdout, and stdout is the JSON-RPC channel. That corrupts the stream
     # before the first initialize reply, and presents as a generic "server
     # failed to connect" with nothing to diagnose.
     #
-    # --build pre-warms the closure. A cold python3.withPackages [mcp] build can
+    # --build pre-warms the closures. A cold python3.withPackages [mcp] build can
     # outrun the client's startup timeout, which looks like the same failure.
     if [ "${1:-}" = "--build" ]; then
-      # blender-mcp is an APP, not a package, so there is no derivation to
-      # `nix build`. Running it with stdin already at EOF builds the closure
-      # and then exits immediately, which is the warm-up we want.
-      echo "dev: warming the blender-mcp closure..." >&2
+      # Both are APPs, not packages, so there is no derivation to `nix build`.
+      # Running each with stdin already at EOF builds the closure and exits —
+      # the warm-up we want. (browser-mcp exits 2 without a studio token;
+      # that is expected here.)
+      echo "dev: warming the MCP closures..." >&2
       nix run .#blender-mcp </dev/null >/dev/null 2>&1
-      echo "dev: blender-mcp closure is warm"
+      nix run .#browser-mcp </dev/null >/dev/null 2>&1 || true
+      echo "dev: MCP closures are warm"
       exit 0
     fi
     echo "dev: running the MCP server on stdio (ctrl-c to stop)." >&2
     echo "     agents reach it via .mcp.json; this is for smoke-testing." >&2
     nix run .#blender-mcp
+    ;;
+
+  browser)
+    # The UI agent's browser tool, selftest only (no Chromium needed). The MCP
+    # server itself is .mcp.json's kiln-browser — see the mcp case above for why
+    # agents never reach it through this script.
+    exec nix run "$REPO#browser-mcp" -- --selftest "$@"
     ;;
 
   map-render)

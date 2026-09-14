@@ -78,6 +78,10 @@ nix flake check        # the pre-push gate — see "The gates" below
                                           #   compositor. The same body
                                           #   nix/checks/kiln-map.nix compiles.
 ./dev mcp [--build]                       # the blender-mcp server (.mcp.json)
+./dev browser                             # the UI agent's browser tool, selftest.
+                                          #   .mcp.json's kiln-browser drives the
+                                          #   studio through headless Chromium
+                                          #   (tools/agents/)
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into

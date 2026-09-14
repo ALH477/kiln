@@ -3,6 +3,14 @@
     "kiln": {
       "command": "nix",
       "args": ["run", ".#blender-mcp"]
+    },
+    "kiln-browser": {
+      "command": "nix",
+      "args": ["run", ".#browser-mcp"]
+    },
+    "kiln-studio": {
+      "command": "nix",
+      "args": ["run", ".#studio-mcp"]
     }
   }
 }

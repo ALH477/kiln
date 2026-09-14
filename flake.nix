@@ -76,6 +76,11 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
+        # The agents' python environments (browser tool, CrewAI runtime) — one
+        # definition, shared by the agent gates and the apps below, so the gate
+        # and the command provably run the same store realisation.
+        agentPython = import ./nix/agent-python.nix { inherit pkgs; };
+
         # The cross toolchain. Owns the whole toolchain strategy; see the file.
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
 
@@ -1109,6 +1114,7 @@
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
           "studio-manifest" "studio-api" "camlint-cli" "studio-modules" "poser-lag"
+          "agent-env"
         ];
 
         forgeModeRoms = pkgs.lib.listToAttrs (map
@@ -2071,6 +2077,9 @@
             inherit pkgs;
             toolsDir = ./tools;
           };
+          # The agents' python environments and the browser tool's selftest
+          # (tools/agents/browser_mcp.py). Cheap, host-only, no Chromium.
+          agent-env = import ./nix/checks/agent-env.nix { inherit pkgs; };
           poser-lag = import ./nix/checks/poser-lag.nix {
             inherit pkgs;
             genLag = ./tools/poser/gen_lag.py;
@@ -2241,6 +2250,39 @@
             program = toString (pkgs.writeShellScript "kiln-blender-mcp" ''
               exec ${pkgs.python3.withPackages (ps: [ ps.mcp ])}/bin/python3 \
                 "''${KILN_REPO:-$PWD}/tools/blender-mcp/server.py" "$@"
+            '');
+          };
+          # The UI agent: Kiln Studio driven through headless Chromium over the
+          # DevTools protocol, exposed as MCP tools (open/snapshot/click/type/
+          # screenshot/...), confined to the studio's origin — an agent acts
+          # through the real interface, so "the save button works" is evidence
+          # the save button works. .mcp.json runs this directly (never via
+          # ./dev — the shellHook banner corrupts stdio, see dev's mcp case).
+          # KILN_CHROMIUM can point at another chromium; the token comes from
+          # $KILN_STUDIO_TOKEN or $KILN_REPO/.studio/token.
+          browser-mcp = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-browser-mcp" ''
+              : "''${KILN_CHROMIUM:=${pkgs.chromium}/bin/chromium}"
+              export KILN_CHROMIUM
+              exec ${agentPython.browserPython}/bin/python3 \
+                "''${KILN_REPO:-$PWD}/tools/agents/browser_mcp.py" "$@"
+            '');
+          };
+          # Kiln Studio's API as MCP tools — list/build/check/validate/
+          # map-render/host-shot/job/log, all THROUGH the studio's own job
+          # machinery, so an agent's build sits in the same queue and log
+          # panel as a human's. --stdio for .mcp.json on the host; plain
+          # (streamable HTTP) inside the studio container for the CrewAI
+          # runtime. Needs a running studio and its token
+          # ($KILN_STUDIO_TOKEN or $KILN_REPO/.studio/token).
+          studio-mcp = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-studio-mcp" ''
+              : "''${KILN_REPO:=$PWD}"
+              export KILN_REPO
+              exec ${agentPython.browserPython}/bin/python3 \
+                "$KILN_REPO/tools/studio/mcp_server.py" --stdio "$@"
             '');
           };
         };
