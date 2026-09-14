@@ -29,7 +29,8 @@ MODULES := \
 	kiln_lod kiln_twopass kiln_console kiln_panic kiln_prof kiln_rng kiln_dice \
 	kiln_board kiln_turn kiln_char kiln_widget kiln_save kiln_splash kiln_crater \
 	kiln_video kiln_debugdraw kiln_store kiln_voxel kiln_voxmesh kiln_camlint \
-	kiln_stream kiln_streamio kiln_prim kiln_pose
+	kiln_stream kiln_streamio kiln_prim kiln_pose \
+	kiln_soft3d
 
 # ── Header-only modules ────────────────────────────────────────────────
 # Installed, but contributing no object. There is exactly one so far and it is
@@ -85,7 +86,8 @@ HOST_MODULES := \
 	kiln_stream kiln_streamio kiln_surface kiln_target kiln_texanim kiln_tile \
 	kiln_trigger kiln_turn kiln_twopass kiln_vanim kiln_voxel kiln_voxmesh \
 	kiln_weapon kiln_weapons \
-	kiln_widget kiln_prim kiln_pose
+	kiln_widget kiln_prim kiln_pose \
+	kiln_soft3d
 
 # nix/engine.nix's installCheck and nix/checks/kiln-parity.nix ask make for
 # these rather than restating any list in Nix — which is exactly how the old
