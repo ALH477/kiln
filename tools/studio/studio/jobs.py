@@ -28,7 +28,7 @@ from pathlib import Path
 TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,99}$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 MAX_LINES = 100_000
-KINDS = ("build", "check", "cheap", "validate", "host-shot")
+KINDS = ("build", "check", "cheap", "validate", "host-shot", "map-render")
 
 
 class JobError(ValueError):
@@ -137,6 +137,14 @@ class Runner:
             return spec["steps"](arg), (spec["adapt"] or (lambda parsed: parsed))
         if kind == "host-shot":
             return self.host_shot_steps(target), None
+        if kind == "map-render":
+            # Draw a committed map with the real engine to a PNG — the agent's
+            # eyes on a level. Same guard as a validator: a real assets/*.map.
+            maps = sorted(f"assets/{p.name}" for p in (self.repo / "assets").glob("*.map"))
+            if "argv" not in self.breaks and target not in maps:
+                raise JobError(f"{target!r} is not a map in assets/ here")
+            return [self._build() + [f"{self.repo}#map-render"],
+                    ["{bin}", str(self.repo / target), "{shot}"]], None
         return [self.argv(kind, target)], None
 
     def _build(self):

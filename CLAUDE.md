@@ -82,6 +82,10 @@ nix flake check        # the pre-push gate — see "The gates" below
                                           #   .mcp.json's kiln-browser drives the
                                           #   studio through headless Chromium
                                           #   (tools/agents/)
+./dev agents-smoke                        # the ONE command allowed to spend model
+                                          #   credits: probe every configured
+                                          #   model × route for tool-call parsing,
+                                          #   write .studio/agents/models.json
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into
@@ -221,6 +225,14 @@ plat/shell/         the launcher. shell_sdl.c is the native window,
                     draws the frame and the shell blits it, so the window
                     shows the pixels the gates compare.
 tools/n64-shot.sh   boot a ROM in Ares on Hyprland and grim its window.
+tools/studio/       the studio (`./dev studio`, :8420): server, jobs + SSE,
+                    the editors saving in place, the agents panel. It calls
+                    the repo's real tools — it never reimplements them
+                    (mcp_server.py exposes the same API as MCP tools).
+tools/agents/       the agent runtime: kiln_agents/ (CrewAI flows, one git
+                    worktree per task, tools scoped to it, models.py's
+                    Claude + Ollama-cloud table) and browser_mcp.py (the
+                    kiln-browser MCP server). See tools/agents/README.md.
 ```
 
 Two prefixes, deliberately distinct: **`N64_GCCPREFIX`** is the toolchain,

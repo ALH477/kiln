@@ -22,6 +22,11 @@
 #     process that can reach the published port could send the header.
 #   * No Nix store of its own. The host's store read-only plus the daemon
 #     socket (nix/studio-images.nix explains the consequences).
+#   * Optional agents container (custom.kilnStudio.agents.enable): the CrewAI
+#     runtime plus the Claude Code worker, same compose network, same project
+#     checkout, model keys mounted as files — never in the image, never in the
+#     store. It reaches Anthropic and Ollama only, and only when the agents
+#     are enabled does the module ask the egress firewall for those names.
 #   * Options under custom.kilnStudio, off by default. No `follows` is forced on
 #     the importing flake; checks.studio-module boots it on nixos-25.11.
 { kiln }:
@@ -29,7 +34,7 @@
 { config, lib, pkgs, options, ... }:
 
 let
-  inherit (lib) mkOption mkIf mkMerge types optional optionalAttrs concatMap;
+  inherit (lib) mkOption mkIf mkMerge types optional optionalAttrs optionalString concatMap;
 
   cfg = config.custom.kilnStudio;
   system = pkgs.stdenv.hostPlatform.system;
@@ -37,6 +42,18 @@ let
   image = kiln.packages.${system}.studio-image
     or (throw "custom.kilnStudio: the Kiln flake has no studio-image for ${system}");
   imageRef = "${image.imageName}:${image.imageTag}";
+
+  # The agents container (CrewAI runtime + Claude Code worker). Enabled with
+  # custom.kilnStudio.agents.enable; needs its image from the same flake.
+  agentsImage = kiln.packages.${system}.agents-image or null;
+  agentsImageRef =
+    if agentsImage != null then "${agentsImage.imageName}:${agentsImage.imageTag}" else null;
+
+  # Egress the agents container genuinely needs: the two model providers
+  # (Anthropic for the Claude roles and the Claude Code worker, Ollama cloud
+  # for the content/validator roles), and nothing else — telemetry is off in
+  # kiln_agents/__init__.py, so these are the only names it should ever dial.
+  agentEgress = [ "api.anthropic.com" "claude.ai" "statsig.anthropic.com" "ollama.com" ];
 
   rootless = config.virtualisation.docker.rootless.enable;
   docker = if rootless then config.virtualisation.docker.rootless.package else config.virtualisation.docker.package;
@@ -61,42 +78,98 @@ let
   ] ++ concatMap (h: [ "--allow-host" h ]) cfg.allowedHosts
     ++ concatMap (l: [ "--tailscale-login" l ]) cfg.allowedLogins;
 
+  # Mounted read-only into the agents container at fixed points; sops-nix
+  # paths (or any file readable by cfg.user). Never an image Env value.
+  secretMounts = optional (cfg.secrets.anthropicKeyFile != null)
+    "${cfg.secrets.anthropicKeyFile}:/run/secrets/anthropic-key:ro"
+  ++ optional (cfg.secrets.ollamaKeyFile != null)
+    "${cfg.secrets.ollamaKeyFile}:/run/secrets/ollama-key:ro";
+
   # JSON is YAML; compose reads either.
   composeFile = pkgs.writeText "kiln-studio-compose.json" (builtins.toJSON {
     name = "kiln-studio";
     networks.kiln.ipam.config = [{ inherit (cfg.network) subnet gateway; }];
-    services.studio = {
-      image = imageRef;
-      container_name = "kiln-studio";
-      init = true;
-      restart = "no";                     # systemd owns restarts
-      command = serverArgs;
-      working_dir = cfg.projectDir;
-      ports = [ "127.0.0.1:${toString cfg.port}:8420" ];
-      networks = [ "kiln" ];
-      cpus = cfg.studio.cpus;
-      mem_limit = cfg.studio.memory;
-      pids_limit = 4096;
-      read_only = true;
-      tmpfs = [ "/tmp:size=1g" "/root:size=512m" ];
-      cap_drop = [ "ALL" ];
-      security_opt = [ "no-new-privileges:true" ];
-      volumes = [
-        "${cfg.projectDir}:${cfg.projectDir}"
-        "/nix/store:/nix/store:ro"
-        "/nix/var/nix/daemon-socket:/nix/var/nix/daemon-socket:ro"
-      ];
+    services = {
+      studio = {
+        image = imageRef;
+        container_name = "kiln-studio";
+        init = true;
+        restart = "no";                     # systemd owns restarts
+        command = serverArgs;
+        working_dir = cfg.projectDir;
+        ports = [ "127.0.0.1:${toString cfg.port}:8420" ];
+        networks = [ "kiln" ];
+        cpus = cfg.studio.cpus;
+        mem_limit = cfg.studio.memory;
+        pids_limit = 4096;
+        read_only = true;
+        tmpfs = [ "/tmp:size=1g" "/root:size=512m" ];
+        cap_drop = [ "ALL" ];
+        security_opt = [ "no-new-privileges:true" ];
+        volumes = [
+          "${cfg.projectDir}:${cfg.projectDir}"
+          "/nix/store:/nix/store:ro"
+          "/nix/var/nix/daemon-socket:/nix/var/nix/daemon-socket:ro"
+        ];
+        # The studio hands tasks to the agents service over the compose
+        # network (KILN_AGENTS_URL, which studio/agents.py reads) — the
+        # port is never published: nothing outside the compose network can
+        # submit a task.
+        environment = optionalAttrs cfg.agents.enable {
+          KILN_AGENTS_URL = "http://kiln-agents:8600";
+        };
+      };
+    } // optionalAttrs cfg.agents.enable {
+      agents = {
+        image = agentsImageRef;
+        container_name = "kiln-agents";
+        init = true;
+        restart = "no";
+        working_dir = cfg.projectDir;
+        networks = [ "kiln" ];
+        cpus = cfg.agents.cpus;
+        mem_limit = cfg.agents.memory;
+        pids_limit = 4096;
+        read_only = true;
+        tmpfs = [ "/tmp:size=1g" "/root:size=1g" ];
+        cap_drop = [ "ALL" ];
+        security_opt = [ "no-new-privileges:true" ];
+        volumes = [
+          "${cfg.projectDir}:${cfg.projectDir}"
+          "/nix/store:/nix/store:ro"
+          "/nix/var/nix/daemon-socket:/nix/var/nix/daemon-socket:ro"
+        ] ++ secretMounts;
+        environment = {
+          KILN_REPO = cfg.projectDir;
+          # The studio, as addressed from inside the compose network.
+          KILN_STUDIO_URL = "http://kiln-studio:8420";
+          ANTHROPIC_API_KEY_FILE = "/run/secrets/anthropic-key";
+          OLLAMA_API_KEY_FILE = "/run/secrets/ollama-key";
+        };
+      };
     };
   });
 
-  up = pkgs.writeShellScript "kiln-studio-up" ''
+  # NB the whole body is ONE argument to writeShellScript. Split it as
+  # writeShellScript ... ''...'' + optionalString ... and Nix concatenates
+  # onto the DERIVATION's outPath, not the script body — the unit then
+  # references `/nix/store/...-kiln-studio-upif ! docker image inspect ...`
+  # and systemd spawns a store path that was never built (203/EXEC), which is
+  # exactly what checks.studio-module's first run caught.
+  up = pkgs.writeShellScript "kiln-studio-up" (''
     set -euo pipefail
     if ! ${docker}/bin/docker image inspect ${imageRef} >/dev/null 2>&1; then
       echo "kiln-studio: loading ${imageRef}"
       ${docker}/bin/docker load -i ${image}
     fi
+  '' + optionalString (cfg.agents.enable) ''
+    if ! ${docker}/bin/docker image inspect ${agentsImageRef} >/dev/null 2>&1; then
+      echo "kiln-studio: loading ${agentsImageRef}"
+      ${docker}/bin/docker load -i ${agentsImage}
+    fi
+  '' + ''
     exec ${pkgs.docker-compose}/bin/docker-compose -f ${composeFile} up --remove-orphans --abort-on-container-exit
-  '';
+  '');
   down = pkgs.writeShellScript "kiln-studio-down" ''
     exec ${pkgs.docker-compose}/bin/docker-compose -f ${composeFile} down --remove-orphans
   '';
@@ -169,6 +242,43 @@ in
       memory = mkOption { type = types.str; default = "16g"; description = "Memory limit for the studio container."; };
     };
 
+    agents = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Run the agents container next to the studio: kiln_agents' serve.py
+          (CrewAI flows, one git worktree per task) plus the Claude Code
+          worker, on the same compose network and the same project checkout.
+          The studio's Agents panel submits tasks to it over that network.
+        '';
+      };
+      cpus = mkOption { type = types.str; default = "4"; description = "CPU limit for the agents container."; };
+      memory = mkOption { type = types.str; default = "5g"; description = "Memory limit for the agents container."; };
+    };
+
+    secrets = {
+      anthropicKeyFile = mkOption {
+        # A STRING and not types.path: a path-typed option would copy the
+        # file into the store at eval time, which is precisely what a secret
+        # must never do. sops-nix's config.sops.secrets.<n>.path is a string.
+        type = types.nullOr types.str;
+        default = null;
+        example = "config.sops.secrets.kiln-anthropic.path";
+        description = ''
+          Runtime file holding the Anthropic API key (a sops-nix path),
+          mounted read-only into the agents container. Never an image value,
+          never in the store.
+        '';
+      };
+      ollamaKeyFile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "config.sops.secrets.kiln-ollama.path";
+        description = "File holding the Ollama cloud key, mounted as above.";
+      };
+    };
+
     build.maxConcurrentJobs = mkOption {
       type = types.ints.positive;
       default = 2;
@@ -221,14 +331,26 @@ in
           assertion = !cfg.tailscaleServe.enable || config.services.tailscale.enable;
           message = "custom.kilnStudio.tailscaleServe needs services.tailscale.enable — the tailnet is the only way in.";
         }
+        {
+          assertion = !cfg.agents.enable || agentsImage != null;
+          message = ''
+            custom.kilnStudio.agents.enable needs the Kiln flake's agents-image
+            for this system — the same flake that provides studio-image.
+          '';
+        }
       ];
       warnings =
         optional (cfg.tailscaleServe.enable && cfg.allowedLogins == [ ])
           "custom.kilnStudio: allowedLogins is empty, so nobody can sign in through the tailnet — only with the token in the unit's log."
         ++ optional (cfg.tailscaleServe.enable && cfg.allowedHosts == [ ])
-          "custom.kilnStudio: allowedHosts is empty, so requests addressed to this machine's tailnet name are refused.";
+          "custom.kilnStudio: allowedHosts is empty, so requests addressed to this machine's tailnet name are refused."
+        ++ optional (cfg.agents.enable && cfg.secrets.anthropicKeyFile == null)
+          "custom.kilnStudio: agents is enabled with no anthropicKeyFile — every Claude role and the Claude Code worker will fail at their first call."
+        ++ optional (cfg.agents.enable && cfg.secrets.ollamaKeyFile == null)
+          "custom.kilnStudio: agents is enabled with no ollamaKeyFile — the content and validator roles fall back to Claude.";
 
-      system.extraDependencies = [ image.runtime ];
+      system.extraDependencies = [ image.runtime ]
+        ++ optional (cfg.agents.enable && agentsImage != null) agentsImage.runtime;
 
       systemd.user.services.kiln-studio = {
         description = "Kiln Studio (rootless docker compose, ${cfg.projectDir})";
@@ -268,7 +390,8 @@ in
     })
 
     (optionalAttrs (options.networking.firewall ? strictEgress) {
-      networking.firewall.strictEgress.allow.domains = cfg.egressDomains;
+      networking.firewall.strictEgress.allow.domains =
+        cfg.egressDomains ++ lib.optionals cfg.agents.enable agentEgress;
     })
   ]);
 }

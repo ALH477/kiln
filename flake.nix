@@ -81,6 +81,14 @@
         # and the command provably run the same store realisation.
         agentPython = import ./nix/agent-python.nix { inherit pkgs; };
 
+        # The studio and agents container images (nix/studio-images.nix) —
+        # one import, so the two packages share every derivation inside it.
+        studioImages = import ./nix/studio-images.nix {
+          inherit pkgs; inherit (pkgs) lib; toolsSrc = ./tools;
+          inherit agentPython;
+          claude = claude-code-nix.packages.${system}.default;
+        };
+
         # The cross toolchain. Owns the whole toolchain strategy; see the file.
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
 
@@ -1114,7 +1122,7 @@
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
           "studio-manifest" "studio-api" "camlint-cli" "studio-modules" "poser-lag"
-          "agent-env"
+          "agent-env" "agent-tools" "agent-flow"
         ];
 
         forgeModeRoms = pkgs.lib.listToAttrs (map
@@ -1528,9 +1536,11 @@
           inherit dev-image;
           # Kiln Studio's container (nix/studio-images.nix), which
           # nixosModules.kiln-studio runs under the user's rootless docker.
-          studio-image = (import ./nix/studio-images.nix {
-            inherit pkgs; inherit (pkgs) lib; toolsSrc = ./tools;
-          }).studio;
+          studio-image = studioImages.studio;
+          # The agents container's image: kiln_agents' serve.py on the same
+          # crewPython the agent gates build, plus the Claude Code CLI that
+          # ClaudeWorker shells out to (see the file header).
+          agents-image = studioImages.agents;
         }
         // forgeModeRoms
         // jumpRoms
@@ -2080,6 +2090,10 @@
           # The agents' python environments and the browser tool's selftest
           # (tools/agents/browser_mcp.py). Cheap, host-only, no Chromium.
           agent-env = import ./nix/checks/agent-env.nix { inherit pkgs; };
+          # The CrewAI role agents' tools and the task flow, offline against
+          # stubs — see nix/checks/agent-{tools,flow}.nix.
+          agent-tools = import ./nix/checks/agent-tools.nix { inherit pkgs; };
+          agent-flow = import ./nix/checks/agent-flow.nix { inherit pkgs; };
           poser-lag = import ./nix/checks/poser-lag.nix {
             inherit pkgs;
             genLag = ./tools/poser/gen_lag.py;
@@ -2283,6 +2297,21 @@
               export KILN_REPO
               exec ${agentPython.browserPython}/bin/python3 \
                 "$KILN_REPO/tools/studio/mcp_server.py" --stdio "$@"
+            '');
+          };
+          # `./dev agents-smoke` — probes each configured model × route for
+          # tool-call support and records the answer in
+          # .studio/agents/models.json. NOT a gate: it spends credits, so only
+          # a human runs it. The keys come from ANTHROPIC_API_KEY[_FILE] /
+          # OLLAMA_API_KEY[_FILE] in the caller's own environment; nothing is
+          # baked into the store.
+          agents-smoke = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-agents-smoke" ''
+              : "''${KILN_REPO:=$PWD}"
+              export KILN_REPO
+              exec ${agentPython.crewPython}/bin/python3 \
+                "$KILN_REPO/tools/agents/smoke.py" "$@"
             '');
           };
         };

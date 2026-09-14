@@ -16,6 +16,11 @@
 #     is refused;
 #   * the serve port is open on tailscale0 and nowhere else, and the serve unit
 #     proxies to the right place;
+#   * the agents container (CrewAI runtime + Claude Code worker) runs next to
+#     the studio with its own limits, its model keys mounted read-only as
+#     files, no published port, and its health endpoint reachable from the
+#     studio container over the compose network; the module asked strict-egress
+#     for the model providers and nothing else;
 #   * a build started inside the container runs in the host's daemon and its
 #     output is visible on both sides;
 #   * stopping the unit removes the container.
@@ -49,6 +54,10 @@ pkgs2511.testers.runNixOSTest {
     systemd.tmpfiles.rules = [ "d /home/alice/project 0755 alice users -" ];
     environment.systemPackages = [ pkgs.busybox pkgs.curl ];
     environment.etc."kiln-test/egress.json".text = builtins.toJSON config.networking.firewall.strictEgress.allow.domains;
+    # Stand-ins for the sops-nix paths the module mounts into the agents
+    # container: real files, so the bind mounts are real too.
+    environment.etc."kiln-test/anthropic-key".text = "test-anthropic-key";
+    environment.etc."kiln-test/ollama-key".text = "test-ollama-key";
 
     custom.kilnStudio = {
       enable = true;
@@ -58,6 +67,11 @@ pkgs2511.testers.runNixOSTest {
       allowedHosts = [ "machine.example.ts.net" ];
       studio = { cpus = "2"; memory = "1g"; };
       egressDomains = [ "studio.example.org" ];
+      agents = { enable = true; cpus = "1"; memory = "768m"; };
+      secrets = {
+        anthropicKeyFile = "/etc/kiln-test/anthropic-key";
+        ollamaKeyFile = "/etc/kiln-test/ollama-key";
+      };
     };
   };
 
@@ -102,7 +116,45 @@ pkgs2511.testers.runNixOSTest {
         assert "serve --bg --http=80 http://127.0.0.1:8420" in unit, unit
 
     with subtest("the module appended to strict-egress"):
-        assert "studio.example.org" in json.loads(machine.succeed("cat /etc/kiln-test/egress.json"))
+        egress = json.loads(machine.succeed("cat /etc/kiln-test/egress.json"))
+        assert "studio.example.org" in egress
+        for d in ("api.anthropic.com", "ollama.com"):
+            assert d in egress, (d, egress)
+
+    with subtest("the agents container runs alongside the studio, limited and locked down"):
+        # NB: no /api/whoami liveness probe here — whoami needs an identity
+        # (a tailscale header or the token) and would 401 forever. The studio
+        # being up is already established by the first subtest; the agents
+        # container existing is the only new thing this subtest waits on.
+        machine.wait_until_succeeds(
+            "su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker inspect kiln-agents' >/dev/null",
+            timeout=900)
+        a = json.loads(as_alice("docker inspect kiln-agents"))[0]
+        ahc = a["HostConfig"]
+        assert ahc["NanoCpus"] == 1 * 10**9, ahc["NanoCpus"]
+        assert ahc["Memory"] == 768 * 1024 * 1024, ahc["Memory"]
+        assert ahc["ReadonlyRootfs"] is True
+        assert "ALL" in (ahc["CapDrop"] or []), ahc["CapDrop"]
+        assert a["Config"]["ExposedPorts"] == {"8600/tcp": {}}, a["Config"]["ExposedPorts"]
+        binds = ahc["Binds"]
+        assert any(b.startswith("/etc/kiln-test/anthropic-key:") and b.endswith(":ro") for b in binds), binds
+        assert any(b.startswith("/etc/kiln-test/ollama-key:") and b.endswith(":ro") for b in binds), binds
+        env = {e.split("=", 1)[0]: e.split("=", 1)[1] for e in a["Config"]["Env"]}
+        assert env["ANTHROPIC_API_KEY_FILE"] == "/run/secrets/anthropic-key", env
+        assert env["KILN_STUDIO_URL"] == "http://kiln-studio:8420", env
+        # No published port: the agents service is reachable on the compose
+        # network only.
+        assert not ahc["PortBindings"], ahc["PortBindings"]
+
+    with subtest("the agents service answers over the compose network, from the studio container"):
+        # Retried: serve.py imports CrewAI before it binds 8600, which takes a
+        # while under a 768 MB limit — one shot would race it. The .decode()
+        # matters too: read() returns bytes and print() would show Python's
+        # b'...' repr, which json.loads refuses.
+        health = machine.wait_until_succeeds(
+            "su - alice -c \"DOCKER_HOST=unix:///run/user/\\$(id -u)/docker.sock docker exec kiln-studio python3 -c 'import urllib.request; print(urllib.request.urlopen(\\\"http://kiln-agents:8600/healthz\\\").read().decode())'\"",
+            timeout=600)
+        assert json.loads(health) == {"ok": True}, health
 
     with subtest("a build inside the container runs in the host's daemon"):
         machine.succeed("""cat > /home/alice/project/probe.nix <<'EOF'
@@ -118,8 +170,8 @@ pkgs2511.testers.runNixOSTest {
         assert as_alice(f"docker exec kiln-studio cat {out}").strip() == "built-by-the-host"
         assert machine.succeed(f"cat {out}").strip() == "built-by-the-host"
 
-    with subtest("stopping the unit removes the container"):
+    with subtest("stopping the unit removes both containers"):
         machine.succeed("systemctl --machine=alice@ --user stop kiln-studio.service")
-        machine.wait_until_succeeds("test -z \"$(su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker ps -aq --filter name=kiln-studio')\"", timeout=120)
+        machine.wait_until_succeeds("test -z \"$(su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker ps -aq --filter name=kiln-studio --filter name=kiln-agents')\"", timeout=120)
   '';
 }

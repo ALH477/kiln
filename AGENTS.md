@@ -21,7 +21,14 @@ You are in the **engine** repo (libkiln + Nix + `./dev`). Games are siblings, no
 7. Kiln Studio (`./dev studio`, `:8420`) is the unified UI: builds, checks,
    the editors saving in place, a live game view. To drive it the way a person
    would — from an agent — `.mcp.json`'s **kiln-browser** server is a
-   headless-Chromium MCP front-end confined to the studio's origin.
+   headless-Chromium MCP front-end confined to the studio's origin
+   (`tools/agents/README.md`).
+8. The CrewAI runtime (`tools/agents/kiln_agents/`) runs whole tasks from the
+   studio's Agents panel: plan → work in a git worktree → validate through the
+   studio's job queue → await a human's approve/reject. Its rules are enforced
+   by its tools (worktree scope checked, git is a five-op allowlist), not
+   documented. `./dev agents-smoke` is the only command that spends model
+   credits; run it after changing `models.py`'s table.
 8. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
 
 ## Do not

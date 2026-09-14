@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+from studio.agents import AgentTasks  # noqa: E402
 from studio.auth import Auth, load_or_create_token  # noqa: E402
 from studio.fsapi import Files, FsError  # noqa: E402
 from studio.jobs import JobError, Runner  # noqa: E402
@@ -97,6 +98,7 @@ class Studio:
         self.presence = Presence()
         self.runner = Runner(self.repo, args.nix, lambda: self.project.manifest, self.state,
                              args.max_jobs, breaks, self.validators)
+        self.agent_tasks = AgentTasks(self.repo)
         self.static_root = HERE
 
 
@@ -150,6 +152,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.route("POST")
 
+    def do_PATCH(self):
+        self.route("PATCH")
+
     def route(self, method):
         auth = self.studio.auth
         if not auth.host_ok(self.headers.get("Host")):
@@ -196,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, {"people": self.studio.presence.list()})
             if method == "POST" and parts == ["jobs"]:
                 return self.submit()
+            if parts[:1] == ["agent-tasks"]:
+                return self.agent_tasks_endpoint(method, parts[1:])
             if len(parts) >= 2 and parts[0] == "jobs":
                 job = self.studio.runner.get(parts[1])
                 if job is None:
@@ -252,6 +259,34 @@ class Handler(BaseHTTPRequestHandler):
         job = self.studio.runner.submit(str(body.get("kind", "")), body.get("target", ""), self.user,
                                         arg=arg if isinstance(arg, str) else None)
         return self.json(201, job.snapshot())
+
+    def agent_tasks_endpoint(self, method, parts):
+        """/api/agent-tasks: humans create and decide; the flow PATCHes its
+        own record as it runs. See studio/agents.py for the lifecycle."""
+        tasks = self.studio.agent_tasks
+        if method == "GET" and not parts:
+            return self.json(200, {"tasks": tasks.list(),
+                                   "agents_service": self.studio.agent_tasks.url or None})
+        if method == "POST" and not parts:
+            body = self.body_json()
+            return self.json(201, tasks.create(str(body.get("brief", "")), self.user))
+        if not parts:
+            return self.error(404, "no such endpoint")
+        try:
+            if method == "GET" and len(parts) == 1:
+                rec = tasks.get(parts[0])
+                return self.json(200, rec) if rec else self.error(404, "no such task")
+            if method == "PATCH" and len(parts) == 1:
+                return self.json(200, tasks.patch(parts[0], self.body_json()))
+            if method == "POST" and len(parts) == 2 and parts[1] in ("approve", "reject"):
+                return self.json(200, tasks.decide(parts[0], parts[1] == "approve", self.user))
+            if method == "POST" and len(parts) == 2 and parts[1] == "merge":
+                return self.json(200, tasks.merge(parts[0]))
+            if method == "POST" and len(parts) == 2 and parts[1] == "discard":
+                return self.json(200, tasks.discard(parts[0]))
+        except KeyError:
+            return self.error(404, "no such task")
+        return self.error(404, "no such endpoint")
 
     def fs(self, method, parts, query):
         files = self.studio.files
