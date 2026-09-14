@@ -27,6 +27,11 @@
 #     checkout, model keys mounted as files — never in the image, never in the
 #     store. It reaches Anthropic and Ollama only, and only when the agents
 #     are enabled does the module ask the egress firewall for those names.
+#   * HydraMesh container (custom.kilnStudio.hydramesh.enable, on by default):
+#     the mesh's MCP server (mesh_mcp, streamable HTTP) off the same studio
+#     image, compose-network only, given to the agents as KILN_MESH_URL.
+#     A plaintext small-message relay — safe inside the docker network the
+#     same way HydraMesh is safe inside WireGuard.
 #   * Options under custom.kilnStudio, off by default. No `follows` is forced on
 #     the importing flake; checks.studio-module boots it on nixos-25.11.
 { kiln }:
@@ -145,7 +150,42 @@ let
           KILN_STUDIO_URL = "http://kiln-studio:8420";
           ANTHROPIC_API_KEY_FILE = "/run/secrets/anthropic-key";
           OLLAMA_API_KEY_FILE = "/run/secrets/ollama-key";
+        } // optionalAttrs cfg.hydramesh.enable {
+          # The mesh MCP, as the agents' CrewAI flow dials it (flow.py attaches
+          # it to every agent as an MCP server). FastMCP's streamable-HTTP
+          # transport mounts at /mcp.
+          KILN_MESH_URL = "http://kiln-mesh:${toString cfg.hydramesh.port}/mcp";
         };
+      };
+    } // optionalAttrs cfg.hydramesh.enable {
+      # HydraMesh's mesh_mcp — the third service, off the SAME studio image
+      # (`command: ["mesh"]` flips the entrypoint's mode). Compose-network
+      # only, like the agents service: nothing outside can reach it, and it
+      # needs no egress, no project checkout and no daemon socket — it is a
+      # plaintext small-message relay, safe inside the docker network the
+      # same way the tailnet's WireGuard makes it safe across hosts.
+      mesh = {
+        image = imageRef;
+        container_name = "kiln-mesh";
+        init = true;
+        restart = "no";
+        command = [ "mesh" ];
+        networks = [ "kiln" ];
+        cpus = "1";
+        mem_limit = "512m";
+        pids_limit = 1024;
+        read_only = true;
+        tmpfs = [ "/tmp:size=128m" "/root:size=128m" ];
+        cap_drop = [ "ALL" ];
+        security_opt = [ "no-new-privileges:true" ];
+        volumes = [ "/nix/store:/nix/store:ro" ];
+        environment = {
+          # mesh_mcp binds loopback by default (HydraMesh's VPN-only rule);
+          # inside the compose network the whole interface IS the VPN, so
+          # binding wide here is the same rule applied one network in.
+          DCF_MCP_HTTP_HOST = "0.0.0.0";
+          DCF_MCP_HTTP_PORT = toString cfg.hydramesh.port;
+        } // cfg.hydramesh.environment;
       };
     };
   });
@@ -255,6 +295,34 @@ in
       };
       cpus = mkOption { type = types.str; default = "4"; description = "CPU limit for the agents container."; };
       memory = mkOption { type = types.str; default = "5g"; description = "Memory limit for the agents container."; };
+    };
+
+    hydramesh = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Run HydraMesh's mesh_mcp (matrix-bridge, streamable HTTP) as a third
+          container next to the studio, off the same studio image. The agents'
+          CrewAI flow attaches to it as an MCP server over the compose network
+          (KILN_MESH_URL) for agent <-> studio messaging. Compose-network only:
+          no published port, no egress, no project checkout.
+        '';
+      };
+      port = mkOption {
+        type = types.port;
+        default = 8765;
+        description = "Port mesh_mcp listens on inside the compose network.";
+      };
+      environment = mkOption {
+        type = types.attrsOf types.str;
+        default = { };
+        example = { DCF_AGENT_NODE_ID = "0x00A6"; DCF_CHANNEL = "studio"; };
+        description = ''
+          Extra environment for the mesh container — DCF_* settings
+          (node id, channel, peers) passed straight through to dcf_node.
+        '';
+      };
     };
 
     secrets = {

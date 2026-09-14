@@ -55,6 +55,23 @@
         "type": "github"
       }
     },
+    "hydramesh": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789357838,
+        "narHash": "sha256-QZH/FzPTc0ihqWcEDUNU5HIFquWV1+C9T+2tixzDxOo=",
+        "owner": "ALH477",
+        "repo": "HydraMesh",
+        "rev": "237d201e9a2c5e1ababbeaa5d6e22d7815a72eeb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ALH477",
+        "repo": "HydraMesh",
+        "rev": "237d201e9a2c5e1ababbeaa5d6e22d7815a72eeb",
+        "type": "github"
+      }
+    },
     "libdragon": {
       "flake": false,
       "locked": {
@@ -160,6 +177,7 @@
       "inputs": {
         "claude-code-nix": "claude-code-nix",
         "flake-utils": "flake-utils_2",
+        "hydramesh": "hydramesh",
         "libdragon": "libdragon",
         "nixos-generators": "nixos-generators",
         "nixpkgs": "nixpkgs_2",

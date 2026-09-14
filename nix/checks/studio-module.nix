@@ -21,9 +21,12 @@
 #     files, no published port, and its health endpoint reachable from the
 #     studio container over the compose network; the module asked strict-egress
 #     for the model providers and nothing else;
+#   * the HydraMesh container (mesh_mcp, streamable HTTP :8765) runs off the
+#     SAME studio image (`command: ["mesh"]`), locked down and unpublished,
+#     with its MCP mount answering over the compose network;
 #   * a build started inside the container runs in the host's daemon and its
 #     output is visible on both sides;
-#   * stopping the unit removes the container.
+#   * stopping the unit removes the containers.
 { pkgs2511, kilnModule }:
 
 pkgs2511.testers.runNixOSTest {
@@ -68,6 +71,7 @@ pkgs2511.testers.runNixOSTest {
       studio = { cpus = "2"; memory = "1g"; };
       egressDomains = [ "studio.example.org" ];
       agents = { enable = true; cpus = "1"; memory = "768m"; };
+      hydramesh.enable = true;   # also the default; named so the mesh subtests have a visible knob
       secrets = {
         anthropicKeyFile = "/etc/kiln-test/anthropic-key";
         ollamaKeyFile = "/etc/kiln-test/ollama-key";
@@ -142,6 +146,7 @@ pkgs2511.testers.runNixOSTest {
         env = {e.split("=", 1)[0]: e.split("=", 1)[1] for e in a["Config"]["Env"]}
         assert env["ANTHROPIC_API_KEY_FILE"] == "/run/secrets/anthropic-key", env
         assert env["KILN_STUDIO_URL"] == "http://kiln-studio:8420", env
+        assert env["KILN_MESH_URL"] == "http://kiln-mesh:8765/mcp", env
         # No published port: the agents service is reachable on the compose
         # network only.
         assert not ahc["PortBindings"], ahc["PortBindings"]
@@ -155,6 +160,35 @@ pkgs2511.testers.runNixOSTest {
             "su - alice -c \"DOCKER_HOST=unix:///run/user/\\$(id -u)/docker.sock docker exec kiln-studio python3 -c 'import urllib.request; print(urllib.request.urlopen(\\\"http://kiln-agents:8600/healthz\\\").read().decode())'\"",
             timeout=600)
         assert json.loads(health) == {"ok": True}, health
+
+    with subtest("the mesh container runs off the studio image, locked down, unpublished"):
+        machine.wait_until_succeeds(
+            "su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker inspect kiln-mesh' >/dev/null",
+            timeout=900)
+        m = json.loads(as_alice("docker inspect kiln-mesh"))[0]
+        mhc = m["HostConfig"]
+        assert mhc["ReadonlyRootfs"] is True
+        assert "ALL" in (mhc["CapDrop"] or []), mhc["CapDrop"]
+        assert not mhc["PortBindings"], mhc["PortBindings"]
+        assert m["Config"]["Image"] == json.loads(as_alice("docker inspect kiln-studio"))[0]["Config"]["Image"], \
+            "the mesh service must run the SAME image as the studio"
+        assert m["Config"]["Cmd"] == ["mesh"], m["Config"]["Cmd"]
+        menv = {e.split("=", 1)[0]: e.split("=", 1)[1] for e in m["Config"]["Env"]}
+        assert menv["DCF_MCP_HTTP_HOST"] == "0.0.0.0", menv
+        assert menv["DCF_MCP_HTTP_PORT"] == "8765", menv
+
+    with subtest("the mesh answers MCP over the compose network, from the studio container"):
+        # A bare GET on the streamable-HTTP mount is refused with a 4xx — that
+        # refusal is the assertion: an answering MCP transport says "missing
+        # session / bad request", and a wrong mount would say 404, so both
+        # liveness and the /mcp path are proven by one probe. http.client
+        # rather than urllib because it does not RAISE on 4xx, which keeps
+        # the probe a single shell-safe line through the su/docker quoting.
+        code = machine.wait_until_succeeds(
+            "su - alice -c \"DOCKER_HOST=unix:///run/user/\\$(id -u)/docker.sock docker exec kiln-studio python3 -c 'import http.client; c=http.client.HTTPConnection(\\\"kiln-mesh\\\", 8765); c.request(\\\"GET\\\", \\\"/mcp\\\"); print(c.getresponse().status)'\"",
+            timeout=600)
+        code = code.strip()
+        assert code.isdigit() and 400 <= int(code) < 500 and int(code) != 404, code
 
     with subtest("a build inside the container runs in the host's daemon"):
         machine.succeed("""cat > /home/alice/project/probe.nix <<'EOF'
@@ -170,8 +204,11 @@ pkgs2511.testers.runNixOSTest {
         assert as_alice(f"docker exec kiln-studio cat {out}").strip() == "built-by-the-host"
         assert machine.succeed(f"cat {out}").strip() == "built-by-the-host"
 
-    with subtest("stopping the unit removes both containers"):
+    with subtest("stopping the unit removes all three containers"):
         machine.succeed("systemctl --machine=alice@ --user stop kiln-studio.service")
-        machine.wait_until_succeeds("test -z \"$(su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker ps -aq --filter name=kiln-studio --filter name=kiln-agents')\"", timeout=120)
+        # name=kiln- matches kiln-studio, kiln-agents and kiln-mesh alike; the
+        # compose `down` removes what the config declares, --remove-orphans
+        # catches anything a later config change stopped declaring.
+        machine.wait_until_succeeds("test -z \"$(su - alice -c 'DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock docker ps -aq --filter name=kiln-')\"", timeout=120)
   '';
 }

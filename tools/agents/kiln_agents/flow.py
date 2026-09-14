@@ -86,10 +86,21 @@ def _agent(role: str, worktree: str):
     from crewai import Agent
     from .tools import role_tools
     conf = yaml.safe_load(AGENTS_YAML.read_text())[role]
+    # The mesh, when the container has one: nix/studio-module.nix points
+    # KILN_MESH_URL at HydraMesh's mesh_mcp (tools: mesh_send/recv/inbox/
+    # status) over the compose network. Attached as a STRUCTURED
+    # MCPServerHTTP config — the plain-string form only accepts https or a
+    # slug, and an http docker-network URL is neither. Unset (offline gates,
+    # local runs) and no agent ever dials it.
+    mesh_url = os.environ.get("KILN_MESH_URL", "")
+    mcps = None
+    if mesh_url:
+        from crewai.mcp.config import MCPServerHTTP
+        mcps = [MCPServerHTTP(url=mesh_url, cache_tools_list=True)]
     return Agent(role=conf["role"].strip(), goal=conf["goal"].strip(),
                  backstory=conf["backstory"].strip(),
                  llm=models.llm_for(role), tools=role_tools(role, worktree),
-                 max_rpm=20, share_crew=False)
+                 mcps=mcps, max_rpm=20, share_crew=False)
 
 
 def _kick(role: str, worktree: str, description: str, expected: str) -> str:

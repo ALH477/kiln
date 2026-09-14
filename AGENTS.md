@@ -29,7 +29,7 @@ You are in the **engine** repo (libkiln + Nix + `./dev`). Games are siblings, no
    by its tools (worktree scope checked, git is a five-op allowlist), not
    documented. `./dev agents-smoke` is the only command that spends model
    credits; run it after changing `models.py`'s table.
-8. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
+9. Full pre-push: `./dev check` — **not on the laptop while the user is playing unless they ask.**
 
 ## Do not
 

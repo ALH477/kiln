@@ -59,6 +59,19 @@
     # nix/dev-image.nix) — not part of the N64 build at all.
     claude-code-nix.url = "github:sadjow/claude-code-nix";
 
+    # HydraMesh — the certified DeModFrame/DCF-Audio/SuperPack wire. Consumed
+    # as SOURCE ONLY: the studio image bakes mesh_mcp.py (the MCP face of the
+    # mesh, HTTP :8765) into a third container next to the studio and agents
+    # (nix/studio-images.nix), and nothing here builds HydraMesh's own
+    # packages. Pinned, and deliberately no `follows` — Oligarchy pins it
+    # independently and neither side should inherit the other's drift. The
+    # repo has been renamed to Punctim; the old URL still resolves, and the
+    # pin is by rev so a future move cannot silently change what is baked.
+    hydramesh = {
+      url = "github:ALH477/HydraMesh/237d201e9a2c5e1ababbeaa5d6e22d7815a72eeb";
+      flake = false;
+    };
+
     # Builds a NixOS system config into a docker-loadable image. Also only
     # used by packages.dev-image.
     nixos-generators = {
@@ -71,7 +84,7 @@
     nixpkgs-2511.url = "github:NixOS/nixpkgs/e820eb4a444b46a19b2e03e8dfd2359439ff30fe";
   };
 
-  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators, nixpkgs-2511 }:
+  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators, nixpkgs-2511, hydramesh }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -86,6 +99,7 @@
         studioImages = import ./nix/studio-images.nix {
           inherit pkgs; inherit (pkgs) lib; toolsSrc = ./tools;
           inherit agentPython;
+          meshSrc = hydramesh;
           claude = claude-code-nix.packages.${system}.default;
         };
 
