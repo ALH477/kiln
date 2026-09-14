@@ -65,9 +65,13 @@
       url = "github:nix-community/nixos-generators";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # nixos-25.11 at the revision Oligarchy NixOS builds from. Used only by
+    # checks.studio-module, which boots nixosModules.kiln-studio on the release
+    # the module is written for; nothing else follows it.
+    nixpkgs-2511.url = "github:NixOS/nixpkgs/e820eb4a444b46a19b2e03e8dfd2359439ff30fe";
   };
 
-  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators }:
+  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators, nixpkgs-2511 }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -1516,6 +1520,11 @@
           streamdb = streamdb-emb;
           inherit textures;
           inherit dev-image;
+          # Kiln Studio's container (nix/studio-images.nix), which
+          # nixosModules.kiln-studio runs under the user's rootless docker.
+          studio-image = (import ./nix/studio-images.nix {
+            inherit pkgs; inherit (pkgs) lib; toolsSrc = ./tools;
+          }).studio;
         }
         // forgeModeRoms
         // jumpRoms
@@ -2049,6 +2058,15 @@
             inherit pkgs;
             toolsDir = ./tools;
           };
+          # The NixOS module, booted on nixos-25.11 with rootless docker. A VM
+          # test, so x86_64-linux with KVM only, and not one of the cheap checks.
+          studio-module =
+            if system == "x86_64-linux" then
+              import ./nix/checks/studio-module.nix {
+                pkgs2511 = nixpkgs-2511.legacyPackages.${system};
+                kilnModule = self.nixosModules.kiln-studio;
+              }
+            else pkgs.emptyFile;
           studio-modules = import ./nix/checks/studio-modules.nix {
             inherit pkgs;
             toolsDir = ./tools;
@@ -2270,6 +2288,9 @@
       }) // {
       # ── NixOS modules (system-independent) ────────────────────────────
       nixosModules.n64-flashcart = import ./nix/udev.nix;
+      # Kiln Studio on a NixOS workstation: a rootless container shared over the
+      # tailnet, Oligarchy-compatible. Options under custom.kilnStudio.
+      nixosModules.kiln-studio = import ./nix/studio-module.nix { kiln = self; };
 
       # ── Templates ─────────────────────────────────────────────────────
       # `nix flake init -t github:ALH477/kiln#game` (or `./dev new <name>` from
