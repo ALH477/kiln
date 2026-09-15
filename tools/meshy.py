@@ -489,13 +489,6 @@ def make_ci4(im, size=DEFAULT_TEX_SIZE, veil_class="world",
         im = q.convert("RGB")
         px = _pixels(im)
 
-    if merge:
-        px, merged = merge_by_value(px, min_gap)
-        report["merged"] = merged
-        if merged and not quiet:
-            print("  merged %d colour(s) closer than %.3f in value" %
-                  (merged, min_gap))
-
     if veil_class == "world":
         mapping = spread_into(set(px), WORLD_LO, WORLD_HI)
         px = [mapping[p] for p in px]
@@ -503,6 +496,27 @@ def make_ci4(im, size=DEFAULT_TEX_SIZE, veil_class="world",
             print("  world class: luminance spread into [%.2f, %.2f] — a world "
                   "material does not own true black or true white"
                   % (WORLD_LO, WORLD_HI))
+
+    # AFTER the spread, not before, and the order is load-bearing.
+    #
+    # spread_into compresses the ladder from its source span into a band
+    # (WORLD_HI - WORLD_LO) wide, so it multiplies every gap by
+    # 0.43/src_span. For any albedo with real range that factor is below one.
+    # Merging first therefore guaranteed >= min_gap in PRE-spread space while
+    # the check below measures POST-spread space, which made
+    # --merge-by-value unsatisfiable for `world` by construction: the merge
+    # would report "merged 5 colour(s)" and the check would still fire, on a
+    # gap the merge had already been asked to eliminate.
+    #
+    # It survived because the two features were never tested together — the
+    # merge case below uses `phantom`, which does not spread, and the world
+    # case passes min_gap=0. Both now do.
+    if merge:
+        px, merged = merge_by_value(px, min_gap)
+        report["merged"] = merged
+        if merged and not quiet:
+            print("  merged %d colour(s) closer than %.3f in value" %
+                  (merged, min_gap))
 
     im = Image.new("RGB", (size, size))
     im.putdata(px)
@@ -995,6 +1009,30 @@ def cmd_selftest(a):
     check(flat[0] < WORLD_LO and flat[-1] > WORLD_HI,
           "while `phantom` keeps the ends it was given (%.2f, %.2f)"
           % (flat[0], flat[-1]))
+
+    print("\n── merge and the world spread measure the same space ──")
+    # The regression: merge_by_value ran before spread_into, so it cleared
+    # min_gap in pre-spread space and the check then fired in post-spread
+    # space, on a gap it had been asked to remove. A ramp with one deliberately
+    # tight pair, at a source span wide enough that the spread compresses it.
+    tight = Image.new("RGB", (4, 4))
+    tight.putdata([(0, 0, 0), (8, 8, 8), (9, 9, 9), (120, 120, 120),
+                   (121, 121, 121), (200, 200, 200), (255, 255, 255),
+                   (254, 254, 254), (60, 60, 60), (61, 61, 61),
+                   (180, 180, 180), (181, 181, 181), (30, 30, 30),
+                   (90, 90, 90), (150, 150, 150), (220, 220, 220)])
+    try:
+        out, rep = make_ci4(tight.copy(), size=4, veil_class="world",
+                            min_gap=MIN_VALUE_GAP, merge=True, quiet=True)
+        check(rep["min_value_gap"] >= MIN_VALUE_GAP,
+              "--merge-by-value satisfies the gate for `world` (gap %.4f >= "
+              "%.4f)" % (rep["min_value_gap"], MIN_VALUE_GAP))
+        got = sorted(luma(c) for c in set(_pixels(out.convert("RGB"))))
+        check(got[0] >= WORLD_LO - 2e-3 and got[-1] <= WORLD_HI + 2e-3,
+              "and the result is still inside [%.2f, %.2f], got [%.2f, %.2f]"
+              % (WORLD_LO, WORLD_HI, got[0], got[-1]))
+    except SystemExit as e:
+        check(False, "--merge-by-value satisfies the gate for `world`: %s" % e)
 
     print("\n── power-of-two and squareness are asserted, not assumed ──")
     for bad in (24, 48, 100):
