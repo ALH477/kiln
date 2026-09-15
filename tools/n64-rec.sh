@@ -281,3 +281,15 @@ if [ "${NATIVE:-0}" = "1" ]; then
     sed -n '1,10p' "$WORK/native.log" >&2
   fi
 fi
+
+# ── Surface what the ROM said, not just what it looked like ───────────
+# Same trap as tools/n64-shot.sh: ares.log is deleted with $WORK on EXIT.
+if [ -s "$WORK/ares.log" ]; then
+  if grep -qE "ASSERTION FAILED|PANIC|Unhandled exception" "$WORK/ares.log"; then
+    echo "n64-rec: the ROM reported a failure --" >&2
+    grep -nE "ASSERTION FAILED|PANIC|Unhandled exception|^file \"|cannot call|assert" \
+         "$WORK/ares.log" | head -20 >&2
+  fi
+  cp "$WORK/ares.log" "${OUT%.*}.log" 2>/dev/null \
+    && echo "n64-rec: ROM output in ${OUT%.*}.log"
+fi
