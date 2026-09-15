@@ -108,7 +108,7 @@ let
         mem_limit = cfg.studio.memory;
         pids_limit = 4096;
         read_only = true;
-        tmpfs = [ "/tmp:size=1g" "/root:size=512m" ];
+        tmpfs = [ "/tmp:size=1g" "/root:size=512m" "/run/kiln:size=1m" ];
         cap_drop = [ "ALL" ];
         security_opt = [ "no-new-privileges:true" ];
         volumes = [
@@ -120,7 +120,9 @@ let
         # network (KILN_AGENTS_URL, which studio/agents.py reads) — the
         # port is never published: nothing outside the compose network can
         # submit a task.
-        environment = optionalAttrs cfg.agents.enable {
+        environment = {
+          KILN_STUDIO_TOKEN_FILE = "/run/kiln/studio-token";
+        } // optionalAttrs cfg.agents.enable {
           KILN_AGENTS_URL = "http://kiln-agents:8600";
         };
       };
@@ -179,13 +181,15 @@ let
         cap_drop = [ "ALL" ];
         security_opt = [ "no-new-privileges:true" ];
         volumes = [ "/nix/store:/nix/store:ro" ];
-        environment = {
+        environment = cfg.hydramesh.environment // {
           # mesh_mcp binds loopback by default (HydraMesh's VPN-only rule);
           # inside the compose network the whole interface IS the VPN, so
           # binding wide here is the same rule applied one network in.
+          # Module host/port win over hydramesh.environment so a user attr
+          # cannot desync KILN_MESH_URL.
           DCF_MCP_HTTP_HOST = "0.0.0.0";
           DCF_MCP_HTTP_PORT = toString cfg.hydramesh.port;
-        } // cfg.hydramesh.environment;
+        };
       };
     };
   });
@@ -430,7 +434,7 @@ in
         serviceConfig = {
           ExecStart = up;
           ExecStop = down;
-          Restart = "on-failure";
+          Restart = "always";
           RestartSec = 15;
           TimeoutStartSec = 900;            # the first start loads the image
         };

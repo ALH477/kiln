@@ -177,7 +177,7 @@ def main(argv):
     ap.add_argument("--studio", default=os.environ.get("KILN_STUDIO_URL", "http://127.0.0.1:8420"))
     ap.add_argument("--token-file", default=None,
                     help="the studio's session token (default: $KILN_REPO/.studio/token)")
-    ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8500)
     ap.add_argument("--stdio", action="store_true", help="serve stdio instead of HTTP (local smoke)")
     args = ap.parse_args(argv)

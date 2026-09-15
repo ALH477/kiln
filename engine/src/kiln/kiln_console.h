@@ -13,10 +13,10 @@
  * navigated with the stick, and a one-line command prompt with a blinking
  * cursor. A types the highlighted cell, B backspaces, Start submits.
  *
- * The console polls libdragon's joypad directly (not the engine's kiln_input
- * wrapper) so it stays usable when the game's input layer is paused or
- * rebound. Examples gate gameplay logic on `kiln_console_is_open()` so the
- * stick doesn't leak into the player while the user is typing.
+ * The console reads the pad through kiln_input_get so a scripted tape
+ * (jump ROMs, attract) can open it the same way a person does. Examples
+ * gate gameplay logic on `kiln_console_is_open()` so the stick doesn't
+ * leak into the player while the user is typing.
  *
  * Build flag: when `KILN_DEBUG` is undefined at compile time, the
  * `kiln_console_*` symbols are still defined (the module is always in

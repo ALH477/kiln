@@ -23,7 +23,11 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 ALLOWED_TOOLS = ("Read,Edit,Write,Grep,Glob,"
-                 "Bash(nix build:*),Bash(./dev cheap),Bash(./dev map-*),Bash(git diff:*),Bash(git status:*)")
+                 "Bash(nix build:*),Bash(./dev cheap),"
+                 "Bash(./dev map-emit:*),Bash(./dev map-dump:*),"
+                 "Bash(./dev map-validate:*),Bash(./dev map-canon:*),"
+                 "Bash(./dev map-render:*),"
+                 "Bash(git diff:*),Bash(git status:*)")
 
 MAX_PROMPT = 60_000
 

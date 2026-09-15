@@ -191,6 +191,21 @@ def suite(server):
     st, _, body = server.request("GET", "/api/whoami", auth=False, headers={"Cookie": cookie.split(";")[0]})
     expect(st == 200 and json.loads(body or b"{}").get("via") == "token", f"the session cookie gave {st}")
 
+    agents_token = (server.work / "repo" / ".studio" / "agents-token").read_text().strip()
+    st, _, body = server.request("GET", "/api/whoami", auth=False,
+                                 headers={"Authorization": f"Bearer {agents_token}"})
+    expect(st == 200 and json.loads(body or b"{}").get("user") == "agents",
+           f"the agents token gave {st} {body[:80]!r}")
+    st, _, _ = server.request("POST", "/api/agent-tasks", body={"brief": "x"}, auth=False,
+                              headers={"Authorization": f"Bearer {agents_token}"})
+    expect(st == 403, f"agents creating a task gave {st}, want 403")
+    st, _, _ = server.request("POST", "/api/agent-tasks/nope/approve", body={}, auth=False,
+                              headers={"Authorization": f"Bearer {agents_token}"})
+    expect(st == 403, f"agents approving a task gave {st}, want 403")
+    st, _, _ = server.request("POST", "/api/agent-tasks/nope/merge", body={}, auth=False,
+                              headers={"Authorization": f"Bearer {agents_token}"})
+    expect(st == 403, f"agents merging a task gave {st}, want 403")
+
     # ── tailscale identity ───────────────────────────────────────────────
     st, _, body = server.request("GET", "/api/whoami", auth=False, headers={"Tailscale-User-Login": ALICE})
     expect(st == 200 and json.loads(body or b"{}").get("user") == ALICE,

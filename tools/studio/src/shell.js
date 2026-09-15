@@ -24,8 +24,10 @@ const CLIENT = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.t
 let here = { panel: "hub", file: null };
 
 function fileOf(name, params) {
-  if (name === "map") return params.map(decodeURIComponent).join("/");
-  if (name === "pose" && params[0]) return `tools/poser/data/${decodeURIComponent(params[0])}`;
+  try {
+    if (name === "map") return params.map(decodeURIComponent).join("/");
+    if (name === "pose" && params[0]) return `tools/poser/data/${decodeURIComponent(params[0])}`;
+  } catch { /* a malformed percent-escape is not a file */ }
   return null;
 }
 

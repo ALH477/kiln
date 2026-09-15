@@ -28,4 +28,6 @@ pkgs.runCommand "check-agent-tools"
   chmod -R u+w agents
   ${crewPython}/bin/python3 agents/tests/agent_tools_test.py | tee "$out/agent-tools.txt"
   grep -q "agent-tools test: ok" "$out/agent-tools.txt"
+  env -u OPENAI_API_KEY ${crewPython}/bin/python3 agents/tests/serve_test.py | tee "$out/serve.txt"
+  grep -q "serve test: ok" "$out/serve.txt"
 ''
