@@ -145,6 +145,12 @@ pkgs2511.testers.runNixOSTest {
         assert any(b.startswith("/etc/kiln-test/ollama-key:") and b.endswith(":ro") for b in binds), binds
         env = {e.split("=", 1)[0]: e.split("=", 1)[1] for e in a["Config"]["Env"]}
         assert env["ANTHROPIC_API_KEY_FILE"] == "/run/secrets/anthropic-key", env
+        assert "ANTHROPIC_API_KEY" not in env, env
+        assert "test-anthropic-key" not in json.dumps(a)
+        assert "test-ollama-key" not in json.dumps(a)
+        sc = json.loads(as_alice("docker inspect kiln-studio"))[0]
+        assert "ANTHROPIC_API_KEY" not in {e.split("=", 1)[0]: e.split("=", 1)[1] for e in sc["Config"]["Env"]}
+        assert "test-anthropic-key" not in json.dumps(sc)
         assert env["KILN_STUDIO_URL"] == "http://kiln-studio:8420", env
         assert env["KILN_MESH_URL"] == "http://kiln-mesh:8765/mcp", env
         # No published port: the agents service is reachable on the compose

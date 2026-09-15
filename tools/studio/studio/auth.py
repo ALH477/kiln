@@ -57,8 +57,9 @@ def _cookie_value(header, name):
 
 class Auth:
     def __init__(self, token, allow_hosts=(), tailscale_logins=(), trusted_proxies=DEFAULT_PROXIES,
-                 breaks=()):
+                 breaks=(), agents_token=None):
         self.token = token
+        self.agents_token = agents_token or ""
         self.allow_hosts = {"localhost", "127.0.0.1", "[::1]"} | {h.lower() for h in allow_hosts}
         self.logins = set(tailscale_logins)
         self.proxies = set(trusted_proxies)
@@ -92,8 +93,11 @@ class Auth:
             presented = auth[7:].strip()
         if presented is None:
             presented = _cookie_value(headers.get("Cookie"), COOKIE)
-        if presented is not None and (self.token_matches(presented) or "token" in self.breaks):
-            return ("local", "token")
+        if presented is not None:
+            if self.agents_token and hmac.compare_digest(presented.encode(), self.agents_token.encode()):
+                return ("agents", "token")
+            if self.token_matches(presented) or "token" in self.breaks:
+                return ("local", "token")
         return None
 
     def token_matches(self, presented):

@@ -80,9 +80,10 @@ class TaskState(BaseModel):
     review: str = ""
     approved: bool | None = None         # None while a human has not decided
     report: dict = Field(default_factory=dict)
+    base_sha: str = ""                   # HEAD at intake; reviewer diffs this...HEAD
 
 
-def _agent(role: str, worktree: str):
+def _agent(role: str, worktree: str, base: str = ""):
     from crewai import Agent
     from .tools import role_tools
     conf = yaml.safe_load(AGENTS_YAML.read_text())[role]
@@ -99,15 +100,15 @@ def _agent(role: str, worktree: str):
         mcps = [MCPServerHTTP(url=mesh_url, cache_tools_list=True)]
     return Agent(role=conf["role"].strip(), goal=conf["goal"].strip(),
                  backstory=conf["backstory"].strip(),
-                 llm=models.llm_for(role), tools=role_tools(role, worktree),
+                 llm=models.llm_for(role), tools=role_tools(role, worktree, base),
                  mcps=mcps, max_rpm=20, share_crew=False)
 
 
-def _kick(role: str, worktree: str, description: str, expected: str) -> str:
+def _kick(role: str, worktree: str, description: str, expected: str, base: str = "") -> str:
     """One agent on one task. memory=False and planning=False are load-bearing:
     CrewAI's defaults for both reach for OpenAI, and there is no OpenAI key."""
     from crewai import Crew, Task
-    agent = _agent(role, worktree)
+    agent = _agent(role, worktree, base)
     crew = Crew(agents=[agent], tasks=[Task(description=description,
                                             expected_output=expected, agent=agent)],
                 share_crew=False, memory=False, planning=False)
@@ -140,6 +141,10 @@ class KilnTaskFlow(Flow[TaskState]):
             raise ValueError("KilnTaskFlow needs state.brief")
         if not self.state.worktree or not Path(self.state.worktree).is_dir():
             raise ValueError("KilnTaskFlow needs state.worktree (created by the studio)")
+        if not self.state.base_sha:
+            proc = subprocess.run(["git", "-C", self.state.worktree, "rev-parse", "HEAD"],
+                                  capture_output=True, text=True, timeout=30)
+            self.state.base_sha = proc.stdout.strip()
 
     @listen(intake)
     def plan(self):
@@ -155,7 +160,8 @@ class KilnTaskFlow(Flow[TaskState]):
                 "studio validators that prove the change. End with two lines, exactly:\n"
                 "kind: <content|engine|docs>\n"
                 "checks: <comma-separated check or validator:path names, or 'none'>"),
-            expected="a short plan ending in the `kind:` and `checks:` lines")
+            expected="a short plan ending in the `kind:` and `checks:` lines",
+            base=self.state.base_sha)
         m = re.search(r"^kind:\s*(\w+)", self.state.plan, re.M)
         self.state.kind = m.group(1) if m and m.group(1) in ("content", "engine", "docs") else "docs"
         m = re.search(r"^checks:\s*(.+)$", self.state.plan, re.M)
@@ -196,7 +202,8 @@ class KilnTaskFlow(Flow[TaskState]):
                 "Do the work in this worktree. Then stage and commit it on the current branch "
                 "with the git tool. When the task is a large code change and you have the "
                 "claude_worker tool, you may delegate it."),
-            expected="a summary of the change, ending with the commit id")
+            expected="a summary of the change, ending with the commit id",
+            base=self.state.base_sha)
 
     # Three thin listeners, NOT one or_(work_*): crewai's engine fires a
     # multi-trigger or_() listener ONCE per run (_fired_or_listeners), which
@@ -265,7 +272,8 @@ class KilnTaskFlow(Flow[TaskState]):
     def review(self):
         if self.state.review:
             return
-        diff = subprocess.run(["git", "-C", self.state.worktree, "diff", "--stat", "HEAD~1"],
+        spec = f"{self.state.base_sha}...HEAD" if self.state.base_sha else "HEAD"
+        diff = subprocess.run(["git", "-C", self.state.worktree, "diff", "--stat", spec],
                               capture_output=True, text=True, timeout=60).stdout.strip()
         self.state.review = _kick(
             "reviewer", self.state.worktree,
@@ -275,7 +283,8 @@ class KilnTaskFlow(Flow[TaskState]):
                 f"Validation results: {json.dumps(self.state.validations, indent=2)[:4000]}\n\n"
                 "Read the actual diff with the git tool and the changed files. Then deliver a "
                 "verdict: APPROVE or BLOCK, with one line of reasoning per point."),
-            expected="a verdict of APPROVE or BLOCK with reasoning")
+            expected="a verdict of APPROVE or BLOCK with reasoning",
+            base=self.state.base_sha)
         self._post_task_status({"phase": "review", "review": self.state.review})
 
     @listen(review)

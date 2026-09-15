@@ -31,11 +31,15 @@ def _studio_base_and_token() -> tuple[str, str]:
     base = os.environ.get("KILN_STUDIO_URL", "").rstrip("/")
     token = os.environ.get("KILN_STUDIO_TOKEN", "")
     if not token:
-        tf = Path(os.environ.get("KILN_REPO", ".")) / ".studio" / "token"
-        if tf.is_file():
-            token = tf.read_text().strip()
+        repo = Path(os.environ.get("KILN_REPO", "."))
+        for name in ("agents-token", "token"):
+            tf = repo / ".studio" / name
+            if tf.is_file():
+                token = tf.read_text().strip()
+                if token:
+                    break
     if not base or not token:
-        raise ValueError("KILN_STUDIO_URL / KILN_STUDIO_TOKEN (or $KILN_REPO/.studio/token) not set")
+        raise ValueError("KILN_STUDIO_URL / KILN_STUDIO_TOKEN (or $KILN_REPO/.studio/agents-token) not set")
     return base, token
 
 

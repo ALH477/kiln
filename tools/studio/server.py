@@ -88,9 +88,13 @@ class Studio:
         self.repo = Path(args.repo).resolve()
         self.state = self.repo / ".studio"
         self.breaks = breaks
-        token = load_or_create_token(self.state / "token")
+        # Human token may live outside the checkout (KILN_STUDIO_TOKEN_FILE)
+        # so a container that mounts the project cannot present as the human.
+        token = load_or_create_token(Path(os.environ.get("KILN_STUDIO_TOKEN_FILE", self.state / "token")))
+        agents_token = load_or_create_token(self.state / "agents-token")
         self.auth = Auth(token, args.allow_host, args.tailscale_login,
-                         args.trusted_proxy or ("127.0.0.1", "::1"), breaks)
+                         args.trusted_proxy or ("127.0.0.1", "::1"), breaks,
+                         agents_token=agents_token)
         self.project = Project(self.repo, args.nix, args.manifest_file, args.caps_file)
         self.project.load()
         self.validators = validator_registry(self.repo, sys.executable, args.nix)
@@ -268,6 +272,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(200, {"tasks": tasks.list(),
                                    "agents_service": self.studio.agent_tasks.url or None})
         if method == "POST" and not parts:
+            if self.user == "agents":
+                return self.error(403, "the agents identity cannot create tasks")
             body = self.body_json()
             return self.json(201, tasks.create(str(body.get("brief", "")), self.user))
         if not parts:
@@ -278,11 +284,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, rec) if rec else self.error(404, "no such task")
             if method == "PATCH" and len(parts) == 1:
                 return self.json(200, tasks.patch(parts[0], self.body_json()))
-            if method == "POST" and len(parts) == 2 and parts[1] in ("approve", "reject"):
-                return self.json(200, tasks.decide(parts[0], parts[1] == "approve", self.user))
-            if method == "POST" and len(parts) == 2 and parts[1] == "merge":
-                return self.json(200, tasks.merge(parts[0]))
-            if method == "POST" and len(parts) == 2 and parts[1] == "discard":
+            if method == "POST" and len(parts) == 2 and parts[1] in ("approve", "reject", "merge", "discard"):
+                if self.user == "agents":
+                    return self.error(403, "the agents identity cannot decide or merge")
+                if parts[1] in ("approve", "reject"):
+                    return self.json(200, tasks.decide(parts[0], parts[1] == "approve", self.user))
+                if parts[1] == "merge":
+                    return self.json(200, tasks.merge(parts[0]))
                 return self.json(200, tasks.discard(parts[0]))
         except KeyError:
             return self.error(404, "no such task")

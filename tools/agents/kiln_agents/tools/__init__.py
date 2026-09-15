@@ -10,12 +10,12 @@ __all__ = ["ClaudeWorker", "EditFile", "Grep", "Git", "ListDir", "ReadFile",
            "StudioJob", "WriteFile", "file_tools", "role_tools"]
 
 
-def role_tools(role: str, worktree: str) -> list:
+def role_tools(role: str, worktree: str, base: str = "") -> list:
     """The toolset each role gets. Decided in code — where agent-tools.nix can
     assert it — not in yaml. No role gets a general shell; the studio and the
     scoped file/git surface are deliberately the whole world."""
     files = file_tools(worktree)
-    git = [Git(worktree=worktree)]
+    git = [Git(worktree=worktree, base=base)]
     studio = [StudioJob()]
     return {
         "planner":   [ReadFile(worktree=worktree), ListDir(worktree=worktree),

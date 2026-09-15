@@ -17,6 +17,9 @@ Concurrency: one flow run per task_id at a time (a lock map), several tasks
 in parallel at most MAX_PARALLEL — agent work is model-latency-bound, not
 CPU-bound, but the budget is the Ollama subscription's metering, so parallel
 task count is a real knob.
+
+Worktrees must sit under $KILN_REPO/.studio/agents/worktrees/ — the studio
+creates them there; a caller that points at the served checkout is refused.
 """
 
 from __future__ import annotations
@@ -25,11 +28,27 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .flow import FLOW_PERSISTENCE, KilnTaskFlow
+from pathlib import Path
 
 MAX_PARALLEL = 2
+MAX_BODY = 1_000_000
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
+_slots = threading.Semaphore(MAX_PARALLEL)
+
+
+def worktree_allowed(worktree: str, repo: str | None = None) -> bool:
+    """True iff worktree is a directory under <repo>/.studio/agents/worktrees/."""
+    root_s = repo if repo is not None else os.environ.get("KILN_REPO", "")
+    if not root_s or not worktree:
+        return False
+    try:
+        wt = Path(worktree).resolve()
+        root = (Path(root_s).resolve() / ".studio" / "agents" / "worktrees")
+        wt.relative_to(root)
+    except (ValueError, OSError):
+        return False
+    return wt.is_dir()
 
 
 def _task_lock(task_id: str) -> threading.Lock:
@@ -38,8 +57,11 @@ def _task_lock(task_id: str) -> threading.Lock:
 
 
 def _run(task_id: str, brief: str | None, worktree: str | None, approved=None):
+    # Imported here so serve.py can be tested without pulling CrewAI.
+    from .flow import FLOW_PERSISTENCE, KilnTaskFlow
     lock = _task_lock(task_id)
     if not lock.acquire(blocking=False):
+        _slots.release()
         print(f"serve: task {task_id} already running; ignoring duplicate kick")
         return
     try:
@@ -58,6 +80,7 @@ def _run(task_id: str, brief: str | None, worktree: str | None, approved=None):
         print(f"serve: task {task_id} crashed: {e}")
     finally:
         lock.release()
+        _slots.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -79,7 +102,12 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._json({"error": "bad content-length"}, 400)
+        if n < 0 or n > MAX_BODY:
+            return self._json({"error": "body too large"}, 413)
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
         except json.JSONDecodeError:
@@ -89,6 +117,13 @@ class Handler(BaseHTTPRequestHandler):
             task_id, brief, worktree = body.get("task_id"), body.get("brief"), body.get("worktree")
             if not task_id or not brief or not worktree:
                 return self._json({"error": "task needs task_id, brief, worktree"}, 400)
+            if not worktree_allowed(str(worktree)):
+                return self._json({"error": "worktree must be under $KILN_REPO/.studio/agents/worktrees/"}, 400)
+            lock = _task_lock(str(task_id))
+            if lock.locked():
+                return self._json({"error": "task already running"}, 409)
+            if not _slots.acquire(blocking=False):
+                return self._json({"error": "too many parallel tasks"}, 429)
             threading.Thread(target=_run, args=(task_id, brief, worktree),
                              kwargs={"approved": None}, daemon=True).start()
             return self._json({"task_id": task_id, "running": True}, 202)
@@ -97,6 +132,11 @@ class Handler(BaseHTTPRequestHandler):
             task_id = self.path[len("/task/"):-len("/decision")]
             if "approved" not in body:
                 return self._json({"error": "decision needs approved: true|false"}, 400)
+            lock = _task_lock(task_id)
+            if lock.locked():
+                return self._json({"error": "task already running"}, 409)
+            if not _slots.acquire(blocking=False):
+                return self._json({"error": "too many parallel tasks"}, 429)
             threading.Thread(target=_run, args=(task_id, None, None),
                              kwargs={"approved": bool(body["approved"])}, daemon=True).start()
             return self._json({"task_id": task_id, "resumed": True}, 202)

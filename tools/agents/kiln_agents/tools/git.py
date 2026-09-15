@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 
 _OPS = {
     "status": ["status", "--short", "--branch"],
-    "diff":   ["diff", "--stat", "HEAD"],
     "log":    ["log", "--oneline", "-10"],
 }
 
@@ -32,6 +31,7 @@ class Git(BaseTool):
                         "commit -m. Never pushes, never switches branches, never force-anything.")
     args_schema: type[BaseModel] = GitArgs
     worktree: str = ""
+    base: str = ""  # SHA recorded at task create; diff is base...HEAD
 
     def _git(self, argv: list[str]) -> str:
         proc = subprocess.run(["git", "-C", self.worktree, *argv],
@@ -42,6 +42,10 @@ class Git(BaseTool):
     def _run(self, op: str, paths: list[str] | None = None, message: str = "") -> str:
         if op in _OPS:
             return self._git(_OPS[op])
+
+        if op == "diff":
+            spec = f"{self.base}...HEAD" if self.base else "HEAD"
+            return self._git(["diff", "--stat", spec])
 
         if op == "add":
             from ._scope import in_worktree
