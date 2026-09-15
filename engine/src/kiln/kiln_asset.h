@@ -87,6 +87,11 @@ uint32_t kiln_asset_count(const KilnAsset *db);
  *  buffer at boot rather than guessing. */
 size_t kiln_asset_size(const KilnAsset *db, const char *key, size_t key_len);
 
+/** Arena bytes the open reader holds for its index and trie — the persistent
+ *  part of what kiln_asset_probe_size sized. Against the arena the caller
+ *  allocated, this is the headroom a HUD gauge can show. 0 for NULL. */
+size_t kiln_asset_arena_used(const KilnAsset *db);
+
 /** Boolean key presence. */
 int kiln_asset_exists(const KilnAsset *db, const char *key, size_t key_len);
 

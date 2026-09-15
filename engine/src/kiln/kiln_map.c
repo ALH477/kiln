@@ -756,3 +756,64 @@ void kiln_map_draw(const KilnMap *m)
         t3d_tri_sync();
     }
 }
+
+/* ── Tint ──────────────────────────────────────────────────────────────── */
+
+static int tint_sext(unsigned v, int bits)
+{
+    const unsigned sign = 1u << (bits - 1);
+    return (v & sign) ? (int)v - (int)(sign << 1) : (int)v;
+}
+
+static uint32_t tint_lerp(uint32_t a, uint32_t b, float k, float scale)
+{
+    if (k < 0.0f) k = 0.0f;
+    if (k > 1.0f) k = 1.0f;
+    uint32_t out = a & 0xFFu;
+    for (int shift = 8; shift <= 24; shift += 8) {
+        const float ca = (float)((a >> shift) & 0xFFu), cb = (float)((b >> shift) & 0xFFu);
+        float c = (ca + (cb - ca) * k) * scale;
+        if (c > 255.0f) c = 255.0f;
+        out |= (uint32_t)c << shift;
+    }
+    return out;
+}
+
+void kiln_map_tint(KilnMap *m, const KilnMapTint *t)
+{
+    if (!m || !t) return;
+    const float y0 = m->world_aabb_min.v[1];
+    const float span = m->world_aabb_max.v[1] - y0;
+    const float inv_span = span > 1e-3f ? 1.0f / span : 0.0f;
+    const float inv_r2 = t->floor_radius > 1e-3f ? 1.0f / (t->floor_radius * t->floor_radius) : 0.0f;
+
+    for (int f = 0; f < m->face_count; f++) {
+        KilnMapFace *face = &m->faces[f];
+        if (!face->verts || face->vert_count < 3) continue;
+        const int pairs = (face->vert_count + 1) / 2;
+        for (int vi = 0; vi < pairs * 2; vi++) {
+            T3DVertPacked *e = &face->verts[vi / 2];
+            const int16_t *p = (vi & 1) ? e->posB : e->posA;
+            const uint16_t n = (vi & 1) ? e->normB : e->normA;
+            /* The 5.6.5 fields are SIGNED (see CLAUDE.md's .t3dm notes). */
+            const float ny = (float)tint_sext((n >> 5) & 0x3Fu, 6) / 31.5f;
+            const float nz = (float)tint_sext(n & 0x1Fu, 5) / 15.5f;
+            uint32_t c;
+            if (ny > 0.7f) {
+                c = ((float)p[1] <= t->floor_y)
+                  ? tint_lerp(t->floor, t->floor_edge,
+                              ((float)p[0] * p[0] + (float)p[2] * p[2]) * inv_r2, 1.0f)
+                  : t->top;
+            } else if (ny < -0.7f) {
+                c = t->underside;
+            } else {
+                const float shade = (nz > 0.7f || nz < -0.7f) ? t->z_face_shade : 1.0f;
+                c = tint_lerp(t->wall_low, t->wall_high, ((float)p[1] - y0) * inv_span,
+                              shade > 0.0f ? shade : 1.0f);
+            }
+            if (vi & 1) e->rgbaB = c; else e->rgbaA = c;
+        }
+        face->rgba = face->verts[0].rgbaA;
+        data_cache_hit_writeback(face->verts, sizeof(T3DVertPacked) * (size_t)pairs);
+    }
+}

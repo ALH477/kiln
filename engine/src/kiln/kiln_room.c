@@ -192,36 +192,49 @@ void kiln_room_system_update(KilnRoomSystem *sys, fm_vec3_t camera_pos)
                            camera_pos.v[1] + CAMERA_AABB_HALF,
                            camera_pos.v[2] + CAMERA_AABB_HALF }};
 
-    /* Pass A: compute desired set. */
+    /* Pass A: compute the desired set.
+     *
+     * The rooms the camera box touches — the one containing the camera point
+     * first — then THEIR neighbours, stopping at max_loaded.
+     *
+     * This used to be "touches the camera, OR is already loaded, OR neighbours
+     * any loaded room". That is a closure, not a set: a loaded room kept itself
+     * loaded forever, and every frame added one more ring of neighbours until
+     * the set tried to exceed max_loaded and append_loaded asserted. On a 2x2
+     * grid with max_loaded 3 that is the third frame after boot. examples/
+     * rooms-demo walled its player into room A as well, so no room was ever
+     * seen to unload, because none ever could. */
     uint8_t desired[KILN_ROOM_MAX_LOADED];
     uint16_t desired_count = 0;
+    const uint16_t cap = sys->max_loaded < KILN_ROOM_MAX_LOADED
+                       ? sys->max_loaded : KILN_ROOM_MAX_LOADED;
 
-    for (uint16_t i = 0; i < sys->room_count; i++) {
-        KilnRoom *r = &sys->rooms[i];
-
-        int candidate =
-            aabb_intersects(cam_min, cam_max, r->aabb_min, r->aabb_max) ||
-            /* A loaded room's neighbours are also candidates — this is the
-             * pre-load that hides seam pop-in. A neighbour that shares a
-             * border with the current room will get loaded the moment the
-             * camera touches the border, not the moment the camera enters
-             * it. */
-            (r->flags & KILN_ROOM_FLAG_LOADED);
-
-        /* If this room is currently loaded, OR a loaded room lists it as
-         * a neighbour, keep it in the desired set. */
-        if (!candidate) {
-            for (uint8_t j = 0; j < r->neighbour_count; j++) {
-                uint8_t n = r->neighbours[j];
-                if (n < sys->room_count && is_loaded(n)) {
-                    candidate = 1;
-                    break;
-                }
-            }
+    for (int pass = 0; pass < 2; pass++) {
+        for (uint16_t i = 0; i < sys->room_count && desired_count < cap; i++) {
+            KilnRoom *r = &sys->rooms[i];
+            const int hit = pass == 0
+                ? aabb_contains(r->aabb_min, r->aabb_max, camera_pos)
+                : aabb_intersects(cam_min, cam_max, r->aabb_min, r->aabb_max);
+            if (!hit) continue;
+            int dup = 0;
+            for (uint16_t j = 0; j < desired_count; j++)
+                if (desired[j] == r->id) { dup = 1; break; }
+            if (!dup) desired[desired_count++] = r->id;
         }
+    }
 
-        if (candidate && desired_count < KILN_ROOM_MAX_LOADED) {
-            desired[desired_count++] = r->id;
+    /* Neighbours of the rooms the camera is in — not of whatever happens to
+     * be loaded — so the set is a function of where the camera is. */
+    const uint16_t seeds = desired_count;
+    for (uint16_t k = 0; k < seeds; k++) {
+        const KilnRoom *r = &sys->rooms[desired[k]];
+        for (uint8_t j = 0; j < r->neighbour_count && desired_count < cap; j++) {
+            const uint8_t n = r->neighbours[j];
+            if (n >= sys->room_count) continue;
+            int dup = 0;
+            for (uint16_t d = 0; d < desired_count; d++)
+                if (desired[d] == n) { dup = 1; break; }
+            if (!dup) desired[desired_count++] = n;
         }
     }
 

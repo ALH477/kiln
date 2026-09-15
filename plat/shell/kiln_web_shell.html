@@ -53,6 +53,36 @@
     onRuntimeInitialized: function () { statusEl.textContent = 'running'; }
   };
 </script>
+<script>
+  // Kiln Studio embeds this page, same origin, and drives it through
+  // Module.kiln (plat/shell/shell_web.c's studio bridge): console commands and
+  // pad input go onto queues the launcher drains between frames, and the frame
+  // count, the pad and the console's log come back. Only the embedding window
+  // on this origin is listened to or answered; opened on its own, a page has
+  // no parent and none of this runs.
+  (function () {
+    if (window.parent === window) return;
+    var parentWin = window.parent, origin = location.origin;
+    var k = Module.kiln = Module.kiln || {};
+    window.addEventListener('message', function (e) {
+      if (e.origin !== origin || e.source !== parentWin || !e.data) return;
+      var m = e.data;
+      if (typeof m.cmd === 'string') (k.cmdq = k.cmdq || []).push(m.cmd.slice(0, 63));
+      if (m.pad && typeof m.pad === 'object') {
+        (k.padq = k.padq || []).push({ buttons: m.pad.buttons | 0, stick_x: m.pad.stick_x | 0,
+          stick_y: m.pad.stick_y | 0, frames: Math.max(1, Math.min(600, m.pad.frames | 0)) });
+      }
+      if (m.shot) parentWin.postMessage({ kiln: 'shot', png: Module.canvas.toDataURL('image/png') }, origin);
+    });
+    var sentConsole = -1;
+    setInterval(function () {
+      if (!k.frame) return;
+      var msg = { kiln: 'state', frame: k.frame, pad: k.pad };
+      if (k.consoleSeq !== sentConsole) { msg.console = k.console; sentConsole = k.consoleSeq; }
+      parentWin.postMessage(msg, origin);
+    }, 250);
+  })();
+</script>
 {{{ SCRIPT }}}
 </body>
 </html>

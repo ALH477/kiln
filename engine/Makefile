@@ -29,6 +29,25 @@ N64_CFLAGS += -std=gnu2x -Os -Isrc -Wall -Wextra -Wno-error \
 
 OBJ = $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(MODULES)))
 
+# kiln_soft3d.o compiles an Exsecutor C-backend unit (src/kiln/gen/), and the
+# generated prologue REFUSES -ffast-math, which n64.mk turns on for
+# everything via N64_C_AND_CXX_FLAGS: `#error "exsecutor: -ffast-math is
+# refused (spec 5.4)"`. That refusal is correct — a compiler told it may
+# assume no NaNs and reorder floating point is not compiling the program
+# Exsecutor defines — so this one object gets -fno-fast-math, appended AFTER
+# n64.mk's flags so it wins. Do not "fix" a build failure here by deleting
+# the #error. -Werror is put back because the generated C is warning-clean
+# under -Wall and should stay provably so — with one surgical relaxation:
+# kiln_soft3d.h includes <libdragon.h> for surface_t, and the pinned
+# libdragon headers trip -Wtype-limits inside rdpq.h's assertf macros,
+# which is the third-party noise the global -Wno-error above exists for.
+# -Wno-unused-function because the unit's helper blob is a fixed prologue.
+# The rasterizer spends real f64 opcodes by design — unlike the StreamDB
+# reader, FP instructions in this object are expected.
+# examples/exsec-streamdb-demo/Makefile has the same story at ROM scope.
+$(BUILD_DIR)/kiln_soft3d.o: N64_CFLAGS += -fno-fast-math -Werror -Wno-unused-function -Wno-error=type-limits
+$(BUILD_DIR)/kiln_soft3d.o: src/kiln/gen/signaculum_mips64.gen.c src/kiln/gen/signaculum_x86_64.gen.c
+
 all: $(BUILD_DIR)/libkiln.a
 
 $(BUILD_DIR)/libkiln.a: $(OBJ)

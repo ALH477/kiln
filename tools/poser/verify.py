@@ -281,24 +281,47 @@ def check_model(model, data_dir, verbose=False):
 
 
 def main(argv):
+    as_json = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
     data_dir = HERE / "data"
     models = argv or ["dank", "sparky", "moss", "glimmer", "goblin"]
-    print(f"── poser convention check (tolerance {TOLERANCE_DEG}deg) ──")
+    say = (lambda *a, **k: None) if as_json else print
+    say(f"── poser convention check (tolerance {TOLERANCE_DEG}deg) ──")
     fail = 0
     checked = 0
+    errors, notes, metrics = [], [], {}
     for model in models:
-        r = check_model(model, data_dir, verbose=len(models) == 1)
+        if as_json:
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):
+                r = check_model(model, data_dir, verbose=False)
+        else:
+            r = check_model(model, data_dir, verbose=len(models) == 1)
         if r is None:
+            notes.append({"code": "NOT_STAGED", "msg": f"{model} has no staged .gltf/index.json",
+                          "where": model})
             continue
         checked += 1
         worst, where = r
+        metrics[model] = {"worst_deg": round(worst, 4), "where": where}
         status = "ok" if worst < TOLERANCE_DEG else "FAILED"
-        print(f"  {model:<9} convention {worst:6.3f}deg  {where:<26} {status}")
+        say(f"  {model:<9} convention {worst:6.3f}deg  {where:<26} {status}")
         if worst >= TOLERANCE_DEG:
             fail += 1
-    if checked == 0:
+            errors.append({"code": "CONVENTION", "where": where,
+                           "msg": f"{model}: {worst:.3f} deg between the editor's Euler convention and "
+                                  f"Blender's export (tolerance {TOLERANCE_DEG})"})
+    if checked == 0 and not as_json:
         print("  nothing staged to check")
         return 2
+    if as_json:
+        import json
+        if checked == 0:
+            errors.append({"code": "NOTHING_STAGED", "msg": "no model is staged; run ./dev poser-stage"})
+        print(json.dumps({"tool": "poser-verify", "version": 1, "ok": not errors, "errors": errors,
+                          "notes": notes, "metrics": metrics, "subject": ",".join(models)}, indent=1))
+        return 1 if errors else 0
     print("verify: convention holds" if not fail
           else "verify: FAILED — the editor would misrepresent the rig")
     return 1 if fail else 0

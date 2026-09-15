@@ -59,6 +59,8 @@
     font-family: ui-monospace, monospace; pointer-events: none;
   }
   .hint { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  .hint.ok { color: #7fe08a; }
+  .hint.bad { color: #ff7a7a; }
 </style>
 </head>
 <body>
@@ -95,6 +97,7 @@
     <button id="import">import .map</button>
     <button id="export">export .map</button>
   </div>
+  <div id="file-out" class="hint"></div>
   <input id="import-file" type="file" accept=".map,text/plain" />
 
   <h2>validate</h2>
@@ -113,7 +116,8 @@
 {
   "imports": {
     "three": "./vendor/three.module.min.js",
-    "three/addons/": "./vendor/addons/"
+    "three/addons/": "./vendor/addons/",
+    "webcommon/": "../webcommon/"
   }
 }
 </script>

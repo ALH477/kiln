@@ -51,6 +51,11 @@ typedef struct {
     uint8_t  fogMode;
     char    *texPathA;
     char    *texPathB;
+    /* The one field of Tiny3D's T3DMaterialTexture the engine reads:
+     * kiln_texanim matches a texture-reference material by it. The host reader
+     * leaves it 0, which Tiny3D also reads as "not a reference", and the host
+     * draw never calls a dynTextureCb anyway. */
+    struct { uint32_t texReference; } textureA;
 } T3DMaterial;
 
 typedef struct {
@@ -81,9 +86,24 @@ typedef struct {
     T3DObjectPart *parts;         /* numParts entries                        */
 } T3DObject;
 
+/* The bone and skeleton chunks are the console's layouts, copied from
+ * Tiny3D's t3dmodel.h: kiln_skel reads `name` and `depth` to build bone
+ * masks, and that code has to compile here to be in HOST_MODULES. Nothing on
+ * the host parses them — no .t3dm skeleton is ever loaded (see
+ * t3dskeleton.h). */
 typedef struct {
-    uint16_t boneCount;
-    void    *bones;
+    char    *name;
+    uint16_t parentIdx;
+    uint16_t depth;
+    T3DVec3  scale;
+    T3DQuat  rotation;
+    T3DVec3  position;
+} T3DChunkBone;
+
+typedef struct {
+    uint16_t     boneCount;
+    uint16_t     _reserved;
+    T3DChunkBone bones[];
 } T3DChunkSkeleton;
 
 typedef struct {

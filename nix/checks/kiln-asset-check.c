@@ -86,6 +86,12 @@ int main(int argc, char **argv)
     CHECK(db != NULL, "open_stdio failed");
     if (!db) return 1;
 
+    /* ── arena: the reader's persistent share, which a HUD gauges ── */
+    size_t used = kiln_asset_arena_used(db);
+    CHECK(used > 0 && used <= need, "arena_used: %zu of a %zu-byte arena", used, need);
+    CHECK(kiln_asset_arena_used(NULL) == 0, "arena_used(NULL) should be 0");
+    printf("  arena: %zu of %zu bytes held\n", used, need);
+
     /* ── count ── */
     uint32_t n = kiln_asset_count(db);
     CHECK(n == 3, "count: expected 3, got %u", n);

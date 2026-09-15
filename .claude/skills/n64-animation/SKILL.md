@@ -13,10 +13,35 @@ the hardware rather than choices:
   the Tiny3D source), and at most three bones may touch a triangle. There is no
   4-bone weighted blend on console. Design silhouettes that survive rigid
   joints — a shoulder is a socket, not a smooth deformation.
-- **`kiln_skel` has exactly two blend slots**, one primary skeleton plus one
-  pose-only clone mixed by a live scalar (`kiln_skel_set_blend`). That is an
-  idle↔walk locomotion blend and nothing more: no N-way blend tree, no
-  upper/lower-body masks, no partial-bone masking.
+- **`kiln_skel` has three slots and no blend tree.** BASE and BLEND are the
+  locomotion pair, mixed by one scalar (`kiln_skel_set_blend`, or
+  `kiln_skel_crossfade` into the lighter slot). OVERLAY is blended over the
+  result for a bone MASK — `kiln_skel_mask_bone(sk, "torso")` for an attack or
+  a wave that leaves the legs running. Resolve bones by NAME: the exporter's
+  order is not the script's. Props ride a bone through `kiln_skel_bone_push`
+  (bone matrices are MODEL units, x64 baked in); a head turns with
+  `kiln_skel_bone_rotate` each frame before `kiln_skel_update`.
+- **Clip time is real seconds at 24 fps** — nothing sets Blender's scene rate.
+  Read `kiln_skel_length`, never a frame count. A one-shot on the overlay fades
+  out before its end, because Tiny3D stops a finished clip without applying
+  its last pose.
+
+## Feet: measure the ground speed, then play at travel / ground speed
+
+A walk or run clip moves its planted foot backwards at some speed; the game
+moves the character at another. Unless playback rate = travel speed / ground
+speed, the feet skate. `tools/blender/gait.py` measures it by forward
+kinematics over the shipped glTF (or `--source goblin --rig <gltf>` over
+goblin.py's keys, before paying for a Blender run), along with swing clearance
+and the lowest contact. Publish the number as `GOBLIN_*_MPS` in the C;
+`nix/checks/goblin-gait.nix` holds both the clip and the C to it. While two
+locomotion clips blend, give both one CYCLE rate (rate x own length) so they
+stay on the same foot, and phase-match the incoming clip on a slot swap.
+
+A rotation-only rig cannot crouch: bending the knees RAISES the feet. Lower the
+body by the feet's rise (`kiln_skel_bone_pos` on the foot bones) while grounded.
+A roll spins the whole body about a published pivot (`ROLL_PIVOT_M`) through a
+nested transform; the clip only holds the tuck.
 
 `kiln_skel_play` does **not** reset bones the new clip does not touch — call
 `t3d_skeleton_reset` first, or a limb keeps the last clip's pose.
@@ -158,7 +183,7 @@ degrees; more reads as a limp.
 ## The poser
 
 ```bash
-./dev poser          # three.js editor on :8001
+./dev poser          # three.js editor on :8001/poser/ (./dev studio saves in place)
 ./dev poser-stage    # rebuild the models it loads + re-dump their keyframes
 ./dev poser-verify   # prove its Euler convention against Blender's export
 ```

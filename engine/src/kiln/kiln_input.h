@@ -92,6 +92,58 @@ int kiln_input_held    (int port, uint32_t mask);
 int kiln_input_pressed (int port, uint32_t mask); /**< edge: was up, is down */
 int kiln_input_released(int port, uint32_t mask);
 
+/* ── Tapes: scripted input, for attract modes and jump ROMs ─────────────
+ * A tape replaces a port's RAW pad state — buttons and stick counts — before
+ * the deadzone and edge code above run, so a scripted press produces a real
+ * edge on its first frame and a real release after, exactly as a thumb would.
+ * Nothing downstream can tell, which is the point: an attract mode exercises
+ * the same player code a person does.
+ *
+ * Two ways to run one, and they differ only in who wins:
+ *   kiln_input_play        FORCED. The tape drives the port and the physical
+ *                          pad is ignored. For jump ROMs: `./dev shot` has no
+ *                          input path, and a build that must reach a state
+ *                          cannot depend on `./dev drive`'s uinput chain.
+ *   kiln_input_set_attract STANDBY. After `idle_frames` consecutive frames of
+ *                          no buttons and a centred stick, the tape takes over
+ *                          from its start; any real input hands the port back
+ *                          on that same frame and restarts the idle count.
+ *
+ * A ROM that installs neither behaves exactly as before. */
+
+/** One key: from `frame` on, the port reads these values until the next key.
+ *  `buttons` is KILN_BTN_*; sticks are raw counts (±85 is full tilt). */
+typedef struct {
+    uint16_t frame;
+    uint16_t buttons;
+    int8_t   sx, sy;
+    int8_t   cx, cy;
+} KilnInputKey;
+
+/** Keys in ascending `frame` order. The LAST key marks the end of the tape: a
+ *  looping tape jumps to `loop_frame` on reaching it (the last key's own values
+ *  are never applied), and a tape with `loop_frame == KILN_INPUT_NO_LOOP` holds
+ *  the last key's values forever. Before the first key the port reads idle. */
+typedef struct {
+    const KilnInputKey *keys;
+    uint16_t            count;
+    uint16_t            loop_frame;
+} KilnInputTape;
+
+#define KILN_INPUT_NO_LOOP 0xFFFF
+
+/** Drive `port` from `tape` starting next update, ignoring the pad. NULL stops.
+ *  The tape is referenced, not copied — keep it static. */
+void kiln_input_play(int port, const KilnInputTape *tape);
+
+/** Arm `tape` to take over `port` after `idle_frames` idle updates. NULL
+ *  disarms. A forced tape on the same port takes precedence. */
+void kiln_input_set_attract(int port, const KilnInputTape *tape, uint16_t idle_frames);
+
+/** 1 while a tape (forced or attract) is driving `port` — for a HUD badge, so
+ *  a viewer can tell a demo playing itself from a stuck controller. */
+int kiln_input_scripted(int port);
+
 #ifdef __cplusplus
 }
 #endif

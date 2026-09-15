@@ -980,6 +980,204 @@ def anim_taunt(armature):
     ], length=60, loop=False)
 
 
+
+# ── action set: run, jump, fall, land, attack, roll ────────────────────────
+# Measured, not eyeballed: tools/blender/gait.py poses these through the same
+# rest skeleton the glTF ships and reports each locomotion clip's GROUND SPEED
+# (how fast a planted foot passes backwards), which is the number a game needs
+# to play the clip without the feet skating. The numbers are published below
+# and nix/checks/goblin-gait.nix holds both the clips and the C that plays
+# them to it.
+#
+# The directions these poses use, measured by FK over the rig rather than
+# guessed (model +X is his left, -Z is forward):
+#   thigh +X   leg forward        shin -X    knee bends, foot back and up
+#   foot  -X   toe up             root/torso -X   pitch forward
+#   head  +X   chin up            arm +X     arm swings forward and up (both)
+#   arm_r +Z / arm_l -Z   arm raised out to the side and up
+#   forearm +X   elbow curls the hand forward
+#   torso +Y   twists the right shoulder back
+
+def _run_pose(s):
+    """Contact, left leg leading when s = +1. A run has no double support, so
+    the back leg is already pushing off as the front one lands."""
+    return {
+        "root":    (-10, 0, 4 * s),
+        "torso":   (-8, 10 * s, -2 * s),
+        "neck":    (6, 0, 0),
+        "head":    (10, -6 * s, 0),
+        "thigh_l": (46 * s, 0, 0), "thigh_r": (-46 * s, 0, 0),
+        "shin_l":  (-12 - 44 * max(0, -s), 0, 0),
+        "shin_r":  (-12 - 44 * max(0, s), 0, 0),
+        "foot_l":  (-12 * s + 16 * max(0, -s), 0, 0),
+        "foot_r":  (12 * s + 16 * max(0, s), 0, 0),
+        "arm_l":   (-48 * s, 0, -6), "arm_r": (48 * s, 0, 6),
+        "forearm_l": (64 + 12 * s, 0, 0), "forearm_r": (64 - 12 * s, 0, 0),
+        "ear_l":   (0, -26, 0), "ear_r": (0, 26, 0),
+        "nose":    (-4 * s, 0, 0), "jaw": (6, 0, 0),
+    }
+
+
+def anim_run(armature):
+    """Sixteen frames, two strides: contact, down, passing, flight.
+
+    The passing pose is where a run lives or dies. The SWING leg tucks — knee
+    high, heel up under the backside — while the stance leg straightens under
+    the body. Bend the stance knee instead and both feet pass at the same
+    height, which gait.py reports as zero clearance and which reads on screen
+    as a shuffle at speed.
+    """
+    def half(base, s):
+        contact = _run_pose(s)
+        down = dict(_run_pose(s * 0.7))
+        down["root"] = (-14, 0, 5 * s)
+        swing, stance = ("r", "l") if s > 0 else ("l", "r")
+        passing = dict(_run_pose(0))
+        passing.update({
+            f"thigh_{swing}": (34, 0, 0), f"shin_{swing}": (-104, 0, 0),
+            f"foot_{swing}": (28, 0, 0),
+            f"thigh_{stance}": (-14, 0, 0), f"shin_{stance}": (-8, 0, 0),
+            f"foot_{stance}": (8, 0, 0),
+            "root": (-12, 0, 2 * s),
+        })
+        flight = dict(_run_pose(-s * 0.85))
+        flight[f"shin_{stance}"] = (-30, 0, 0)
+        flight[f"foot_{stance}"] = (34, 0, 0)
+        return [(base + 0, contact), (base + 2, down, "out"),
+                (base + 4, passing), (base + 6, flight, "in")]
+
+    keys = half(0, 1) + half(8, -1)
+    keys.append((16, _run_pose(1)))
+    _bake(armature, "Run", keys, length=16, step=1)
+
+
+def _tuck(amount):
+    k = amount
+    return {
+        "root": (-24 * k, 0, 0), "torso": (-26 * k, 0, 0), "neck": (-10 * k, 0, 0),
+        "head": (-16 * k, 0, 0),
+        "thigh_l": (84 * k, 0, 6 * k), "thigh_r": (84 * k, 0, -6 * k),
+        "shin_l": (-118 * k, 0, 0), "shin_r": (-118 * k, 0, 0),
+        "foot_l": (30 * k, 0, 0), "foot_r": (30 * k, 0, 0),
+        "arm_l": (62 * k, 0, 18 * k), "arm_r": (62 * k, 0, -18 * k),
+        "forearm_l": (96 * k, 0, 0), "forearm_r": (96 * k, 0, 0),
+        "ear_l": (0, 34 * k, 0), "ear_r": (0, -34 * k, 0),
+    }
+
+
+REST_BODY = {b: ZERO for b in _tuck(1)}
+
+
+def anim_jump(armature):
+    """The take-off, from the moment the feet leave the ground: fully extended
+    — arms flung up, toes pointed — then the knees come up under him. A game
+    starts this on the jump press and hands over to Fall at the apex."""
+    extend = {
+        "root": (6, 0, 0), "torso": (8, 0, 0), "neck": (4, 0, 0), "head": (12, 0, 0),
+        "thigh_l": (-8, 0, 0), "thigh_r": (-4, 0, 0),
+        "shin_l": (-4, 0, 0), "shin_r": (-10, 0, 0),
+        "foot_l": (38, 0, 0), "foot_r": (34, 0, 0),
+        "arm_l": (118, 0, -24), "arm_r": (118, 0, 24),
+        "forearm_l": (10, 0, 0), "forearm_r": (10, 0, 0),
+        "ear_l": (0, -40, 0), "ear_r": (0, 40, 0), "jaw": (18, 0, 0),
+    }
+    tuck = _tuck(0.6)
+    tuck.update({"arm_l": (70, 0, -40), "arm_r": (70, 0, 40), "head": (4, 0, 0),
+                 "jaw": (4, 0, 0), "ear_l": (0, 20, 0), "ear_r": (0, -20, 0)})
+    _bake(armature, "Jump", [
+        (0, dict(REST_BODY, **{"jaw": ZERO})),
+        (3, extend, "out"),
+        (12, tuck, "over"),
+    ], length=12, loop=False)
+
+
+def anim_fall(armature):
+    """Arms out for balance, legs cycling a little — the loop he holds from
+    the apex down. Small amplitude on purpose: it plays for as long as the
+    fall lasts, and anything big becomes a flail."""
+    def f(sw):
+        return {
+            "root": (4, 0, 2 * sw), "torso": (2, 0, -3 * sw), "head": (-10, 0, 3 * sw),
+            "arm_l": (24 + 6 * sw, 0, -74 - 8 * sw), "arm_r": (24 - 6 * sw, 0, 74 - 8 * sw),
+            "forearm_l": (26, 0, 0), "forearm_r": (26, 0, 0),
+            "thigh_l": (22 + 12 * sw, 0, -6), "thigh_r": (10 - 12 * sw, 0, 6),
+            "shin_l": (-40 - 10 * sw, 0, 0), "shin_r": (-40 + 10 * sw, 0, 0),
+            "foot_l": (16, 0, 0), "foot_r": (16, 0, 0),
+            "ear_l": (0, -34 - 10 * sw, 0), "ear_r": (0, 34 + 10 * sw, 0), "jaw": (14, 0, 0),
+        }
+    _bake(armature, "Fall", [(0, f(1)), (12, f(-1)), (24, f(1))], length=24)
+
+
+def anim_land(armature):
+    """Touchdown: absorb into a crouch, hold a beat, come up. The crouch RAISES
+    the feet — there is no root translation channel — so a game lowers the
+    body by the feet's rise while this plays (kiln_skel_bone_pos on the foot
+    bones), which is also what keeps Idle and Walk planted."""
+    impact = _tuck(0.55)
+    impact.update({"head": (8, 0, 0), "arm_l": (34, 0, -30), "arm_r": (34, 0, 30),
+                   "forearm_l": (30, 0, 0), "forearm_r": (30, 0, 0)})
+    _bake(armature, "Land", [
+        (0, _tuck(0.25)),
+        (3, impact, "out"),
+        (6, _tuck(0.5)),
+        (14, REST_BODY, "inout"),
+    ], length=14, loop=False)
+
+
+# The bones Attack keys. Upper body only, by construction: a game masks the
+# overlay to kiln_skel_mask_bone("torso") and the legs keep running under it,
+# so a key on a leg or the root here would simply be thrown away.
+ATTACK_BONES = ("torso", "neck", "head", "jaw", "arm_l", "forearm_l", "arm_r",
+                "forearm_r", "hand_r", "ear_l", "ear_r")
+
+
+def anim_attack(armature):
+    """An overhead chop with the right hand. Anticipation (up and back, the
+    torso winding away), a fast strike ("in" — accelerating into the hit),
+    an overshoot past the target, and a slower recovery. Twelve frames: a game
+    with a shorter attack window plays it faster, never cuts it."""
+    def pose(**kw):
+        return {b: kw.get(b, ZERO) for b in ATTACK_BONES}
+
+    windup = pose(torso=(10, 26, 4), neck=(0, 6, 0), head=(-4, -12, 0), jaw=(10, 0, 0),
+                  arm_r=(-24, 0, 148), forearm_r=(72, 0, 0), hand_r=(20, 0, 0),
+                  arm_l=(30, 0, -26), forearm_l=(40, 0, 0),
+                  ear_l=(0, 18, 0), ear_r=(0, -18, 0))
+    strike = pose(torso=(-20, -26, -4), neck=(0, -6, 0), head=(-10, 10, 0), jaw=(24, 0, 0),
+                  arm_r=(82, 0, 34), forearm_r=(6, 0, 0), hand_r=(-16, 0, 0),
+                  arm_l=(-30, 0, -14), forearm_l=(20, 0, 0),
+                  ear_l=(0, -30, 0), ear_r=(0, 30, 0))
+    follow = pose(torso=(-24, -32, -4), neck=(0, -8, 0), head=(-12, 12, 0), jaw=(8, 0, 0),
+                  arm_r=(92, 0, 22), forearm_r=(12, 0, 0), hand_r=(-24, 0, 0),
+                  arm_l=(-34, 0, -12), forearm_l=(24, 0, 0))
+    _bake(armature, "Attack", [
+        (0, pose()),
+        (3, windup, "out"),
+        (5, strike, "in"),
+        (7, follow, "over"),
+        (12, pose(), "inout"),
+    ], length=12, loop=False, step=1)
+
+
+def anim_roll(armature):
+    """The tucked ball a dodge roll spins. The SPIN is not here: the rig has
+    rotation channels only, and a rotation about the feet-level origin would
+    fell him rather than roll him. A game turns the whole body about
+    ROLL_PIVOT_M while this holds the tuck."""
+    _bake(armature, "Roll", [
+        (0, REST_BODY),
+        (3, _tuck(1.0), "out"),
+        (10, _tuck(1.0)),
+        (14, _tuck(0.2), "inout"),
+    ], length=14, loop=False)
+
+
+# Published for the C that plays these clips; nix/checks/goblin-gait.nix
+# measures the clips and checks both these and the demos against them.
+HIP_M = 0.72            # root bone height above the feet (BONES)
+ROLL_PIVOT_M = 0.45     # centre of the tucked ball, above the feet
+
+
 # ── riding ─────────────────────────────────────────────────────────────────
 # ONE set of riding actions, meant to work across more than one vehicle body
 # (a downstream game paired this rig with two: a kart and a motorcycle), by
@@ -1338,6 +1536,12 @@ def build_all_actions(armature, spec_name="goblin"):
     anim_walk(armature)
     anim_wave(armature)
     anim_taunt(armature)
+    anim_run(armature)
+    anim_jump(armature)
+    anim_fall(armature)
+    anim_land(armature)
+    anim_attack(armature)
+    anim_roll(armature)
     anim_pose(armature, POSES.get(spec_name, {}))
     anim_ride(armature)
     anim_ride_drive(armature)

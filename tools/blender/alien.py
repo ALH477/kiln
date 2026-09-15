@@ -6,9 +6,9 @@
 
 A new actor for examples/cinematic-demo. Taller and leaner than the goblin,
 six legs arranged around a vertical torso, deep purple skin with a sickly
-green belly, a single red eye. Two bones (root, head) so the head can bob
-forward as the alien approaches — the only animation, on purpose: it's a
-background creature, not a character.
+green belly, a single red eye. Two bones (root, head) and two clips: Approach
+(the head bobs forward as it closes the distance) and Idle (a slow sway once it
+has stopped). It's a background creature, not a character, so that is all.
 """
 
 import sys
@@ -123,6 +123,25 @@ def anim_approach(armature):
     }, length=30)
 
 
+def anim_idle(armature):
+    """Standing its ground: a slow sway and a head that tracks a little from
+    side to side. The cinematic blends this against Approach by how fast the
+    alien is moving, so a creature that stops does not keep bobbing like it is
+    still walking (kiln_skel's two slots are exactly that locomotion blend).
+    Loops cleanly: every channel returns to bind pose at frame 90.
+    """
+    m.make_action(armature, "Idle", {
+        "root": [(0,  {'rot': (0, 0, 0)}),
+                 (45, {'rot': (2, 0, 0)}),
+                 (90, {'rot': (0, 0, 0)})],
+        "head": [(0,  {'rot': (0, 0, 0)}),
+                 (22, {'rot': (-6, 0, 10)}),
+                 (45, {'rot': (-3, 0, 0)}),
+                 (68, {'rot': (-6, 0, -10)}),
+                 (90, {'rot': (0, 0, 0)})],
+    }, length=90)
+
+
 def main():
     if m.arg("--model", "alien") != "alien":
         raise SystemExit("alien.py only builds 'alien'")
@@ -130,6 +149,7 @@ def main():
     m.reset_scene()
     armature = build_alien()
 
+    anim_idle(armature)
     anim_approach(armature)
 
     m.report(max_tris=280)

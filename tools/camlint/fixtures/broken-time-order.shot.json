@@ -1,0 +1,21 @@
+{
+  "shots": [
+    {
+      "name": "backwards",
+      "duration": 4.0, "near_z": 4.0, "far_z": 360.0, "loop": false,
+      "keys": [
+        { "t": 0.0, "eye": [0, 20, -60], "look": [0, 8, 0] },
+        { "t": 3.0, "eye": [10, 20, -50], "look": [0, 8, 0] },
+        { "t": 2.0, "eye": [20, 20, -40], "look": [0, 8, 0] }
+      ]
+    },
+    {
+      "name": "staring-at-itself",
+      "duration": 2.0, "near_z": 4.0, "far_z": 360.0, "loop": false,
+      "keys": [
+        { "t": 0.0, "eye": [5, 5, 5], "look": [5, 5, 5] },
+        { "t": 2.0, "eye": [6, 5, 5], "look": [0, 5, 5] }
+      ]
+    }
+  ]
+}

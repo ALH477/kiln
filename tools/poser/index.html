@@ -146,12 +146,22 @@
     <p class="hint">
       <code>python3 tools/blender/anim_io.py dump goblin dank tools/poser/data</code>
       writes the source keyframes here.<br />
-      Save drops a JSON in your downloads; move it back into
+      Save drops a JSON in your downloads (inside Kiln Studio it writes
+      <code>tools/poser/data/</code> directly); move it back into
       <code>tools/poser/data/</code>, then point goblin.py at it to build the
       ROM from what you posed.
     </p>
   </div>
 
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../mapmaker/vendor/three.module.min.js",
+      "three/addons/": "../mapmaker/vendor/addons/",
+      "webcommon/": "../webcommon/"
+    }
+  }
+  </script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

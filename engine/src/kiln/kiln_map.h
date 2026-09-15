@@ -111,6 +111,32 @@ void kiln_map_register_classname(const char *classname, uint16_t profile_id);
 int  kiln_map_load(KilnMap *out, const char *dfs_path);
 void kiln_map_free(KilnMap *m);
 
+/** Vertex colours for a parsed map's faces, which arrive flat white.
+ *
+ *  kiln_map parses no texture or UV data, so a level loaded as-is is a white
+ *  box lit by its normals. Three examples had each grown their own shading
+ *  pass over the packed vertices; this is that pass, once. It writes only
+ *  colours — positions and normals are untouched — and costs one walk over
+ *  the faces at load, nothing per frame.
+ *
+ *  A face is classified by its normal: up-facing at or below `floor_y` is
+ *  floor (lerped `floor` -> `floor_edge` by XZ distance from the origin over
+ *  `floor_radius`), up-facing above it is a raised top, down-facing is an
+ *  underside, and everything else is a wall, lerped `wall_low` -> `wall_high`
+ *  across the map's own height — dark at the foot, which reads as contact
+ *  shadow. Walls facing ±Z are scaled by `z_face_shade` (1 = no change) so two
+ *  walls meeting at a corner separate under flat light. Colours are RGBA8. */
+typedef struct {
+    uint32_t floor, floor_edge;
+    float    floor_y, floor_radius;
+    uint32_t top;
+    uint32_t wall_low, wall_high;
+    float    z_face_shade;
+    uint32_t underside;
+} KilnMapTint;
+
+void kiln_map_tint(KilnMap *m, const KilnMapTint *t);
+
 /** Draw every face in the map, one `t3d_vert_load` and one triangle fan per
  *  face. Intended to be called from a room's draw callback between
  *  kiln_scene_begin and kiln_actor_draw_all. */

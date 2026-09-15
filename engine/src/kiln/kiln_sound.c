@@ -43,8 +43,8 @@ void kiln_sound_init(const KilnSoundShader *shaders, int count)
     memset(&g_sound, 0, sizeof(g_sound));
     if (count < 0) count = 0;
     if (count > KILN_SOUND_CHANNELS) {
-        debugf("kiln_sound: %d shaders requested but only %d channels available; "
-               "excess shaders will be ignored\n", count, KILN_SOUND_CHANNELS);
+        debugf("kiln_sound: %d shaders requested but the table holds %d "
+               "(KILN_SOUND_CHANNELS); the excess will never play\n", count, KILN_SOUND_CHANNELS);
         count = KILN_SOUND_CHANNELS;
     }
 
@@ -116,7 +116,10 @@ int kiln_sound_play(const char *name, fm_vec3_t world_pos, float pitch)
     c->pos = world_pos;
     c->pitch = pitch;
     c->active = 1;
-    if (pitch != 1.0f) kiln_sfx_set_freq(ch, pitch);
+    /* A RATIO. This passed `pitch` to kiln_sfx_set_freq, which takes Hz, so
+     * any pitch other than exactly 1 played its sample at a couple of samples
+     * per second — silence that never ended. Every caller so far passes 1. */
+    if (pitch != 1.0f) kiln_sfx_set_pitch(ch, pitch);
     apply_positional(idx);
     return ch;
 }

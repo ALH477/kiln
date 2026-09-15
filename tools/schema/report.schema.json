@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ALH477/kiln/tools/schema/report.schema.json",
+  "title": "Kiln validation report",
+  "description": "What every validator's --json prints, and what Kiln Studio's validation dashboard reads. errors are facts that fail (ok is false exactly when there is one); notes are measurements that do not; metrics are the numbers behind both. tools/schema/report_check.py enforces this without a JSON Schema library.",
+  "type": "object",
+  "required": ["tool", "version", "ok", "errors", "notes", "metrics"],
+  "additionalProperties": true,
+  "properties": {
+    "tool": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "ok": { "type": "boolean" },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "notes": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "metrics": { "type": "object" },
+    "subject": { "type": "string", "description": "what was validated: a path, a package, a model" }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["code", "msg"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "msg": { "type": "string", "minLength": 1 },
+        "where": { "type": "string" }
+      }
+    }
+  }
+}

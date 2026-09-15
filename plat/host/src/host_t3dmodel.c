@@ -355,22 +355,31 @@ T3DModel *t3d_model_load_buf(void *buf, int size)
 T3DModel *t3d_model_load(const char *path)
 {
     assertf(path != NULL, "t3d_model_load: NULL path");
-    /* The engine passes DFS paths ("rom:/models/x.t3dm"); the host VFS maps
-     * those onto a directory. Until that lands, strip the prefix and read
-     * relative — and say so if it fails, rather than returning NULL for a
-     * caller that does not check. */
-    const char *p = path;
-    if (strncmp(p, "rom:/", 5) == 0) p += 5;
-    FILE *f = fopen(p, "rb");
-    assertf(f != NULL, "t3d_model_load: cannot open '%s' (from '%s')", p, path);
+    /* A DFS path goes through the host VFS, like every other loader: it
+     * resolves against the game's asset root, and it demands dfs_init, which
+     * the console does too. A plain path is a host check reading a file it
+     * just converted, and stays a plain fopen. */
+    if (strncmp(path, "rom:", 4) == 0) {
+        const int fd = dfs_open(path);
+        assertf(fd > 0, "t3d_model_load: cannot open '%s'", path);
+        const int sz = dfs_size(fd);
+        assertf(sz > 0, "t3d_model_load: '%s' is empty", path);
+        void *buf = malloc((size_t)sz);
+        assertf(buf != NULL, "t3d_model_load: out of memory");
+        assertf(dfs_read(buf, 1, sz, fd) == sz, "t3d_model_load: short read on '%s'", path);
+        dfs_close(fd);
+        return t3d_model_load_buf(buf, sz);
+    }
+    FILE *f = fopen(path, "rb");
+    assertf(f != NULL, "t3d_model_load: cannot open '%s'", path);
     fseek(f, 0, SEEK_END);
     const long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    assertf(sz > 0, "t3d_model_load: '%s' is empty", p);
+    assertf(sz > 0, "t3d_model_load: '%s' is empty", path);
     void *buf = malloc((size_t)sz);
     assertf(buf != NULL, "t3d_model_load: out of memory");
     assertf(fread(buf, 1, (size_t)sz, f) == (size_t)sz,
-            "t3d_model_load: short read on '%s'", p);
+            "t3d_model_load: short read on '%s'", path);
     fclose(f);
     return t3d_model_load_buf(buf, (int)sz);
 }

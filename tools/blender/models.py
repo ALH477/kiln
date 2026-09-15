@@ -191,6 +191,68 @@ def build_uvsphere():
                 smooth=True)
 
 
+# ── animated-surface subjects ──────────────────────────────────────────────
+# Two shapes the flat test set cannot stand in for, both built for
+# examples/texanim-demo. `checker` is two parallel vertical quads a model-width
+# apart — right for judging square texels, useless as ground.
+TILEFLOOR_HALF = 2.4        # Blender units; x64 = +-154 world units
+TILEFLOOR_CELLS = 8
+TILEFLOOR_UV_PER_CELL = 0.5 # 4 texture repeats across the floor
+
+
+def build_tilefloor():
+    """(tex) A subdivided floor whose UVs run past 1, for a scrolling texture.
+
+    The scroll is a tile-translate on the RDP, so what breaks it is the wrap:
+    UVs that stop at 1 show a single tile and hide a wrong repeat mode. Eight
+    cells rather than one quad because fog and lighting are per vertex — a
+    single quad this size fogs as one flat gradient."""
+    n = TILEFLOOR_CELLS + 1
+    verts, faces, uvs = [], [], []
+    for j in range(n):
+        for i in range(n):
+            verts.append((-TILEFLOOR_HALF + 2 * TILEFLOOR_HALF * i / TILEFLOOR_CELLS,
+                          -TILEFLOOR_HALF + 2 * TILEFLOOR_HALF * j / TILEFLOOR_CELLS,
+                          0.0))
+            uvs.append((i * TILEFLOOR_UV_PER_CELL, j * TILEFLOOR_UV_PER_CELL))
+    for j in range(TILEFLOOR_CELLS):
+        for i in range(TILEFLOOR_CELLS):
+            a = j * n + i
+            faces.append((a, a + 1, a + n + 1, a + n))  # CCW from +Z: faces up
+    m.make_mesh("TileFloor", verts, faces, "FloorMat",
+                colors=m.srgb(214, 226, 244), uvs=uvs, smooth=True)
+
+
+FLAG_LENGTH = 3.0           # hoist (x = 0) to fly
+FLAG_HEIGHT = 1.8
+FLAG_COLS = 12
+FLAG_ROWS = 6
+
+
+def build_flag():
+    """A banner in the Blender XZ plane, hoist edge on x = 0, bottom on z = 0.
+
+    Built as a grid because it is deformed on the CPU every frame (kiln_deform):
+    the wave is a function of each vertex's x, so the columns ARE the
+    resolution of the ripple. Faces wind +X then +Z, so the front faces Blender
+    -Y, which is engine +Z. Per-face colours split vertices along the band
+    edges; the wave reads position, so the seams stay closed."""
+    n = FLAG_COLS + 1
+    verts, faces, colors = [], [], []
+    for j in range(FLAG_ROWS + 1):
+        for i in range(n):
+            verts.append((FLAG_LENGTH * i / FLAG_COLS, 0.0,
+                          FLAG_HEIGHT * j / FLAG_ROWS))
+    bands = (m.srgb(139, 92, 246), m.srgb(232, 232, 240), m.srgb(0, 200, 180))
+    hoist = m.srgb(242, 160, 60)
+    for j in range(FLAG_ROWS):
+        for i in range(FLAG_COLS):
+            a = j * n + i
+            faces.append((a, a + 1, a + n + 1, a + n))
+            colors.append(hoist if i == 0 else bands[j * len(bands) // FLAG_ROWS])
+    m.make_mesh("Flag", verts, faces, "FlagMat", colors=colors, smooth=True)
+
+
 MODELS = {
     "axes": (build_axes, 140),
     "cube": (build_cube, 24),
@@ -201,6 +263,8 @@ MODELS = {
     "stress": (build_stress, 160),
     "checker": (build_checker, 8),
     "uvsphere": (build_uvsphere, 320),
+    "tilefloor": (build_tilefloor, 2 * TILEFLOOR_CELLS * TILEFLOOR_CELLS),
+    "flag": (build_flag, 2 * FLAG_COLS * FLAG_ROWS),
 }
 
 

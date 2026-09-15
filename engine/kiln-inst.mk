@@ -13,3 +13,20 @@ N64_LDFLAGS := -lkiln $(N64_LDFLAGS)
 ifdef KILN_DEBUG
   N64_CFLAGS += -DKILN_DEBUG=1
 endif
+
+# ── Jump ROMs ──────────────────────────────────────────────────────────
+# KILN_JUMP=CORNER (set by flake.nix's mkJumpRoms) becomes
+# -DKILN_JUMP=JUMP_CORNER: a build of an example that boots straight into one
+# state, so `./dev shot` can capture it with no controller — the Forge mode ROMs'
+# pattern (FORGE_MODE=CAM), generalised. The example owns the enum:
+#
+#     enum { JUMP_NONE, JUMP_CORNER };
+#     #ifndef KILN_JUMP
+#     #define KILN_JUMP JUMP_NONE
+#     #endif
+#
+# libkiln.a is still built once, without it; only a ROM's own sources read it,
+# the same rule KILN_DEBUG follows and for the same reason.
+ifdef KILN_JUMP
+  N64_CFLAGS += -DKILN_JUMP=JUMP_$(KILN_JUMP)
+endif

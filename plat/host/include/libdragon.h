@@ -395,6 +395,29 @@ void rdpq_mode_filter(int filter);
 void rdpq_mode_dithering(int dither);
 void rdpq_set_lookup_address(uint8_t index, void *rdram_addr);
 
+/* A sprite's pixels into a tile: libdragon's rdpq_sprite_upload. The host
+ * accepts the direct-colour formats only — a CI sprite's palette lives in the
+ * extended header sprite_get_palette cannot parse yet, and uploading the
+ * indices without it would draw them as intensity. */
+struct sprite_s;
+int  rdpq_sprite_upload(rdpq_tile_t tile, struct sprite_s *sprite,
+                        const rdpq_texparms_t *parms);
+
+/* TEXTURE_RECTANGLE. libdragon's are macros over 1/4-pixel and 1/32-texel
+ * fixed point; these take the same arguments in the same units as those
+ * macros do (pixels, texels), and sample point-filtered at each pixel's
+ * top-left corner. Whether the texel reaches the framebuffer is the
+ * combiner's decision, exactly as for triangles — see host_tex.c. */
+void rdpq_texture_rectangle_scaled(rdpq_tile_t tile, float x0, float y0,
+                                   float x1, float y1, float s0, float t0,
+                                   float s1, float t1);
+static inline void rdpq_texture_rectangle(rdpq_tile_t tile, float x0, float y0,
+                                          float x1, float y1, float s, float t)
+{
+    rdpq_texture_rectangle_scaled(tile, x0, y0, x1, y1, s, t,
+                                  s + (x1 - x0), t + (y1 - y0));
+}
+
 #define FILTER_POINT     0
 #define FILTER_BILINEAR  1
 #define AA_STANDARD      1
@@ -569,6 +592,10 @@ void mixer_ch_play(int ch, waveform_t *wave);
 void mixer_ch_set_vol(int ch, float lvol, float rvol);
 void mixer_ch_set_vol_pan(int ch, float vol, float pan);
 void mixer_ch_set_freq(int ch, float frequency);
+void mixer_ch_set_limits(int ch, int max_bits, float max_frequency, int max_buf_sz);
+void mixer_ch_set_pos(int ch, double pos);
+double mixer_ch_get_pos(int ch);
+waveform_t *mixer_ch_playing_waveform(int ch);
 void mixer_ch_stop(int ch);
 bool mixer_ch_playing(int ch);
 void mixer_poll(int16_t *out, int nsamples);
@@ -585,6 +612,8 @@ void xm64player_close(xm64player_t *p);
 void xm64player_set_loop(xm64player_t *p, bool loop);
 void xm64player_set_vol(xm64player_t *p, float volume);
 int  xm64player_num_channels(xm64player_t *p);
+void xm64player_tell(xm64player_t *player, int *patidx, int *row, float *secs);
+void xm64player_seek(xm64player_t *player, int patidx, int row, int tick);
 
 void ym64player_open(ym64player_t *p, const char *fn, ym64player_songinfo_t *info);
 void ym64player_play(ym64player_t *p, int first_ch);

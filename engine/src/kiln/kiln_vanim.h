@@ -33,8 +33,8 @@
  *
  * ── No libm in the hot path ─────────────────────────────────────────────
  * Morph blending uses fm_vec3_lerp (one mul + add per axis). Procedural
- * deform callbacks may use fm_sinf sparingly (the interceptor-demo's streaks
- * do), but the engine's stance is: no gratuitous libm. A water surface that
+ * deform callbacks may use fm_sinf sparingly (texanim-demo's flag does, per
+ * vertex), but the engine's stance is: no gratuitous libm. A water surface that
  * needs a sine per vertex should tabulate it at init.
  */
 #ifndef KILN_VANIM_H

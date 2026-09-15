@@ -35,7 +35,11 @@ extern "C" {
 #endif
 
 #define KILN_SOUND_SHADER_MAX 64
-#define KILN_SOUND_CHANNELS   8
+/* The size of the shader table: one slot per registered shader, each tracking
+ * the mixer channel its last play landed on. It is NOT a mixer channel count
+ * (kiln_audio owns those), and at 8 it silently dropped the last four of fps's
+ * twelve shaders — rocket, plasma, shotgun and NPC talk never played. */
+#define KILN_SOUND_CHANNELS   16
 
 typedef struct {
     const char *name;       /**< logical name, e.g. "sfx/step_stone"          */

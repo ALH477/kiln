@@ -13,6 +13,11 @@
 #include <stddef.h>
 #include <string.h>
 
+/* Penetration below which a body-body contact is resting, not a collision.
+ * Twice the 1e-3 the positional correction deliberately leaves in place, so a
+ * pair it has just separated reads as touching rather than as a fresh hit. */
+#define PHYS_REST_SLOP 2e-3f
+
 #define PHYS_FIXED_DT    (1.0f / 60.0f)
 #define PHYS_MAX_SUBSTEPS 8
 
@@ -171,6 +176,11 @@ static int aabb_overlap(const KilnPhysicsBody *a, const KilnPhysicsBody *b,
 static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
                          float pen, int axis)
 {
+    /* Resting contact — two bodies touching within the slop the correction
+     * below leaves behind — is not a disturbance. Waking on it meant a settled
+     * stack woke itself every substep and never slept. */
+    if (pen <= PHYS_REST_SLOP) return;
+
     /* Wake sleeping bodies on contact. */
     if (a->sleeping) { a->sleeping = 0; a->sleep_timer = 0.0f; }
     if (b->sleeping) { b->sleeping = 0; b->sleep_timer = 0.0f; }
@@ -180,6 +190,27 @@ static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
      * pushed in +axis if b's center is greater on that axis. */
     float sign = (b->pos.v[axis] >= a->pos.v[axis]) ? 1.0f : -1.0f;
     float ima = a->inv_mass, imb = b->inv_mass;
+
+    /* ── Stacking ────────────────────────────────────────────────────────
+     * The world is brushes, not bodies, so nothing here knows a crate is
+     * standing on the floor. Splitting a vertical contact by mass therefore
+     * pushed the LOWER crate down into the floor brush every substep — and a
+     * body that starts a trace inside a brush is ignored by kiln_clip, so the
+     * crate fell through the floor. physics-demo's pyramid sank into the
+     * ground within a second; its predecessor spawned crates that never
+     * actually landed on one another, which is why nobody saw it.
+     *
+     * So: a lower body that is resting on something takes none of the
+     * correction or the impulse, and the upper body counts as grounded for
+     * friction and sleep, the same as if it stood on a brush. */
+    if (axis == 1) {
+        KilnPhysicsBody *lower = (sign > 0.0f) ? a : b;
+        KilnPhysicsBody *upper = (sign > 0.0f) ? b : a;
+        if (lower->on_ground) {
+            if (lower == a) ima = 0.0f; else imb = 0.0f;
+        }
+        upper->on_ground = 1;
+    }
     float total_inv = ima + imb;
     if (total_inv <= 0.0f) return; /* two statics/kinematics — nothing to do */
 
@@ -275,10 +306,51 @@ static void friction_and_sleep(KilnPhysicsWorld *w, float dt)
     }
 }
 
+/* ── Support ─────────────────────────────────────────────────────────────
+ *
+ * A sleeping body skips integration, so nothing moves it when what it rests on
+ * goes away: punt the bottom crate out of a stack and the one above it would
+ * hang in the air forever, because no contact remains to wake it. Once per
+ * step, each sleeping body checks it is still standing on a brush or on the
+ * top face of another body, and wakes if it is not. N ground traces a frame
+ * for N sleeping bodies — at this module's body counts, cheaper than tracking
+ * who rests on whom. */
+static int has_support(const KilnPhysicsWorld *w, const KilnPhysicsBody *b)
+{
+    if (kiln_clip_ground(b->pos, b->mins, b->maxs).fraction < 1.0f) return 1;
+    const float bottom = b->pos.v[1] + b->mins.v[1];
+    for (uint16_t i = 0; i < w->count; i++) {
+        const KilnPhysicsBody *o = &w->bodies[i];
+        if (o == b) continue;
+        const float top = o->pos.v[1] + o->maxs.v[1];
+        if (top < bottom - 0.25f || top > bottom + 0.25f) continue;
+        if (o->pos.v[0] + o->maxs.v[0] <= b->pos.v[0] + b->mins.v[0]) continue;
+        if (o->pos.v[0] + o->mins.v[0] >= b->pos.v[0] + b->maxs.v[0]) continue;
+        if (o->pos.v[2] + o->maxs.v[2] <= b->pos.v[2] + b->mins.v[2]) continue;
+        if (o->pos.v[2] + o->mins.v[2] >= b->pos.v[2] + b->maxs.v[2]) continue;
+        return 1;
+    }
+    return 0;
+}
+
+static void wake_unsupported(KilnPhysicsWorld *w)
+{
+    for (uint16_t i = 0; i < w->count; i++) {
+        KilnPhysicsBody *b = &w->bodies[i];
+        if (b->type != KILN_PHYS_DYNAMIC || !b->sleeping) continue;
+        if (has_support(w, b)) continue;
+        b->sleeping = 0;
+        b->sleep_timer = 0.0f;
+        b->on_ground = 0;
+    }
+}
+
 void kiln_physics_step(KilnPhysicsWorld *w, float dt)
 {
     if (!w->enabled) return;
     if (w->count == 0) return;
+
+    wake_unsupported(w);
 
     /* Slice dt into fixed substeps for stable integration. Cap the count
      * so a long frame (e.g. the first frame after init) doesn't spiral. */

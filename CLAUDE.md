@@ -66,8 +66,10 @@ nix flake check        # the pre-push gate — see "The gates" below
                                           #   hold/stick/shot). tools/drive/*.txt
 ./dev rec <rom> [out.mp4] [dur]           # record a clip, Ares-only audio
 ./dev inspect <rom>                       # Ares + GDB server, prints the attach line
-./dev mapmaker                            # three.js .map editor on :8000
-./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001
+./dev mapmaker                            # three.js .map editor on :8000/mapmaker/
+./dev poser / poser-stage / poser-verify   # three.js animation editor on :8001/poser/
+./dev studio                              # both editors saving in place, builds, checks,
+                                          #   validators, presence — tools/studio/
 ./dev map-validate <file.map> [--json]     # round-trip through quake_map.py
 ./dev map-emit <spec.json> [out.map]      # author a level from JSON, no browser
 ./dev map-dump <file.map> [out.json]      # read one back (round-trips with emit)
@@ -76,6 +78,14 @@ nix flake check        # the pre-push gate — see "The gates" below
                                           #   compositor. The same body
                                           #   nix/checks/kiln-map.nix compiles.
 ./dev mcp [--build]                       # the blender-mcp server (.mcp.json)
+./dev browser                             # the UI agent's browser tool, selftest.
+                                          #   .mcp.json's kiln-browser drives the
+                                          #   studio through headless Chromium
+                                          #   (tools/agents/)
+./dev agents-smoke                        # the ONE command allowed to spend model
+                                          #   credits: probe every configured
+                                          #   model × route for tool-call parsing,
+                                          #   write .studio/agents/models.json
 ./dev forge-push <file.map> [card]         # put an existing level on the
                                            #   flashcart's SD card to EDIT it
 ./dev forge-pull [card] [name]             # bring a console session back into
@@ -215,6 +225,14 @@ plat/shell/         the launcher. shell_sdl.c is the native window,
                     draws the frame and the shell blits it, so the window
                     shows the pixels the gates compare.
 tools/n64-shot.sh   boot a ROM in Ares on Hyprland and grim its window.
+tools/studio/       the studio (`./dev studio`, :8420): server, jobs + SSE,
+                    the editors saving in place, the agents panel. It calls
+                    the repo's real tools — it never reimplements them
+                    (mcp_server.py exposes the same API as MCP tools).
+tools/agents/       the agent runtime: kiln_agents/ (CrewAI flows, one git
+                    worktree per task, tools scoped to it, models.py's
+                    Claude + Ollama-cloud table) and browser_mcp.py (the
+                    kiln-browser MCP server). See tools/agents/README.md.
 ```
 
 Two prefixes, deliberately distinct: **`N64_GCCPREFIX`** is the toolchain,
@@ -227,7 +245,7 @@ beside `libdragon.a`) and Nix store paths are immutable.
 
 ## The engine — the whole inventory
 
-**53 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
+**55 modules plus one header-only, one flat directory** (`engine/src/kiln/`), 1:1 `.h`/`.c`, ~13,000
 lines, ~290 public `kiln_*` functions. The sections below this one describe
 Phases B/C/D in detail and do NOT cover everything — this table does. Anyone
 (or anything) planning against the Phase sections alone will conclude the engine
@@ -248,7 +266,7 @@ drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
 header-only module is still verified as installed.
 
-And a **`HOST_MODULES`** list: the 51 modules that compile natively, against
+And a **`HOST_MODULES`** list: the 53 modules that compile natively, against
 `plat/host/include`'s `<libdragon.h>` and `nix/host-math.nix`. It is a claim,
 and `nix/checks/kiln-parity.nix` checks it in **both directions from one run** —
 every listed module must compile, every unlisted one must not — so it cannot
@@ -266,8 +284,8 @@ libdragon's `exception_t`, which has no host analogue, so
 
 | cluster | modules |
 |---|---|
-| frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line) |
-| runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel` |
+| frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line), `kiln_prim` (24-vertex flat-shaded boxes, checker floors, `kiln_prim_stage` key+rim+fog preset — what examples draw with instead of hand-packed cubes) |
+| runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel`, `kiln_pose` (the masked bone blend and quaternion ops, pure and host-checked) |
 | feel (Phase D) | `kiln_input`, `kiln_clip`, `kiln_dict`, `kiln_map`, `kiln_surface`, `kiln_sound`, `kiln_event`, `kiln_target`, `kiln_player` |
 | streaming (Phase C/E/F) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass`, `kiln_stream`, `kiln_streamio` |
 | first person + shooting | `kiln_fpscam`, `kiln_weapon`, `kiln_weapons`, `kiln_projectile`, `kiln_inventory`, `kiln_trigger`, `kiln_context`, `kiln_dialogue` |
@@ -300,9 +318,10 @@ Worth stating, because absence is invisible and each of these gets proposed:
 - **No occlusion culling, PVS or portals.** `kiln_map.h`: "No BSP / PVS /
   portals." Room streaming is residency, not visibility.
 - **No particle system**, no billboard/sprite-in-3D helper.
-- **No scene graph and no bone sockets.** `KilnTransform` has no parent pointer,
-  and there is no way to hang a weapon off a hand bone through the engine
-  despite `kiln_skel` holding a full `T3DSkeleton`.
+- **No scene graph.** `KilnTransform` has no parent pointer. Bone sockets DO
+  exist now — `kiln_skel_bone_push` pushes a bone's matrix so a prop drawn next
+  rides it (camera-skel-demo's sword, oot-demo's sword and buckler) — but that
+  is a draw-time push, not a hierarchy.
 - **No material / texture / light API.** Lighting is four fields on `KilnScene`
   (max 4 of Tiny3D's 7 directional lights, no point or spot, no shadows).
   "Material" exists only as `KilnSurfaceDef` (gameplay: friction + footstep SFX;
@@ -417,17 +436,25 @@ out. The summary, so it's in one place:
   own TRS hierarchy), just `skins[].joints` naming a node chain and
   `JOINTS_0`/`WEIGHTS_0` mesh attributes; that generator is the reference
   for what a hand-built (non-Blender) skinned test asset needs to contain.
+  **Three slots now, and a clip cache.** BASE and BLEND are the locomotion
+  pair above; `KILN_SKEL_OVERLAY` is a third pose-only clone blended over the
+  result for a bone mask (`kiln_skel_mask_bone("torso")`), because a one-shot
+  over a walk — a sword swing at a run — cannot live in two slots: putting it in
+  BLEND stops the legs. The masked blend is the engine's own arithmetic, in the
+  pure `kiln_pose` module that `nix/checks/kiln-pose.nix` runs natively over the
+  console's own `T3DBone` layout. Also: `kiln_skel_crossfade` (into the lighter
+  slot), per-slot `set_speed`/`time`/`length`/`set_phase` (phase-matching a run
+  to the walk it replaces), `kiln_skel_bone_rotate` (look-at), and sockets.
+  Clips are created once and re-attached on a swap, because `t3d_anim_create`
+  opens the `.sdata` sidecar. A one-shot overlay fades out BEFORE its end:
+  Tiny3D stops a finished clip without applying its last pose.
 
 Verified: `nix build .#camera-skel-demo` links clean (300 KB text, matching
 the other actor-system demos' size class) and passes the `audioRate = 32000`
-check. `./dev shot camera-skel-demo` was attempted but the capture is not
-trustworthy in this sandbox — Ares maps a window (correct geometry, correct
-PID, all of `tools/n64-shot.sh`'s own sanity checks pass) but its surface
-never actually composites here, so the "capture" is whatever desktop window
-sits behind it rather than the emulator. That is a property of this
-particular desktop/Vulkan environment, not of the ROM or the script; treat
-`nix build` + the gates as the verification for this ROM until it's run on
-a desktop where Ares' Vulkan surface actually presents.
+check. It captures in Ares: the goblin walks, runs, jumps and swings a
+socketed sword over the torso-masked overlay in a `kiln_prim` courtyard, with
+an inspector (`camera-skel-demo-insp`) showing every slot's clip, weight and
+playhead; the hand-built 2-bone rig above lives on as `camera-skel-demo-rig`.
 
 ## Phase C — runtime asset streaming (engine/src/kiln/kiln_asset.*, examples/streamdb-demo)
 
@@ -693,13 +720,16 @@ FIFO-only case.
   this project a whole PLAY screen once). Distinct counters on purpose, per
   Forge's "every gauge goes red at the value that means it's lying to you."
 
-Verified by `examples/openworld-demo`, rewired from its original hand-malloc'd
-2-vert tile stub onto a real `openworld.streamdb` (`models/tile.t3dm`, one
-shared model — the point is the pacer's priority ordering across many
-simultaneous requests, not per-tile unique geometry): `nix build
-.#openworld-demo` links clean, and `./dev shot openworld-demo` shows the full
-5×5 window (25 tiles) loaded through `kiln_stream`→`kiln_streamio`→
-`kiln_cache`→`kiln_asset` with `pending 0 dropped 0 failed 0`.
+Verified by `examples/openworld-demo`: a 32×32 island of terraced tiles in
+four biomes, streamed from `openworld.streamdb` as twelve models keyed by
+biome and LOD (`tools/blender/ow_tile.py`), through
+`kiln_stream`→`kiln_streamio`→`kiln_cache`→`kiln_asset` over a 7×7 window.
+LOD is chosen by distance from the camera, tiles still pending draw a
+placeholder block rather than a hole, fog and a sea plane hide the window's
+edge, and the HUD's pacer gauges go amber/red at the values that mean trouble
+(Ares, `openworld-demo-fast`: pending 14/64, 0 dropped, 0 failed). One thing
+the demo had to learn: `kiln_tile_first`/`kiln_tile_next` still yield tiles
+queued for unload, so a count of residents must skip them.
 
 **Getting that screenshot found four pre-existing, previously-unverified
 bugs, none of them in the new pacer** — this appears to be the first time
@@ -758,8 +788,22 @@ Tracker music:
 The engine audio layer (`kiln_audio.h`) wraps libdragon's RSP mixer with:
 - `kiln_audio_init/update/close` — init, per-frame pump, teardown
 - `kiln_sfx_load/play/play_ex/stop` — SFX with priority-based voice stealing
-- `kiln_music_load/play/stop/set_volume` — XM64/YM64 tracker music
+- `kiln_sfx_set_vol_pan/set_freq/set_pitch` — `set_freq` is absolute Hz,
+  `set_pitch` a ratio of the asset's encoded rate
+- `kiln_music_load/play/stop/set_volume/set_loop/playing` — XM64/YM64 tracker
+  music; `kiln_music_tell/seek/num_channels/first_channel` for visualisers
+- `kiln_audio_set_tap` — a read-only callback on every mixed buffer, for
+  meters and scopes that show what was mixed rather than a model of it
 - `kiln_audio_set_room_music/update_rooms` — room-based music crossfading
+
+**A stereo wav64 occupies two mixer channels**, the one returned and the next;
+the allocator finds or steals a pair and routes calls on the second half to
+the first. Stealing only one half used to hit a CPU assert in Ares. Bake mono
+(`mono = true`) when both sides are the same signal. **Pitching above the
+output rate asserts** in libdragon's mixer unless `mixer_ch_set_limits` raised
+that channel's limit first; `kiln_sfx_set_pitch` documents it and leaves the
+choice to the caller, because a higher limit grows the channel's buffer. The
+host mixer asserts on both, the same way.
 
 Channel partition: `[0..sfx_channels)` for SFX, `[sfx_channels..total)` for
 music. Default: 16 SFX + 10 music = 26 channels (max 32).
@@ -767,8 +811,11 @@ music. Default: 16 SFX + 10 music = 26 channels (max 32).
 The cycle budget gate (`nix/faust.nix`) is a **hard failure** when
 frame-scoped weighted cycles exceed the declared budget. It is scoped to
 the `frame<name>` function only — init/constructor code is excluded. The KS
-voice measures 259 weighted cycles in `frame()` (vs 333 for the whole
-object, including init).
+voice measures 349 weighted cycles in `frame()` against a 500 budget. It was
+259 while `dsp/ks.dsp` passed its `freq` slider straight to `pm.ks`, which
+takes a string LENGTH in metres: 220, 440 and 880 rendered byte-identical
+files, a decaying DC step with no pitch at all. `nix/checks/ks-pitch.nix`
+now measures the pitch of the rendered reference.
 
 `mkN64Rom` accepts an `audioRate` parameter that cross-checks baked
 instrument rates against the ROM's `audio_init` rate at build time. A
@@ -787,8 +834,9 @@ unfamiliar cart.** A Minecraft-shaped voxel builder whose save button emits the
 content formats this engine already consumes.
 
 Every other authoring tool here runs on the host — `./dev mapmaker` (:8000),
-`./dev poser` (:8001), `tools/blender/*` — and all three round-trip through a
-browser download and a human moving a file. Forge exists because the judgements
+`./dev poser` (:8001), `tools/blender/*` — and all three sit one hop from the
+ROM: a browser download and a human moving a file, or, inside `./dev studio`, a
+save in place followed by a rebuild. Forge exists because the judgements
 that matter on this hardware cannot be made two hops away: fill rate, whether a
 palette still separates once the veil discards hue, whether a corridor reads as
 a corridor.
@@ -1087,8 +1135,9 @@ keydown/keyup, 608 frames pushed in ~10 s, zero page errors.
 console's binding constraint, no host analogue — a PC run is never evidence
 that content is affordable); skinned or animated characters (`t3d_skeleton_*`
 and `t3d_anim_*` all abort); near-plane clipping (`host_t3d.c` drops a
-triangle straddling the eye); `rdpq_sprite_upload` / `rdpq_texture_rectangle`;
-and XM/YM tracker playback, which stays bookkeeping. Those are gaps in
+triangle straddling the eye); models built with asset compression (the
+`.t3dm` reader wants raw `T3M` bytes, so a `pc-*` build ships `compress = 0`
+models); and XM/YM tracker playback, which stays bookkeeping. Those are gaps in
 `plat/host`, not in the launcher, and each one fails loudly rather than
 quietly.
 
@@ -1188,7 +1237,10 @@ is ever going into a golden-image test.
   and plain arithmetic, so the vertex ORDER is identical on every architecture
   sharing one reference image.
   Still true: the faces carry **no texture coordinates** and draw white.
-  `kiln_map` parses no UV data.
+  `kiln_map` parses no UV data. `kiln_map_tint` is the cheap answer until it
+  does: one pass at load writes per-vertex colours by normal and height
+  (floor, raised tops, walls dark at the foot, undersides), and `kiln-map`
+  reads them back after its capture so the reference image stays untinted.
 
 - **`.t3dm` is three traps and a render will not find them all.** Writing the
   host reader turned up, in order of how quietly they fail:
@@ -1260,6 +1312,67 @@ is ever going into a golden-image test.
   silent on hardware — TMEM occupancy, the 70-vertex cache, matrix depth — so
   the direction of travel is a host build that is *stricter* than the console,
   not laxer.
+- **The host lit everything from the wrong side for months, and the docs
+  agreed with it.** `host_t3d.c` shaded with `-dot(normal, dir)`; Tiny3D's
+  `rsp_tiny3d.rspl` computes `+dot`, so a light direction points **toward**
+  the light (overhead is +y, the engine default `(1,1,1)`). The n64-modeling
+  skill said "the direction light travels", the host rendered that rule
+  correctly, and content tuned on the host came out with every floor and box
+  top at bare ambient on console — read for a long time as "the console is
+  darker". Only an Ares A/B settled it. `kiln-prim` samples a floor pixel
+  under `kiln_prim_stage` so the sign cannot flip back unnoticed.
+- **libdragon's `fm_mat4_from_axis_angle` turns the other way from
+  `fm_atan2f(x, z)`.** About +Y it maps -Z to (sin a, 0, -cos a) and +Z to
+  (-sin a, 0, cos a) — measured natively against the host build of libdragon's
+  own fast math. So a yaw from `fm_atan2f(dx, dz)` goes into
+  `KilnTransform.rot_angle` as `PI - yaw` for a model whose nose is -Z (every
+  `tools/blender` character) and as `-yaw` for one whose front is +Z. `yaw + PI`
+  and `yaw` are right ONLY along the Z axis, which is why nobody saw it: a demo
+  walking straight looks correct, and one circling faces the camera.
+  camera-skel-demo, oot-demo (and `kiln_player` itself) and cinematic-demo's
+  `cine_yaw_to` all had it; actors-demo, debug-demo, fps, physics-demo,
+  event-demo and board-demo still set `rot_angle` from an atan2 and have not
+  been checked.
+- **A clip's length is real seconds at Blender's 24 fps, which nothing sets.**
+  goblin.py's "40-frame" Walk is 1.667 s, not 0.667 s; cinematic-demo stepped
+  2.5x faster than its feet for exactly this reason. And a locomotion clip has
+  a GROUND SPEED — how fast its planted foot passes backwards — that a game
+  must divide its travel speed by, or the feet skate. `tools/blender/gait.py`
+  measures it by forward kinematics over the shipped glTF (Walk 0.642 m/s, Run
+  2.293 m/s); `nix/checks/goblin-gait.nix` holds the clips and every demo's
+  `GOBLIN_*_MPS` to it.
+- **A nested matrix push was multiplied child * parent on the host.**
+  `mat_mul` indexed column-major `fm_mat4_t` data row-major, computing `b*a`;
+  the ucode's push is `previous * new`. A single push cannot tell. `kiln-prim`
+  draws a box offset under a parent turned 180 degrees and samples both
+  candidate positions.
+- **`kiln_fpscam` was mirrored on console too.** Tiny3D's look-at builds
+  screen-right as forward × up, so an eye looking down +Z has screen-right at
+  −X; `kiln_fpscam` called +X right and turned left on C-right. `kiln-fpscam`
+  asks the look-at matrix where screen-right is at four headings.
+- **A `rom:/` load before `dfs_init(DFS_DEFAULT_LOCATION)` asserts on console**
+  ("File not found") and used to succeed on the host, whose directory is
+  always there. Two demos shipped that way. `dfs_open` on the host now
+  asserts the same way.
+- **`kiln_actor_draw_all` already pushes `actor->xform`.** A draw callback
+  that pushes it again squares the scale and doubles the offset.
+- **An f3d_inject material built with the default `fog=False` turns the RSP's
+  fog off for everything drawn after it**, not just that model. Build scene
+  models with `fog=true`.
+- **Fog is a ramp over clip z, not over the depth range you asked for.**
+  `t3d_fog_set_range(near, far)` uploads offset −2·near and scale
+  16384/(far−near); the ucode writes `1 − clamp((clip_z − 2·near) /
+  (2·(far − near)))` into shade alpha, and Tiny3D's clip z is
+  f·(d − 2n)/(f − n) for the CAMERA's near/far planes. So fog closes much
+  further out than `far`, and moving the camera's near plane moves the fog.
+  Measured in Ares with a probe to within ~1.5% at 13 depths over four
+  settings. It also needs `rdpq_mode_fog` set on the RDP side; the RSP half
+  alone fogs nothing. The host used to ramp over plain view depth from `near`
+  to `far`, which drew openworld-demo as solid fog; it now ports the integer
+  arithmetic, and `kiln-prim` checks three depths per case. Still open: the
+  host's projection z row is GL's ((f+n)/(n−f), 2fn/(n−f)), not Tiny3D's
+  (f/(n−f), −2fn/(f−n)). Fog computes Tiny3D's z itself, but host depth
+  values still come from the GL row.
 
 Each cost real build time to discover. `nix/toolchain.nix` documents them inline.
 
@@ -1361,7 +1474,8 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   report's `-double -ftz 2` house style is therefore not reachable via
   `-lang c`. Single source of truth: `ftzMode` in `nix/faust.nix`.
   Adding it cost the KS voice 291 → 333 weighted cycles (whole object); the
-  frame-scoped count is 259. That is the price of not trapping into the
+  frame-scoped count was 259 then, and is 349 since the voice gained a real
+  pitch (see the audio layer). That is the price of not trapping into the
   denormal exception handler.
 - **Faust `-os` emits `frame()` and leaves `compute()` an EMPTY STUB.** An
   architecture file written against `compute()` builds, links, runs, and outputs
@@ -1480,7 +1594,7 @@ regressions, not to predict wall-clock. Say so whenever quoting it; profile
 with `TICKS` on hardware for real numbers. The gate is a **hard failure**
 when the frame-scoped weighted cycles exceed the declared budget.
 
-### The full check list (90 checks, 26 implementations)
+### The full check list (112 checks, 39 implementations)
 
 `rom.nix` ×24 (magic / title / size), plus `toolchain`, `streamdb`,
 `kiln-asset`, `assets` (determinism), `mapmaker-roundtrip`, and five that are
@@ -1621,6 +1735,17 @@ worth knowing by name:
   failure) and `kiln_clip`'s broadphase populating grid cells with the wrong
   brushes (so a player walked through two of four walls). Compiling natively at
   `-Werror` is also a free second opinion on the engine's own `-Wno-error`.
+- **`kiln-pose`** runs `kiln_pose` — kiln_skel's masked overlay blend, subtree
+  masks and quaternion ops — natively over the console's `T3DBone` layout. The
+  host cannot run a skeleton; it can run this. Verified firing on three
+  mutations (a subtree boundary, a dropped short-path negation, unmasked bones
+  not copied).
+- **`goblin-gait`** measures goblin.py's clips the way the floor sees them
+  (`tools/blender/gait.py`): every clip's duration at 24 fps, Walk and Run
+  ground speed and swing clearance, source keys agreeing with the export within
+  5% (it caught Run keyed every other frame losing 5.2%), Attack keying only
+  bones under the torso mask, and every `GOBLIN_WALK_MPS` / `GOBLIN_RUN_MPS` /
+  `GOBLIN_ROLL_PIVOT_M` an example publishes matching the measurement.
 **A gate should be verified to fire in both directions.** The no-libm gate and
 the cycle budget both have been (a clean voice passes, a voice using `ma.tanh`
 or emitting a double-precision instruction fails with an actionable message);

@@ -1,785 +1,602 @@
 // SPDX-License-Identifier: MIT
 //
-// Bass-synth — a 4-controller collaborative bass ROM.
+// Bass synth — a 4-controller collaborative bass ROM, modelled on a Moog
+// Subsequent 37 rather than on a synth-action game.
 //
-// Architecture (single file, eight sections):
+//   1. Wavetables   12 single-cycle 256-sample mono wavs (4 engines x {body
+//                   bright, body dark, sub}), baked as looping VADPCM and
+//                   pitched live by the RSP mixer. A held note owns TWO mixer
+//                   channels — body (the bright or dark table, picked by stick
+//                   X at note-on) and sub (an octave below) — so 12 channels
+//                   are 6 notes.
+//   2. ADSR         per engine, linear, one multiply per stage per frame.
+//   3. Allocator    6 note slots, fixed channel pair per slot; steals a
+//                   releasing note first, then the lowest.
+//   4. Input        12 buttons = 12 scale steps per player (chromatic, or a
+//                   pentatonic/blues run over two octaves); Z sustains; stick X
+//                   brightness, stick Y sub drive, stick magnitude and C-stick
+//                   Y vibrato, C-stick X +-1 semitone bend. Highest held
+//                   button sounds; legato glides, retrigger re-attacks.
+//   5. Intro        an 8.5 s scripted riff through the same note_on/note_off
+//                   as the pads; any button skips. After it, an attract tape
+//                   plays a bassline on port 1 when every pad is idle.
+//   6. Patch        Start opens a paged editor (one page per player plus a
+//                   global page); closing it SAVES through kiln_store — SD
+//                   card, else the 32 KB save chip — and the HUD says which
+//                   backend took it and whether it worked. Loaded at boot.
+//   7. Visual       a fixed arc of 24 bars, 6 per player in the player's
+//                   colour: bar 0 is the sub layer, bars 1-5 the body's first
+//                   five harmonics for that engine's wavetable, scaled by the
+//                   live envelopes, clamped. It is a model of the tables (the
+//                   RSP does not hand back per-channel samples); the scope
+//                   under the status line is the real mixed output, from
+//                   kiln_audio's tap.
 //
-//   1. Wavetables       — 12 single-cycle 256-sample mono wavs (4 engines ×
-//                          {body_bright, body_dark, sub}). Each held note
-//                          owns TWO mixer channels: body (crossfaded live by
-//                          stick X between bright and dark) and sub (fixed
-//                          gain, one octave below). 12 channels = 6 notes.
-//
-//   2. ADSR             — per-engine {attack, decay, sustain, release} with
-//                          a linear stage machine. Sustain is a *held* level
-//                          after decay, release goes from current level back
-//                          to zero (matches how a Moog Subsequent behaves).
-//
-//   3. Voice allocator  — 6 note slots, each {body_ch, sub_ch}. Atomic 2-
-//                          channel allocation. Steal priority: lowest note
-//                          wins ties; among same pitch, release-phase loses
-//                          to attack/sustain (so sustained bass lines survive
-//                          aggressive playing).
-//
-//   4. Input mapping    — 13 buttons per pad → 13 semitones per player
-//                          (chromatic; scale-quantization in menu). Each
-//                          player has engine, octave, legato, portamento.
-//                          C-stick X = ±1 semitone pitch bend. C-stick Y =
-//                          mod-wheel (0..1 routed to LFO depth).
-//
-//   5. Legato/retrigger — in legato mode, pressing a new note while another
-//                          is held slides pitch without restarting the amp
-//                          envelope. In retrigger mode, each press re-attacks
-//                          from current envelope level (no click on quick
-//                          retriggers).
-//
-//   6. Portamento       — always on; the active note's target freq slides
-//                          from previous to new over `portamento_ms`. Stick
-//                          X at full deflection produces instant snap.
-//
-//   7. UI               — Start-toggled menu (engine/octave/legato/portamento/
-//                          scale per player, plus global LFO rate and master
-//                          gain). Always-on activity overlay shows envelope
-//                          stage + bend + mod-wheel + voice meter per player.
-//                          3D field = 6 stacked pairs of cubes (body+sub per
-//                          note) Y-scaled by per-channel volume.
-//
-//   8. Save state       — per-player engine/octave/legato/portamento/scale
-//                          persist across reboot via libdragon eepromfs.
-//
-// Per-frame VR4300 cost: ~12 channels × {ADSR ramp, portamento step, LFO
-// step, crossfade step, vol/pan/freq write}. Well under 1% CPU at 30 Hz
-// update rate. RSP mixer does all sample mixing; no per-sample DSP.
+// ── What was broken ─────────────────────────────────────────────────────
+//   * SILENT. note_on never started a channel: there was no kiln_sfx_play
+//     anywhere, so every frequency and volume write went to idle channels.
+//   * It would have asserted the moment it did sound: a note's body plays at
+//     freq x 256 Hz, libdragon's mixer asserts above a channel's limit, and
+//     the limit defaults to the 32 kHz output — P2's first intro note (E2,
+//     MIDI 40, 42 kHz) is over it. The 12 channels' limits are raised to 192 kHz and
+//     the octave range capped so no note can pass it.
+//   * Legato never changed pitch: it updated the note number but not
+//     freq_hz, so a glide glided to the note already sounding.
+//   * portamento_ms was a uint8_t with a menu range to 500: 300 stored as 44.
+//   * Z was a note button AND the sustain modifier.
+//   * The patch "saved" with fopen("rom:/bass-synth.pat", "wb") — read-only
+//     DragonFS — so it never saved, silently, and it saved when the menu
+//     OPENED, before any edit. The header said eepromfs, the README said DFS.
+//   * The menu was 26 rows x 14 px on a 240 px screen; the status line was 58
+//     characters in a 53-character strip; each player's volume row wrote the
+//     shared master gain.
+//   * midi_to_hz used powf, the LFO sinf, the stick sqrtf: libm on the
+//     VR4300 every frame for every note. Now a table, fm_sinf and squares.
 
 #include <libdragon.h>
-#include <math.h>
-#include <t3d/t3d.h>
-#include <t3d/t3dmath.h>
 
 #include <kiln/kiln_engine.h>
 #include <kiln/kiln_gui.h>
 #include <kiln/kiln_input.h>
 #include <kiln/kiln_audio.h>
+#include <kiln/kiln_prim.h>
+#include <kiln/kiln_store.h>
+
+#include <string.h>
+
+enum { JUMP_NONE, JUMP_PATCH };
+#ifndef KILN_JUMP
+#define KILN_JUMP JUMP_NONE
+#endif
 
 #define SCREEN_W    320
 #define SCREEN_H    240
 #define SAMPLE_RATE 32000
 
-#define BASS_NOTES  6                  // 6 simultaneous notes
-#define BASS_CHANS  (BASS_NOTES * 2)   // each note = 2 channels
+#define BASS_NOTES  6
+#define BASS_CHANS  (BASS_NOTES * 2)
 #define WT_LEN      256
+#define NOTE_KEYS   12
+#define BASE_MIDI   28                 // E1 (41 Hz, MIDI 60 = C4), a 4-string bass's open low string
+#define OCTAVE_MIN  -12
+#define OCTAVE_MAX  36
+// Highest body rate: MIDI 28+36+27 (a pentatonic run's top) would be 91; notes
+// are clamped to MIDI 76 (E5, 659 Hz), x256 = 169 kHz, x bend and vibrato
+// about 180 kHz. The limit sits above that.
+#define MIDI_MAX    76
+#define CH_MAX_FREQ 192000.0f
 
-#define BASE_MIDI   28                 // E2 — lowest playable (4-string bass)
+#define NPLAYERS 4
+#define SCOPE_N  96
+#define ARC_BARS 6                     // per player
 
-// ── Scale quantization ────────────────────────────────────────────────────
-// Each row = semitone offsets within an octave that the buttons map to.
-// Major / minor pentatonic = 5 notes per octave; chromatic = all 12.
-// Applied at note-on: button `n` lands on scale_idx = scale[n], so pressing
-// the same physical button produces different pitches depending on scale.
-typedef enum {
-    SCALE_CHROMATIC = 0,
-    SCALE_MAJOR_PENT,
-    SCALE_MINOR_PENT,
-    SCALE_BLUES,
-    SCALE_COUNT,
-} Scale;
-
-static const int8_t SCALE_STEPS[SCALE_COUNT][13] = {
-    // chromatic: 0..12 (1+ octave). out-of-range = -1
-    [SCALE_CHROMATIC] = { 0,1,2,3,4,5,6,7,8,9,10,11,12 },
-    // major pentatonic: 0,2,4,7,9
-    [SCALE_MAJOR_PENT] = { 0,2,4,7,9,12,12,12,12,12,12,12,12 },
-    // minor pentatonic: 0,3,5,7,10
-    [SCALE_MINOR_PENT] = { 0,3,5,7,10,12,12,12,12,12,12,12,12 },
-    // blues: 0,3,5,6,7,10
-    [SCALE_BLUES]      = { 0,3,5,6,7,10,12,12,12,12,12,12,12 },
+// ── Scales: button index -> semitones above the player's root ────────────
+typedef enum { SCALE_CHROMATIC, SCALE_MAJOR_PENT, SCALE_MINOR_PENT, SCALE_BLUES, SCALE_COUNT } Scale;
+static const int8_t SCALE_STEPS[SCALE_COUNT][NOTE_KEYS] = {
+    [SCALE_CHROMATIC]  = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
+    [SCALE_MAJOR_PENT] = { 0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26 },
+    [SCALE_MINOR_PENT] = { 0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24, 27 },
+    [SCALE_BLUES]      = { 0, 3, 5, 6, 7, 10, 12, 15, 17, 18, 19, 22 },
 };
-static const char * const SCALE_NAME[SCALE_COUNT] = {
-    "CHROM", "MAJP5", "MINP5", "BLUES",
-};
+static const char *const SCALE_NAME[SCALE_COUNT] = { "CHROM", "MAJP5", "MINP5", "BLUES" };
 
-// ── Engines ──────────────────────────────────────────────────────────────
-typedef enum {
-    BASS_HEAVY = 0,
-    BASS_SUB,
-    BASS_GROWL,
-    BASS_INDUSTRIAL,
-    BASS_ENGINE_COUNT
-} BassEngine;
-
-static const char * const ENGINE_NAME[BASS_ENGINE_COUNT] = {
-    "HEAVY", "SUB", "GROWL", "INDUST",
+// Z is not here: it is sustain.
+static const uint32_t NOTE_BUTTONS[NOTE_KEYS] = {
+    KILN_BTN_DU, KILN_BTN_DL, KILN_BTN_DD, KILN_BTN_DR,
+    KILN_BTN_CL, KILN_BTN_CD, KILN_BTN_CR, KILN_BTN_CU,
+    KILN_BTN_L,  KILN_BTN_B,  KILN_BTN_A,  KILN_BTN_R,
 };
 
-// Per-engine ADSR + mix + wavetable handles. Linear ramps in milliseconds.
+// ── Engines ───────────────────────────────────────────────────────────────
+typedef enum { BASS_HEAVY, BASS_SUB, BASS_GROWL, BASS_INDUSTRIAL, BASS_ENGINE_COUNT } BassEngine;
+static const char *const ENGINE_NAME[BASS_ENGINE_COUNT] = { "HEAVY", "SUB", "GROWL", "INDUST" };
+
 typedef struct {
-    const char *name;
-    float attack_ms;
-    float decay_ms;
-    float sustain_lvl;   // [0..1]
-    float release_ms;
-    float sub_gain;      // base sub layer gain
-    float body_gain;     // base body layer gain
-    int   wt_body_bright;
-    int   wt_body_dark;
-    int   wt_sub;
+    float attack_ms, decay_ms, sustain_lvl, release_ms;
+    float sub_gain, body_gain;
+    int   wt_body_bright, wt_body_dark, wt_sub;
+    // Relative harmonic amplitudes 1..5 of the bright and dark body tables,
+    // for the arc (tools/gen_bass_wav.py's recipes, rounded).
+    float bright[5], dark[5];
 } BassEngineDef;
 
-static BassEngineDef g_engine[BASS_ENGINE_COUNT];
+static BassEngineDef g_engine[BASS_ENGINE_COUNT] = {
+    [BASS_HEAVY]      = { 5, 180, 0.70f, 120, 0.30f, 0.85f, -1, -1, -1,
+                          { 1.00f, 0.50f, 0.33f, 0.25f, 0.20f }, { 1.00f, 0.30f, 0.12f, 0.05f, 0.02f } },
+    [BASS_SUB]        = { 8, 300, 0.80f, 200, 0.65f, 0.70f, -1, -1, -1,
+                          { 1.00f, 0.05f, 0.33f, 0.03f, 0.02f }, { 1.00f, 0.02f, 0.15f, 0.01f, 0.01f } },
+    [BASS_GROWL]      = { 4, 220, 0.60f, 140, 0.40f, 0.85f, -1, -1, -1,
+                          { 0.80f, 0.70f, 0.55f, 0.45f, 0.30f }, { 0.90f, 0.45f, 0.25f, 0.12f, 0.06f } },
+    [BASS_INDUSTRIAL] = { 3, 140, 0.50f,  90, 0.45f, 0.90f, -1, -1, -1,
+                          { 1.00f, 0.08f, 0.33f, 0.08f, 0.20f }, { 1.00f, 0.04f, 0.18f, 0.04f, 0.07f } },
+};
 
-// ── Envelope state ────────────────────────────────────────────────────────
-typedef enum {
-    ENV_IDLE = 0,
-    ENV_ATTACK,
-    ENV_DECAY,
-    ENV_SUSTAIN,
-    ENV_RELEASE,
-    ENV_OFF,
-} EnvState;
+// ── Notes ─────────────────────────────────────────────────────────────────
+typedef enum { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE } EnvState;
 
-// ── Note slot (one musical note = 2 mixer channels) ───────────────────────
 typedef struct {
-    uint8_t  active;
-    uint8_t  body_ch;    // mixer channel for body wavetable
-    uint8_t  sub_ch;     // mixer channel for sub wavetable
-    uint8_t  player;     // 1..4
-    uint8_t  engine;
-    uint8_t  held;       // button is currently down
-    int8_t   note;       // MIDI note
-    float    freq_hz;    // base freq (without portamento/bend/LFO)
-    float    prev_freq;  // freq at last frame (for portamento interpolation)
+    uint8_t  active, held, sustained;   // sustained: released while Z was down
+    uint8_t  body_ch, sub_ch, player, engine;
+    int8_t   note;
+    float    freq_hz;                   // target, before portamento/bend/LFO
+    float    glide;                     // current body rate, portamento state
     float    age_ms;
-    // Envelope (shared between body and sub).
     EnvState env;
     float    env_level;
-    float    env_attack_start;  // where in attack we re-started (retrigger)
-    // Pitch modulation (per frame).
-    float    bend_semi;         // c-stick X bend in semitones
-    float    mod_depth;         // c-stick Y → LFO depth
-    float    stick_bright;      // 0..1 — body brightness crossfade
+    float    bright;                    // 1 = bright table, 0 = dark
 } BassNote;
 
 static BassNote g_notes[BASS_NOTES];
 
-// ── Players ──────────────────────────────────────────────────────────────
 typedef struct {
-    int8_t   engine;        // BassEngine
-    int8_t   octave;        // semitone offset
-    uint8_t  legato;        // 1 = legato (default), 0 = retrigger
-    uint8_t  portamento_ms; // portamento time
-    uint8_t  scale;         // Scale
-    float    stick_x;
-    float    stick_y;
-    float    stick_mag;
-    float    cstick_x;
-    float    cstick_y;
+    int8_t   engine, octave;
+    uint8_t  legato, scale;
+    uint16_t portamento_ms;             // was uint8_t with a menu range to 500
+    float    volume;                    // this player's own level, 0..1
+    float    stick_x, stick_y, stick_mag2, cstick_x, cstick_y;
     uint8_t  z_held;
-    // Last note played (for UI).
-    int8_t   last_note;
-    // Last held button per player (legato: voice glide target).
-    int8_t   held_button;   // -1 = none
+    int8_t   last_note, held_button;
 } BassPlayer;
 
-#define NPLAYERS 4
 static BassPlayer g_players[NPLAYERS];
-
-// Stereo pan per player.
-static const float PLAYER_PAN[NPLAYERS] = { 0.25f, 0.42f, 0.58f, 0.75f };
-static const color_t PLAYER_COLOR[NPLAYERS] = {
-    RGBA32(0x00, 0xE5, 0xFF, 0xFF),
-    RGBA32(0x4C, 0xFF, 0x82, 0xFF),
-    RGBA32(0xFF, 0xD9, 0x4C, 0xFF),
-    RGBA32(0xFF, 0x4C, 0x6A, 0xFF),
-};
-
-// ── Note mapping ──────────────────────────────────────────────────────────
-static const uint32_t NOTE_BUTTONS[13] = {
-    KILN_BTN_DU, KILN_BTN_DL, KILN_BTN_DD, KILN_BTN_DR,
-    KILN_BTN_CL, KILN_BTN_CD, KILN_BTN_CR, KILN_BTN_CU,
-    KILN_BTN_L,  KILN_BTN_B,  KILN_BTN_A,  KILN_BTN_Z,  KILN_BTN_R,
-};
-
-// ── Global state ──────────────────────────────────────────────────────────
-static uint8_t  g_menu_open = 0;
-static int8_t   g_menu_row  = 0;
-#define MENU_ROWS_PLAYER 6       // engine, octave, legato, portamento, scale, vol
-#define MENU_ROWS_GLOBAL 2       // master gain, LFO rate
-#define MENU_ROWS (NPLAYERS * MENU_ROWS_PLAYER + MENU_ROWS_GLOBAL)
+static const float PLAYER_PAN[NPLAYERS] = { 0.30f, 0.44f, 0.56f, 0.70f };
+static const uint32_t PLAYER_RGB[NPLAYERS] = { 0x00E5FFFF, 0x4CFF82FF, 0xFFD94CFF, 0xFF4C6AFF };
 
 static float g_master_gain = 0.75f;
 static float g_lfo_rate_hz = 5.0f;
 static float g_lfo_phase = 0.0f;
+static float g_midi_hz[128];
 
-// ── Intro sequence ────────────────────────────────────────────────────────
-// Plays a 4-bar demo riff on each player in turn using the loaded engines.
-// Skippable with any button. Scripted as a flat list of {time_ms, player,
-// midi_note} events so the existing note_on/note_off machinery plays it
-// through the same voice allocator as live input — the intro IS a real
-// performance of the synth, not a separate audio asset.
-typedef struct {
-    uint32_t t_ms;
-    uint8_t  player;        // 1..4
-    int8_t   note;          // MIDI
-    uint8_t  dur_ms;        // how long until note_off
-    int8_t   bend;          // -1, 0, 1 (semitones for c-stick X target)
-} IntroEvent;
+static color_t rgb(uint32_t c) { return RGBA32(c >> 24, (c >> 16) & 0xFF, (c >> 8) & 0xFF, 0xFF); }
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-// E-minor riff, ~80 BPM, four-bar phrase (7.5 s), one engine per bar.
-// Bar 0: P1 HEAVY plays low E-minor bass line.
-// Bar 1: P2 SUB plays one-octave higher root motion.
-// Bar 2: P3 GROWL plays syncopated stabs.
-// Bar 3: P4 INDUSTRIAL drives the climax.
-static const IntroEvent INTRO_SCRIPT[] = {
-    // Bar 1 — HEAVY: E2, G2, A2, B2 walking bass (each beat = 375 ms @ 80bpm)
-    {    0, 1,  28, 350, 0 },   // E2
-    {  375, 1,  31, 200, 0 },   // G2 short
-    {  600, 1,  33, 150, 0 },   // A2 short
-    {  775, 1,  35, 350, 0 },   // B2
-    { 1150, 1,  33, 200, 0 },   // A2
-    { 1375, 1,  31, 200, 0 },   // G2
-    // Bar 2 — SUB: E3, F3, G3, A3 root motion (one octave up)
-    { 1700, 2,  40, 350, 0 },   // E3
-    { 2075, 2,  41, 350, 0 },   // F3
-    { 2450, 2,  43, 350, 0 },   // G3
-    { 2825, 2,  45, 350, 0 },   // A3
-    // Bar 3 — GROWL: B3 syncopated stabs
-    { 3200, 3,  47, 150, 0 },   // B3 stab
-    { 3400, 3,  45, 150, 0 },
-    { 3600, 3,  47, 150, 0 },
-    { 3800, 3,  48, 250, 0 },   // C4 longer
-    { 4100, 3,  47, 150, 0 },
-    { 4300, 3,  45, 150, 0 },
-    { 4500, 3,  43, 150, 0 },
-    { 4700, 3,  45, 300, 0 },
-    // Bar 4 — INDUSTRIAL climax: power octave E2/E3 unison, plus bend
-    { 5100, 4,  28, 700, 0 },   // E2
-    { 5100, 1,  40, 700, 0 },   // P1 E3 power chord
-    { 5800, 4,  30, 200, 0 },   // F#2
-    { 6000, 1,  42, 200, 0 },   // P1 F#3
-    { 6200, 4,  33, 700, 0 },   // A2
-    { 6200, 1,  45, 700, 0 },   // P1 A3
-    { 6900, 4,  35, 700, 0 },   // B2
-    { 6900, 1,  47, 700, 0 },   // P1 B3
-    { 7600, 4,  28, 900, 1 },   // E2 hold, bend up 1 semitone
-};
-#define INTRO_EVENTS (sizeof(INTRO_SCRIPT) / sizeof(INTRO_SCRIPT[0]))
-#define INTRO_TOTAL_MS 8500
-
-static uint8_t  g_intro_active = 1;
-static uint32_t g_intro_start_ms = 0;
-static uint32_t g_intro_last_t_ms = 0xFFFFFFFF;
-
-// Pending note-offs for the intro: small fixed ring.
-#define INTRO_MAX_PENDING 64
-typedef struct { uint32_t fire_ms; uint8_t player; int8_t midi; } IntroOff;
-static IntroOff g_intro_pending[INTRO_MAX_PENDING];
-static int g_intro_pending_n = 0;
-
-// ── 3D scene ──────────────────────────────────────────────────────────────
-static KilnScene g_scene;
-static KilnTransform g_cube_xform[BASS_CHANS];
-static T3DVertPacked *g_cube_verts;
-static const uint8_t CUBE_TRIS[12][3] = {
-    {0,1,2},{2,3,0}, {4,6,5},{6,4,7},
-    {0,4,5},{5,1,0}, {1,5,6},{6,2,1},
-    {2,6,7},{7,3,2}, {3,7,4},{4,0,3},
-};
-
-// ── Save state (eepromfs) ─────────────────────────────────────────────────
-#define EEPROM_MAGIC 0xB7
-
-typedef struct __attribute__((packed)) {
-    uint8_t magic;
-    uint8_t version;
-    // Per-player settings (5 bytes each).
-    uint8_t engine[NPLAYERS];
-    int8_t  octave[NPLAYERS];
-    uint8_t legato[NPLAYERS];
-    uint8_t portamento[NPLAYERS];   // stored / 20 to fit byte; ms = x * 20
-    uint8_t scale[NPLAYERS];
-    uint8_t master_x4;              // 0..200 = 0.0..1.0
-    uint8_t lfo_rate_x2;            // 0..40 = 0..20 Hz (capped)
-} PatchState;
-
-static const char *PATCH_FILE = "rom:/bass-synth.pat";
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-static inline float midi_to_hz(int midi)
+// Equal temperament by repeated multiplication from A4: no powf.
+static void build_midi_table(void)
 {
-    return 440.0f * powf(2.0f, (midi - 69) / 12.0f);
+    const float semitone = 1.0594631f;
+    g_midi_hz[69] = 440.0f;
+    for (int n = 70; n < 128; n++) g_midi_hz[n] = g_midi_hz[n - 1] * semitone;
+    for (int n = 68; n >= 0; n--)  g_midi_hz[n] = g_midi_hz[n + 1] / semitone;
 }
 
-static inline float soft_clip(float x)
+static int midi_for(const BassPlayer *pl, int key)
 {
-    // Free-of-libm soft clip: tanh(x)/x would need tanhf. This is the
-    // common 1/(1+|x|) approximation — same saturation shape, one abs +
-    // one mul + one div, no FP exceptions.
-    return x / (1.0f + (x < 0 ? -x : x));
+    int m = BASE_MIDI + pl->octave + SCALE_STEPS[pl->scale][key];
+    return m < 0 ? 0 : m > MIDI_MAX ? MIDI_MAX : m;
 }
 
-// ── Voice allocator ───────────────────────────────────────────────────────
-static int note_find_free(void)
+// 2^(semi/12) for semi in [-1, 1], linearised on each side (error < 0.2%).
+static float bend_ratio(float semi)
 {
-    for (int i = 0; i < BASS_NOTES; i++)
-        if (!g_notes[i].active) return i;
-    return -1;
+    return semi >= 0.0f ? 1.0f + semi * 0.0594631f : 1.0f + semi * 0.0561257f;
 }
 
-// Priority score: lower is more stealable.
-// Release-phase notes score best (lowest priority). Same pitch → release
-// loses to sustain; sustain loses to attack/decay.
-static int note_steal_priority(int idx)
+// ── Output tap: the mixed buffer, for the scope ──────────────────────────
+static int16_t g_scope[SCOPE_N];
+static int g_scope_peak;
+
+static void scope_tap(const int16_t *s, int frames, void *ctx)
 {
-    BassNote *n = &g_notes[idx];
-    if (!n->active) return -1000;
-    int score = (int)n->note * 100;        // higher note → higher score
-    if (n->env == ENV_RELEASE) score -= 5000;  // release wins steals
-    else if (n->env == ENV_SUSTAIN) score -= 200;
-    else if (n->env == ENV_DECAY) score -= 100;
-    // Older age → slightly lower priority.
-    score += (int)(n->age_ms / 100.0f);
-    return score;
+    (void)ctx;
+    int start = 0;
+    for (int i = 1; i < frames / 2; i++)
+        if (s[(i - 1) * 2] < 0 && s[i * 2] >= 0) { start = i; break; }
+    int peak = 0;
+    for (int i = 0; i < SCOPE_N; i++) {
+        int f = start + i * 3;
+        if (f >= frames) f = frames - 1;
+        const int v = ((int)s[f * 2] + (int)s[f * 2 + 1]) / 2;
+        g_scope[i] = (int16_t)v;
+        if (v > peak) peak = v;
+        if (-v > peak) peak = -v;
+    }
+    g_scope_peak = peak;
 }
 
+// ── Voice allocation ─────────────────────────────────────────────────────
 static int note_find_victim(void)
 {
-    int worst = -1;
-    int worst_score = -0x7fffffff;
+    int best = -1, best_score = 0x7fffffff;
     for (int i = 0; i < BASS_NOTES; i++) {
-        int s = note_steal_priority(i);
-        if (s > worst_score) { worst_score = s; worst = i; }
+        const BassNote *n = &g_notes[i];
+        if (!n->active) return i;
+        // Lower is more stealable: releasing first, then oldest.
+        int score = (n->env == ENV_RELEASE ? 0 : 100000) - (int)n->age_ms;
+        if (score < best_score) { best_score = score; best = i; }
     }
-    return worst;
+    return best;
 }
 
-// ── Note on / off ─────────────────────────────────────────────────────────
-// Find or allocate a note slot for (player, midi). In legato mode, if the
-// player already has a note, glide it to the new pitch without restarting
-// the envelope; otherwise re-trigger from current envelope level.
-static void note_on(int player, int8_t midi)
+static void note_on(int player, int midi)
 {
-    BassPlayer *pl = &g_players[player - 1];
-    BassEngineDef *eng = &g_engine[pl->engine];
+    BassPlayer *pl = &g_players[player];
+    const BassEngineDef *eng = &g_engine[pl->engine];
 
-    // Look for an existing note held by this player.
     int existing = -1;
-    for (int i = 0; i < BASS_NOTES; i++) {
-        if (g_notes[i].active && g_notes[i].player == (uint8_t)player) {
-            existing = i;
-            break;
-        }
-    }
+    for (int i = 0; i < BASS_NOTES; i++)
+        if (g_notes[i].active && g_notes[i].held && g_notes[i].player == player) { existing = i; break; }
 
     if (existing >= 0 && pl->legato) {
+        // Glide: the channels keep playing and the envelope keeps its stage;
+        // the TARGET moves, and update_voices slides `glide` towards it.
         BassNote *n = &g_notes[existing];
-        n->held = 1;
-        n->prev_freq = midi_to_hz(n->note) * WT_LEN;
-        n->note = midi;
+        n->note = (int8_t)midi;
+        n->freq_hz = g_midi_hz[midi];
         n->age_ms = 0.0f;
-        // Don't restart envelope. Don't restart wavetable — the body channel
-        // is already playing; just glide freq. The sub channel stays the
-        // same (still sub layer at body freq / 2 by mixer_ch_set_freq offset).
+        pl->last_note = (int8_t)midi;
         return;
     }
 
-    int slot = existing >= 0 ? existing : note_find_free();
-    if (slot < 0) slot = note_find_victim();
-    if (slot < 0) return;
+    const int slot = existing >= 0 ? existing : note_find_victim();
     BassNote *n = &g_notes[slot];
+    const int retrigger = n->active;
+    const float level = retrigger ? n->env_level : 0.0f;     // no click
+    const float glide_from = retrigger ? n->glide : g_midi_hz[midi] * WT_LEN;
 
-    if (n->active) {
-        // Steal/replace: stop the previous note's channels.
-        kiln_sfx_stop(n->body_ch);
-        kiln_sfx_stop(n->sub_ch);
-    } else {
-        // Fresh allocation: same body_ch/sub_ch every time for this slot
-        // (slot index → channel pair: slot*2 = body, slot*2+1 = sub).
-        n->body_ch = (uint8_t)(slot * 2);
-        n->sub_ch  = (uint8_t)(slot * 2 + 1);
-    }
+    n->active = 1;
+    n->held = 1;
+    n->sustained = 0;
+    n->player = (uint8_t)player;
+    n->engine = (uint8_t)pl->engine;
+    n->note = (int8_t)midi;
+    n->freq_hz = g_midi_hz[midi];
+    n->glide = pl->portamento_ms > 0 ? glide_from : g_midi_hz[midi] * WT_LEN;
+    n->age_ms = 0.0f;
+    n->env = ENV_ATTACK;
+    n->env_level = level;
+    n->bright = clampf((pl->stick_x + 1.0f) * 0.5f, 0.0f, 1.0f);
+    n->body_ch = (uint8_t)(slot * 2);
+    n->sub_ch = (uint8_t)(slot * 2 + 1);
 
-    n->active      = 1;
-    n->player      = (uint8_t)player;
-    n->engine      = (uint8_t)pl->engine;
-    n->held        = 1;
-    n->note        = midi;
-    n->freq_hz     = midi_to_hz(midi);
-    n->prev_freq   = n->active ? n->freq_hz * WT_LEN : 0.0f;  // start at target
-    n->age_ms      = 0.0f;
-    n->env         = ENV_ATTACK;
-    n->env_level   = 0.0f;
-    n->env_attack_start = 0.0f;
-    n->bend_semi   = 0.0f;
-    n->mod_depth   = 0.0f;
-    n->stick_bright = (pl->stick_x + 1.0f) * 0.5f;
-    if (n->stick_bright < 0.0f) n->stick_bright = 0.0f;
-    if (n->stick_bright > 1.0f) n->stick_bright = 1.0f;
-
-    g_players[player - 1].last_note = midi;
-}
-
-// Forward decls (note_on calls into handle_play_input ordering).
-static void note_off(int player);
-
-// intro variant — same path, but takes a bend override (in semitones) so the
-// scripted riff can pitch up the closing E by a semitone without needing
-// per-player c-stick state.
-static void note_on_ext(int player, int8_t midi, int8_t bend_semi)
-{
-    note_on(player, midi);
-    if (bend_semi != 0) {
-        for (int i = 0; i < BASS_NOTES; i++) {
-            if (g_notes[i].active && g_notes[i].player == (uint8_t)player &&
-                g_notes[i].note == midi) {
-                g_notes[i].bend_semi = (float)bend_semi;
-                break;
-            }
-        }
-    }
-}
-
-// Fire any intro events whose time has come since last frame. Single-pass;
-// events are time-ordered so we just advance g_intro_last_t_ms + 1 each
-// frame and skip ahead.
-static void intro_advance(uint32_t elapsed_ms)
-{
-    if (elapsed_ms >= INTRO_TOTAL_MS) return;
-    for (int i = 0; i < (int)INTRO_EVENTS; i++) {
-        const IntroEvent *e = &INTRO_SCRIPT[i];
-        if ((uint32_t)e->t_ms > elapsed_ms) break;
-        // Walk only events with t_ms > last-fired timestamp so we don't
-        // re-fire on subsequent frames.
-        if ((uint32_t)e->t_ms <= g_intro_last_t_ms) continue;
-        note_on_ext(e->player, e->note, e->bend);
-        if (g_intro_pending_n < INTRO_MAX_PENDING) {
-            g_intro_pending[g_intro_pending_n++] = (IntroOff){
-                .fire_ms = (uint32_t)e->t_ms + e->dur_ms,
-                .player  = e->player,
-                .midi    = e->note,
-            };
-        }
-    }
-    g_intro_last_t_ms = elapsed_ms;
-}
-
-// Drain pending note-offs whose fire time has arrived.
-static void intro_drain_offs(uint32_t elapsed_ms)
-{
-    int w = 0;
-    for (int r = 0; r < g_intro_pending_n; r++) {
-        if (g_intro_pending[r].fire_ms <= elapsed_ms) {
-            note_off(g_intro_pending[r].player);
-        } else {
-            g_intro_pending[w++] = g_intro_pending[r];
-        }
-    }
-    g_intro_pending_n = w;
-}
-
-static int intro_is_done(uint32_t elapsed_ms)
-{
-    return elapsed_ms >= INTRO_TOTAL_MS;
+    // START THE CHANNELS. The old code never did, and was silent. Volume 0:
+    // the envelope brings it up on this frame's update, before the mix.
+    const int body_wt = n->bright >= 0.5f ? eng->wt_body_bright : eng->wt_body_dark;
+    kiln_sfx_play_ex(body_wt, n->body_ch, 2, 0.0f, PLAYER_PAN[player]);
+    kiln_sfx_play_ex(eng->wt_sub, n->sub_ch, 2, 0.0f, PLAYER_PAN[player]);
+    kiln_sfx_set_freq(n->body_ch, n->glide);
+    kiln_sfx_set_freq(n->sub_ch, n->glide * 0.5f);
+    pl->last_note = (int8_t)midi;
 }
 
 static void note_off(int player)
 {
     int found = -1;
-    float newest = -1.0f;
+    float newest = 1e9f;
     for (int i = 0; i < BASS_NOTES; i++) {
-        if (!g_notes[i].active || g_notes[i].player != (uint8_t)player) continue;
-        if (!g_notes[i].held) continue;
-        if (g_notes[i].age_ms > newest) { newest = g_notes[i].age_ms; found = i; }
+        const BassNote *n = &g_notes[i];
+        if (!n->active || !n->held || n->player != player) continue;
+        if (n->age_ms < newest) { newest = n->age_ms; found = i; }
     }
     if (found < 0) return;
     BassNote *n = &g_notes[found];
     n->held = 0;
-
-    if (g_players[player - 1].z_held) {
-        // Sustain: leave envelope in current state, marked for later release.
-        n->env = ENV_SUSTAIN;
-        return;
-    }
-    n->env = ENV_RELEASE;
+    if (g_players[player].z_held) n->sustained = 1;
+    else n->env = ENV_RELEASE;
 }
 
 static void release_sustained(int player)
 {
     for (int i = 0; i < BASS_NOTES; i++) {
-        if (!g_notes[i].active || g_notes[i].player != (uint8_t)player) continue;
-        if (!g_notes[i].held && g_notes[i].env != ENV_SUSTAIN) continue;
-        g_notes[i].env = ENV_RELEASE;
+        BassNote *n = &g_notes[i];
+        if (n->active && n->player == player && n->sustained) { n->sustained = 0; n->env = ENV_RELEASE; }
     }
 }
 
-// ── Per-frame update ──────────────────────────────────────────────────────
+static void release_all(void)
+{
+    for (int i = 0; i < BASS_NOTES; i++) {
+        BassNote *n = &g_notes[i];
+        if (n->active) { n->held = 0; n->sustained = 0; n->env = ENV_RELEASE; }
+    }
+    for (int p = 0; p < NPLAYERS; p++) g_players[p].held_button = -1;
+}
+
+// ── Per-frame voice update ────────────────────────────────────────────────
 static void update_voices(float dt_ms)
 {
     g_lfo_phase += dt_ms * 0.001f * g_lfo_rate_hz;
-    if (g_lfo_phase >= 1.0f) g_lfo_phase -= (float)(int)g_lfo_phase;
+    g_lfo_phase -= (float)(int)g_lfo_phase;
+    const float lfo = fm_sinf(g_lfo_phase * 6.2831853f);
 
     for (int i = 0; i < BASS_NOTES; i++) {
         BassNote *n = &g_notes[i];
         if (!n->active) continue;
         n->age_ms += dt_ms;
+        const BassEngineDef *eng = &g_engine[n->engine];
+        const BassPlayer *pl = &g_players[n->player];
 
-        BassEngineDef *eng = &g_engine[n->engine];
-        BassPlayer *pl = &g_players[n->player - 1];
-
-        // ── Envelope ────────────────────────────────────────────────
         switch (n->env) {
-        case ENV_ATTACK: {
-            float step = dt_ms / eng->attack_ms;
-            n->env_level += step;
-            if (n->env_level >= 1.0f) {
-                n->env_level = 1.0f;
-                n->env = ENV_DECAY;
-            }
-        } break;
-        case ENV_DECAY: {
-            float step = dt_ms / eng->decay_ms;
-            n->env_level -= step;
-            if (n->env_level <= eng->sustain_lvl) {
-                n->env_level = eng->sustain_lvl;
-                n->env = ENV_SUSTAIN;
-            }
-        } break;
+        case ENV_ATTACK:
+            n->env_level += dt_ms / eng->attack_ms;
+            if (n->env_level >= 1.0f) { n->env_level = 1.0f; n->env = ENV_DECAY; }
+            break;
+        case ENV_DECAY:
+            n->env_level -= dt_ms / eng->decay_ms;
+            if (n->env_level <= eng->sustain_lvl) { n->env_level = eng->sustain_lvl; n->env = ENV_SUSTAIN; }
+            break;
         case ENV_SUSTAIN:
             n->env_level = eng->sustain_lvl;
             break;
-        case ENV_RELEASE: {
-            float step = dt_ms / eng->release_ms;
-            n->env_level -= step;
+        case ENV_RELEASE:
+            n->env_level -= dt_ms / eng->release_ms;
             if (n->env_level <= 0.0f) {
-                n->env_level = 0.0f;
                 kiln_sfx_stop(n->body_ch);
                 kiln_sfx_stop(n->sub_ch);
-                n->env = ENV_OFF;
-                n->active = 0;
+                memset(n, 0, sizeof *n);
                 continue;
             }
-        } break;
-        default: break;
+            break;
+        default:
+            break;
         }
 
-        // ── Stick modulation ────────────────────────────────────────
-        // Brightness crossfade: stick_x [-1..1] → body_bright share.
-        n->stick_bright = (pl->stick_x + 1.0f) * 0.5f;
-        if (n->stick_bright < 0) n->stick_bright = 0;
-        if (n->stick_bright > 1) n->stick_bright = 1;
-        // C-stick X → ±1 semitone bend.
-        n->bend_semi = pl->cstick_x;
-        // C-stick Y → mod-wheel.
-        n->mod_depth = pl->cstick_y;
-        if (n->mod_depth < 0) n->mod_depth = 0;
-        if (n->mod_depth > 1) n->mod_depth = 1;
-
-        // ── Pitch (portamento + bend + LFO) ─────────────────────────
-        // Portamento: glide from prev_freq to target over portamento_ms.
-        float target = n->freq_hz * WT_LEN;
-        if (pl->portamento_ms > 0 && n->held) {
-            float dt = (target - n->prev_freq);
-            float step = dt_ms / pl->portamento_ms;
-            float new_f = n->prev_freq + dt * step;
-            // Have we arrived? Stop sliding.
-            if ((dt > 0 && new_f >= target) || (dt < 0 && new_f <= target))
-                new_f = target;
-            n->prev_freq = new_f;
-            target = new_f;
+        // Portamento: an exponential slide of the body rate to its target.
+        const float target = n->freq_hz * WT_LEN;
+        if (pl->portamento_ms > 0) {
+            const float k = clampf(dt_ms / (float)pl->portamento_ms, 0.0f, 1.0f);
+            n->glide += (target - n->glide) * k;
         } else {
-            n->prev_freq = target;
+            n->glide = target;
         }
-        // C-stick X bend (semitones → multiplier).
-        float bend_mult = powf(2.0f, n->bend_semi / 12.0f);
-        // LFO: sine 0..1 around 0.5, depth scaled by mod-wheel and stick mag.
-        float lfo = sinf(g_lfo_phase * 2.0f * 3.14159265f);
-        float mag = pl->stick_mag;
-        float vibrato_amt = (mag > 0.1f ? mag : 0.0f) * 0.015f +
-                            n->mod_depth * 0.04f;
-        float vibrato = 1.0f + lfo * vibrato_amt;
-        float body_freq = target * bend_mult * vibrato;
-        float sub_freq  = (target * 0.5f) * bend_mult * vibrato;
-        kiln_sfx_set_freq(n->body_ch, body_freq);
-        kiln_sfx_set_freq(n->sub_ch,  sub_freq);
 
-        // ── Mix + pan + soft-clip master ────────────────────────────
-        // Body layer volume: env * body_gain * master. The "bright" share
-        // mixes body_bright vs body_dark — but we only have one wavetable
-        // playing on the body channel. To get a true crossfade we'd need
-        // 4 channels per note; instead, brightness modulates the body
-        // channel volume AND biases the body's spectrum via filtering of
-        // the wavetable selection. For v1 we just track brightness in the
-        // UI; future: keep body_bright + body_dark on two channels.
-        //
-        // (The "real" crossfade cost = 2 channels per body = 4 per note =
-        // 24 channels = 6 notes. Out of budget for this iteration.)
-        float body_vol = n->env_level * eng->body_gain * g_master_gain;
-        // Stick Y → drive: pumps sub layer up at Y > 0.
-        float sub_boost = 1.0f + (pl->stick_y > 0 ? pl->stick_y : 0.0f) * 1.2f;
-        float sub_vol = n->env_level * eng->sub_gain * sub_boost * g_master_gain;
-        // Master soft-clip: protects the AI from additive sum of 12 chans.
-        body_vol = soft_clip(body_vol);
-        sub_vol  = soft_clip(sub_vol);
-        // Pan: stick Y > 0 pushes body right.
-        float pan = PLAYER_PAN[n->player - 1] +
-                    (pl->stick_y > 0 ? pl->stick_y * 0.2f : 0.0f);
-        if (pan > 1.0f) pan = 1.0f;
-        kiln_sfx_set_vol_pan(n->body_ch, body_vol, pan);
-        kiln_sfx_set_vol_pan(n->sub_ch,  sub_vol,  pan);
+        const float vib_depth = (pl->stick_mag2 > 0.01f ? pl->stick_mag2 : 0.0f) * 0.015f
+                              + clampf(pl->cstick_y, 0.0f, 1.0f) * 0.04f;
+        const float rate = n->glide * bend_ratio(clampf(pl->cstick_x, -1.0f, 1.0f)) * (1.0f + lfo * vib_depth);
+        kiln_sfx_set_freq(n->body_ch, clampf(rate, 1.0f, CH_MAX_FREQ));
+        kiln_sfx_set_freq(n->sub_ch,  clampf(rate * 0.5f, 1.0f, CH_MAX_FREQ));
+
+        const float level = n->env_level * pl->volume * g_master_gain;
+        const float drive = 1.0f + (pl->stick_y > 0.0f ? pl->stick_y : 0.0f) * 1.2f;
+        float body = level * eng->body_gain, sub = level * eng->sub_gain * drive;
+        body = body / (1.0f + body);   // soft clip, no libm
+        sub  = sub  / (1.0f + sub);
+        const float pan = clampf(PLAYER_PAN[n->player] + (pl->stick_y > 0.0f ? pl->stick_y * 0.2f : 0.0f), 0.0f, 1.0f);
+        kiln_sfx_set_vol_pan(n->body_ch, body, pan);
+        kiln_sfx_set_vol_pan(n->sub_ch, sub, pan);
     }
 }
 
-// ── Input handling ────────────────────────────────────────────────────────
+// ── Live input ────────────────────────────────────────────────────────────
 static void handle_play_input(void)
 {
-    for (int p = 1; p <= NPLAYERS; p++) {
-        const KilnInput *in = kiln_input_get(p);
-        if (!in) continue;
-        BassPlayer *pl = &g_players[p - 1];
+    for (int p = 0; p < NPLAYERS; p++) {
+        const KilnInput *in = kiln_input_get(p + 1);
+        BassPlayer *pl = &g_players[p];
         pl->stick_x = in->stick_x;
         pl->stick_y = in->stick_y;
-        pl->stick_mag = sqrtf(in->stick_x * in->stick_x +
-                              in->stick_y * in->stick_y);
-        if (pl->stick_mag > 1.0f) pl->stick_mag = 1.0f;
+        pl->stick_mag2 = clampf(in->stick_x * in->stick_x + in->stick_y * in->stick_y, 0.0f, 1.0f);
         pl->cstick_x = in->cstick_x;
         pl->cstick_y = in->cstick_y;
 
-        // Z = sustain modifier.
-        uint8_t z_now = (in->buttons & KILN_BTN_Z) ? 1 : 0;
-        if (z_now == 0 && pl->z_held == 1) release_sustained(p);
-        pl->z_held = z_now;
+        const uint8_t z = (in->buttons & KILN_BTN_Z) ? 1 : 0;
+        if (!z && pl->z_held) release_sustained(p);
+        pl->z_held = z;
 
-        // Apply scale quantization to button index → note semitone.
-        const int8_t *scale = SCALE_STEPS[pl->scale];
-        // Last held button for legato "glide" target.
-        int8_t prev_held = pl->held_button;
-        int8_t new_held = -1;
-
-        for (int n = 0; n < 13; n++) {
-            uint32_t mask = NOTE_BUTTONS[n];
-            int8_t semi = scale[n];
-            if (semi < 0) continue;  // not in this scale
-            int8_t midi = BASE_MIDI + pl->octave + semi;
-
-            if (in->buttons & mask) {
-                // Currently held.
-                if (new_held < 0 || n > new_held) new_held = n;
-            }
-
-            if (in->edges & mask) {
-                note_on(p, midi);
-            } else if (in->released & mask) {
-                // Only release if this button was the active note target.
-                // (Legato tracks held_button — see below.)
-                if (n == pl->held_button) note_off(p);
-            }
-        }
-
-        // If the highest held button changed (player moved finger), trigger
-        // the new top note — legato glides, retrigger attacks.
-        if (new_held != prev_held) {
-            pl->held_button = new_held;
-            if (new_held >= 0) {
-                int8_t semi = scale[new_held];
-                if (semi >= 0) {
-                    int8_t midi = BASE_MIDI + pl->octave + semi;
-                    note_on(p, midi);
-                }
-            } else {
-                // All buttons released.
-                note_off(p);
-            }
+        // The highest held button sounds. A change of it is a new note (a
+        // glide in legato), all released is a note-off.
+        int top = -1;
+        for (int k = 0; k < NOTE_KEYS; k++)
+            if (in->buttons & NOTE_BUTTONS[k]) top = k;
+        if (top != pl->held_button) {
+            if (top >= 0) note_on(p, midi_for(pl, top));
+            else note_off(p);
+            pl->held_button = (int8_t)top;
         }
     }
+}
+
+// ── Intro ─────────────────────────────────────────────────────────────────
+typedef struct { uint16_t t_ms; uint8_t player; int8_t note; uint16_t dur_ms; } IntroEvent;
+
+// E minor, ~80 BPM; one engine per bar, then P4 and P1 together.
+static const IntroEvent INTRO[] = {
+    {    0, 0, 28, 350 }, {  375, 0, 31, 200 }, {  600, 0, 33, 150 }, {  775, 0, 35, 350 },
+    { 1150, 0, 33, 200 }, { 1375, 0, 31, 200 },
+    { 1700, 1, 40, 350 }, { 2075, 1, 41, 350 }, { 2450, 1, 43, 350 }, { 2825, 1, 45, 350 },
+    { 3200, 2, 47, 150 }, { 3400, 2, 45, 150 }, { 3600, 2, 47, 150 }, { 3800, 2, 48, 250 },
+    { 4100, 2, 47, 150 }, { 4300, 2, 45, 150 }, { 4500, 2, 43, 150 }, { 4700, 2, 45, 300 },
+    { 5100, 3, 28, 700 }, { 5100, 0, 40, 700 }, { 5800, 3, 30, 200 }, { 6000, 0, 42, 200 },
+    { 6200, 3, 33, 700 }, { 6200, 0, 45, 700 }, { 6900, 3, 35, 700 }, { 6900, 0, 47, 700 },
+    { 7600, 3, 28, 850 },
+};
+#define INTRO_EVENTS ((int)(sizeof INTRO / sizeof INTRO[0]))
+#define INTRO_TOTAL_MS 8500
+
+static int      g_intro_active = 1;
+static int      g_intro_next;
+static uint16_t g_intro_off_ms[NPLAYERS];    // 0 = none pending
+
+static void intro_step(float t_ms)
+{
+    while (g_intro_next < INTRO_EVENTS && INTRO[g_intro_next].t_ms <= t_ms) {
+        const IntroEvent *e = &INTRO[g_intro_next++];
+        note_off(e->player);                 // one intro note per player
+        note_on(e->player, e->note);
+        g_intro_off_ms[e->player] = (uint16_t)(e->t_ms + e->dur_ms);
+    }
+    for (int p = 0; p < NPLAYERS; p++) {
+        if (g_intro_off_ms[p] && t_ms >= g_intro_off_ms[p]) {
+            note_off(p);
+            g_intro_off_ms[p] = 0;
+        }
+    }
+}
+
+// ── Attract: a bassline on port 1 (chromatic, octave 0: DU is E1) ────────
+#define B_E  KILN_BTN_DU   // E1
+#define B_G  KILN_BTN_DR   // G1
+#define B_A  KILN_BTN_CD   // A1
+#define B_B  KILN_BTN_CU   // B1
+#define B_D  KILN_BTN_A    // D2
+static const KilnInputKey BASSLINE_KEYS[] = {
+    { .frame =   0, .buttons = B_E }, { .frame =  12 },
+    { .frame =  15, .buttons = B_E }, { .frame =  22 },
+    { .frame =  30, .buttons = B_G }, { .frame =  42 },
+    { .frame =  45, .buttons = B_A }, { .frame =  57 },
+    { .frame =  60, .buttons = B_E }, { .frame =  72 },
+    { .frame =  75, .buttons = B_E, .sx = 70 }, { .frame =  82 },
+    { .frame =  90, .buttons = B_B, .sx = 70 }, { .frame = 102 },
+    { .frame = 105, .buttons = B_A }, { .frame = 117 },
+    { .frame = 120, .buttons = B_E }, { .frame = 132 },
+    { .frame = 135, .buttons = B_E }, { .frame = 142 },
+    { .frame = 150, .buttons = B_G }, { .frame = 162 },
+    { .frame = 165, .buttons = B_A, .cy = 60 }, { .frame = 177 },
+    { .frame = 180, .buttons = B_D, .cx = 40 }, { .frame = 204 },
+    { .frame = 210, .buttons = B_B }, { .frame = 222 },
+    { .frame = 225, .buttons = B_A }, { .frame = 237 },
+    { .frame = 240 },
+};
+static const KilnInputTape BASSLINE = { BASSLINE_KEYS, sizeof BASSLINE_KEYS / sizeof BASSLINE_KEYS[0], 0 };
+
+// Jump ROM .#bass-synth-patch: in the editor, turn P1's engine one step, close
+// (which SAVES), reopen — then hold, so the menu footer shows the backend and
+// the save result with no pad attached.
+static const KilnInputKey PATCH_KEYS[] = {
+    { .frame =  0 },
+    { .frame = 30, .buttons = KILN_BTN_DR },    { .frame = 34 },
+    { .frame = 60, .buttons = KILN_BTN_START }, { .frame = 64 },
+    { .frame = 90, .buttons = KILN_BTN_START }, { .frame = 94 },
+    { .frame = 95 },
+};
+static const KilnInputTape PATCH_TAPE = { PATCH_KEYS, sizeof PATCH_KEYS / sizeof PATCH_KEYS[0], KILN_INPUT_NO_LOOP };
+
+// ── Patch: kiln_store ─────────────────────────────────────────────────────
+#define PATCH_NAME    "BASSPAT"
+#define PATCH_VERSION 2
+
+typedef struct __attribute__((packed)) {
+    uint8_t engine[NPLAYERS];
+    int8_t  octave[NPLAYERS];
+    uint8_t legato[NPLAYERS];
+    uint8_t portamento_div10[NPLAYERS];   // ms / 10, 0..50
+    uint8_t scale[NPLAYERS];
+    uint8_t volume_pct[NPLAYERS];
+    uint8_t master_pct;
+    uint8_t lfo_x2;                        // Hz x 2
+} PatchState;
+
+static int      g_store_status = KILN_STORE_ENOENT;
+static uint32_t g_store_shown_frame;       // frame the last save/load landed
+static const char *g_store_what = "load";
+
+static void save_patch(uint32_t frame)
+{
+    PatchState ps;
+    memset(&ps, 0, sizeof ps);
+    for (int i = 0; i < NPLAYERS; i++) {
+        ps.engine[i] = (uint8_t)g_players[i].engine;
+        ps.octave[i] = g_players[i].octave;
+        ps.legato[i] = g_players[i].legato;
+        ps.portamento_div10[i] = (uint8_t)(g_players[i].portamento_ms / 10);
+        ps.scale[i] = g_players[i].scale;
+        ps.volume_pct[i] = (uint8_t)(g_players[i].volume * 100.0f + 0.5f);
+    }
+    ps.master_pct = (uint8_t)(g_master_gain * 100.0f + 0.5f);
+    ps.lfo_x2 = (uint8_t)(g_lfo_rate_hz * 2.0f + 0.5f);
+    g_store_status = kiln_store_write(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps);
+    g_store_what = "save";
+    g_store_shown_frame = frame;
+}
+
+static void load_patch(void)
+{
+    PatchState ps;
+    uint32_t len = 0;
+    g_store_status = kiln_store_read(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps, &len);
+    g_store_what = "load";
+    if (g_store_status != KILN_STORE_OK || len != sizeof ps) return;
+    for (int i = 0; i < NPLAYERS; i++) {
+        g_players[i].engine = (int8_t)(ps.engine[i] % BASS_ENGINE_COUNT);
+        g_players[i].octave = (int8_t)clampf(ps.octave[i], OCTAVE_MIN, OCTAVE_MAX);
+        g_players[i].legato = ps.legato[i] ? 1 : 0;
+        g_players[i].portamento_ms = (uint16_t)(ps.portamento_div10[i] > 50 ? 500 : ps.portamento_div10[i] * 10);
+        g_players[i].scale = (uint8_t)(ps.scale[i] % SCALE_COUNT);
+        g_players[i].volume = clampf(ps.volume_pct[i] / 100.0f, 0.0f, 1.0f);
+    }
+    g_master_gain = clampf(ps.master_pct / 100.0f, 0.0f, 1.0f);
+    g_lfo_rate_hz = clampf(ps.lfo_x2 / 2.0f, 0.5f, 12.0f);
 }
 
 // ── Menu ──────────────────────────────────────────────────────────────────
-typedef enum {
-    FIELD_ENGINE = 0,
-    FIELD_OCTAVE,
-    FIELD_LEGATO,
-    FIELD_PORTAMENTO,
-    FIELD_SCALE,
-    FIELD_VOLUME,
-    FIELD_GLOBAL_MASTER,
-    FIELD_GLOBAL_LFO,
-} MenuField;
+enum { ROW_ENGINE, ROW_OCTAVE, ROW_LEGATO, ROW_PORTA, ROW_SCALE, ROW_VOLUME, PLAYER_ROWS };
+enum { ROW_MASTER, ROW_LFO, GLOBAL_ROWS };
+#define PAGE_GLOBAL NPLAYERS
 
-static void apply_menu_delta(int delta, int row)
+static int g_menu_open, g_menu_page, g_menu_row;
+
+static void menu_apply(int dir)
 {
-    int player = row / MENU_ROWS_PLAYER;
-    int field  = row % MENU_ROWS_PLAYER;
-    BassPlayer *pl = &g_players[player];
-    if (player >= NPLAYERS) {
-        // Global rows.
-        int gf = row - NPLAYERS * MENU_ROWS_PLAYER;
-        if (gf == 0) {
-            g_master_gain += delta * 0.05f;
-            if (g_master_gain < 0.0f) g_master_gain = 0.0f;
-            if (g_master_gain > 1.0f) g_master_gain = 1.0f;
-        } else {
-            g_lfo_rate_hz += delta * 0.5f;
-            if (g_lfo_rate_hz < 0.5f) g_lfo_rate_hz = 0.5f;
-            if (g_lfo_rate_hz > 12.0f) g_lfo_rate_hz = 12.0f;
-        }
+    if (g_menu_page == PAGE_GLOBAL) {
+        if (g_menu_row == ROW_MASTER) g_master_gain = clampf(g_master_gain + dir * 0.05f, 0.0f, 1.0f);
+        else g_lfo_rate_hz = clampf(g_lfo_rate_hz + dir * 0.5f, 0.5f, 12.0f);
         return;
     }
-    switch (field) {
-    case FIELD_ENGINE:
-        pl->engine = (pl->engine + delta + BASS_ENGINE_COUNT) % BASS_ENGINE_COUNT;
-        break;
-    case FIELD_OCTAVE: {
-        int8_t o = pl->octave + delta * 12;
-        if (o < -12) o = -12;
-        if (o > 60)  o = 60;
-        pl->octave = o;
-    } break;
-    case FIELD_LEGATO:
-        pl->legato = !pl->legato;
-        break;
-    case FIELD_PORTAMENTO: {
-        int v = (int)pl->portamento_ms + delta * 50;
-        if (v < 0) v = 0;
-        if (v > 500) v = 500;
-        pl->portamento_ms = (uint8_t)v;
-    } break;
-    case FIELD_SCALE:
-        pl->scale = (pl->scale + delta + SCALE_COUNT) % SCALE_COUNT;
-        break;
-    case FIELD_VOLUME: {
-        // We don't have a per-player volume field; reuse the master for now.
-        // Placeholder for future split.
-        g_master_gain += delta * 0.05f;
-        if (g_master_gain < 0.0f) g_master_gain = 0.0f;
-        if (g_master_gain > 1.0f) g_master_gain = 1.0f;
-    } break;
+    BassPlayer *pl = &g_players[g_menu_page];
+    switch (g_menu_row) {
+    case ROW_ENGINE: pl->engine = (int8_t)((pl->engine + dir + BASS_ENGINE_COUNT) % BASS_ENGINE_COUNT); break;
+    case ROW_OCTAVE: pl->octave = (int8_t)clampf(pl->octave + dir * 12, OCTAVE_MIN, OCTAVE_MAX); break;
+    case ROW_LEGATO: pl->legato = !pl->legato; break;
+    case ROW_PORTA:  pl->portamento_ms = (uint16_t)clampf((float)pl->portamento_ms + dir * 50.0f, 0.0f, 500.0f); break;
+    case ROW_SCALE:  pl->scale = (uint8_t)((pl->scale + dir + SCALE_COUNT) % SCALE_COUNT); break;
+    case ROW_VOLUME: pl->volume = clampf(pl->volume + dir * 0.1f, 0.0f, 1.0f); break;
+    default: break;
     }
 }
 
-static void handle_menu_input(void)
+static void handle_menu_input(uint32_t frame)
 {
     const KilnInput *in = kiln_input_get(1);
-    if (!in) return;
-    if (in->edges & KILN_BTN_DU) g_menu_row--;
-    if (in->edges & KILN_BTN_DD) g_menu_row++;
-    if (g_menu_row < 0) g_menu_row = MENU_ROWS - 1;
-    if (g_menu_row >= MENU_ROWS) g_menu_row = 0;
-
-    if (in->edges & (KILN_BTN_DL | KILN_BTN_DR)) {
-        int dir = (in->edges & KILN_BTN_DR) ? +1 : -1;
-        apply_menu_delta(dir, g_menu_row);
+    const int rows = g_menu_page == PAGE_GLOBAL ? GLOBAL_ROWS : PLAYER_ROWS;
+    if (in->edges & KILN_BTN_DU) g_menu_row = (g_menu_row + rows - 1) % rows;
+    if (in->edges & KILN_BTN_DD) g_menu_row = (g_menu_row + 1) % rows;
+    if (in->edges & KILN_BTN_DR) menu_apply(+1);
+    if (in->edges & KILN_BTN_DL) menu_apply(-1);
+    int page = 0;
+    if (in->edges & (KILN_BTN_R | KILN_BTN_CR)) page = 1;
+    if (in->edges & (KILN_BTN_L | KILN_BTN_CL)) page = -1;
+    if (page) {
+        g_menu_page = (g_menu_page + page + NPLAYERS + 1) % (NPLAYERS + 1);
+        const int new_rows = g_menu_page == PAGE_GLOBAL ? GLOBAL_ROWS : PLAYER_ROWS;
+        if (g_menu_row >= new_rows) g_menu_row = new_rows - 1;
     }
-    if (in->edges & KILN_BTN_START) g_menu_open = 0;
+    if (in->edges & KILN_BTN_START) {
+        g_menu_open = 0;
+        save_patch(frame);   // on CLOSE, after the edits — it used to be on open
+    }
 }
 
-// ── 2D UI ─────────────────────────────────────────────────────────────────
-static const char *note_name(int midi)
+// ── 2D ────────────────────────────────────────────────────────────────────
+static const color_t INK   = RGBA32(0xE8, 0xE8, 0xF0, 0xFF);
+static const color_t DIM   = RGBA32(0x90, 0x98, 0xB0, 0xFF);
+static const color_t TEAL  = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
+static const color_t PANEL = RGBA32(0x0C, 0x10, 0x1C, 0xFF);
+static const color_t WELL  = RGBA32(0x2A, 0x2A, 0x3E, 0xFF);
+static const color_t BAD   = RGBA32(0xFF, 0x4C, 0x6A, 0xFF);
+
+static const char *note_name(int midi, char *buf, int cap)
 {
-    static const char *names[12] = {
-        "C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "
-    };
-    static char buf[8];
-    int oct = midi / 12 - 1;
-    snprintf(buf, sizeof(buf), "%s%d", names[midi % 12], oct);
+    static const char *const N[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    snprintf(buf, (size_t)cap, "%s%d", N[midi % 12], midi / 12 - 1);
     return buf;
 }
 
@@ -794,490 +611,310 @@ static const char *env_name(EnvState e)
     }
 }
 
-static void bass_vbar(int x, int y, int w, int h, float frac,
-                      color_t fg, color_t bg)
+// "sram ok", "rom readonly" — the backend that took the patch and what it said.
+static void store_line(char *buf, int cap)
 {
-    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
-    kiln_gui_rect(x, y, w, h, bg);
-    int fh = (int)(frac * (h - 2));
-    kiln_gui_rect(x + 1, y + h - 1 - fh, w - 2, fh, fg);
+    snprintf(buf, (size_t)cap, "%s %s %s", g_store_what, kiln_store_kind_name(),
+             kiln_store_status_name(g_store_status));
 }
 
-static void bass_stick_viz(int x, int y, int w, int h,
-                           float sx, float sy, color_t border, color_t dot)
+static void draw_status(int active)
 {
-    kiln_gui_panel(x, y, w, h, RGBA32(10, 10, 24, 200), border);
-    int cx = x + w / 2;
-    int cy = y + h / 2;
-    int px = cx + (int)(sx * (w / 2 - 4));
-    int py = cy - (int)(sy * (h / 2 - 4));
-    kiln_gui_rect(px - 2, py - 2, 4, 4, dot);
+    kiln_gui_panel(4, 4, SCREEN_W - 8, 18, PANEL, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+    // 50 characters at most: the strip is 312 px of a 6 px font.
+    kiln_gui_text(10, 16, INK, "BASS  notes %d/%d  mst %3d%%  lfo %4.1f", active, BASS_NOTES,
+                  (int)(g_master_gain * 100.0f + 0.5f), (double)g_lfo_rate_hz);
+    kiln_gui_text(SCREEN_W - 64, 16, kiln_store_writable() ? TEAL : BAD, "save %s", kiln_store_kind_name());
 }
 
-static void draw_menu(void)
+static void draw_scope(void)
 {
-    int x = 16, y = 14;
-    int row_h = 14;
-    int w = 288;
-    int total_h = MENU_ROWS * row_h + 24;
+    const int y = 26;
+    kiln_gui_panel(4, y, SCREEN_W - 8, 26, PANEL, RGBA32(0x3A, 0x40, 0x5C, 0xFF));
+    kiln_gui_text(10, y + 11, DIM, "mix");
+    kiln_gui_bar(10, y + 15, 24, 5, g_scope_peak / 32768.0f, RGBA32(0xFF, 0xD9, 0x4C, 0xFF), WELL);
+    const int mid = y + 13;
+    for (int i = 1; i < SCOPE_N; i++) {
+        const int x0 = 42 + (i - 1) * 268 / SCOPE_N, x1 = 42 + i * 268 / SCOPE_N;
+        const int y0 = mid - (int)clampf(g_scope[i - 1] / 1200.0f, -9, 9);
+        const int y1 = mid - (int)clampf(g_scope[i] / 1200.0f, -9, 9);
+        kiln_gui_line(x0, y0, x1, y1, 1, TEAL);
+    }
+}
 
-    kiln_gui_panel(x - 6, y - 10, w + 12, total_h,
-                  RGBA32(10, 10, 24, 230), RGBA32(0, 245, 212, 255));
-    kiln_gui_text(x, y - 6, RGBA32(0, 245, 212, 255),
-                 "BASS SYNTH  Start:close   Up/Dn:row   L/R:val");
+static void draw_players(void)
+{
+    const int col_w = 76, y = SCREEN_H - 78;
+    for (int p = 0; p < NPLAYERS; p++) {
+        const int x = 4 + p * (col_w + 2);
+        const BassPlayer *pl = &g_players[p];
+        const color_t pc = rgb(PLAYER_RGB[p]);
+        char nb[8];
 
-    for (int row = 0; row < MENU_ROWS; row++) {
-        int ry = y + 4 + row * row_h;
-        int selected = (row == g_menu_row);
-        color_t row_col = selected
-            ? RGBA32(40, 60, 80, 255)
-            : RGBA32(20, 20, 36, 200);
-        color_t row_brd = selected
-            ? RGBA32(0, 245, 212, 255)
-            : RGBA32(60, 60, 90, 255);
-        kiln_gui_panel(x, ry, w, row_h - 2, row_col, row_brd);
+        int newest = -1, voices = 0;
+        for (int i = 0; i < BASS_NOTES; i++) {
+            if (!g_notes[i].active || g_notes[i].player != p) continue;
+            voices++;
+            if (newest < 0 || g_notes[i].age_ms < g_notes[newest].age_ms) newest = i;
+        }
 
-        char label[40];
-        char value[24];
-        color_t tag_col = RGBA32(232, 232, 240, 255);
+        kiln_gui_panel(x, y, col_w, 74, PANEL, pc);
+        kiln_gui_text(x + 4, y + 12, pc, "P%d %s", p + 1, ENGINE_NAME[pl->engine]);
+        kiln_gui_text(x + 4, y + 24, DIM, "oct%+d v%d", pl->octave, (int)(pl->volume * 100.0f + 0.5f));
+        kiln_gui_text(x + 4, y + 36, DIM, "%s %s", pl->legato ? "leg" : "rtr", SCALE_NAME[pl->scale]);
+        kiln_gui_text(x + 4, y + 48, INK, "%-3s %s", pl->last_note >= 0 ? note_name(pl->last_note, nb, sizeof nb) : "--",
+                      newest >= 0 ? env_name(g_notes[newest].env) : "---");
+        kiln_gui_bar(x + 4, y + 54, col_w - 22, 5, newest >= 0 ? g_notes[newest].env_level : 0.0f, pc, WELL);
 
-        int player = row / MENU_ROWS_PLAYER;
-        int field  = row % MENU_ROWS_PLAYER;
+        // Stick, as a dot in a box.
+        const int bx = x + col_w - 16, by = y + 4;
+        kiln_gui_rect(bx, by, 12, 12, WELL);
+        kiln_gui_rect(bx + 5 + (int)(pl->stick_x * 4.0f), by + 5 - (int)(pl->stick_y * 4.0f), 2, 2, TEAL);
+        // Voices in use by this player.
+        for (int v = 0; v < voices && v < 6; v++) kiln_gui_rect(bx + 1 + v * 2, by + 16, 1, 4, pc);
 
-        if (player >= NPLAYERS) {
-            int gf = row - NPLAYERS * MENU_ROWS_PLAYER;
-            tag_col = RGBA32(255, 220, 100, 255);
-            if (gf == 0) {
-                snprintf(label, sizeof(label), "global: master gain");
-                snprintf(value, sizeof(value), "%.2f", g_master_gain);
-            } else {
-                snprintf(label, sizeof(label), "global: LFO rate (Hz)");
-                snprintf(value, sizeof(value), "%.1f", g_lfo_rate_hz);
+        kiln_gui_text(x + 4, y + 70, DIM, "b%+.1f m%d", (double)pl->cstick_x, (int)(clampf(pl->cstick_y, 0, 1) * 100.0f));
+    }
+}
+
+static void draw_menu(uint32_t frame)
+{
+    const int x = 16, y = 30, w = SCREEN_W - 32;
+    const int page_player = g_menu_page < NPLAYERS;
+    const color_t accent = page_player ? rgb(PLAYER_RGB[g_menu_page]) : RGBA32(0xFF, 0xDC, 0x64, 0xFF);
+    const int rows = page_player ? PLAYER_ROWS : GLOBAL_ROWS;
+
+    kiln_gui_panel(x, y, w, 30 + rows * 13 + 16, PANEL, accent);
+    if (page_player) kiln_gui_text(x + 6, y + 12, accent, "PATCH  P%d  %d/5", g_menu_page + 1, g_menu_page + 1);
+    else kiln_gui_text(x + 6, y + 12, accent, "PATCH  GLOBAL  5/5");
+    kiln_gui_text(x + 132, y + 12, DIM, "L/R page");
+    kiln_gui_text(x + 6, y + 24, DIM, "up/dn row  left/rt value");
+
+    for (int r = 0; r < rows; r++) {
+        const int ry = y + 30 + r * 13;
+        const int sel = r == g_menu_row;
+        if (sel) kiln_gui_rect(x + 3, ry, w - 6, 12, RGBA32(0x28, 0x3C, 0x50, 0xFF));
+        char label[24], value[24];
+        if (page_player) {
+            const BassPlayer *pl = &g_players[g_menu_page];
+            static const char *const L[PLAYER_ROWS] = { "engine", "octave", "legato", "portamento", "scale", "volume" };
+            snprintf(label, sizeof label, "%s", L[r]);
+            switch (r) {
+            case ROW_ENGINE: snprintf(value, sizeof value, "%s", ENGINE_NAME[pl->engine]); break;
+            case ROW_OCTAVE: snprintf(value, sizeof value, "%+d st", pl->octave); break;
+            case ROW_LEGATO: snprintf(value, sizeof value, "%s", pl->legato ? "on" : "off"); break;
+            case ROW_PORTA:  snprintf(value, sizeof value, "%d ms", pl->portamento_ms); break;
+            case ROW_SCALE:  snprintf(value, sizeof value, "%s", SCALE_NAME[pl->scale]); break;
+            default:         snprintf(value, sizeof value, "%d%%", (int)(pl->volume * 100.0f + 0.5f)); break;
             }
         } else {
-            BassPlayer *pl = &g_players[player];
-            tag_col = PLAYER_COLOR[player];
-            switch (field) {
-            case FIELD_ENGINE:
-                snprintf(label, sizeof(label), "P%d: engine", player + 1);
-                snprintf(value, sizeof(value), "%s", ENGINE_NAME[pl->engine]);
-                break;
-            case FIELD_OCTAVE:
-                snprintf(label, sizeof(label), "P%d: octave (st)", player + 1);
-                snprintf(value, sizeof(value), "%+d", (int)pl->octave);
-                break;
-            case FIELD_LEGATO:
-                snprintf(label, sizeof(label), "P%d: legato", player + 1);
-                snprintf(value, sizeof(value), pl->legato ? "ON" : "OFF");
-                break;
-            case FIELD_PORTAMENTO:
-                snprintf(label, sizeof(label), "P%d: portamento (ms)", player + 1);
-                snprintf(value, sizeof(value), "%d", pl->portamento_ms);
-                break;
-            case FIELD_SCALE:
-                snprintf(label, sizeof(label), "P%d: scale", player + 1);
-                snprintf(value, sizeof(value), "%s", SCALE_NAME[pl->scale]);
-                break;
-            case FIELD_VOLUME:
-                snprintf(label, sizeof(label), "P%d: master gain (shared)", player + 1);
-                snprintf(value, sizeof(value), "%.2f", g_master_gain);
-                break;
-            }
+            snprintf(label, sizeof label, "%s", r == ROW_MASTER ? "master gain" : "LFO rate");
+            if (r == ROW_MASTER) snprintf(value, sizeof value, "%d%%", (int)(g_master_gain * 100.0f + 0.5f));
+            else snprintf(value, sizeof value, "%.1f Hz", (double)g_lfo_rate_hz);
         }
-        kiln_gui_text(x + 4, ry + 2, tag_col, "%s", label);
-        kiln_gui_text(x + 180, ry + 2, RGBA32(255, 255, 255, 255), "%s", value);
+        kiln_gui_text(x + 10, ry + 10, sel ? INK : DIM, "%s", label);
+        kiln_gui_text(x + 150, ry + 10, sel ? accent : INK, "%s", value);
     }
+
+    char line[48];
+    store_line(line, sizeof line);
+    const int fy = y + 30 + rows * 13 + 10;
+    const int ok = g_store_status == KILN_STORE_OK || (g_store_status == KILN_STORE_ENOENT && !strcmp(g_store_what, "load"));
+    kiln_gui_text(x + 6, fy, kiln_store_writable() && ok ? TEAL : BAD, "Start: save+close  %s", line);
+    (void)frame;
 }
 
-static void draw_activity_overlay(void)
+// ── 3D: the arc ───────────────────────────────────────────────────────────
+static float bar_level(int player, int bar)
 {
-    int col_w = 74;
-    int margin = 2;
-    int y = SCREEN_H - 78;
-
-    int active = 0;
-    for (int i = 0; i < BASS_NOTES; i++) if (g_notes[i].active) active++;
-
-    // Top strip.
-    kiln_gui_panel(margin, margin, SCREEN_W - 2 * margin, 22,
-                  RGBA32(10, 10, 24, 220), RGBA32(139, 92, 246, 255));
-    kiln_gui_text(margin + 6, margin + 5, RGBA32(232, 232, 240, 255),
-                 "BASS SYNTH  notes %d/%d  master %.2f  LFO %.1fHz  %s",
-                 active, BASS_NOTES, g_master_gain, g_lfo_rate_hz,
-                 g_menu_open ? "[MENU]" : "Start: menu");
-
-    int total_w = NPLAYERS * col_w + (NPLAYERS - 1) * margin;
-    int x0 = (SCREEN_W - total_w) / 2;
-
-    for (int p = 0; p < NPLAYERS; p++) {
-        int x = x0 + p * (col_w + margin);
-        BassPlayer *pl = &g_players[p];
-        color_t pc = PLAYER_COLOR[p];
-
-        kiln_gui_panel(x, y, col_w, 74,
-                      RGBA32(10, 10, 24, 200), pc);
-        kiln_gui_text(x + 4, y + 3, pc, "P%d %s",
-                     p + 1, ENGINE_NAME[pl->engine]);
-        kiln_gui_text(x + 4, y + 15, RGBA32(180, 180, 200, 255),
-                     "oct%+d",
-                     (int)pl->octave);
-        kiln_gui_text(x + 4, y + 25, RGBA32(140, 140, 160, 255),
-                     "%s %s",
-                     pl->legato ? "leg" : "rtr",
-                     SCALE_NAME[pl->scale]);
-
-        bass_stick_viz(x + 4, y + 36, 28, 28, pl->stick_x, pl->stick_y,
-                       pc, RGBA32(0, 245, 212, 255));
-
-        kiln_gui_text(x + 40, y + 38, RGBA32(232, 232, 240, 255),
-                     "%s",
-                     pl->last_note > 0 ? note_name(pl->last_note) : "--");
-
-        // Show envelope stage for the most-recent active note on this player.
-        int active_note = -1;
-        float newest = -1.0f;
-        for (int i = 0; i < BASS_NOTES; i++) {
-            if (g_notes[i].active && g_notes[i].player == (uint8_t)(p + 1) &&
-                g_notes[i].age_ms > newest) {
-                newest = g_notes[i].age_ms; active_note = i;
-            }
-        }
-        const char *env = "---";
-        float env_frac = 0.0f;
-        if (active_note >= 0) {
-            env = env_name(g_notes[active_note].env);
-            env_frac = g_notes[active_note].env_level;
-        }
-        kiln_gui_text(x + 40, y + 50, RGBA32(140, 140, 160, 255),
-                     "%s", env);
-        bass_vbar(x + 56, y + 50, 14, 8, env_frac,
-                  pc, RGBA32(40, 40, 60, 255));
-
-        // C-stick indicator (mod/bend).
-        kiln_gui_text(x + 40, y + 62, RGBA32(120, 120, 150, 255),
-                     "b%+d.%d m%.0f%%",
-                     (int)pl->cstick_x,
-                     (int)(pl->cstick_x * 10.0f) - (int)pl->cstick_x * 10,
-                     pl->cstick_y * 100.0f);
-
-        int vp = 0;
-        for (int i = 0; i < BASS_NOTES; i++)
-            if (g_notes[i].active && g_notes[i].player == (uint8_t)(p + 1)) vp++;
-        float frac = (float)vp / 2.0f;  // max 2 notes per player = full bar
-        if (frac > 1.0f) frac = 1.0f;
-        bass_vbar(x + col_w - 12, y + 4, 8, 64, frac, pc, RGBA32(40, 40, 60, 255));
-    }
-}
-
-// ── 3D: 12 spectrum cubes (6 stacked pairs) ──────────────────────────────
-static void draw_spectrum_cubes(float t)
-{
-    (void)t;
-    kiln_scene_begin(&g_scene);
+    float amp = 0.0f;
     for (int i = 0; i < BASS_NOTES; i++) {
-        BassNote *n = &g_notes[i];
-        // Each note gets 2 channels: body + sub, drawn as a stack.
-        // X positions: 6 notes across the screen.
-        float base_x = (i - (BASS_NOTES - 1) * 0.5f) * 7.5f;
-
-        // Body channel cube.
-        BassEngineDef *eng = &g_engine[n->engine];
-        float body_amp = n->active ? n->env_level * eng->body_gain : 0.0f;
-        g_cube_xform[i * 2 + 0].pos = (fm_vec3_t){{ base_x - 1.6f, -3.0f, 0 }};
-        g_cube_xform[i * 2 + 0].scale =
-            (fm_vec3_t){{ 0.6f, 0.4f + body_amp * 8.0f, 0.6f }};
-        g_cube_xform[i * 2 + 0].rot_angle = 0.0f;
-        kiln_transform_push(&g_cube_xform[i * 2 + 0]);
-        t3d_vert_load(g_cube_verts, 0, 8);
-        kiln_transform_pop();
-        for (int t2 = 0; t2 < 12; t2++)
-            t3d_tri_draw(CUBE_TRIS[t2][0], CUBE_TRIS[t2][1], CUBE_TRIS[t2][2]);
-        t3d_tri_sync();
-
-        // Sub channel cube, stacked slightly offset to show the two layers.
-        float sub_amp = n->active ? n->env_level * eng->sub_gain : 0.0f;
-        g_cube_xform[i * 2 + 1].pos = (fm_vec3_t){{ base_x + 1.6f, -3.0f, 0 }};
-        g_cube_xform[i * 2 + 1].scale =
-            (fm_vec3_t){{ 0.6f, 0.4f + sub_amp * 5.0f, 0.6f }};
-        g_cube_xform[i * 2 + 1].rot_angle = 0.0f;
-        kiln_transform_push(&g_cube_xform[i * 2 + 1]);
-        t3d_vert_load(g_cube_verts, 0, 8);
-        kiln_transform_pop();
-        for (int t2 = 0; t2 < 12; t2++)
-            t3d_tri_draw(CUBE_TRIS[t2][0], CUBE_TRIS[t2][1], CUBE_TRIS[t2][2]);
-        t3d_tri_sync();
+        const BassNote *n = &g_notes[i];
+        if (!n->active || n->player != player) continue;
+        const BassEngineDef *eng = &g_engine[n->engine];
+        const float lvl = n->env_level * g_players[player].volume;
+        if (bar == 0) {
+            amp += lvl * eng->sub_gain * 1.4f;
+        } else {
+            const float h = eng->bright[bar - 1] * n->bright + eng->dark[bar - 1] * (1.0f - n->bright);
+            amp += lvl * eng->body_gain * h;
+        }
     }
-}
-
-// ── Intro overlay (drawn over the spectrum cubes) ────────────────────────
-// The 3D scene keeps playing during the intro (cubes reflect the bass line)
-// so what overlays is just title text + a progress bar.
-static void draw_intro_overlay(uint32_t elapsed_ms)
-{
-    int cx = SCREEN_W / 2;
-    int title_y = 30;
-
-    // Title panel.
-    int pw = 240, ph = 60;
-    kiln_gui_panel(cx - pw/2, title_y, pw, ph,
-                  RGBA32(10, 10, 24, 230), RGBA32(0, 245, 212, 255));
-    kiln_gui_text(cx - pw/2 + 8, title_y + 6,
-                 RGBA32(0, 245, 212, 255),
-                 "KILN BASS SYNTH");
-    kiln_gui_text(cx - pw/2 + 8, title_y + 22,
-                 RGBA32(232, 232, 240, 255),
-                 "4 controllers, 4 engines");
-    kiln_gui_text(cx - pw/2 + 8, title_y + 38,
-                 RGBA32(180, 180, 200, 255),
-                 "1 button = 1 note. Move sticks.");
-
-    // Per-engine legend.
-    int leg_y = title_y + ph + 14;
-    kiln_gui_text(cx - 100, leg_y, PLAYER_COLOR[0], "P1 HEAVY");
-    kiln_gui_text(cx - 100, leg_y + 14, PLAYER_COLOR[1], "P2 SUB");
-    kiln_gui_text(cx + 8,  leg_y, PLAYER_COLOR[2], "P3 GROWL");
-    kiln_gui_text(cx + 8,  leg_y + 14, PLAYER_COLOR[3], "P4 INDUST");
-
-    // Progress bar (0..INTRO_TOTAL_MS). Above the activity overlay, just
-    // below the engine legend.
-    int bar_x = 32, bar_y = title_y + ph + 14 + 32, bar_w = SCREEN_W - 64, bar_h = 6;
-    float frac = (float)elapsed_ms / (float)INTRO_TOTAL_MS;
-    if (frac > 1.0f) frac = 1.0f;
-    kiln_gui_panel(bar_x, bar_y, bar_w, bar_h,
-                  RGBA32(40, 40, 60, 255), RGBA32(120, 120, 140, 255));
-    int fw = (int)(frac * (bar_w - 2));
-    kiln_gui_rect(bar_x + 1, bar_y + 1, fw, bar_h - 2,
-                 RGBA32(0, 245, 212, 255));
-    kiln_gui_text(bar_x, bar_y + bar_h + 4, RGBA32(232, 232, 240, 255),
-                 "INTRO: %d.%ds / %d.%ds   any button to skip",
-                 (int)(elapsed_ms / 1000),
-                 (int)((elapsed_ms % 1000) / 100),
-                 INTRO_TOTAL_MS / 1000,
-                 (INTRO_TOTAL_MS % 1000) / 100);
-}
-
-// ── Boot ──────────────────────────────────────────────────────────────────
-static T3DVertPacked *make_cube_verts(void)
-{
-    T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
-    const int16_t s = 14;
-    struct { int16_t x, y, z; uint32_t rgba; } c[8] = {
-        { -s, -s, -s, 0xFFFFFFFF }, {  s, -s, -s, 0xFFFFFFFF },
-        {  s,  s, -s, 0xFFFFFFFF }, { -s,  s, -s, 0xFFFFFFFF },
-        { -s, -s,  s, 0xFFFFFFFF }, {  s, -s,  s, 0xFFFFFFFF },
-        {  s,  s,  s, 0xFFFFFFFF }, { -s,  s,  s, 0xFFFFFFFF },
-    };
-    for (int i = 0; i < 8; i += 2) {
-        fm_vec3_t na = {{ (float)c[i].x,   (float)c[i].y,   (float)c[i].z }};
-        fm_vec3_t nb = {{ (float)c[i+1].x, (float)c[i+1].y, (float)c[i+1].z }};
-        fm_vec3_norm(&na, &na);
-        fm_vec3_norm(&nb, &nb);
-        v[i / 2] = (T3DVertPacked){
-            .posA = { c[i].x,   c[i].y,   c[i].z   },
-            .rgbaA = c[i].rgba,
-            .normA = t3d_vert_pack_normal(&na),
-            .posB = { c[i+1].x, c[i+1].y, c[i+1].z },
-            .rgbaB = c[i+1].rgba,
-            .normB = t3d_vert_pack_normal(&nb),
-        };
-    }
-    return v;
+    return clampf(amp, 0.0f, 1.0f);    // clamped: never taller than the frame
 }
 
 static void load_wavetables(void)
 {
-    static const char *engines[BASS_ENGINE_COUNT] = {
-        "heavy", "sub", "growl", "industrial"
-    };
+    static const char *const E[BASS_ENGINE_COUNT] = { "heavy", "sub", "growl", "industrial" };
     for (int e = 0; e < BASS_ENGINE_COUNT; e++) {
-        BassEngineDef *eng = &g_engine[e];
         char path[64];
-        snprintf(path, sizeof(path), "rom:/sfx/bass_%s_body_bright.wav64", engines[e]);
-        eng->wt_body_bright = kiln_sfx_load(path);
-        snprintf(path, sizeof(path), "rom:/sfx/bass_%s_body_dark.wav64", engines[e]);
-        eng->wt_body_dark = kiln_sfx_load(path);
-        snprintf(path, sizeof(path), "rom:/sfx/bass_%s_sub.wav64", engines[e]);
-        eng->wt_sub = kiln_sfx_load(path);
-        if (eng->wt_body_bright < 0 || eng->wt_body_dark < 0 || eng->wt_sub < 0) {
-            debugf("bass-synth: wavetable load failure for %s\n", engines[e]);
-        }
+        snprintf(path, sizeof path, "rom:/sfx/bass_%s_body_bright.wav64", E[e]);
+        g_engine[e].wt_body_bright = kiln_sfx_load(path);
+        snprintf(path, sizeof path, "rom:/sfx/bass_%s_body_dark.wav64", E[e]);
+        g_engine[e].wt_body_dark = kiln_sfx_load(path);
+        snprintf(path, sizeof path, "rom:/sfx/bass_%s_sub.wav64", E[e]);
+        g_engine[e].wt_sub = kiln_sfx_load(path);
     }
-}
-
-// ── Engine definitions ────────────────────────────────────────────────────
-static void init_engines(void)
-{
-    // ADSR (ms / level), mix (per-channel base gain).
-    g_engine[BASS_HEAVY] = (BassEngineDef){
-        .name = "HEAVY",
-        .attack_ms = 5,    .decay_ms = 180, .sustain_lvl = 0.7f, .release_ms = 120,
-        .sub_gain = 0.30f, .body_gain = 0.85f,
-    };
-    g_engine[BASS_SUB] = (BassEngineDef){
-        .name = "SUB",
-        .attack_ms = 8,    .decay_ms = 300, .sustain_lvl = 0.8f, .release_ms = 200,
-        .sub_gain = 0.65f, .body_gain = 0.70f,
-    };
-    g_engine[BASS_GROWL] = (BassEngineDef){
-        .name = "GROWL",
-        .attack_ms = 4,    .decay_ms = 220, .sustain_lvl = 0.6f, .release_ms = 140,
-        .sub_gain = 0.40f, .body_gain = 0.85f,
-    };
-    g_engine[BASS_INDUSTRIAL] = (BassEngineDef){
-        .name = "INDUST",
-        .attack_ms = 3,    .decay_ms = 140, .sustain_lvl = 0.5f, .release_ms = 90,
-        .sub_gain = 0.45f, .body_gain = 0.90f,
-    };
-}
-
-// ── Player defaults ───────────────────────────────────────────────────────
-static void init_players(void)
-{
-    for (int i = 0; i < NPLAYERS; i++) {
-        g_players[i].engine = (BassEngine)i;
-        g_players[i].octave = (int8_t)(i * 12);  // P1=0, P2=+12, P3=+24, P4=+36
-        g_players[i].legato = 1;
-        g_players[i].portamento_ms = 200;
-        g_players[i].scale = SCALE_CHROMATIC;
-        g_players[i].held_button = -1;
-        g_players[i].last_note = -1;
-    }
-}
-
-// ── Save state ────────────────────────────────────────────────────────────
-static void save_patch(void)
-{
-    FILE *f = fopen(PATCH_FILE, "wb");
-    if (!f) return;
-    PatchState ps = { .magic = EEPROM_MAGIC, .version = 1 };
-    for (int i = 0; i < NPLAYERS; i++) {
-        ps.engine[i] = (uint8_t)g_players[i].engine;
-        ps.octave[i] = g_players[i].octave;
-        ps.legato[i] = g_players[i].legato;
-        ps.portamento[i] = (uint8_t)(g_players[i].portamento_ms / 20);
-        ps.scale[i] = g_players[i].scale;
-    }
-    ps.master_x4 = (uint8_t)(g_master_gain * 200.0f);
-    ps.lfo_rate_x2 = (uint8_t)(g_lfo_rate_hz * 2.0f);
-    fwrite(&ps, sizeof(ps), 1, f);
-    fclose(f);
-}
-
-static int load_patch(void)
-{
-    FILE *f = fopen(PATCH_FILE, "rb");
-    if (!f) return 0;
-    PatchState ps;
-    if (fread(&ps, sizeof(ps), 1, f) != 1) { fclose(f); return 0; }
-    fclose(f);
-    if (ps.magic != EEPROM_MAGIC || ps.version != 1) return 0;
-    for (int i = 0; i < NPLAYERS; i++) {
-        g_players[i].engine = (BassEngine)(ps.engine[i] % BASS_ENGINE_COUNT);
-        g_players[i].octave = ps.octave[i];
-        g_players[i].legato = ps.legato[i] ? 1 : 0;
-        g_players[i].portamento_ms = (uint8_t)(ps.portamento[i] * 20);
-        g_players[i].scale = (Scale)(ps.scale[i] % SCALE_COUNT);
-    }
-    g_master_gain = ps.master_x4 / 200.0f;
-    g_lfo_rate_hz = ps.lfo_rate_x2 / 2.0f;
-    return 1;
 }
 
 int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
-    joypad_init();
+    // Mount the ROM's DragonFS before anything opens rom:/.
     dfs_init(DFS_DEFAULT_LOCATION);
+    joypad_init();
     kiln_input_init();
 
     kiln_audio_init((KilnAudioConfig){
-        .sample_rate = SAMPLE_RATE,
-        .latency = 0.16f,
-        .sfx_channels = BASS_CHANS,
-        .music_channels = 0,
+        .sample_rate = SAMPLE_RATE, .latency = 0.16f, .sfx_channels = BASS_CHANS, .music_channels = 0,
     });
+    // A body plays at note Hz x 256; the default limit (32 kHz) is about B1.
+    for (int ch = 0; ch < BASS_CHANS; ch++) mixer_ch_set_limits(ch, 16, CH_MAX_FREQ, 0);
+    kiln_audio_set_tap(scope_tap, NULL);
 
-    init_engines();
+    build_midi_table();
     load_wavetables();
-    init_players();
-    load_patch();  // ignore failure — defaults stand
-
-    kiln_scene_init(&g_scene);
-    g_scene.cam_pos = (fm_vec3_t){{ 0, 10, -45 }};
-    g_scene.cam_target = (fm_vec3_t){{ 0, 1, 0 }};
-    g_scene.far_z = 300.0f;
-    kiln_scene_update(&g_scene);
-
-    for (int i = 0; i < BASS_CHANS; i++) {
-        kiln_transform_init(&g_cube_xform[i]);
-        g_cube_xform[i].scale = (fm_vec3_t){{ 1.6f, 0.3f, 1.6f }};
+    for (int p = 0; p < NPLAYERS; p++) {
+        g_players[p] = (BassPlayer){
+            .engine = (int8_t)p, .octave = (int8_t)(p * 12), .legato = 1, .scale = SCALE_CHROMATIC,
+            .portamento_ms = 120, .volume = 1.0f, .last_note = -1, .held_button = -1,
+        };
     }
-    g_cube_verts = make_cube_verts();
+    kiln_store_init(KILN_STORE_CART_SD);
+    load_patch();   // defaults stand when there is no patch yet
 
-    uint32_t last_ticks = get_ticks();
-    float t = 0.0f;
-    g_intro_start_ms = last_ticks;
+    KilnScene scene;
+    kiln_scene_init(&scene);
+    kiln_prim_stage(&scene, RGBA32(0x14, 0x10, 0x24, 0xFF), 150.0f, 320.0f);
+    scene.fov_deg = 60.0f;
+    scene.near_z = 10.0f;
+    scene.far_z = 320.0f;
+
+    KilnPrim floor_prim, bar_lit[NPLAYERS], bar_dim[NPLAYERS], pad[NPLAYERS];
+    kiln_prim_floor(&floor_prim, 180.0f, 16, kiln_prim_rgba(0x40, 0x3C, 0x5C), kiln_prim_rgba(0x34, 0x30, 0x4E));
+    for (int p = 0; p < NPLAYERS; p++) {
+        const uint32_t c = PLAYER_RGB[p];
+        kiln_prim_box(&bar_lit[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
+                      kiln_prim_shade(c, 1.25f), c, kiln_prim_shade(c, 0.5f));
+        kiln_prim_box(&bar_dim[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
+                      kiln_prim_shade(c, 0.5f), kiln_prim_shade(c, 0.3f), kiln_prim_shade(c, 0.2f));
+        kiln_prim_box(&pad[p], (fm_vec3_t){{ 0, 1, 0 }}, (fm_vec3_t){{ 22, 1, 7 }},
+                      kiln_prim_shade(c, 0.35f), kiln_prim_shade(c, 0.25f), kiln_prim_rgba(0x10, 0x10, 0x18));
+    }
+
+    // The arc: 24 bars on a fixed 110-degree sweep in front of a fixed
+    // camera, player 1 on the left. Fixed so that nothing ever scales or
+    // swings out of the frustum, which is what the old cubes did.
+    enum { ARC = NPLAYERS * ARC_BARS };
+    KilnTransform floor_xf, bar_xf[ARC], pad_xf[NPLAYERS];
+    kiln_transform_init(&floor_xf);
+    for (int i = 0; i < ARC; i++) {
+        kiln_transform_init(&bar_xf[i]);
+        const int p = i / ARC_BARS, k = i % ARC_BARS;
+        const float a = (-55.0f + 110.0f * ((float)p * (ARC_BARS + 1) + k) / (NPLAYERS * (ARC_BARS + 1) - 2)) * 0.0174533f;
+        bar_xf[i].pos = (fm_vec3_t){{ -fm_sinf(a) * 80.0f, 0, fm_cosf(a) * 80.0f - 20.0f }};
+        bar_xf[i].rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
+        bar_xf[i].rot_angle = a;
+    }
+    for (int p = 0; p < NPLAYERS; p++) {
+        kiln_transform_init(&pad_xf[p]);
+        const float a = (-55.0f + 110.0f * ((float)p * (ARC_BARS + 1) + 2.5f) / (NPLAYERS * (ARC_BARS + 1) - 2)) * 0.0174533f;
+        pad_xf[p].pos = (fm_vec3_t){{ -fm_sinf(a) * 80.0f, 0, fm_cosf(a) * 80.0f - 20.0f }};
+        pad_xf[p].rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
+        pad_xf[p].rot_angle = a;
+    }
+    scene.cam_pos = (fm_vec3_t){{ 0, 70, -95 }};
+    scene.cam_target = (fm_vec3_t){{ 0, 6, 40 }};
+    kiln_scene_update(&scene);
+
+    if (KILN_JUMP == JUMP_PATCH) {
+        g_intro_active = 0;
+        g_menu_open = 1;
+        kiln_input_play(1, &PATCH_TAPE);
+    }
+
+    uint32_t last_ticks = get_ticks(), frame = 0;
+    float intro_ms = 0.0f;
 
     for (;;) {
+        const uint32_t ticks = get_ticks();
+        const float dt_ms = clampf((float)TICKS_DISTANCE(last_ticks, ticks) * 1000.0f / (float)TICKS_PER_SECOND, 0.0f, 100.0f);
+        last_ticks = ticks;
+        frame++;
+
         kiln_input_update();
 
-        // Intro: takes priority over menu + play input. Any button edge
-        // skips. Manual kiln_input_get lookups below the intro block also
-        // see the same edges, so the intro doesn't steal them permanently.
-        uint32_t now = get_ticks();
-        uint32_t intro_elapsed = TICKS_DISTANCE(g_intro_start_ms, now)
-                                 / (TICKS_PER_SECOND / 1000);
-
         if (g_intro_active) {
-            // Skip on any button edge on any controller.
+            intro_ms += dt_ms;
             int skip = 0;
-            for (int p = 1; p <= NPLAYERS; p++) {
-                const KilnInput *in = kiln_input_get(p);
-                if (in && in->edges) skip = 1;
-            }
-            if (skip || intro_is_done(intro_elapsed)) {
-                // Force-release all intro notes so the voice allocator
-                // doesn't carry phantom held notes into the live state.
-                for (int p = 1; p <= NPLAYERS; p++) {
-                    for (int i = 0; i < BASS_NOTES; i++) {
-                        if (g_notes[i].active &&
-                            g_notes[i].player == (uint8_t)p) {
-                            g_notes[i].held = 0;
-                            g_notes[i].env = ENV_RELEASE;
-                        }
-                    }
-                }
-                g_intro_pending_n = 0;
+            for (int p = 1; p <= NPLAYERS; p++) skip |= kiln_input_get(p)->edges != 0;
+            if (skip || intro_ms >= INTRO_TOTAL_MS) {
+                release_all();
                 g_intro_active = 0;
+                // Armed only now: armed at boot, it would count the intro as
+                // idle and its first press would skip the intro.
+                kiln_input_set_attract(1, &BASSLINE, 240);
             } else {
-                intro_advance(intro_elapsed);
-                intro_drain_offs(intro_elapsed);
+                intro_step(intro_ms);
             }
         } else if (g_menu_open) {
-            handle_menu_input();
+            handle_menu_input(frame);
         } else {
             handle_play_input();
-            const KilnInput *in = kiln_input_get(1);
-            if (in && (in->edges & KILN_BTN_START)) {
+            if (kiln_input_get(1)->edges & KILN_BTN_START) {
+                release_all();
                 g_menu_open = 1;
-                save_patch();
             }
         }
 
-        float dt_ms = (float)TICKS_DISTANCE(last_ticks, now)
-                      / (float)TICKS_PER_SECOND * 1000.0f;
-        last_ticks = now;
-        if (dt_ms > 100.0f) dt_ms = 100.0f;
-        t += dt_ms / 1000.0f;
-
         update_voices(dt_ms);
 
+        int active = 0;
+        for (int i = 0; i < BASS_NOTES; i++) active += g_notes[i].active;
+
+        // ── 3D ──────────────────────────────────────────────────────────
         kiln_frame_begin();
-        draw_spectrum_cubes(t);
+        kiln_scene_begin(&scene);
+        kiln_transform_push(&floor_xf); kiln_prim_draw(&floor_prim); kiln_transform_pop();
+        for (int p = 0; p < NPLAYERS; p++) {
+            kiln_transform_push(&pad_xf[p]); kiln_prim_draw(&pad[p]); kiln_transform_pop();
+        }
+        for (int i = 0; i < ARC; i++) {
+            const int p = i / ARC_BARS, k = i % ARC_BARS;
+            const float lvl = bar_level(p, k);
+            bar_xf[i].scale = (fm_vec3_t){{ 1.0f, 0.15f + 2.2f * lvl, 1.0f }};
+            kiln_transform_push(&bar_xf[i]);
+            kiln_prim_draw(lvl > 0.02f ? &bar_lit[p] : &bar_dim[p]);
+            kiln_transform_pop();
+        }
+
+        // ── 2D ──────────────────────────────────────────────────────────
         kiln_gui_begin();
-        if (g_intro_active) draw_intro_overlay(intro_elapsed);
-        if (g_menu_open) draw_menu();
-        draw_activity_overlay();
+        draw_status(active);
+        if (!g_intro_active && !g_menu_open) draw_scope();
+        if (g_intro_active) {
+            kiln_gui_panel(40, 30, 240, 44, PANEL, TEAL);
+            kiln_gui_text(48, 44, TEAL, "KILN BASS SYNTH");
+            kiln_gui_text(48, 56, INK, "4 pads, 4 engines, 12 notes each");
+            kiln_gui_text(48, 68, DIM, "intro %d.%ds  any button skips", (int)(intro_ms / 1000.0f),
+                          (int)(intro_ms / 100.0f) % 10);
+            kiln_gui_bar(40, 76, 240, 4, intro_ms / INTRO_TOTAL_MS, TEAL, WELL);
+        }
+        // A save or load result, shown for three seconds after it lands.
+        if (!g_menu_open && frame - g_store_shown_frame < 180 && g_store_shown_frame) {
+            char line[48];
+            store_line(line, sizeof line);
+            kiln_gui_panel(80, 56, 160, 16, PANEL, g_store_status == KILN_STORE_OK ? TEAL : BAD);
+            kiln_gui_text(86, 68, g_store_status == KILN_STORE_OK ? TEAL : BAD, "%s", line);
+        }
+        if (kiln_input_scripted(1) && !g_menu_open) {
+            kiln_gui_panel(SCREEN_W - 58, 56, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            kiln_gui_text(SCREEN_W - 49, 68, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        }
+        // The editor covers the player columns rather than sliding under them:
+        // it is 6 rows plus the save line, and the columns start at y 162.
+        if (g_menu_open) draw_menu(frame);
+        else draw_players();
         kiln_gui_end();
         kiln_frame_end();
 

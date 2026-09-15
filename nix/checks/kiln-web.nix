@@ -20,7 +20,12 @@
 # the game loop repeatedly, the present hook reaches putImageData with a
 # correctly sized ImageData, the pixels in it have content, and the launcher
 # survives a machine with no AudioContext — which is also every browser tab
-# before the user's first gesture.
+# before the user's first gesture. And the Kiln Studio bridge: the frame count
+# the launcher publishes matches the canvas's, a console command queued before
+# start is run by the real kiln_console (its log comes back holding `help`'s
+# output), and queued pad input reaches the pad the launcher pushes into the
+# engine. A second run with nothing queued must fail those assertions, so they
+# cannot pass on a launcher that never drains the queues.
 #
 # What it does not prove: compositing, scaling, vsync, or that a gamepad maps
 # the way a player expects. Those need a real browser and a person. The
@@ -43,9 +48,33 @@ pkgs.runCommand "check-kiln-web"
 
     test -s frame.png || { echo "FAILED: no frame was written"; exit 1; }
 
+    KILN_WEB_DOM_NO_QUEUE=1 node --require ${domStub} \
+         ${target}/bin/kiln-engine-demo.js --frames 12 --stats > unqueued.txt 2>&1
+
     python3 - <<'PYEOF'
-import re, sys
+import json, re, sys
 txt = open("run.txt").read()
+
+def bridge_problems(txt, frames):
+    b = re.search(r"dom: bridge frame (-?\d+), cmdq (\d+), padq (\d+), pad buttons (\d+), "
+                  r"stick (-?\d+),(-?\d+), console (.*)$", txt, re.M)
+    if not b:
+        return ["the DOM stub printed no bridge line"]
+    frame, cmdq, padq, buttons, sx, sy = (int(g) for g in b.groups()[:6])
+    lines = json.loads(b.group(7))
+    out = []
+    if frame != frames:
+        out.append("Module.kiln.frame.n is %d, the canvas got %d frames" % (frame, frames))
+    if cmdq:
+        out.append("console: %d queued command(s) never taken" % cmdq)
+    if not any(l.endswith("> help") for l in lines) or not any("commands:" in l for l in lines):
+        out.append("console: `help` never ran (log: %r)" % lines[:4])
+    if padq:
+        out.append("pad: %d queued input(s) never taken" % padq)
+    if not (buttons & 1) or (sx, sy) != (60, -30):
+        out.append("pad: the queued A + stick 60,-30 never reached the launcher's pad (buttons %d, stick %d,%d)"
+                   % (buttons, sx, sy))
+    return out
 
 m = re.search(r"dom: putImageData (\d+) calls, (\d+)x(\d+), "
               r"last frame non-black (\d+), colours (\d+)", txt)
@@ -73,10 +102,20 @@ if presented != calls:      fail.append("launcher presented %d, canvas got %d" %
 if (w, h) != (320, 240):    fail.append("canvas is %dx%d, not 320x240" % (w, h))
 if nonblack < 1000:         fail.append("only %d non-black pixels: nothing was drawn" % nonblack)
 if colours < 500:           fail.append("only %d distinct colours: nothing was shaded" % colours)
+fail += bridge_problems(txt, calls)
 if fail:
     sys.exit("FAILED: " + "; ".join(fail))
+print("bridge: frame count, a queued console command and queued pad input all reached the engine")
+
+unq = open("unqueued.txt").read()
+u = re.search(r"dom: putImageData (\d+) calls", unq)
+missed = bridge_problems(unq, int(u.group(1)) if u else -1)
+if not (any(p.startswith("console:") for p in missed) and any(p.startswith("pad:") for p in missed)):
+    sys.exit("FAILED: with nothing queued the bridge assertions still passed — they are not checking the drain: %r"
+             % missed)
+print("bridge: with nothing queued, the same assertions fail (%s)" % "; ".join(missed))
 PYEOF
 
     echo "the browser launcher looped 12 times and drew to a canvas"
-    mkdir -p $out && cp frame.png run.txt $out/
+    mkdir -p $out && cp frame.png run.txt unqueued.txt $out/
   ''

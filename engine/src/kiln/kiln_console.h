@@ -65,6 +65,13 @@ void kiln_console_update(int port);
  *  Call between `kiln_gui_end()` and `kiln_frame_end()`. */
 void kiln_console_draw(void);
 
+/** Run one command line as if it had been typed and submitted: echoed into
+ *  the log as "> line", then dispatched exactly as the prompt dispatches it.
+ *  For callers with a real keyboard — the browser launcher's Kiln Studio
+ *  bridge, a test harness — rather than the pad-driven grid. Truncated at the
+ *  prompt's 63 characters; an empty line does nothing. */
+void kiln_console_exec(const char *line);
+
 /** True while the console is open. Examples skip gameplay input parsing
  *  while this returns true so the player doesn't walk while the user types. */
 bool kiln_console_is_open(void);

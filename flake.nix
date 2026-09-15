@@ -59,18 +59,49 @@
     # nix/dev-image.nix) — not part of the N64 build at all.
     claude-code-nix.url = "github:sadjow/claude-code-nix";
 
+    # HydraMesh — the certified DeModFrame/DCF-Audio/SuperPack wire. Consumed
+    # as SOURCE ONLY: the studio image bakes mesh_mcp.py (the MCP face of the
+    # mesh, HTTP :8765) into a third container next to the studio and agents
+    # (nix/studio-images.nix), and nothing here builds HydraMesh's own
+    # packages. Pinned, and deliberately no `follows` — Oligarchy pins it
+    # independently and neither side should inherit the other's drift. The
+    # repo has been renamed to Punctim; the old URL still resolves, and the
+    # pin is by rev so a future move cannot silently change what is baked.
+    hydramesh = {
+      url = "github:ALH477/HydraMesh/237d201e9a2c5e1ababbeaa5d6e22d7815a72eeb";
+      flake = false;
+    };
+
     # Builds a NixOS system config into a docker-loadable image. Also only
     # used by packages.dev-image.
     nixos-generators = {
       url = "github:nix-community/nixos-generators";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # nixos-25.11 at the revision Oligarchy NixOS builds from. Used only by
+    # checks.studio-module, which boots nixosModules.kiln-studio on the release
+    # the module is written for; nothing else follows it.
+    nixpkgs-2511.url = "github:NixOS/nixpkgs/e820eb4a444b46a19b2e03e8dfd2359439ff30fe";
   };
 
-  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators }:
+  outputs = { self, nixpkgs, flake-utils, libdragon, summercart64, tiny3d, streamdb, unfloader-src, claude-code-nix, nixos-generators, nixpkgs-2511, hydramesh }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        # The agents' python environments (browser tool, CrewAI runtime) — one
+        # definition, shared by the agent gates and the apps below, so the gate
+        # and the command provably run the same store realisation.
+        agentPython = import ./nix/agent-python.nix { inherit pkgs; };
+
+        # The studio and agents container images (nix/studio-images.nix) —
+        # one import, so the two packages share every derivation inside it.
+        studioImages = import ./nix/studio-images.nix {
+          inherit pkgs; inherit (pkgs) lib; toolsSrc = ./tools;
+          inherit agentPython;
+          meshSrc = hydramesh;
+          claude = claude-code-nix.packages.${system}.default;
+        };
 
         # The cross toolchain. Owns the whole toolchain strategy; see the file.
         toolchain = import ./nix/toolchain.nix { inherit nixpkgs pkgs system; };
@@ -206,8 +237,11 @@
           src = ./assets/step.wav;
         };
 
-        # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py)
-        # for camera-skel-demo. Same ignoreMaterials reasoning as demoModel —
+        # A 2-bone rigged/skinned + animated test model (tools/gen_skel_gltf.py),
+        # the minimum a skinned glTF needs. camera-skel-demo's RIG jump ROM
+        # (.#camera-skel-demo-rig) boots it in place of the goblin, so the
+        # hand-built path stays booted and not only built. Same
+        # ignoreMaterials reasoning as demoModel —
         # hand-authored, not a fast64 export. baseScale 32 (half the default
         # 64) keeps the ~1-2 Blender-unit rig in the same size range as
         # examples/actors-demo's hand-built cubes (half-extent 8-14).
@@ -282,6 +316,15 @@
           extension = "map";
           compress = 0;
         };
+        # examples/map-demo's arena, authored with ./dev map-emit. The name is
+        # the filename: main.c opens rom:/maps/map_demo.map.
+        mapDemoMap = assetLib.mkRawAsset {
+          name = "map_demo";
+          src = ./assets/map_demo.map;
+          dest = "maps";
+          extension = "map";
+          compress = 0;
+        };
         # Two-room + enemies test map for examples/oot-demo. Same raw-asset
         # path as quakeMap so kiln_map reads it via rom:/maps/oot_test.map —
         # which this entry CLAIMED and did not do: the name was "oot-test-map",
@@ -325,33 +368,53 @@
           ];
         };
 
-        # assets-demo's StreamDB pak: reuses sdModel/sdSprite (the same
-        # compress=0 twins demoStreamdb already packs) via mkAssetPak instead
-        # of mkStreamdb's hand-typed `entries` — demonstrating the auto-keyed
-        # helper on real, already-defined assets rather than new content.
-        # demoSound stays loose DFS: see CLAUDE.md's "Datafiles: StreamDB vs
-        # loose DFS" for why audio can't go through StreamDB at all today.
+        # assets-demo's StreamDB pak, auto-keyed by mkAssetPak: five vertex-
+        # coloured models and the logo sprite. The models are twins of the test
+        # set and the interceptor with two changes, both required here:
+        #   compress = 0  kiln_asset_load hands t3d_model_load_buf the payload
+        #                 verbatim, with no asset_load to decompress it (see
+        #                 the sdModel comment above);
+        #   fog=true      f3d_inject's default fog=False becomes
+        #                 T3D_FOG_MODE_DISABLED, and drawing the model would turn
+        #                 the scene's fog off for everything after it.
+        # Each twin's `name` is its key: models/<name>.t3dm, which main.c's
+        # PAK table names. demoSound stays loose DFS: see CLAUDE.md's
+        # "Datafiles: StreamDB vs loose DFS" for why audio cannot be in a pak.
+        assetsPakModel = n: mkTestModel n {
+          compress = 0;
+          materials = [ "*=shade,fog=true" ];
+        };
+        assetsPakShip = blenderLib.mkBlenderModel {
+          name = "interceptor";
+          script = "interceptor.py";
+          compress = 0;
+          materials = [ "*=shade,fog=true" ];
+        };
         assetsDemoPak = assetLib.mkAssetPak {
           name = "assets-demo";
-          assets = [ sdModel sdSprite ];
+          assets = [ assetsPakShip (assetsPakModel "torus") (assetsPakModel "sphere")
+                     (assetsPakModel "cone") (assetsPakModel "cube") sdSprite ];
         };
 
-        # openworld-demo's tile mesh, StreamDB-packed so kiln_streamio can
-        # load it through kiln_asset_model + kiln_cache instead of the
-        # hand-built 2-vert stub the demo used before it had a real streaming
-        # pacer to exercise. One shared model at one key — the point of the
-        # demo is the pacer's priority/budget admission across many
-        # simultaneous tile requests, not per-tile unique geometry.
-        owTileModel = assetLib.mkModel {
-          name = "tile";
-          src = ./assets/cube.gltf;
-          ignoreMaterials = true;
-          baseScale = 24;
-          compress = 0;
-        };
+        # openworld-demo's tile meshes, StreamDB-packed so kiln_streamio loads
+        # them through kiln_asset_model + kiln_cache. Keys are
+        # models/ow_<biome>_<lod>.t3dm: twelve keys shared by a 32x32 island,
+        # so the pacer contends over many requests for few distinct assets.
+        # Four biomes x three LODs, all authored by tools/blender/ow_tile.py.
+        # Uncompressed because kiln_asset_model hands the bytes straight to
+        # t3d_model_load_buf, and with fog=1 on the material so Tiny3D keeps
+        # fog on while it draws them — the fog is what hides the edge of the
+        # streamed window.
+        owTileModels = pkgs.lib.concatMap (biome: map (lod:
+          blenderLib.mkBlenderModel {
+            name = "ow_${biome}_${toString lod}";
+            script = "ow_tile.py";
+            compress = 0;
+            materials = [ "*=shade,fog=1" ];
+          }) [ 0 1 2 ]) [ "water" "grass" "forest" "rock" ];
         owStreamdb = assetLib.mkAssetPak {
           name = "openworld";
-          assets = [ owTileModel ];
+          assets = owTileModels;
         };
 
         # Geometry authoring. Owns the whole Blender strategy; see the file for
@@ -401,10 +464,11 @@
             };
           };
 
-        # The rigged/animated reference — the only thing here exercising
-        # Tiny3D's skinning + animation (t3dskeleton.h/t3danim.h) through the
-        # Blender-authoring path (kiln_skel.h's runtime side is exercised
-        # separately by examples/camera-skel-demo's hand-authored rig).
+        # The rigged/animated reference — Tiny3D's skinning + animation
+        # (t3dskeleton.h/t3danim.h) through the Blender-authoring path. It is
+        # also kiln_skel's runtime test: examples/camera-skel-demo walks it
+        # round a courtyard blending Idle<->Walk by speed, and that demo's RIG
+        # jump keeps the hand-authored skelModel rig booting alongside it.
         # tools/blender/goblin.py documents why every part is rigidly bound
         # to exactly one bone.
         goblinModel = blenderLib.mkBlenderModel {
@@ -424,8 +488,8 @@
           script = "interceptor.py";
         };
 
-        # Cinematic-demo extras: a service droid (rigged+animated, two bones
-        # driving a wave animation), an approaching alien (taller, six-legged
+        # Cinematic-demo extras: a service droid (rigged+animated, six bones,
+        # Wave and Idle), an approaching alien (taller, six-legged
         # silhouette, head-bob animation), and the hangar.map that lays out
         # the room. Same mkBlenderModel path as goblinModel / interceptorModel.
         droidModel = blenderLib.mkBlenderModel {
@@ -488,19 +552,22 @@
           compress = 0;
         };
         # SFX for the FPS: gunfire, wall impact, enemy hit, pickup, metal impact.
+        # The NAME IS THE FILENAME: examples/fps/main.c opens
+        # rom:/sfx/enemy_hit.wav64 and friends, and nine of these were named
+        # with hyphens, so none of those nine ever loaded.
         gunshotSfx = assetLib.mkSound { name = "gunshot"; src = ./assets/gunshot.wav; };
         impactSfx  = assetLib.mkSound { name = "impact";  src = ./assets/impact.wav; };
-        enemyHitSfx = assetLib.mkSound { name = "enemy-hit"; src = ./assets/enemy_hit.wav; };
+        enemyHitSfx = assetLib.mkSound { name = "enemy_hit"; src = ./assets/enemy_hit.wav; };
         pickupSfx  = assetLib.mkSound { name = "pickup";  src = ./assets/pickup.wav; };
-        impactMetalSfx = assetLib.mkSound { name = "impact-metal"; src = ./assets/impact_metal.wav; };
-        doorOpenSfx = assetLib.mkSound { name = "door-open"; src = ./assets/door_open.wav; };
-        doorLockedSfx = assetLib.mkSound { name = "door-locked"; src = ./assets/door_locked.wav; };
-        chestOpenSfx = assetLib.mkSound { name = "chest-open"; src = ./assets/chest_open.wav; };
+        impactMetalSfx = assetLib.mkSound { name = "impact_metal"; src = ./assets/impact_metal.wav; };
+        doorOpenSfx = assetLib.mkSound { name = "door_open"; src = ./assets/door_open.wav; };
+        doorLockedSfx = assetLib.mkSound { name = "door_locked"; src = ./assets/door_locked.wav; };
+        chestOpenSfx = assetLib.mkSound { name = "chest_open"; src = ./assets/chest_open.wav; };
         explosionSfx = assetLib.mkSound { name = "explosion"; src = ./assets/explosion.wav; };
-        rocketFireSfx = assetLib.mkSound { name = "rocket-fire"; src = ./assets/rocket_fire.wav; };
-        plasmaFireSfx = assetLib.mkSound { name = "plasma-fire"; src = ./assets/plasma_fire.wav; };
-        shotgunFireSfx = assetLib.mkSound { name = "shotgun-fire"; src = ./assets/shotgun_fire.wav; };
-        npcTalkSfx = assetLib.mkSound { name = "npc-talk"; src = ./assets/npc_talk.wav; };
+        rocketFireSfx = assetLib.mkSound { name = "rocket_fire"; src = ./assets/rocket_fire.wav; };
+        plasmaFireSfx = assetLib.mkSound { name = "plasma_fire"; src = ./assets/plasma_fire.wav; };
+        shotgunFireSfx = assetLib.mkSound { name = "shotgun_fire"; src = ./assets/shotgun_fire.wav; };
+        npcTalkSfx = assetLib.mkSound { name = "npc_talk"; src = ./assets/npc_talk.wav; };
 
         quakeTestModel = blenderLib.mkQuakeMapModel {
           name = "quake-test";
@@ -522,11 +589,12 @@
           inherit pkgs toolchain n64Inst;
         };
 
-        hello = mkN64Rom {
+        helloArgs = {
           name = "hello";
           src = ./examples/hello;
           romTitle = "Kiln Hello";
         };
+        hello = mkN64Rom helloArgs;
 
         # The Faust bridge and the gates that enforce the report's constraints.
         faust = import ./nix/faust.nix {
@@ -551,27 +619,36 @@
           src = ./dsp/ks.dsp;
           sampleRate = 32000;
           duration = 2.0;
-          # gain 0.1 is not arbitrary: pm.ks runs hot, and anything above ~0.1
-          # clips against the renderer's [-1,1] clamp. The clipping gate in
-          # mkBakedInstrument found this — at the obvious-looking 0.8, 15% of
-          # samples were clamped. Peak here is -2.8 dBFS.
-          params = { freq = 220; gain = 0.1; };
+          # gain is set against the clipping gate, which is how it was found
+          # that the obvious-looking 0.8 clamped 15% of samples. That was the
+          # old DC-step excitation running hot (see dsp/ks.dsp); the one-period
+          # noise burst peaks at about -4.5 dBFS at 0.25.
+          #
+          # freq = 220 now IS 220 Hz (A3, measured 217.7 by autocorrelation of
+          # share/ksvoice-reference.wav). examples/audio pitches its notes as
+          # ratios of it, so changing this retunes that demo.
+          params = { freq = 220; gain = 0.25; };
           gate = { param = "gate"; on = 0.0; off = 0.02; };
+          # Mono: ks.dsp's two outputs are the same signal (`<: _, _`), and a
+          # stereo wav64 occupies TWO mixer channels — ch and ch+1 — so every
+          # note of examples/audio cost a pair for nothing.
+          mono = true;
         };
 
         # Report Stage 1 proved end to end: bake -> DFS -> RSP mixer -> ROM.
-        audio = mkN64Rom {
+        audioArgs = {
           name = "audio";
           src = ./examples/audio;
           romTitle = "Kiln Audio";
           assets = [ ks-baked ];
           audioRate = 32000;
         };
+        audio = mkN64Rom audioArgs;
 
         # Live Faust voice + baked instrument A/B comparison (report Stage 2).
         # Links the ks-voice MIPS object into the ROM and renders it
         # sample-by-sample on the VR4300, mixed with the RSP mixer output.
-        live-voice = mkN64Rom {
+        liveVoiceArgs = {
           name = "live-voice";
           src = ./examples/live-voice;
           romTitle = "Kiln Live Voice";
@@ -579,6 +656,7 @@
           audioRate = 32000;
           makeFlags = [ "FAUST_VOICE=${ks-voice}/lib/ksvoice.o" ];
         };
+        live-voice = mkN64Rom liveVoiceArgs;
 
         # 3D + 2D GUI worked example.
         engine-demo = mkN64Rom {
@@ -592,12 +670,13 @@
         # (Phase F) kiln_stream + kiln_streamio pacing real kiln_asset loads
         # through kiln_cache instead of the hand-built stub loaders every
         # other kiln_tile consumer still uses.
-        openworld-demo = mkN64Rom {
+        openworldDemoArgs = {
           name = "openworld-demo";
           src = ./examples/openworld-demo;
           romTitle = "Kiln Open World";
           assets = [ owStreamdb ];
         };
+        openworld-demo = mkN64Rom openworldDemoArgs;
 
         # XM64 tracker music playback example. mkMusic converts the .xm
         # via audioconv64; the ROM plays it through libdragon's XM64 player.
@@ -618,13 +697,15 @@
           loop = true;
         };
 
-        music-demo = mkN64Rom {
+        musicDemoArgs = {
           name = "music";
           src = ./examples/music;
           romTitle = "Kiln Music";
-          assets = [ test-music ];
+          # Track 1 is the XM module, track 2 the looping VADPCM bed.
+          assets = [ test-music cine-music ];
           audioRate = 32000;
         };
+        music-demo = mkN64Rom musicDemoArgs;
 
         sc64deployer = import ./nix/tools/sc64deployer.nix {
           inherit pkgs;
@@ -639,68 +720,78 @@
         # Phase A verification: a ROM that loads one of each converted asset
         # kind — proves gltf_to_t3d, mksprite and audioconv64 actually run,
         # not just that the Nix glue around them evaluates.
-        assets-demo = mkN64Rom {
+        assetsDemoArgs = {
           name = "assets-demo";
           src = ./examples/assets-demo;
           romTitle = "Kiln Assets";
           assets = [ assetsDemoPak demoSound ];
           audioRate = 32000;
         };
+        assets-demo = mkN64Rom assetsDemoArgs;
 
         # Phase B verification: the actor system (engine/src/kiln/kiln_actor.*)
         # with one profile per category that matters here — spawn, handle-based
         # despawn, an actor despawning itself mid-update, and the fixed
         # category draw order all exercised in one ROM.
-        actors-demo = mkN64Rom {
+        actorsDemoArgs = {
           name = "actors-demo";
           src = ./examples/actors-demo;
           romTitle = "Kiln Actors";
         };
+        actors-demo = mkN64Rom actorsDemoArgs;
 
         # Scene/room streaming — a 2×2 grid of rooms, camera starts in room A.
         # The kiln_room module loads the room under the camera and its
         # neighbours; HUD reports current room + loaded count.
-        rooms-demo = mkN64Rom {
+        roomsDemoArgs = {
           name = "rooms-demo";
           src = ./examples/rooms-demo;
           romTitle = "Kiln Rooms";
         };
+        rooms-demo = mkN64Rom roomsDemoArgs;
 
-        # Phase B completion: kiln_camera (OoT-style spring-arm follow) +
-        # kiln_skel (skeletal animation, idle/swing blend) + kiln_audio
-        # (footstep SFX on distance travelled) together in one ROM, driving
-        # the kiln_actor player already exercised by actors-demo.
-        camera-skel-demo = mkN64Rom {
+        # Phase B completion: the goblin in a lit courtyard — kiln_camera
+        # (OoT-style spring arm, collision on) + kiln_skel (Idle/Walk/Run at
+        # stride-matched rates, Jump/Fall/Land, a torso-masked sword overlay, a
+        # bone socket) + kiln_clip (floor, walls, pillars, plinths) + kiln_audio
+        # (step.wav64 on each foot contact). Jump ROMs in
+        # nix/demos/camera-skel-demo.nix. skelModel is here for the RIG jump;
+        # the base ROM carries it so the two share args.
+        cameraSkelDemoArgs = {
           name = "camera-skel-demo";
           src = ./examples/camera-skel-demo;
-          romTitle = "Kiln Camera Skel";
-          assets = [ skelModel demoSound ];
+          romTitle = "Kiln Skel";
+          assets = [ goblinModel skelModel stepSound ];
           audioRate = 32000;
         };
+        camera-skel-demo = mkN64Rom cameraSkelDemoArgs;
 
-        # Phase C verification: same three asset kinds as assets-demo, but
-        # loaded from a single StreamDB container mounted at boot via
-        # kiln_asset_open. Exercises kiln_asset_model (the patched
-        # t3d_model_load_buf path), kiln_asset_sprite (sprite_load_buf), and
-        # kiln_asset_load on a raw level blob, plus kiln_asset_count and
-        # kiln_asset_find_suffix.
-        streamdb-demo = mkN64Rom {
+        # Phase C verification: one StreamDB container mounted at boot via
+        # kiln_asset_open, and everything on screen comes out of it. The raw
+        # level blob (kiln_asset_load) is parsed into spawn points, the model
+        # (kiln_asset_model, the patched t3d_model_load_buf path) stands on
+        # each, the sprite (kiln_asset_sprite) is the logo, and the HUD lists
+        # every key by kiln_asset_find_suffix against kiln_asset_count.
+        # Jump ROM and host builds: nix/demos/streamdb-demo.nix.
+        streamdbDemoArgs = {
           name = "streamdb-demo";
           src = ./examples/streamdb-demo;
           romTitle = "Kiln StreamDB";
           assets = [ demoStreamdb ];
         };
+        streamdb-demo = mkN64Rom streamdbDemoArgs;
 
         # A StreamDB reader written in Exsecutor (github.com/ALH477/exsecutor),
         # compiled to C by that language's compiler and checked in as
         # lector_streamdb.gen.c. It runs on a 32 KB kthread and is compared,
         # key by key, against streamdb-embedded on the same container.
-        exsec-streamdb-demo = mkN64Rom {
+        exsecStreamdbDemoArgs = {
           name = "exsec-streamdb-demo";
           src = ./examples/exsec-streamdb-demo;
           romTitle = "Kiln Exsecutor";
           assets = [ exsecStreamdb ];
         };
+        exsec-streamdb-demo = mkN64Rom exsecStreamdbDemoArgs;
 
         # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
         # edges) + kiln_clip (swept-AABB-vs-brushes collision with iterative
@@ -708,12 +799,13 @@
         # slides along walls, HUD reports the last trace's fraction / normal /
         # surface. No assets, no actors — the proof stays focused on the
         # collision primitive.
-        clip-demo = mkN64Rom {
+        clipDemoArgs = {
           name = "clip-demo";
           src = ./examples/clip-demo;
           romTitle = "Kiln Clip";
           assets = [ demoSound stepSound ];
         };
+        clip-demo = mkN64Rom clipDemoArgs;
 
         # Phase E: kiln_room brush auto-install + kiln_clip broadphase toggle
         # + kiln_physics HL2-style rigid bodies. One room (floor + 4 walls,
@@ -721,51 +813,74 @@
         # stack, rest, sleep; A punts the nearest crate in a forward cone
         # (gravity-gun feel); D-pad toggles PHYS ON/OFF and BP ON/OFF; HUD
         # shows the last trace's brush count so the broadphase win is visible.
-        physics-demo = mkN64Rom {
+        physicsDemoArgs = {
           name = "physics-demo";
           src = ./examples/physics-demo;
           romTitle = "Kiln Physics";
         };
+        physics-demo = mkN64Rom physicsDemoArgs;
 
         # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
         # info_player_start entity by reading "origin" from the KilnDict.
-        map-demo = mkN64Rom {
+        mapDemoArgs = {
           name = "map-demo";
           src = ./examples/map-demo;
           romTitle = "Kiln Map";
-          assets = [ quakeMap ];
+          # quake_test.map rides along for the QUAKE_TEST jump, which keeps the
+          # parser's frozen fixture booted rather than only unit-tested.
+          assets = [ mapDemoMap quakeMap ];
         };
+        map-demo = mkN64Rom mapDemoArgs;
 
-        # The engine's own boot splash (kiln_splash.h), booted straight into.
-        # kilnLogo is the same model kiln_splash_apply's camera comment is
-        # tuned for — see tools/blender/kiln_logo.py.
-        splash-demo = mkN64Rom {
+        # The engine's own boot splash (kiln_splash.h) with its jingle, handing
+        # over to a lit turntable of the same model that replays the splash on
+        # START or every 20 s. kilnLogo is the model kiln_splash_apply's camera
+        # comment is tuned for — see tools/blender/kiln_logo.py.
+        #
+        # kilnLogoRaw is that model with compress = 0: the host's .t3dm reader
+        # has no decompression stage and pc-splash-demo ships the same
+        # filesystem, and uncompressed, the ROM needs no
+        # asset_init_compression(2) either. Same rom:/models/kiln_logo.t3dm.
+        kilnLogoRaw = blenderLib.mkBlenderModel {
+          name = "kiln_logo";
+          script = "kiln_logo.py";
+          compress = 0;
+        };
+        splashDemoArgs = {
           name = "splash-demo";
           src = ./examples/splash-demo;
           romTitle = "Kiln Splash";
-          assets = [ kilnLogo ];
+          assets = [ kilnLogoRaw kilnJingle ];
+          audioRate = 32000;
         };
+        splash-demo = mkN64Rom splashDemoArgs;
 
         # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
         # the queued-event count so the 500 ms gap is visible.
-        event-demo = mkN64Rom {
+        eventDemoArgs = {
           name = "event-demo";
           src = ./examples/event-demo;
           romTitle = "Kiln Event";
+          assets = [ demoSound doorOpenSfx ];
         };
+        event-demo = mkN64Rom eventDemoArgs;
 
         # Phase 6: the OoT + id Tech 4 integration proof. A player actor
         # (kiln_player locomotion) walks an oot_test.map room, slides via
         # kiln_clip, Z-targets enemies (kiln_target + camera TARGETING mode),
         # and emits footstep SFX through kiln_event + kiln_sound shaders.
-        oot-demo = mkN64Rom {
+        ootDemoArgs = {
           name = "oot-demo";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT";
-          assets = [ ootMap stepSound ];
+          # goblinModel: the skinned hero (kiln_skel). The pc-* builds below
+          # leave it out and set KILN_OOT_PRIM_BODY, because plat/host cannot
+          # run a skeleton.
+          assets = [ ootMap stepSound impactSfx goblinModel ];
         };
+        oot-demo = mkN64Rom ootDemoArgs;
 
         # Same integration proof, but with the retro console + profiler wired in.
         # This is the debug build of oot-demo; keep the vanilla one lean.
@@ -773,7 +888,7 @@
           name = "oot-demo-debug";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT Debug";
-          assets = [ ootMap stepSound ];
+          assets = [ ootMap stepSound impactSfx goblinModel ];
           debugConsole = true;
         };
 
@@ -783,36 +898,112 @@
         # libkiln.a; the flag only controls whether the example wires it up.
         # Toggle in-rom by holding Start and pressing C-Up → C-Left →
         # C-Down → C-Right (counter-clockwise around the C cluster).
-        debug-demo = mkN64Rom {
+        debugDemoArgs = {
           name = "debug-demo";
           src = ./examples/debug-demo;
           romTitle = "Kiln Debug";
           debugConsole = true;
         };
+        debug-demo = mkN64Rom debugDemoArgs;
 
         # The single-screen showcase: title + 3-mode flight + engine streaks +
         # credit HUD. Loads the hand-authored Interceptor starfighter through
         # the same mkBlenderModel path tools/blender/interceptor.py documents.
-        interceptor-demo = mkN64Rom {
+        # The demo ships the ship UNCOMPRESSED: a 360-triangle model is a few
+        # KB either way, and the host reader has no asset decompressor, so a
+        # compressed copy would make pc-interceptor-demo impossible.
+        interceptorModelRaw = blenderLib.mkBlenderModel {
+          name = "interceptor";
+          script = "interceptor.py";
+          compress = 0;
+        };
+        interceptorDemoArgs = {
           name = "interceptor-demo";
           src = ./examples/interceptor-demo;
           romTitle = "Kiln Interceptor";
-          assets = [ interceptorModel demoSound test-music ];
+          assets = [ interceptorModelRaw demoSound test-music ];
           audioRate = 32000;
         };
+        interceptor-demo = mkN64Rom interceptorDemoArgs;
 
-        # texanim-demo: exercises kiln_texanim (UV scroll, flipbook, palette,
-        # offscreen) and kiln_vanim (procedural deform, morph blending, RSP
-        # vertex FX). All geometry is hand-built — no asset pipeline needed.
-        texanim-demo = mkN64Rom {
+        # texanim-demo: one exhibit per texture / vertex effect, each driven by
+        # the engine module that owns it — kiln_texanim's scroll on a tiled
+        # floor, kiln_vfx's env map and cel shade, kiln_deform's flag and
+        # kiln_morph's blob. Every model's name is its rom:/models/ filename.
+        #
+        # fog=true on every material, deliberately: f3d_inject's default
+        # fog=False becomes T3D_FOG_MODE_DISABLED (materialParser.cpp: g_fog+1),
+        # and t3d_model_draw then turns the RSP's fog OFF and leaves it off for
+        # everything drawn after the model — the scene's fog silently stops at
+        # the first model. texanimTextures ships the sprites the textured models
+        # name — gltf_to_t3d bakes assets/textures/x.png as rom:/textures/x.sprite
+        # — plus the fire flipbook and the sky, from its own generator so no other
+        # ROM carries them. TMEM is spent per material upload (rdpq_tex.c), not
+        # summed across a ROM: the largest here is one 32x32 RGBA16, 2 KB of 4.
+        #
+        # firewall / lavapool / monitors are texture REFERENCE materials
+        # (useRef): Tiny3D uploads nothing for them and kiln_texanim's
+        # dynTextureCb uploads the flipbook frame, the CI4 surface or the
+        # offscreen render, matched by refAddress. refSize is the runtime
+        # surface's size, because the UVs are baked against it. firewall and
+        # monitors are the checker model, whose two quads share a number on
+        # purpose: they show one image.
+        texanimTextures = assetLib.mkTextures {
+          name = "texanim";
+          extraGenerators = [ ./tools/gen_texanim_textures.py ];
+        };
+        texanimFloor = mkTestModel "tilefloor" {
+          inherit textures; bvh = false;
+          materials = [ "FloorMat=tex0_shade,tex=textures/checker.i8.png,size=32,fog=true" ];
+        };
+        texanimFlag = mkTestModel "flag" {
+          bvh = false;
+          materials = [ "FlagMat=shade,cull=none,fog=true" ];
+        };
+        texanimEnvSphere = mkTestModel "uvsphere" {
+          name = "envsphere"; model = "uvsphere";
+          textures = texanimTextures; bvh = false;
+          materials = [ "GridMat=tex0_shade,tex=textures/sky.rgba16.png,size=32,fog=true" ];
+        };
+        texanimFirewall = mkTestModel "checker" {
+          name = "firewall"; model = "checker"; bvh = false;
+          materials = [
+            "CheckerWrapMat=tex0_shade,useRef=1,refAddress=0x01,refSize=32:32,fog=true"
+            "CheckerMirrorMat=tex0_shade,useRef=1,refAddress=0x01,refSize=32:32,fog=true"
+          ];
+        };
+        texanimLavapool = mkTestModel "tilefloor" {
+          name = "lavapool"; model = "tilefloor"; bvh = false;
+          materials = [ "FloorMat=tex0_shade,useRef=1,refAddress=0x02,refSize=32:32,fog=true" ];
+        };
+        texanimMonitors = mkTestModel "checker" {
+          name = "monitors"; model = "checker"; bvh = false;
+          materials = [
+            "CheckerWrapMat=tex0_shade,useRef=1,refAddress=0x03,refSize=32:32,fog=true"
+            "CheckerMirrorMat=tex0_shade,useRef=1,refAddress=0x03,refSize=32:32,fog=true"
+          ];
+        };
+        texanimTorus = mkTestModel "torus" {
+          name = "celtorus"; model = "torus"; bvh = false;
+          materials = [ "TorusMat=shade,fog=true" ];
+        };
+        texanimBlob = mkTestModel "sphere" {
+          name = "blob"; model = "sphere"; bvh = false;
+          materials = [ "SphereMat=shade,fog=true" ];
+        };
+        texanimDemoArgs = {
           name = "texanim-demo";
           src = ./examples/texanim-demo;
           romTitle = "Kiln TexAnim";
+          assets = [ texanimFloor texanimFlag texanimEnvSphere texanimTorus texanimBlob
+                     texanimFirewall texanimLavapool texanimMonitors texanimTextures ];
         };
+        texanim-demo = mkN64Rom texanimDemoArgs;
 
-        # Cinematic-demo: a 60-second single-shot scene of the Interceptor in
-        # its hangar with the goblin captain walking the perimeter, droids
-        # servicing the ship, and aliens approaching from the back. Exercises
+        # Cinematic-demo: a 60-second scene of seven cut shots — the Interceptor
+        # in its hangar, the goblin captain walking the perimeter (waving,
+        # taunting, tracking the aliens with his head), droids servicing the
+        # ship, aliens coming out of the back, an alarm, subtitles. Exercises
         # every engine subsystem in one ROM — input, player, clip, target,
         # surface, sound, event, dict, map, room, camera (CUTSCENE mode), skel
         # (goblin walk-cycle), audio (music + SFX). Assets:
@@ -820,7 +1011,7 @@
         #   hangarMap           — the Quake-format .map room
         #   demoSound / stepSound — SFX (engine whoosh, footsteps)
         #   cine-music          — VADPCM .wav64 loop (15s dark-sci-fi bed)
-        cinematic-demo = mkN64Rom {
+        cinematicDemoArgs = {
           name = "cinematic-demo";
           src = ./examples/cinematic-demo;
           romTitle = "Kiln Cinematic";
@@ -830,18 +1021,20 @@
           ];
           audioRate = 32000;
         };
+        cinematic-demo = mkN64Rom cinematicDemoArgs;
 
         # A minimal playable first-person shooter. First-person camera
         # (kiln_fpscam), hitscan weapon (kiln_weapon), enemy actors that chase
         # the player, HUD with crosshair + health + ammo. The FPS level is a
         # Quake .map loaded at runtime via kiln_map.
-        fps = mkN64Rom {
+        fpsArgs = {
           name = "fps";
           src = ./examples/fps;
           romTitle = "Kiln FPS";
           assets = [ fpsRoom0 fpsRoom1 fpsRoom2 gunshotSfx impactSfx enemyHitSfx pickupSfx impactMetalSfx doorOpenSfx doorLockedSfx chestOpenSfx explosionSfx rocketFireSfx plasmaFireSfx shotgunFireSfx npcTalkSfx ];
           audioRate = 32000;
         };
+        fps = mkN64Rom fpsArgs;
 
         # ── Bass synth ────────────────────────────────────────────────────
         # 4-controller collaborative bass ROM. 12 dual-layer wavetables
@@ -860,13 +1053,17 @@
           engines = [ "heavy" "sub" "growl" "industrial" ];
         in pkgs.lib.concatMap (e: map (l: bassWav e l) layers) engines;
 
-        bass-synth = mkN64Rom {
+        bassSynthArgs = {
           name = "bass-synth";
           src = ./examples/bass-synth;
           romTitle = "Kiln Bass Synth";
           assets = bassWavFlat;
           audioRate = 32000;
+          # The patch is saved through kiln_store: SD card on a flashcart that
+          # has one, else this 32 KB save chip (and what an emulator gives).
+          saveType = "sram256k";
         };
+        bass-synth = mkN64Rom bassSynthArgs;
 
         # ── Forge ────────────────────────────────────────────────────────
         # A standalone tool ROM: a voxel level/cinematic editor that runs on the
@@ -932,6 +1129,16 @@
         # jump ROM. `.#forge-geo` now exists so the claim is true and so the set
         # is uniform to anyone scripting over it.
         forgeModes = [ "GEO" "WALK" "PAINT" "ENT" "LIGHT" "CAM" ];
+        # The fast loops `./dev cheap` builds: host, GUI, logic and Python
+        # checks only, no ROMs. Kept here, not in `dev`, so the studio's
+        # validation panel and the CLI run the same list.
+        studioCheapChecks = [
+          "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
+          "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
+          "studio-manifest" "studio-api" "camlint-cli" "studio-modules" "poser-lag"
+          "agent-env" "agent-tools" "agent-flow"
+        ];
+
         forgeModeRoms = pkgs.lib.listToAttrs (map
           (m: pkgs.lib.nameValuePair "forge-${pkgs.lib.toLower m}" (mkN64Rom {
             name = "forge-${pkgs.lib.toLower m}";
@@ -940,6 +1147,54 @@
             makeFlags = [ "FORGE_MODE=${m}" ];
           }))
           forgeModes);
+
+        # ── Jump ROMs for the examples ─────────────────────────────────
+        # forgeModeRoms' pattern, for any example: `mkJumpRoms args [ "CORNER" ]`
+        # yields `<name>-corner`, the same ROM built with KILN_JUMP=CORNER
+        # (engine/kiln-inst.mk turns that into -DKILN_JUMP=JUMP_CORNER), which
+        # boots straight into one state so `./dev shot` can capture it with no
+        # controller. An example declares its args once, builds its own ROM from
+        # them, and lists its jumps in `jumpRoms` below. Packages, not checks:
+        # the base ROM is what the gate builds.
+        mkJumpRoms = args: jumps: pkgs.lib.listToAttrs (map (j:
+          let
+            suffix = pkgs.lib.replaceStrings [ "_" ] [ "-" ] (pkgs.lib.toLower j);
+            title = "${args.romTitle} ${j}";
+          in
+          assert pkgs.lib.assertMsg (pkgs.lib.stringLength title <= 20)
+            "mkJumpRoms: ROM title '${title}' exceeds the header's 20 characters";
+          pkgs.lib.nameValuePair "${args.name}-${suffix}" (mkN64Rom (args // {
+            name = "${args.name}-${suffix}";
+            romTitle = title;
+            makeFlags = (args.makeFlags or [ ]) ++ [ "KILN_JUMP=${j}" ];
+          }))) jumps);
+
+        jumpRoms =
+          mkJumpRoms clipDemoArgs [ "CORNER" ]
+          // mkJumpRoms mapDemoArgs [ "OVERLAY" "QUAKE_TEST" ]
+          // mkJumpRoms physicsDemoArgs [ "PUNT" "BP" ]
+          // mkJumpRoms roomsDemoArgs [ "ROOM_D" ]
+          // mkJumpRoms ootDemoArgs [ "TARGET" "ROLL" "ATTACK" ]
+          // mkJumpRoms eventDemoArgs [ "OPEN" "QUEUED" ]
+          // mkJumpRoms actorsDemoArgs [ "FULL" ]
+          // mkJumpRoms boardDemoArgs [ "FORK" "RESULTS" ]
+          // mkJumpRoms debugDemoArgs [ "CONSOLE" ];
+
+        # ── Per-demo packages (nix/demos/*.nix) ─────────────────────────
+        # One file per demo for its jump ROMs and host builds, so work on two
+        # demos never edits the same lines of this file. See nix/demos/README.md.
+        demoCtx = {
+          inherit pkgs mkN64Rom mkJumpRoms hostNative hostWasm assetLib blenderLib textures testModels goblinModel interceptorModel droidModel alienModel kilnLogo demoSound stepSound impactSfx doorOpenSfx ks-baked ks-voice test-music cine-music owStreamdb assetsDemoPak demoStreamdb exsecStreamdb skelModel hangarMap bassWavFlat;
+          lib = pkgs.lib;
+          args = {
+            inherit helloArgs audioArgs liveVoiceArgs musicDemoArgs openworldDemoArgs assetsDemoArgs cameraSkelDemoArgs streamdbDemoArgs exsecStreamdbDemoArgs splashDemoArgs interceptorDemoArgs texanimDemoArgs cinematicDemoArgs bassSynthArgs fpsArgs;
+          };
+        };
+        demoPackages = pkgs.lib.foldl'
+          (acc: f: acc // import (./nix/demos + "/${f}") demoCtx)
+          { }
+          (builtins.filter (pkgs.lib.hasSuffix ".nix")
+            (builtins.attrNames (builtins.readDir ./nix/demos)));
 
         # The same probe with a save chip declared, which is the ONLY way to
         # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
@@ -962,11 +1217,12 @@
         # end-to-end. 4 tokens, 5 rounds, a 10-node branching path, an
         # auto-advancing state machine. No assets — the proof is the
         # topology and the turn transitions, drawn as a 2D HUD schematic.
-        board-demo = mkN64Rom {
+        boardDemoArgs = {
           name = "board-demo";
           src = ./examples/board-demo;
           romTitle = "Kiln Board";
         };
+        board-demo = mkN64Rom boardDemoArgs;
 
         # ── The Kiln boot splash ──────────────────────────────────────────
         # A parody of the Nintendo 64's boot, and a publisher mark rather
@@ -1086,9 +1342,7 @@
           modules = [ ./nix/dev-image.nix ];
           specialArgs = { inherit claude-code-nix; };
         };
-      in
-      {
-        packages = {
+        hostGames = {
           # ── playable host builds ───────────────────────────────────
           # The same examples/<x>/main.c the ROM builds, compiled with
           # -Dmain=kiln_game_main and linked against plat/shell. engine-demo
@@ -1100,16 +1354,174 @@
             sources = [ ./examples/engine/main.c ];
             meta.description = "engine-demo, playable on this machine";
           };
-          web-engine-demo = hostWasm.mkGame {
-            pname = "kiln-engine-demo";
-            sources = [ ./examples/engine/main.c ];
-            meta.description = "engine-demo, playable in a browser";
+          pc-clip-demo = hostNative.mkGame {
+            pname = "kiln-clip-demo";
+            sources = [ ./examples/clip-demo/main.c ];
+            assets = [ demoSound stepSound ];
+            meta.description = "clip-demo, playable on this machine";
           };
-
+          pc-map-demo = hostNative.mkGame {
+            pname = "kiln-map-demo";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            meta.description = "map-demo, on this machine";
+          };
+          pc-map-demo-overlay = hostNative.mkGame {
+            pname = "kiln-map-demo-overlay";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_OVERLAY" ];
+            meta.description = "map-demo-overlay, on this machine";
+          };
+          pc-map-demo-quake-test = hostNative.mkGame {
+            pname = "kiln-map-demo-quake-test";
+            sources = [ ./examples/map-demo/main.c ];
+            assets = [ mapDemoMap quakeMap ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_QUAKE_TEST" ];
+            meta.description = "map-demo-quake-test, on this machine";
+          };
+          pc-physics-demo = hostNative.mkGame {
+            pname = "kiln-physics-demo";
+            sources = [ ./examples/physics-demo/main.c ];
+            meta.description = "physics-demo, on this machine";
+          };
+          pc-physics-demo-punt = hostNative.mkGame {
+            pname = "kiln-physics-demo-punt";
+            sources = [ ./examples/physics-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_PUNT" ];
+            meta.description = "physics-demo-punt, on this machine";
+          };
+          pc-physics-demo-bp = hostNative.mkGame {
+            pname = "kiln-physics-demo-bp";
+            sources = [ ./examples/physics-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_BP" ];
+            meta.description = "physics-demo-bp, on this machine";
+          };
+          pc-rooms-demo = hostNative.mkGame {
+            pname = "kiln-rooms-demo";
+            sources = [ ./examples/rooms-demo/main.c ];
+            meta.description = "rooms-demo, on this machine";
+          };
+          pc-rooms-demo-room-d = hostNative.mkGame {
+            pname = "kiln-rooms-demo-room-d";
+            sources = [ ./examples/rooms-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_ROOM_D" ];
+            meta.description = "rooms-demo-room-d, on this machine";
+          };
+          pc-oot-demo = hostNative.mkGame {
+            pname = "kiln-oot-demo";
+            sources = [ ./examples/oot-demo/main.c ];
+            assets = [ ootMap stepSound impactSfx ];
+            extraCFlags = [ "-DKILN_OOT_PRIM_BODY=1" ];
+            meta.description = "oot-demo, on this machine";
+          };
+          pc-oot-demo-target = hostNative.mkGame {
+            pname = "kiln-oot-demo-target";
+            sources = [ ./examples/oot-demo/main.c ];
+            assets = [ ootMap stepSound impactSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_TARGET" "-DKILN_OOT_PRIM_BODY=1" ];
+            meta.description = "oot-demo-target, on this machine";
+          };
+          pc-event-demo = hostNative.mkGame {
+            pname = "kiln-event-demo";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            meta.description = "event-demo, on this machine";
+          };
+          pc-event-demo-open = hostNative.mkGame {
+            pname = "kiln-event-demo-open";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_OPEN" ];
+            meta.description = "event-demo-open, on this machine";
+          };
+          pc-event-demo-queued = hostNative.mkGame {
+            pname = "kiln-event-demo-queued";
+            sources = [ ./examples/event-demo/main.c ];
+            assets = [ demoSound doorOpenSfx ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_QUEUED" ];
+            meta.description = "event-demo-queued, on this machine";
+          };
+          pc-actors-demo = hostNative.mkGame {
+            pname = "kiln-actors-demo";
+            sources = [ ./examples/actors-demo/main.c ];
+            meta.description = "actors-demo, on this machine";
+          };
+          pc-actors-demo-full = hostNative.mkGame {
+            pname = "kiln-actors-demo-full";
+            sources = [ ./examples/actors-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_FULL" ];
+            meta.description = "actors-demo-full, on this machine";
+          };
+          pc-board-demo = hostNative.mkGame {
+            pname = "kiln-board-demo";
+            sources = [ ./examples/board-demo/main.c ];
+            meta.description = "board-demo, on this machine";
+          };
+          pc-board-demo-fork = hostNative.mkGame {
+            pname = "kiln-board-demo-fork";
+            sources = [ ./examples/board-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_FORK" ];
+            meta.description = "board-demo-fork, on this machine";
+          };
+          pc-board-demo-results = hostNative.mkGame {
+            pname = "kiln-board-demo-results";
+            sources = [ ./examples/board-demo/main.c ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_RESULTS" ];
+            meta.description = "board-demo-results, on this machine";
+          };
+          pc-debug-demo = hostNative.mkGame {
+            pname = "kiln-debug-demo";
+            sources = [ ./examples/debug-demo/main.c ];
+            extraCFlags = [ "-DKILN_DEBUG=1" ];
+            meta.description = "debug-demo, with its console, on this machine";
+          };
+          pc-debug-demo-console = hostNative.mkGame {
+            pname = "kiln-debug-demo-console";
+            sources = [ ./examples/debug-demo/main.c ];
+            extraCFlags = [ "-DKILN_DEBUG=1" "-DKILN_JUMP=JUMP_CONSOLE" ];
+            meta.description = "debug-demo-console, with its console, on this machine";
+          };
+          pc-clip-demo-corner = hostNative.mkGame {
+            pname = "kiln-clip-demo-corner";
+            sources = [ ./examples/clip-demo/main.c ];
+            assets = [ demoSound stepSound ];
+            extraCFlags = [ "-DKILN_JUMP=JUMP_CORNER" ];
+            meta.description = "clip-demo's CORNER jump, on this machine";
+          };
+        };
+        # Every host-capable game in the browser as well: the same arguments
+        # through hostWasm.mkGame, a web-<x> beside each pc-<x>, so Kiln Studio
+        # can play any of them in a tab. Generated rather than written out a
+        # second time, because two hand-kept lists of the same games are two
+        # lists that disagree. web-engine-demo's derivation is unchanged by
+        # this: meta is not part of a derivation's hash.
+        hostWebGames = pkgs.lib.mapAttrs'
+          (n: g: pkgs.lib.nameValuePair ("web-" + pkgs.lib.removePrefix "pc-" n)
+            (hostWasm.mkGame (g.gameArgs // {
+              meta = g.gameArgs.meta // {
+                description = builtins.replaceStrings [ "on this machine" ] [ "in a browser" ]
+                  (g.gameArgs.meta.description or n);
+              };
+            })))
+          hostGames;
+      in
+      {
+        packages = hostGames // hostWebGames // {
           # `./dev map-render` — a level, through the real kiln_map.c, drawn by
           # the real engine, with no ROM and no compositor. Shares its whole
           # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to
           # the same reference image. See tools/maprender/map_render.h.
+          # kiln_camlint over a camera shot written as JSON — the engine's own
+          # validator, natively, on data. `./dev cine-lint shot.json [--json]`.
+          camlint = hostNative.mkProgram {
+            pname = "camlint";
+            sources = [ ./tools/camlint/camlint.c ];
+            meta = {
+              description = "validate a camera shot (JSON) with kiln_camlint";
+              mainProgram = "camlint";
+            };
+          };
           map-render = hostNative.mkProgram {
             pname = "maprender";
             sources = [ ./tools/maprender/main.c ./tools/maprender/map_render.c ];
@@ -1136,8 +1548,17 @@
           streamdb = streamdb-emb;
           inherit textures;
           inherit dev-image;
+          # Kiln Studio's container (nix/studio-images.nix), which
+          # nixosModules.kiln-studio runs under the user's rootless docker.
+          studio-image = studioImages.studio;
+          # The agents container's image: kiln_agents' serve.py on the same
+          # crewPython the agent gates build, plus the Claude Code CLI that
+          # ClaudeWorker shells out to (see the file header).
+          agents-image = studioImages.agents;
         }
         // forgeModeRoms
+        // jumpRoms
+        // demoPackages
         # `nix build .#model-torus` converts one model on its own, which is the
         # fast loop when a shape comes out wrong: each derivation keeps its
         # intermediate glTF in share/gltf/, so geometry problems can be told
@@ -1196,10 +1617,54 @@
                              mkStreamdb mkAssetPak mkTextures mkVideo
                              mkMidiMusic mkVeilTexture;
           inherit (blenderLib) mkBlenderModel mkQuakeMapModel mkGodotSceneModel;
+
+          # A game's scenes, held to a declared cost. The budget is the
+          # GAME's statement (Kiln cannot know what scenes it has); the
+          # measurement is the ENGINE's (a game should not have to
+          # reimplement how many bytes of TMEM a 32x32 CI4 tile needs).
+          # See nix/checks/asset-budget.nix for the budget's shape and for
+          # what it refuses to let default.
+          mkAssetBudgetCheck = args:
+            import ./nix/checks/asset-budget.nix ({ inherit pkgs; } // args);
+
+          # Kiln Studio's project model: every ROM, jump ROM, PC and web build
+          # grouped by game, from the `kiln` records the builders attach. A
+          # downstream game calls it on its own packages. See
+          # nix/studio-manifest.nix.
+          mkStudioManifest = import ./nix/studio-manifest.nix { lib = pkgs.lib; };
+        };
+
+        # `nix eval --json .#studioManifest.<system>` — what tools/studio reads.
+        studioManifest = import ./nix/studio-manifest.nix { lib = pkgs.lib; } {
+          inherit system;
+          packages = self.packages.${system};
+          checks = self.checks.${system};
+          cheap = studioCheapChecks;
         };
 
         checks = {
           toolchain = import ./nix/checks/toolchain.nix { inherit pkgs toolchain; };
+
+          # Kiln's own instance of the asset budget, so the mechanism is
+          # exercised through nix and not only through the measurer's
+          # selftest. The fixture's ceilings are MEASURED from these three
+          # model-* outputs and sit exactly on the measurement, so a change
+          # to their geometry turns this red rather than being absorbed.
+          asset-budget-demo = import ./nix/checks/asset-budget.nix {
+            inherit pkgs;
+            name = "asset-budget-demo";
+            budget = ./nix/checks/asset-budget-demo.json;
+            models = {
+              alien = alienModel;
+              cone = testModels.cone;
+              checker = testModels.checker;
+            };
+            # Textures and audio are exercised against fixtures by the
+            # measurer's own selftest, which runs first inside this check.
+            # Kiln's test textures are generated into a derivation rather
+            # than committed, so pointing at one here would couple this
+            # fixture to mkTextures' internal layout for no extra coverage.
+          };
           rom-hello = import ./nix/checks/rom.nix {
             inherit pkgs;
             rom = hello;
@@ -1314,6 +1779,21 @@
             inherit pkgs;
             rom = board-demo;
             name = "board-demo";
+          };
+          rom-camera-skel-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = camera-skel-demo;
+            name = "camera-skel-demo";
+          };
+          rom-openworld-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = openworld-demo;
+            name = "openworld-demo";
+          };
+          rom-exsec-streamdb-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = exsec-streamdb-demo;
+            name = "exsec-streamdb-demo";
           };
           # rom.nix globs for *.z64 rather than taking a filename, which is
           # what makes this work for Forge: the Makefile emits `forge.z64` no
@@ -1436,6 +1916,67 @@
           kiln-scene = import ./nix/checks/kiln-scene.nix {
             inherit pkgs; target = hostNative;
           };
+          # kiln_prim's boxes and floors, read back: outward winding, signed
+          # 5.6.5 normals, extents, and 17-quad batches under the vertex cache.
+          kiln-prim = import ./nix/checks/kiln-prim.nix {
+            inherit pkgs; target = hostNative;
+          };
+          kiln-prim-wasm32 = import ./nix/checks/kiln-prim.nix {
+            inherit pkgs; target = hostWasm;
+          };
+          # kiln_input's tapes: the attract modes and jump ROMs every example
+          # uses to show something without a controller.
+          kiln-input = import ./nix/checks/kiln-input.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # rdpq_sprite_upload + rdpq_texture_rectangle on the host.
+          kiln-texrect = import ./nix/checks/kiln-texrect.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # kiln_fpscam's strafe and turn, against the renderer's screen-right.
+          kiln-fpscam = import ./nix/checks/kiln-fpscam.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # dsp/ks.dsp's freq slider moves the pitch, and the pluck is a tone
+          # rather than a DC step. Neither was true until this check existed.
+          ks-pitch = import ./nix/checks/ks-pitch.nix {
+            inherit pkgs;
+            renderer = faust.mkOfflineRenderer { name = "ksvoice"; src = ./dsp/ks.dsp; };
+          };
+          # kiln_music_playing follows the player; kiln_audio's output tap.
+          kiln-audio = import ./nix/checks/kiln-audio.nix {
+            inherit pkgs; target = hostNative; sound = demoSound;
+            # A stereo wav64 (every committed .wav is mono): ks.dsp's two
+            # outputs, baked without `mono`, short.
+            stereo = faust.mkBakedInstrument {
+              name = "ksstereo"; src = ./dsp/ks.dsp; sampleRate = 32000; duration = 0.5;
+              params = { freq = 220; gain = 0.25; };
+              gate = { param = "gate"; on = 0.0; off = 0.02; };
+            };
+          };
+          # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
+          # examples/cinematic-demo's shots: camlint-clean, no eye inside the
+          # cast or the hangar across the whole loop, bounds match the models.
+          cinematic-cam = import ./nix/checks/cinematic-cam.nix {
+            inherit pkgs; target = hostNative;
+            models = { interceptor = interceptorModel; goblin = goblinModel;
+                       droid = droidModel; alien = alienModel; };
+          };
+          kiln-room = import ./nix/checks/kiln-room.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # kiln_morph's CPU blend: colour per channel, normals kept.
+          kiln-vanim = import ./nix/checks/kiln-vanim.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # kiln_context's A-button scan: locked doors UNLOCK, open ones OPEN.
+          kiln-context = import ./nix/checks/kiln-context.nix {
+            inherit pkgs; target = hostNative;
+          };
+          # kiln_console reads its buttons through kiln_input, so tapes drive it.
+          kiln-console = import ./nix/checks/kiln-console.nix {
+            inherit pkgs; target = hostNative;
+          };
           # A real voxel mesh rendered with two combiners, which is how the
           # atlas-never-sampled defect became visible instead of arguable —
           # and, since it is fixed, greps forge_geo.c so the caller's choice is
@@ -1520,7 +2061,72 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          goblin-gait = import ./nix/checks/goblin-gait.nix {
+            inherit pkgs goblinModel;
+            toolsDir = ./tools;
+            examplesDir = ./examples;
+          };
+          # The game template builds against this flake's own lib, so
+          # `nix flake init -t .#game` cannot hand anyone a broken starting point.
+          template-game = (import ./templates/game/game.nix {
+            kiln = { lib.${system} = self.lib.${system}; };
+            inherit system;
+          }).rom;
+          camlint-cli = import ./nix/checks/camlint-cli.nix {
+            inherit pkgs;
+            camlint = self.packages.${system}.camlint;
+            fixtures = ./tools/camlint/fixtures;
+            reportCheck = ./tools/schema/report_check.py;
+          };
+          studio-reports = import ./nix/checks/studio-reports.nix {
+            inherit pkgs goblinModel;
+            toolsDir = ./tools;
+            camlint = self.packages.${system}.camlint;
+            quakeMap = ./assets/quake_test.map;
+          };
+          studio-api = import ./nix/checks/studio-api.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+          };
+          # The NixOS module, booted on nixos-25.11 with rootless docker. A VM
+          # test, so x86_64-linux with KVM only, and not one of the cheap checks.
+          studio-module =
+            if system == "x86_64-linux" then
+              import ./nix/checks/studio-module.nix {
+                pkgs2511 = nixpkgs-2511.legacyPackages.${system};
+                kilnModule = self.nixosModules.kiln-studio;
+              }
+            else pkgs.emptyFile;
+          studio-modules = import ./nix/checks/studio-modules.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+          };
+          # The agents' python environments and the browser tool's selftest
+          # (tools/agents/browser_mcp.py). Cheap, host-only, no Chromium.
+          agent-env = import ./nix/checks/agent-env.nix { inherit pkgs; };
+          # The CrewAI role agents' tools and the task flow, offline against
+          # stubs — see nix/checks/agent-{tools,flow}.nix.
+          agent-tools = import ./nix/checks/agent-tools.nix { inherit pkgs; };
+          agent-flow = import ./nix/checks/agent-flow.nix { inherit pkgs; };
+          poser-lag = import ./nix/checks/poser-lag.nix {
+            inherit pkgs;
+            genLag = ./tools/poser/gen_lag.py;
+            poserSrc = ./tools/poser/src;
+            goblin = ./tools/blender/goblin.py;
+          };
+          studio-manifest = import ./nix/checks/studio-manifest.nix {
+            inherit pkgs;
+            manifest = self.studioManifest.${system};
+            examplesDir = ./examples;
+            checker = ./tools/studio/manifest_check.py;
+            allow = ./tools/studio/manifest_allow.json;
+          };
+          kiln-pose = import ./nix/checks/kiln-pose.nix {
+            inherit pkgs hostMath;
+            engineSrc = ./engine;
+            platHost = ./plat/host;
+          };
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a
@@ -1566,15 +2172,29 @@
               exec ${pkgs.bash}/bin/bash "''${KILN_REPO:-$PWD}/dev" "$@"
             '');
           };
+          # Kiln Studio (tools/studio/): the hub, jobs, editors and live game
+          # view in one local web app. Like mapmaker, it runs the checkout's own
+          # copy rather than a store path, because it edits that checkout.
+          # Binds 127.0.0.1:8420; prints a link carrying the session token.
+          studio = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-studio" ''
+              repo="''${KILN_REPO:-$PWD}"
+              exec ${pkgs.python3Minimal}/bin/python3 "$repo/tools/studio/server.py" --repo "$repo" "$@"
+            '');
+          };
           # three.js .map maker (tools/mapmaker/). A dev-only web app run
           # outside the hermetic build — same authoring/outside-build vs.
           # consume/inside-build split as tools/blender-mcp/. Exports canonical
           # .map text the existing mkQuakeMapModel + kiln_map.c pipeline already
-          # consumes; validate via ./dev map-validate.
+          # consumes; validate via ./dev map-validate. Serves all of tools/ so
+          # the page reaches tools/webcommon/ by a relative path — the same one
+          # that works when Kiln Studio serves it under /tools/.
           mapmaker = {
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-mapmaker" ''
-              cd "''${KILN_REPO:-$PWD}/tools/mapmaker"
+              cd "''${KILN_REPO:-$PWD}/tools"
+              echo "map maker on http://localhost:8000/mapmaker/"
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8000
             '');
           };
@@ -1591,8 +2211,8 @@
                 echo "staging models for the poser (first run)…"
                 ./tools/poser/stage.sh dank
               fi
-              cd tools/poser
-              echo "poser on http://localhost:8001"
+              cd tools
+              echo "poser on http://localhost:8001/poser/"
               exec ${pkgs.python3Minimal}/bin/python3 -m http.server 8001
             '');
           };
@@ -1660,6 +2280,54 @@
                 "''${KILN_REPO:-$PWD}/tools/blender-mcp/server.py" "$@"
             '');
           };
+          # The UI agent: Kiln Studio driven through headless Chromium over the
+          # DevTools protocol, exposed as MCP tools (open/snapshot/click/type/
+          # screenshot/...), confined to the studio's origin — an agent acts
+          # through the real interface, so "the save button works" is evidence
+          # the save button works. .mcp.json runs this directly (never via
+          # ./dev — the shellHook banner corrupts stdio, see dev's mcp case).
+          # KILN_CHROMIUM can point at another chromium; the token comes from
+          # $KILN_STUDIO_TOKEN or $KILN_REPO/.studio/token.
+          browser-mcp = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-browser-mcp" ''
+              : "''${KILN_CHROMIUM:=${pkgs.chromium}/bin/chromium}"
+              export KILN_CHROMIUM
+              exec ${agentPython.browserPython}/bin/python3 \
+                "''${KILN_REPO:-$PWD}/tools/agents/browser_mcp.py" "$@"
+            '');
+          };
+          # Kiln Studio's API as MCP tools — list/build/check/validate/
+          # map-render/host-shot/job/log, all THROUGH the studio's own job
+          # machinery, so an agent's build sits in the same queue and log
+          # panel as a human's. --stdio for .mcp.json on the host; plain
+          # (streamable HTTP) inside the studio container for the CrewAI
+          # runtime. Needs a running studio and its token
+          # ($KILN_STUDIO_TOKEN or $KILN_REPO/.studio/token).
+          studio-mcp = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-studio-mcp" ''
+              : "''${KILN_REPO:=$PWD}"
+              export KILN_REPO
+              exec ${agentPython.browserPython}/bin/python3 \
+                "$KILN_REPO/tools/studio/mcp_server.py" --stdio "$@"
+            '');
+          };
+          # `./dev agents-smoke` — probes each configured model × route for
+          # tool-call support and records the answer in
+          # .studio/agents/models.json. NOT a gate: it spends credits, so only
+          # a human runs it. The keys come from ANTHROPIC_API_KEY[_FILE] /
+          # OLLAMA_API_KEY[_FILE] in the caller's own environment; nothing is
+          # baked into the store.
+          agents-smoke = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-agents-smoke" ''
+              : "''${KILN_REPO:=$PWD}"
+              export KILN_REPO
+              exec ${agentPython.crewPython}/bin/python3 \
+                "$KILN_REPO/tools/agents/smoke.py" "$@"
+            '');
+          };
         };
 
         devShells.default = pkgs.mkShell {
@@ -1705,5 +2373,24 @@
       }) // {
       # ── NixOS modules (system-independent) ────────────────────────────
       nixosModules.n64-flashcart = import ./nix/udev.nix;
+      # Kiln Studio on a NixOS workstation: a rootless container shared over the
+      # tailnet, Oligarchy-compatible. Options under custom.kilnStudio.
+      nixosModules.kiln-studio = import ./nix/studio-module.nix { kiln = self; };
+
+      # ── Templates ─────────────────────────────────────────────────────
+      # `nix flake init -t github:ALH477/kiln#game` (or `./dev new <name>` from
+      # a checkout). nix/rom.nix's header has pointed at #hello for a long time;
+      # it exists now.
+      templates = {
+        game = {
+          path = ./templates/game;
+          description = "A game on the Kiln engine: a flake, a ROM, and Kiln Studio's manifest";
+        };
+        hello = {
+          path = ./examples/hello;
+          description = "Plain libdragon, no Kiln engine: the smallest ROM";
+        };
+        default = self.templates.game;
+      };
     };
 }

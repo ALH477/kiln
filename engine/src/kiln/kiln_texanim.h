@@ -8,17 +8,31 @@
  *                        The tile callback modifies rdpq_texparms_t each frame.
  *                        Works with any textured .t3dm; no special authoring.
  *
- *   KILN_TEXANIM_FLIPBOOK N sprite frames swapped via rdpq_set_lookup_address.
- *                        The model's material must be authored with
- *                        use_tex_reference (f3d_inject.py's useRef=1). The
- *                        callback sets the lookup address before the DPL runs.
+ *   KILN_TEXANIM_FLIPBOOK N sprite frames, the current one uploaded as the
+ *                        material's texture.
  *
- *   KILN_TEXANIM_PALETTE  CI4/CI8 palette cycling via rdpq_tex_upload_tlut.
- *                        The tile callback uploads a new palette per frame.
+ *   KILN_TEXANIM_PALETTE  A CI4/CI8 surface uploaded with one of N palettes,
+ *                        chosen by time: palette cycling.
  *
- *   KILN_TEXANIM_OFFSCREEN A caller-provided surface_t is uploaded into a
- *                        material's texReference slot each frame. The caller
- *                        renders into the surface before calling kiln_texanim_draw.
+ *   KILN_TEXANIM_OFFSCREEN A caller-provided surface_t uploaded as the texture.
+ *                        The caller renders into it before kiln_texanim_draw
+ *                        (before kiln_frame_begin, with rdpq_attach_clear).
+ *
+ * The last three need a material authored as a texture REFERENCE
+ * (f3d_inject.py's useRef=1,refAddress=N,refSize=W:H), and match it by that
+ * number, `ref_id`. Tiny3D uploads nothing for such a material — its
+ * dynTextureCb is called INSTEAD of the upload — so the callback here does the
+ * upload. Two things are wrong with the obvious alternatives, and this module
+ * used to do both:
+ *   * rdpq_set_lookup_address only binds a placeholder inside a RECORDED
+ *     block. Tiny3D's draw is immediate, so a flipbook built on it drew the
+ *     material with no texture at all.
+ *   * A palette uploaded from the tile callback is overwritten: that callback
+ *     runs BEFORE the material's own sprite upload, and rdpq_sprite_upload
+ *     uploads the sprite's embedded palette. So a palette exhibit is a
+ *     reference material with a CI surface the caller owns.
+ * refSize must be the runtime surface's size: gltf_to_t3d bakes the UVs
+ * against it.
  *
  * ── Why a tile callback, not a recorded DPL ─────────────────────────────
  * Scrolling and palette modes must change tile params per frame, which is
@@ -28,10 +42,12 @@
  * four modes go through t3d_model_draw_custom. The cost is negligible — the
  * custom draw path is what t3d_model_draw itself calls internally.
  *
- * ── No state leaks ──────────────────────────────────────────────────────
- * kiln_texanim_draw saves the current combiner before the custom draw and
- * restores it after, so a textured animated model does not leave the RDP in
- * TEX_SHADE mode for the next actor that expects SHADE (the scene's default).
+ * ── State left behind ────────────────────────────────────────────────────
+ * Like t3d_model_draw, the draw leaves the model's material combiner set; the
+ * next thing drawn sets its own. The one mode this module turns on itself —
+ * TLUT sampling, for PALETTE — is turned back off after the draw, because an
+ * RGBA texture sampled through a TLUT is garbage and nothing else here would
+ * reset it.
  */
 #ifndef KILN_TEXANIM_H
 #define KILN_TEXANIM_H
@@ -53,9 +69,9 @@ typedef enum {
 typedef struct {
     KilnTexAnimMode mode;
 
-    /** Which material in the model to animate, by name. The model may have
-     *  other materials that are not animated; only the named one gets the
-     *  callback. NULL animates every material. */
+    /** Not consulted: SCROLL applies to every textured material the model
+     *  draws, and the reference modes match their material by `ref_id`. Kept
+     *  so existing initialisers compile. */
     const char *material_name;
 
     /* ── Scroll params (KILN_TEXANIM_SCROLL) ─────────────────────────── */
@@ -74,13 +90,15 @@ typedef struct {
         float time;         /**< accumulated time */
     } flipbook;
 
-    /** The lookup index matching the model's tex_reference field. Set by
-     *  the build (f3d_inject.py refAddress). Used by flipbook + offscreen. */
-    uint32_t ref_id;
+    /** The material's texture reference number, 1..15: f3d_inject.py's
+     *  refAddress. FLIPBOOK, PALETTE and OFFSCREEN draw only into the material
+     *  that carries it; give each animated material its own. */
+    uint8_t ref_id;
 
     /* ── Palette params (KILN_TEXANIM_PALETTE) ─────────────────────── */
     struct {
-        uint16_t **palettes;  /**< caller-owned array of palette data */
+        surface_t *indices;   /**< caller-owned FMT_CI4 / FMT_CI8 surface */
+        uint16_t **palettes;  /**< caller-owned RGBA16 palettes, 8-byte aligned */
         int pal_count;
         int colors_per;        /**< entries per palette (16 for CI4, 256 for CI8) */
         float fps;

@@ -14,22 +14,34 @@
  * because "cameras aimed at him photographing empty room" reads as a framing
  * problem. A skeleton that silently did nothing would look exactly like that.
  *
- * The engine reads no member of either type — verified across engine/src/kiln
- * and every downstream game built on it so far — so the layouts are the
- * host's own.
+ * The layouts are the console's, copied from Tiny3D's t3dskeleton.h, because
+ * kiln_skel now reads members — bone rotations for its masked overlay blend
+ * (kiln_pose.h, which nix/checks/kiln-pose.nix runs natively over exactly
+ * this T3DBone), and the skeleton reference for bone names and depths. A host
+ * layout of its own would let that arithmetic be checked against a struct the
+ * console does not have.
  */
 #ifndef KILN_HOST_T3DSKELETON_H
 #define KILN_HOST_T3DSKELETON_H
 
 #include <stdint.h>
 #include <t3d/t3d.h>
+#include <t3d/t3dmodel.h>
+
+typedef struct {
+    T3DMat4 matrix;
+    T3DVec3 scale;
+    T3DQuat rotation;
+    T3DVec3 position;
+    int32_t hasChanged;
+} T3DBone;
 
 typedef struct T3DSkeleton_s {
-    void      *bones;
+    T3DBone   *bones;
     T3DMat4FP *boneMatricesFP;
-    uint16_t   boneCount;
+    uint8_t    bufferCount;
     uint8_t    currentBufferIdx;
-    const void *skeletonRef;
+    const T3DChunkSkeleton *skeletonRef;
 } T3DSkeleton;
 
 T3DSkeleton t3d_skeleton_create(const struct T3DModel *model);

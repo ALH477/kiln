@@ -312,7 +312,7 @@ let
             chmod -R u+w $out/filesystem
           '') assets);
         in
-        mkProgram {
+        (mkProgram {
           inherit pname meta;
           suffix = shell.exe or exe;
           sources = sources ++ [
@@ -327,6 +327,22 @@ let
           extraLDFlags = shell.ldflags
                          ++ (if assets == [ ] then [ ] else shell.assetFlags fs);
           extraBuildInputs = shell.buildInputs;
+        }) // {
+          # The arguments, kept so the flake can build the same game for
+          # another target (web-<x> from pc-<x>) without restating them.
+          gameArgs = { inherit pname sources assets extraCFlags meta; };
+          # Kiln Studio's project record (see nix/rom.nix's). The example is the
+          # directory of the game's first source file; the jump is the
+          # -DKILN_JUMP a jump variant is compiled with. Attached to the value,
+          # not the derivation, so no host build's hash moves.
+          kiln = {
+            kind = if lib.hasSuffix ".html" (shell.exe or exe) then "web" else "pc";
+            target = name;
+            example = baseNameOf (dirOf (toString (builtins.head sources)));
+            jump =
+              let hit = lib.findFirst (f: lib.hasPrefix "-DKILN_JUMP=JUMP_" f) null extraCFlags;
+              in if hit == null then null else lib.removePrefix "-DKILN_JUMP=JUMP_" hit;
+          };
         };
     in
     {

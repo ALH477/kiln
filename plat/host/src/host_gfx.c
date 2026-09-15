@@ -66,6 +66,7 @@ static KilnHostCounters g_cnt;
 /* ── rdpq mode state ───────────────────────────────────────────────────── */
 static rdpq_combiner_t g_comb;
 static rdpq_blender_t  g_blend;
+static rdpq_blender_t  g_fogmode;
 static color_t         g_prim  = { 255, 255, 255, 255 };
 static color_t         g_fog   = { 0, 0, 0, 255 };
 static int             g_attached;
@@ -189,8 +190,9 @@ void rdpq_set_mode_standard(void)
      * resetting the combiner it sets afterwards. */
     g_comb  = RDPQ_COMBINER_FLAT;
     g_blend = 0;
+    g_fogmode = 0;
 }
-void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_prim = c; }
+void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_fogmode = 0; g_prim = c; }
 void rdpq_mode_combiner(rdpq_combiner_t comb) { g_comb = comb; }
 rdpq_combiner_t kiln_hostfb_combiner(void) { return g_comb; }
 void rdpq_mode_blender(rdpq_blender_t b)      { g_blend = b; }
@@ -200,8 +202,12 @@ static int g_ztest, g_zwrite;
 void rdpq_mode_zbuf(bool cmp, bool wr)  { g_ztest = cmp; g_zwrite = wr; }
 int  kiln_hostfb_ztest(void)  { return g_ztest; }
 int  kiln_hostfb_zwrite(void) { return g_zwrite; }
-void rdpq_mode_alphacompare(int t)      { (void)t; }
-void rdpq_mode_fog(rdpq_blender_t f)    { (void)f; }
+/* Read by the texture rectangle only: every 2D path the engine drew before it
+ * was flat and opaque, and kiln_gui_begin sets 0. */
+static int g_alphacmp;
+void rdpq_mode_alphacompare(int t)      { g_alphacmp = t; }
+void rdpq_mode_fog(rdpq_blender_t f)    { g_fogmode = f; }
+rdpq_blender_t kiln_hostfb_fog_mode(void) { return g_fogmode; }
 void rdpq_mode_antialias(int m)         { (void)m; }
 void rdpq_set_prim_color(color_t c)     { g_prim = c; }
 void rdpq_set_fog_color(color_t c)      { g_fog = c; }
@@ -214,6 +220,45 @@ void rdpq_fill_rectangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
     for (int32_t y = y0; y < y1; y++)
         for (int32_t x = x0; x < x1; x++)
             put((int)x, (int)y, g_prim);
+}
+
+void rdpq_texture_rectangle_scaled(rdpq_tile_t tile, float x0, float y0,
+                                   float x1, float y1, float s0, float t0,
+                                   float s1, float t1)
+{
+    assertf(g_attached, "rdpq_texture_rectangle with nothing attached");
+    assertf(x1 > x0 && y1 > y0, "rdpq_texture_rectangle: empty rectangle "
+            "(%g,%g)-(%g,%g)", x0, y0, x1, y1);
+    assertf(g_comb == RDPQ_COMBINER_TEX || g_comb == RDPQ_COMBINER_TEX_FLAT ||
+            g_comb == RDPQ_COMBINER_FLAT,
+            "rdpq_texture_rectangle: a rectangle has no vertex colour, so "
+            "combiner %llu (SHADE) has nothing to combine",
+            (unsigned long long)g_comb);
+    g_cnt.rects++;
+
+    const float dsdx = (s1 - s0) / (x1 - x0), dtdy = (t1 - t0) / (y1 - y0);
+    const int ix0 = (int)ceilf(x0), iy0 = (int)ceilf(y0);
+    const int ix1 = (int)ceilf(x1), iy1 = (int)ceilf(y1);
+    for (int y = iy0; y < iy1; y++) {
+        for (int x = ix0; x < ix1; x++) {
+            color_t c = g_prim;
+            if (g_comb != RDPQ_COMBINER_FLAT) {
+                const float s = s0 + ((float)x - x0) * dsdx;
+                const float t = t0 + ((float)y - y0) * dtdy;
+                assertf(kiln_hosttex_sample((int)tile, s, t, &c),
+                        "rdpq_texture_rectangle: TILE%d has no texture uploaded",
+                        (int)tile);
+                if (g_comb == RDPQ_COMBINER_TEX_FLAT) {
+                    c.r = (uint8_t)((c.r * g_prim.r + 127) / 255);
+                    c.g = (uint8_t)((c.g * g_prim.g + 127) / 255);
+                    c.b = (uint8_t)((c.b * g_prim.b + 127) / 255);
+                    c.a = (uint8_t)((c.a * g_prim.a + 127) / 255);
+                }
+            }
+            if (g_alphacmp > 0 && c.a < g_alphacmp) continue;
+            put(x, y, c);
+        }
+    }
 }
 
 /* ── triangles ─────────────────────────────────────────────────────────
