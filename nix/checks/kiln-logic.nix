@@ -126,7 +126,9 @@ pkgs.runCommand "check-kiln-logic"
         ${engineSrc}/src/kiln/kiln_inventory.c \
         ${engineSrc}/src/kiln/kiln_lod.c \
         ${engineSrc}/src/kiln/kiln_physics.c \
+        ${engineSrc}/src/kiln/kiln_radio.c \
         ${engineSrc}/src/kiln/kiln_rng.c \
+        ${engineSrc}/src/kiln/kiln_sierp.c \
         ${engineSrc}/src/kiln/kiln_stream.c \
         ${engineSrc}/src/kiln/kiln_tile.c \
         ${engineSrc}/src/kiln/kiln_turn.c \

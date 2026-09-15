@@ -4,6 +4,7 @@
  */
 
 #include "kiln_prim.h"
+#include "kiln_sierp.h"
 
 #include <malloc.h>
 #include <string.h>
@@ -88,6 +89,77 @@ int kiln_prim_box(KilnPrim *out, fm_vec3_t offset, fm_vec3_t half,
 
     data_cache_hit_writeback(out->verts, sizeof(T3DVertPacked) * 12);
     return 0;
+}
+
+static void cross3(fm_vec3_t *o, const fm_vec3_t *a, const fm_vec3_t *b)
+{
+    o->v[0] = a->v[1] * b->v[2] - a->v[2] * b->v[1];
+    o->v[1] = a->v[2] * b->v[0] - a->v[0] * b->v[2];
+    o->v[2] = a->v[0] * b->v[1] - a->v[1] * b->v[0];
+}
+
+static float dot3(const fm_vec3_t *a, const fm_vec3_t *b)
+{
+    return a->v[0] * b->v[0] + a->v[1] * b->v[1] + a->v[2] * b->v[2];
+}
+
+static void emit_tri_quad(T3DVertPacked *base, int q,
+                          fm_vec3_t a, fm_vec3_t b, fm_vec3_t c,
+                          fm_vec3_t inward, uint32_t rgba)
+{
+    fm_vec3_t e1 = {{ b.v[0] - a.v[0], b.v[1] - a.v[1], b.v[2] - a.v[2] }};
+    fm_vec3_t e2 = {{ c.v[0] - a.v[0], c.v[1] - a.v[1], c.v[2] - a.v[2] }};
+    fm_vec3_t n;
+    cross3(&n, &e1, &e2);
+    fm_vec3_t to_in = {{ inward.v[0] - a.v[0], inward.v[1] - a.v[1], inward.v[2] - a.v[2] }};
+    if (dot3(&n, &to_in) > 0.0f) {
+        fm_vec3_t tmp = b; b = c; c = tmp;
+        n.v[0] = -n.v[0]; n.v[1] = -n.v[1]; n.v[2] = -n.v[2];
+    }
+    fm_vec3_norm(&n, &n);
+    const uint16_t pn = t3d_vert_pack_normal(&n);
+    const fm_vec3_t p[4] = { a, b, c, c };
+    for (int i = 0; i < 4; i++) {
+        int16_t pos[3] = { to_s16(p[i].v[0]), to_s16(p[i].v[1]), to_s16(p[i].v[2]) };
+        pack_vert(base, q * 4 + i, pos, rgba, pn);
+    }
+}
+
+static const uint32_t SIERP_FACE[4] = {
+    0xFFC890FFu, 0xE09070FFu, 0x90B0E8FFu, 0x7088C0FFu,
+};
+
+static void emit_tet(T3DVertPacked *base, int tet_i, const KilnTet *t)
+{
+    fm_vec3_t inward = {{
+        0.25f * (t->v[0].v[0] + t->v[1].v[0] + t->v[2].v[0] + t->v[3].v[0]),
+        0.25f * (t->v[0].v[1] + t->v[1].v[1] + t->v[2].v[1] + t->v[3].v[1]),
+        0.25f * (t->v[0].v[2] + t->v[1].v[2] + t->v[2].v[2] + t->v[3].v[2]),
+    }};
+    /* Face opposite vertex i. */
+    static const int F[4][3] = { {1,2,3}, {0,3,2}, {0,1,3}, {0,2,1} };
+    for (int f = 0; f < 4; f++)
+        emit_tri_quad(base, tet_i * 4 + f,
+                      t->v[F[f][0]], t->v[F[f][1]], t->v[F[f][2]],
+                      inward, SIERP_FACE[f]);
+}
+
+int kiln_prim_tets(KilnPrim *out, const KilnTet *tets, int n)
+{
+    if (n < 0) n = 0;
+    if (alloc_quads(out, n * 4) != 0) return -1;
+    for (int i = 0; i < n; i++) emit_tet(out->verts, i, &tets[i]);
+    data_cache_hit_writeback(out->verts,
+                             sizeof(T3DVertPacked) * (size_t)out->quad_count * 2);
+    return 0;
+}
+
+void kiln_prim_tets_update(KilnPrim *p, const KilnTet *tets, int n)
+{
+    if (!p || !p->verts || n * 4 != (int)p->quad_count) return;
+    for (int i = 0; i < n; i++) emit_tet(p->verts, i, &tets[i]);
+    data_cache_hit_writeback(p->verts,
+                             sizeof(T3DVertPacked) * (size_t)p->quad_count * 2);
 }
 
 int kiln_prim_floor(KilnPrim *out, float extent, int cells,

@@ -35,6 +35,8 @@
 
 #include "kiln_engine.h"
 
+struct KilnTet;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -68,6 +70,14 @@ int kiln_prim_box(KilnPrim *out, fm_vec3_t offset, fm_vec3_t half,
  *  Returns 0 on success, -1 on allocation failure. */
 int kiln_prim_floor(KilnPrim *out, float extent, int cells,
                     uint32_t rgba_a, uint32_t rgba_b);
+
+/** Four triangular faces per tet, each a degenerate quad (v0,v1,v2,v2)
+ *  so the existing quad batcher can draw them. `n` tets → 4n quads.
+ *  Returns 0 on success, -1 on allocation failure. */
+int kiln_prim_tets(KilnPrim *out, const struct KilnTet *tets, int n);
+
+/** Rewrite positions and normals in place. `n` must match the build. */
+void kiln_prim_tets_update(KilnPrim *p, const struct KilnTet *tets, int n);
 
 /** Draw with whatever transform and render state are current. Sets none. */
 void kiln_prim_draw(const KilnPrim *p);
