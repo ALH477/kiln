@@ -68,6 +68,21 @@ def main():
         pass
     print("  ok   a symlink out of the worktree is refused")
 
+    git_dir = wt / ".git"
+    assert git_dir.is_dir()
+    try:
+        out = WriteFile(worktree=str(wt))._run(path=".git", content="gitdir: /evil\n")
+        raise AssertionError(f"WriteFile(.git) should refuse, got {out!r}")
+    except ValueError as e:
+        assert "gitdir" in str(e), e
+    assert git_dir.is_dir(), "WriteFile must not replace .git"
+    try:
+        out = WriteFile(worktree=str(wt))._run(path=".git/config", content="[core]\n")
+        raise AssertionError(f"WriteFile(.git/config) should refuse, got {out!r}")
+    except ValueError as e:
+        assert "gitdir" in str(e), e
+    print("  ok   write_file refuses the worktree gitdir")
+
     w = WriteFile(worktree=str(wt))._run(path="src/new.c", content="// new\n")
     assert "wrote" in w
     e = EditFile(worktree=str(wt))._run(path="src/new.c", old="// new", new="// changed")

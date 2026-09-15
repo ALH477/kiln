@@ -15,7 +15,9 @@ def in_worktree(worktree: str | Path, path: str) -> Path:
     root = Path(worktree).resolve()
     p = (root / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
     try:
-        p.relative_to(root)
+        rel = p.relative_to(root)
     except ValueError:
         raise ValueError(f"{path!r} is outside the task worktree {root} — refused")
+    if rel.parts and rel.parts[0] == ".git":
+        raise ValueError(f"{path!r} names the worktree gitdir — refused")
     return p
