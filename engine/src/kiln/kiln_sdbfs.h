@@ -54,6 +54,12 @@
  * `void *(*)(char *name, int flags)` and nothing more — so the mounted
  * container lives in a file-static, exactly as DragonFS keeps its own state.
  * A second mount is refused rather than silently replacing the first.
+ *
+ * That file-static open table is also why this filesystem declares itself NOT
+ * thread safe: the slot allocator is a scan-and-claim, so the system has to
+ * hold a mutex across it. See the filesystem_t initialiser for the whole
+ * reasoning, including why system.h's remark about read-only filesystems is a
+ * warning rather than permission.
  */
 #ifndef KILN_SDBFS_H
 #define KILN_SDBFS_H

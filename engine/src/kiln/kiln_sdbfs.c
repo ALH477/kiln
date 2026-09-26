@@ -121,11 +121,28 @@ static int sdbfs_lseek(void *file, int ptr, int dir)
     }
 
     int64_t want = base + (int64_t)ptr;
-    /* Seeking TO the end is legal and normal — it is how a caller asks how
-     * big a file is. Seeking past it is not: this is a read-only container
-     * with no hole to create, so a caller doing it has miscalculated and
-     * should hear about it now rather than at the read. */
-    if (want < 0 || want > (int64_t)f->doc.size) { errno = EINVAL; return -1; }
+
+    /* CLAMP, DO NOT REFUSE — and this is copied from DragonFS deliberately
+     * rather than reasoned out. dfs_seek (dragonfs.c) rejects only a negative
+     * SEEK_SET; a negative result from SEEK_CUR/SEEK_END becomes 0, and its
+     * last act before returning success is:
+     *
+     *     if (file->loc > file->size) file->loc = file->size;
+     *
+     * An earlier version here returned EINVAL past the end, on the reasoning
+     * that a read-only container has no hole to create so the caller must
+     * have miscalculated. That reasoning is fine and the behaviour is still
+     * wrong: every libdragon loader is written against DFS, and newlib's
+     * stdio overshoots routinely while buffering. A filesystem that errors
+     * where DFS clamps turns "works from rom:/" into "fails from sdb:/" for
+     * code that is doing nothing unusual — the exact class of bug a mount is
+     * supposed to make impossible, since the whole promise is that a key is
+     * the path the file would have had in loose DFS. */
+    if (want < 0) {
+        if (dir == SEEK_SET) { errno = EINVAL; return -1; }
+        want = 0;
+    }
+    if (want > (int64_t)f->doc.size) want = (int64_t)f->doc.size;
 
     f->pos = (uint64_t)want;
     return (int)want;
@@ -186,12 +203,27 @@ static int sdbfs_ioctl(void *file, unsigned long cmd, void *argp)
 }
 
 static filesystem_t sdb_fs = {
-    /* Read-only with no shared mutable state beyond the open table, and the
-     * open table is only touched by open/close. Marked thread safe on the
-     * same reasoning system.h gives: "read-only filesystems are easily thread
-     * safe: only pay attention to some shared mutable state like eg some
-     * global cache." There is none here. */
-    .thread_safe = true,
+    /* NOT thread safe, and the tempting answer was wrong.
+     *
+     * system.h says "read-only filesystems are easily thread safe: only pay
+     * attention to some shared mutable state like eg some global cache" —
+     * which reads as licence for a reader like this one and is in fact the
+     * warning. g_files IS that shared mutable state, and sdbfs_open claims a
+     * slot with a scan-and-claim that is not atomic:
+     *
+     *     if (g_files[i].used) continue;
+     *     g_files[i].used = 1;
+     *
+     * Two threads can both observe the same slot free and both take it, and
+     * then each read moves the other's file position — silent, and impossible
+     * to attribute from the symptom.
+     *
+     * Declaring false costs a mutex the system takes on our behalf, around
+     * operations that happen a few times per sample-buffer fill at most. That
+     * is the right trade, and it is the one DragonFS makes: its own
+     * filesystem_t (dragonfs.c:1335-1343) leaves this field unset, and it is
+     * read-only too. */
+    .thread_safe = false,
     .open  = sdbfs_open,
     .fstat = sdbfs_fstat,
     .stat  = sdbfs_stat,
