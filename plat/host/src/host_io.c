@@ -140,6 +140,15 @@ int dfs_eof(uint32_t handle)
     return feof(g_dfs[handle-1].fp) ? 1 : 0;
 }
 
+/* See the declaration: a host file has no PI address. Returning 0 is what
+ * makes every caller take its copy path, which on a host is the only path
+ * there is. */
+pi_addr_t dfs_rom_addr(const char *path)
+{
+    (void)path;
+    return 0;
+}
+
 /* ── joypad ───────────────────────────────────────────────────────────── */
 
 static joypad_inputs_t g_pad[JOYPAD_PORT_COUNT];

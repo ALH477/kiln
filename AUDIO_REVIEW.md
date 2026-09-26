@@ -88,10 +88,33 @@ the weighted count exceeds the declared budget.
 
 `mkMusic` produces `.xm64`/`.ym64` files, but no example ROM plays them.
 
-### Gap 7: No wav64 from StreamDB
+### Gap 7: No wav64 from StreamDB — **CLOSED**
 
-`kiln_asset.h:44-48`: Blocked on upstream `wav64_open_buf`. Audio assets
-must use DFS (`rom:/` paths), not StreamDB.
+Was: "`kiln_asset.h:44-48`: Blocked on upstream `wav64_open_buf`. Audio assets
+must use DFS (`rom:/` paths), not StreamDB."
+
+It was not blocked on that, and the diagnosis is worth keeping because it was
+wrong in an instructive way. `wav64_open_buf` would have solved "get a wav64
+from memory"; the actual requirement was "get a wav64 from a container", and
+wav64 already supports that because it opens an ordinary file descriptor
+(`wav64.c:126`) and asks it for a cartridge address by ioctl (`wav64.c:214`).
+Both are filesystem operations, and libdragon's `filesystem_t` has an `ioctl`
+hook.
+
+Closed by `kiln_sdbfs.h/.c`: a StreamDB container mounted as a filesystem.
+`wav64_load("sdb:/music/x.wav64", ...)` now streams out of a container with
+the same `dma_read_async` path a loose DFS file gets, with no libdragon
+patch. Because `asset.c:171` and `compress/ringbuf.c:121` ask the same ioctl
+question, sprites, models and the asset decompressors get the container too,
+through the same mount.
+
+Needed two small additions to `streamdb-embedded`, both natural because its
+I/O backend was already offset-addressed: `streamdb_emb_read_range` (the
+ranged read a streaming consumer does) and `streamdb_emb_doc_rom_base` (the
+payload's cartridge address, or 0 where there is none).
+
+The in-memory variant would have been the worse answer anyway: the first
+asset to want this is a 6,979,644-byte orchestral cue, on a 4 MB console.
 
 ---
 
@@ -267,4 +290,5 @@ kiln_audio_update();            // pumps the mixer
 | 2026-08-02 | Phase 1 | Engine audio layer: kiln_audio.h/kiln_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
 | 2026-08-02 | Phase 2 | Live voice mixer: accumulate mode in libdragon_mixer.c + _set_gain. examples/live-voice ROM builds and links ks-voice. |
 | 2026-08-02 | Phase 6 | XM64 music example: generated test XM, examples/music ROM, mkMusic pipeline verified end-to-end. |
+| 2026-09-26 | Gap 7 | Closed by `kiln_sdbfs` — a StreamDB container mounted as a filesystem, answering `IODFS_GET_ROM_BASE` so wav64 keeps its async-DMA path. `wav64_open_buf` was never the blocker. Plus `streamdb_emb_read_range` / `streamdb_emb_doc_rom_base`. First consumer: PetaByte Madness' intro, streaming a 6.98 MB cue. |
 | 2026-08-02 | Phase 5 | Room-based audio routing: kiln_audio_set_room_music + kiln_audio_update_rooms with ~0.5s linear crossfade. |

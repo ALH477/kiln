@@ -13,7 +13,12 @@
 #include <libdragon.h>
 #include <string.h>
 
-typedef struct { int fd; uint64_t len; } dfs_ctx_t;
+/* `rom` is resolved once at open rather than on demand: dfs_rom_addr takes a
+ * PATH, and keeping the caller's string alive for the life of the handle would
+ * be a new lifetime rule for no gain. 0 means the file has no ROM address,
+ * which dfs_rom_addr also returns for "not found" — and a container we just
+ * opened cannot be missing, so 0 here is safely read as "no fast path". */
+typedef struct { int fd; uint64_t len; uint32_t rom; } dfs_ctx_t;
 
 size_t streamdb_emb_io_dfs_size(void) { return sizeof(dfs_ctx_t); }
 
@@ -25,6 +30,8 @@ static int dfs_read_at(void *ctx, uint64_t off, void *buf, size_t len)
 }
 
 static uint64_t dfs_size_of(void *ctx) { return ((dfs_ctx_t *)ctx)->len; }
+
+static uint32_t dfs_rom_base_of(void *ctx) { return ((dfs_ctx_t *)ctx)->rom; }
 
 streamdb_emb_result_t streamdb_emb_io_dfs(streamdb_emb_io_t *io,
                                           void *storage, const char *path)
@@ -45,9 +52,15 @@ streamdb_emb_result_t streamdb_emb_io_dfs(streamdb_emb_io_t *io,
     d->fd = dfs_open(path);
     if (d->fd < 0) return STREAMDB_EMB_ERR_IO;
     d->len = (uint64_t)dfs_size(d->fd);
+
+    /* dfs_rom_addr wants the same stripped native path dfs_open just took,
+     * which is why this is computed here and not by the caller. */
+    d->rom = (uint32_t)dfs_rom_addr(path);
+
     io->ctx = d;
     io->read = dfs_read_at;
     io->size = dfs_size_of;
+    io->rom_base = dfs_rom_base_of;
     return STREAMDB_EMB_OK;
 }
 

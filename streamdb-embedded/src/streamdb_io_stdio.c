@@ -34,6 +34,10 @@ streamdb_emb_result_t streamdb_emb_io_stdio(streamdb_emb_io_t *io,
     io->ctx = s;
     io->read = stdio_read;
     io->size = stdio_size;
+    /* No ROM address on a host: a file is not directly addressable, so every
+     * caller falls back to read(). Set explicitly rather than left alone —
+     * `io` is caller-allocated and typically an uninitialised local. */
+    io->rom_base = NULL;
     return STREAMDB_EMB_OK;
 }
 

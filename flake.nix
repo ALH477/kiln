@@ -820,6 +820,92 @@
         };
         physics-demo = mkN64Rom physicsDemoArgs;
 
+        # Quiet looping nightlight. Sierpinski tet + two baked voices
+        # (pad + bells) after PD lullabies; kiln_radio picks both from a boot seed.
+        nightlightGoldberg = faust.mkBakedInstrument {
+          name = "goldberg";
+          src = ./dsp/nightlight_goldberg.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.22; };
+          loop = true;
+          mono = true;
+        };
+        nightlightWiegenlied = faust.mkBakedInstrument {
+          name = "wiegenlied";
+          src = ./dsp/nightlight_wiegenlied.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.22; };
+          loop = true;
+          mono = true;
+        };
+        nightlightGymnopedie = faust.mkBakedInstrument {
+          name = "gymnopedie";
+          src = ./dsp/nightlight_gymnopedie.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.20; };
+          loop = true;
+          mono = true;
+        };
+        nightlightCanon = faust.mkBakedInstrument {
+          name = "canon";
+          src = ./dsp/nightlight_canon.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.22; };
+          loop = true;
+          mono = true;
+        };
+        nightlightGoldbergBell = faust.mkBakedInstrument {
+          name = "goldberg_bell";
+          src = ./dsp/nightlight_goldberg_bell.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.16; };
+          loop = true;
+          mono = true;
+        };
+        nightlightWiegenliedBell = faust.mkBakedInstrument {
+          name = "wiegenlied_bell";
+          src = ./dsp/nightlight_wiegenlied_bell.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.16; };
+          loop = true;
+          mono = true;
+        };
+        nightlightGymnopedieBell = faust.mkBakedInstrument {
+          name = "gymnopedie_bell";
+          src = ./dsp/nightlight_gymnopedie_bell.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.14; };
+          loop = true;
+          mono = true;
+        };
+        nightlightCanonBell = faust.mkBakedInstrument {
+          name = "canon_bell";
+          src = ./dsp/nightlight_canon_bell.dsp;
+          sampleRate = 32000;
+          duration = 20.0;
+          params = { gain = 0.15; };
+          loop = true;
+          mono = true;
+        };
+        nightlightDemoArgs = {
+          name = "nightlight-demo";
+          src = ./examples/nightlight-demo;
+          romTitle = "Kiln Nightlight";
+          assets = [
+            nightlightGoldberg nightlightWiegenlied nightlightGymnopedie nightlightCanon
+            nightlightGoldbergBell nightlightWiegenliedBell nightlightGymnopedieBell nightlightCanonBell
+          ];
+          audioRate = 32000;
+        };
+        nightlight-demo = mkN64Rom nightlightDemoArgs;
+
         # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
         # info_player_start entity by reading "origin" from the KilnDict.
@@ -1187,7 +1273,7 @@
           inherit pkgs mkN64Rom mkJumpRoms hostNative hostWasm assetLib blenderLib textures testModels goblinModel interceptorModel droidModel alienModel kilnLogo demoSound stepSound impactSfx doorOpenSfx ks-baked ks-voice test-music cine-music owStreamdb assetsDemoPak demoStreamdb exsecStreamdb skelModel hangarMap bassWavFlat;
           lib = pkgs.lib;
           args = {
-            inherit helloArgs audioArgs liveVoiceArgs musicDemoArgs openworldDemoArgs assetsDemoArgs cameraSkelDemoArgs streamdbDemoArgs exsecStreamdbDemoArgs splashDemoArgs interceptorDemoArgs texanimDemoArgs cinematicDemoArgs bassSynthArgs fpsArgs;
+            inherit helloArgs audioArgs liveVoiceArgs musicDemoArgs openworldDemoArgs assetsDemoArgs cameraSkelDemoArgs streamdbDemoArgs exsecStreamdbDemoArgs splashDemoArgs interceptorDemoArgs texanimDemoArgs cinematicDemoArgs bassSynthArgs fpsArgs nightlightDemoArgs;
           };
         };
         demoPackages = pkgs.lib.foldl'
@@ -1542,7 +1628,7 @@
           host-backend      = hostNative.backend;
           host-vadpcm       = hostNative.vadpcm;
 
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           engine = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
@@ -1719,6 +1805,11 @@
             inherit pkgs;
             rom = physics-demo;
             name = "physics-demo";
+          };
+          rom-nightlight-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = nightlight-demo;
+            name = "nightlight-demo";
           };
           rom-map-demo = import ./nix/checks/rom.nix {
             inherit pkgs;
@@ -2126,7 +2217,7 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a

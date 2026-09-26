@@ -29,7 +29,9 @@
 #include "kiln_dict.h"
 #include "kiln_cache.h"
 #include "kiln_lod.h"
+#include "kiln_radio.h"
 #include "kiln_rng.h"
+#include "kiln_sierp.h"
 #include "kiln_stream.h"
 #include "kiln_voxel.h"
 #include "kiln_physics.h"
@@ -547,6 +549,72 @@ static void test_rng(void)
     /* A degenerate range must not read or write out of bounds or loop. */
     kiln_rng_seed(&a, 7);
     ok(kiln_rng_range(&a, 3, 4) == 3, "a one-wide range returns its only value");
+}
+
+static void test_radio(void)
+{
+    puts("── kiln_radio ──");
+    ok(kiln_radio_mix_seed(0, 0) != 0, "a zero pair still yields a non-zero seed");
+    ok(kiln_radio_mix_seed(1, 2) != kiln_radio_mix_seed(2, 1), "order of mix inputs matters");
+    ok(kiln_radio_pick(1, 0) == 0 && kiln_radio_pick(99, 1) == 0, "n<=1 returns 0");
+    ok(kiln_radio_pick(42, 4) == kiln_radio_pick(42, 4), "the same seed picks the same track");
+    int in = 1;
+    for (uint64_t s = 1; s < 200; s++) {
+        int i = kiln_radio_pick(s, 4);
+        if (i < 0 || i > 3) in = 0;
+    }
+    ok(in, "pick stays in [0, n)");
+    int seen[4] = { 0 };
+    for (uint64_t s = 1; s < 80; s++) seen[kiln_radio_pick(s, 4)] = 1;
+    ok(seen[0] && seen[1] && seen[2] && seen[3], "four tracks all come up across seeds");
+}
+
+static float tet_edge2(const KilnTet *t, int i, int j)
+{
+    float dx = t->v[i].v[0] - t->v[j].v[0];
+    float dy = t->v[i].v[1] - t->v[j].v[1];
+    float dz = t->v[i].v[2] - t->v[j].v[2];
+    return dx * dx + dy * dy + dz * dz;
+}
+
+static void test_sierp(void)
+{
+    puts("── kiln_sierp ──");
+    KilnTet r;
+    kiln_sierp_regular(&r, 10.0f);
+    float e01 = tet_edge2(&r, 0, 1);
+    int eq = 1;
+    int E[6][2] = { {0,1},{0,2},{0,3},{1,2},{1,3},{2,3} };
+    for (int i = 0; i < 6; i++) {
+        float d = tet_edge2(&r, E[i][0], E[i][1]);
+        if (fabsf(d - e01) > 1e-4f) eq = 0;
+    }
+    ok(eq, "regular tet: all six edges equal");
+    float r2 = r.v[0].v[0]*r.v[0].v[0] + r.v[0].v[1]*r.v[0].v[1] + r.v[0].v[2]*r.v[0].v[2];
+    ok(fabsf(r2 - 100.0f) < 1e-3f, "regular tet: circumradius 10 (r2=%.3f)", r2);
+
+    KilnTet buf[64];
+    ok(kiln_sierp_leaves(buf, 64, &r, 0) == 1, "depth 0 is the root");
+    ok(kiln_sierp_leaves(buf, 64, &r, 1) == 4, "depth 1 is 4 tets");
+    ok(kiln_sierp_leaves(buf, 64, &r, 2) == 16, "depth 2 is 16 tets");
+    ok(kiln_sierp_leaves(buf, 64, &r, 3) == 64, "depth 3 is 64 tets");
+    ok(kiln_sierp_leaves(buf, 10, &r, 3) == 4, "cap 10 stops at depth 1 (4 leaves)");
+
+    KilnTet a[4], b[4], m[4], n4[4];
+    kiln_sierp_leaves(a, 4, &r, 1);
+    kiln_sierp_negate(&r, &r);
+    kiln_sierp_leaves(b, 4, &r, 1);
+    kiln_sierp_morph(m, a, b, 4, 0.0f);
+    int same = memcmp(m, a, sizeof m) == 0;
+    ok(same, "morph t=0 copies a");
+    kiln_sierp_morph(m, a, b, 4, 1.0f);
+    ok(memcmp(m, b, sizeof m) == 0, "morph t=1 copies b");
+    kiln_sierp_negate(&r, &r);
+    kiln_sierp_leaves(n4, 4, &r, 1);
+    ok(memcmp(n4, a, sizeof a) == 0, "negate twice restores the tree");
+    ok(kiln_sierp_smooth(0.0f) == 0.0f && kiln_sierp_smooth(1.0f) == 1.0f,
+       "smoothstep endpoints");
+    ok(fabsf(kiln_sierp_smooth(0.5f) - 0.5f) < 1e-6f, "smoothstep midpoint");
 }
 
 
@@ -1125,6 +1193,8 @@ int main(void)
     test_cache();
     test_lod();
     test_rng();
+    test_radio();
+    test_sierp();
     test_stream();
     test_voxel();
 

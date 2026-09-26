@@ -175,3 +175,33 @@ fi
 
 grim -g "$GEOM" "$OUT"
 echo "n64-shot: wrote $OUT (window $GEOM, settled ${SETTLE}s)"
+
+# ── Surface what the ROM said, not just what it looked like ───────────
+# libdragon's debug_init_isviewer() sends debugf and ASSERT output to the
+# emulator's stdout, which this script has always captured to $WORK/ares.log
+# and then deleted on exit, printing it only if the window never appeared.
+#
+# That cost a lot of time once. A game whose audio asserted showed a crash
+# screen whose PC was inside libdragon's OWN backtrace walker — a second
+# fault raised while printing the first one — so the visible message named
+# backtrace.c and not the real cause. The real line,
+#
+#   ASSERTION FAILED: !(c->flags & CH_FLAGS_STEREO_SUB)
+#   mixer_ch_set_vol: cannot call on secondary stereo channel 3
+#
+# was in ares.log the whole time and was thrown away on every run. Four
+# builds went into guessing what a single grep would have answered.
+#
+# So: always echo the ROM's own diagnostics after a capture. Cheap, and it
+# turns "the screenshot looks wrong" into "the ROM told you why".
+if [ -s "$WORK/ares.log" ]; then
+  if grep -qE "ASSERTION FAILED|PANIC|Unhandled exception" "$WORK/ares.log"; then
+    echo "n64-shot: the ROM reported a failure --" >&2
+    grep -nE "ASSERTION FAILED|PANIC|Unhandled exception|^file \"|cannot call|assert" \
+         "$WORK/ares.log" | head -20 >&2
+  fi
+  # And keep the log next to the capture, so a later question about this run
+  # does not need the run repeated.
+  cp "$WORK/ares.log" "${OUT%.*}.log" 2>/dev/null \
+    && echo "n64-shot: ROM output in ${OUT%.*}.log"
+fi

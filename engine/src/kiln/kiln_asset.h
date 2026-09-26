@@ -41,11 +41,24 @@
  * repo carries at nix/patches/tiny3d-load-buf.patch. See CLAUDE.md's Phase
  * C notes.
  *
- * kiln_asset_wav64 is NOT provided here: libdragon's wav64_open(wav, fn) is
- * path-only with no in-memory variant, and DFS is read-only at runtime so
- * the obvious "copy to DFS then wav64_open" workaround is unavailable. It
- * lands when a wav64_open_buf lands upstream, same shape as the Tiny3D
- * patch.
+ * ── kiln_asset_wav64 is still not here, and no longer needs to be ─────
+ * This used to read: "libdragon's wav64_open(wav, fn) is path-only with no
+ * in-memory variant [...] It lands when a wav64_open_buf lands upstream."
+ * That was the wrong remedy for the right observation, and AUDIO_REVIEW.md's
+ * Gap 7 recorded the same mistake.
+ *
+ * wav64 does not want a buffer. It wants a file descriptor and, optionally,
+ * a cartridge address (wav64.c:126, :214). Both are things a FILESYSTEM can
+ * supply, and a StreamDB payload is stored raw and contiguous, so it has
+ * both. kiln_sdbfs.h mounts a container and `wav64_load("sdb:/...")` then
+ * streams out of it with the same asynchronous DMA a loose DFS file gets.
+ *
+ * An in-memory variant would have been strictly worse for the case that
+ * motivated it: the first asset to need this is 6,979,644 bytes of
+ * orchestra, on a console with four megabytes of RAM.
+ *
+ * So there is no kiln_asset_wav64 and there should not be — audio is not a
+ * typed accessor, it is a path, and kiln_sdbfs makes the path work.
  */
 #ifndef KILN_ASSET_H
 #define KILN_ASSET_H
@@ -110,6 +123,13 @@ int kiln_asset_find_suffix(const KilnAsset *db,
                           const char *suffix, size_t suffix_len,
                           int (*cb)(const streamdb_emb_doc_t *doc, void *user),
                           void *user);
+
+/** The underlying reader, for code that needs the streamdb-embedded API
+ *  directly rather than the typed accessors above — kiln_sdbfs.c is the
+ *  reason this exists, because a filesystem has to do ranged reads and ask
+ *  for a document's ROM address, and neither belongs on this interface.
+ *  Borrowed, never owned; NULL for a NULL or unopened handle. */
+streamdb_emb_t *kiln_asset_reader(KilnAsset *db);
 
 /** Load and parse a sprite out of the DB. The buffer is malloc'd inside and
  *  ownership is transferred to the caller: free with plain `sprite_free`.

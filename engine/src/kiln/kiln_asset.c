@@ -50,6 +50,7 @@ static streamdb_emb_io_t io_make_dfs(const char *path, void *storage)
         io.ctx = NULL;
         io.read = NULL;
         io.size = NULL;
+        io.rom_base = NULL;
     }
     return io;
 }
@@ -104,6 +105,12 @@ void kiln_asset_close(KilnAsset *db)
 }
 
 #endif /* STREAMDB_EMB_BACKEND_DFS */
+
+streamdb_emb_t *kiln_asset_reader(KilnAsset *db)
+{
+    if (!db || !db->open) return NULL;
+    return &db->db;
+}
 
 uint32_t kiln_asset_count(const KilnAsset *db)
 {
