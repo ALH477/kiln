@@ -231,7 +231,7 @@ in
 
     projectDir = mkOption {
       type = types.str;
-      example = "/home/asher/Documents/M64";
+      example = "/home/asher/Documents/PetaByte-Madness";
       description = ''
         The game checkout the studio works on. Mounted read-write at the same
         path inside the container, so paths in logs, git worktrees and error
