@@ -30,7 +30,7 @@ MODULES := \
 	kiln_board kiln_turn kiln_char kiln_widget kiln_save kiln_splash kiln_crater \
 	kiln_video kiln_debugdraw kiln_store kiln_voxel kiln_voxmesh kiln_camlint \
 	kiln_stream kiln_streamio kiln_prim kiln_pose \
-	kiln_soft3d kiln_radio kiln_sierp
+	kiln_soft3d kiln_radio kiln_sierp kiln_sdbfs
 
 # ── Header-only modules ────────────────────────────────────────────────
 # Installed, but contributing no object. There is exactly one so far and it is

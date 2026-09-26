@@ -458,6 +458,24 @@ streamdb_emb_result_t streamdb_emb_find(const streamdb_emb_t *db,
     return STREAMDB_EMB_OK;
 }
 
+/* The record header at offset-8, checked. Factored out of streamdb_emb_read
+ * when streamdb_emb_read_range arrived and wanted the identical check: two
+ * copies of a "the format's own comment does not say this" workaround is one
+ * copy too many. */
+static streamdb_emb_result_t check_record_header(const streamdb_emb_t *db,
+                                                 const streamdb_emb_doc_t *doc)
+{
+    if (doc->offset < 8u) return STREAMDB_EMB_OK;
+
+    uint8_t hdr[8];
+    if (db->io.read(db->io.ctx, doc->offset - 8u, hdr, 8) != 0) {
+        return STREAMDB_EMB_ERR_IO;
+    }
+    if (rd_u32(hdr) != doc->size) return STREAMDB_EMB_ERR_FORMAT;
+    if (rd_u32(hdr + 4) != doc->crc) return STREAMDB_EMB_ERR_FORMAT;
+    return STREAMDB_EMB_OK;
+}
+
 streamdb_emb_result_t streamdb_emb_read(const streamdb_emb_t *db,
                                         const streamdb_emb_doc_t *doc,
                                         void *buf, size_t *len)
@@ -472,14 +490,8 @@ streamdb_emb_result_t streamdb_emb_read(const streamdb_emb_t *db,
      * yields a size mismatch on every document. The header therefore lives at
      * offset-8, and is used only as a consistency check.
      */
-    if (doc->offset >= 8u) {
-        uint8_t hdr[8];
-        if (db->io.read(db->io.ctx, doc->offset - 8u, hdr, 8) != 0) {
-            return STREAMDB_EMB_ERR_IO;
-        }
-        if (rd_u32(hdr) != doc->size) return STREAMDB_EMB_ERR_FORMAT;
-        if (rd_u32(hdr + 4) != doc->crc) return STREAMDB_EMB_ERR_FORMAT;
-    }
+    streamdb_emb_result_t hr = check_record_header(db, doc);
+    if (hr != STREAMDB_EMB_OK) return hr;
 
     if (db->io.read(db->io.ctx, doc->offset, buf, doc->size) != 0) {
         return STREAMDB_EMB_ERR_IO;
@@ -492,6 +504,51 @@ streamdb_emb_result_t streamdb_emb_read(const streamdb_emb_t *db,
     }
 
     *len = doc->size;
+    return STREAMDB_EMB_OK;
+}
+
+streamdb_emb_result_t streamdb_emb_read_range(const streamdb_emb_t *db,
+                                              const streamdb_emb_doc_t *doc,
+                                              uint64_t off,
+                                              void *buf, size_t *len)
+{
+    if (!db || !doc || !buf || !len) return STREAMDB_EMB_ERR_INVAL;
+    /* An offset AT the end is a legal empty read (a streamer that has just
+     * consumed the last byte asks for the next chunk and must be told zero,
+     * not handed an error); an offset past it is a bug in the caller's
+     * arithmetic and is worth refusing. */
+    if (off > (uint64_t)doc->size) return STREAMDB_EMB_ERR_INVAL;
+
+    streamdb_emb_result_t r = check_record_header(db, doc);
+    if (r != STREAMDB_EMB_OK) return r;
+
+    uint64_t avail = (uint64_t)doc->size - off;
+    size_t n = *len;
+    if ((uint64_t)n > avail) n = (size_t)avail;
+
+    if (n && db->io.read(db->io.ctx, doc->offset + off, buf, n) != 0) {
+        *len = 0;
+        return STREAMDB_EMB_ERR_IO;
+    }
+
+    /* No CRC here, deliberately — see the header. */
+    *len = n;
+    return STREAMDB_EMB_OK;
+}
+
+streamdb_emb_result_t streamdb_emb_doc_rom_base(const streamdb_emb_t *db,
+                                                const streamdb_emb_doc_t *doc,
+                                                uint32_t *out)
+{
+    if (!db || !doc || !out) return STREAMDB_EMB_ERR_INVAL;
+
+    *out = 0;
+    if (!db->io.rom_base) return STREAMDB_EMB_OK;
+
+    uint32_t base = db->io.rom_base(db->io.ctx);
+    if (!base) return STREAMDB_EMB_OK;
+
+    *out = base + (uint32_t)doc->offset;
     return STREAMDB_EMB_OK;
 }
 

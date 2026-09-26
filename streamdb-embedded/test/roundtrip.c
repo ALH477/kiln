@@ -52,7 +52,89 @@ int main(int argc, char **argv) {
         if (r == STREAMDB_EMB_OK) {
             CHECK(len == (size_t)n, "%s size %zu != %ld", key, len, n);
             CHECK(memcmp(got, want, n) == 0, "%s payload differs", key);
-            printf("  ok  %-28s %zu bytes, CRC verified\n", key, len);
+
+            /* The same payload, pulled through streamdb_emb_read_range in
+             * awkward chunks, must reassemble byte-identically. 7 is chosen
+             * because it divides nothing here: every document ends with a
+             * partial chunk, which is the case a streamer hits once per file
+             * and the one most likely to be off by one.
+             *
+             * Nested inside the CRC-verified branch on purpose. The check
+             * script corrupts one payload and asserts EXACTLY ONE "checksum
+             * mismatch"; a ranged read does not CRC, so running these on a
+             * document that already failed would report a second, differently
+             * worded failure for the same single corruption. */
+            streamdb_emb_doc_t doc;
+            r = streamdb_emb_find(&db, key, strlen(key), &doc);
+            CHECK(r == STREAMDB_EMB_OK, "find %s: %s", key,
+                  streamdb_emb_strerror(r));
+            if (r == STREAMDB_EMB_OK) {
+                unsigned char *asm_buf = malloc((size_t)n ? (size_t)n : 1);
+                size_t at = 0;
+                int range_ok = 1;
+                while (at < (size_t)n) {
+                    size_t want_n = 7;
+                    r = streamdb_emb_read_range(&db, &doc, at,
+                                                asm_buf + at, &want_n);
+                    if (r != STREAMDB_EMB_OK) {
+                        CHECK(0, "%s read_range at %zu: %s", key, at,
+                              streamdb_emb_strerror(r));
+                        range_ok = 0;
+                        break;
+                    }
+                    /* Zero bytes with data remaining would spin forever. */
+                    if (want_n == 0) {
+                        CHECK(0, "%s read_range stalled at %zu/%ld",
+                              key, at, n);
+                        range_ok = 0;
+                        break;
+                    }
+                    at += want_n;
+                }
+                if (range_ok) {
+                    CHECK(at == (size_t)n, "%s ranged total %zu != %ld",
+                          key, at, n);
+                    CHECK(memcmp(asm_buf, want, n) == 0,
+                          "%s ranged payload differs from whole read", key);
+                }
+
+                /* Reading AT the end is a legal empty read, not an error —
+                 * a streamer that just consumed the last byte asks once more
+                 * and must be told zero rather than handed a failure. */
+                size_t tail = 64;
+                r = streamdb_emb_read_range(&db, &doc, (uint64_t)n,
+                                            asm_buf, &tail);
+                CHECK(r == STREAMDB_EMB_OK && tail == 0,
+                      "%s read_range at EOF: %s, len %zu", key,
+                      streamdb_emb_strerror(r), tail);
+
+                /* Past the end is a caller arithmetic bug and is refused. */
+                tail = 64;
+                r = streamdb_emb_read_range(&db, &doc, (uint64_t)n + 1,
+                                            asm_buf, &tail);
+                CHECK(r == STREAMDB_EMB_ERR_INVAL,
+                      "%s read_range past EOF returned %s, expected INVAL",
+                      key, streamdb_emb_strerror(r));
+
+                /* An oversized request clamps to what remains. */
+                size_t big = (size_t)n + 4096;
+                r = streamdb_emb_read_range(&db, &doc, 0, asm_buf, &big);
+                CHECK(r == STREAMDB_EMB_OK && big == (size_t)n,
+                      "%s oversized read_range gave %zu, expected %ld",
+                      key, big, n);
+
+                /* The host backend is not memory-addressable, so this must
+                 * report 0 rather than inventing an address. */
+                uint32_t rom = 0xDEADBEEFu;
+                r = streamdb_emb_doc_rom_base(&db, &doc, &rom);
+                CHECK(r == STREAMDB_EMB_OK && rom == 0,
+                      "%s rom_base on stdio gave %s / 0x%08x, expected OK / 0",
+                      key, streamdb_emb_strerror(r), (unsigned)rom);
+
+                free(asm_buf);
+            }
+            printf("  ok  %-28s %zu bytes, CRC verified, ranged read agrees\n",
+                   key, len);
         }
         free(want); free(got);
     }

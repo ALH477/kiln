@@ -2,7 +2,8 @@
 //
 // nightlight-demo: a Sierpinski tetrahedron that wanders and morphs into
 // its rotate/invert, kiln_prim so host and console share the picture.
-// Two baked instruments per boot (pad + bells), kiln_radio seeded from ticks.
+// Two baked instruments (pad + bells). Boot shuffles; Z opens a menu to
+// pick, A/B skip while the menu is closed.
 
 #include <libdragon.h>
 #include <kiln/kiln_engine.h>
@@ -13,8 +14,6 @@
 #include <kiln/kiln_radio.h>
 #include <kiln/kiln_sierp.h>
 
-#define SCREEN_W 320
-#define SCREEN_H 240
 #define DT       (1.0f / 60.0f)
 #define ORBIT_S  70.0f
 #define RADIUS   220.0f
@@ -40,6 +39,24 @@ static const KilnRadioTrack BELLS[] = {
 };
 #define NTRACKS ((int)(sizeof PADS / sizeof PADS[0]))
 
+static int wrap(int i, int n, int d)
+{
+    i = (i + d) % n;
+    return i < 0 ? i + n : i;
+}
+
+static void play_pad(int handles[NTRACKS], int i)
+{
+    kiln_sfx_stop(PAD_CH);
+    kiln_sfx_play_ex(handles[i], PAD_CH, 1, 0.42f, 0.42f);
+}
+
+static void play_bells(int handles[NTRACKS], int i)
+{
+    kiln_sfx_stop(BELL_CH);
+    kiln_sfx_play_ex(handles[i], BELL_CH, 1, 0.32f, 0.62f);
+}
+
 int main(void)
 {
     kiln_engine_init(RESOLUTION_320x240);
@@ -53,17 +70,19 @@ int main(void)
         .music_channels = 0,
     });
 
+    int pad_h[NTRACKS], bell_h[NTRACKS];
+    for (int i = 0; i < NTRACKS; i++) {
+        pad_h[i] = kiln_sfx_load(PADS[i].path);
+        bell_h[i] = kiln_sfx_load(BELLS[i].path);
+        assertf(pad_h[i] >= 0, "nightlight: missing %s", PADS[i].path);
+        assertf(bell_h[i] >= 0, "nightlight: missing %s", BELLS[i].path);
+    }
+
     const uint64_t seed = kiln_radio_mix_seed(get_ticks(), TICKS_READ());
-    const int pad_i  = kiln_radio_pick(seed, NTRACKS);
-    const int bell_i = kiln_radio_pick(seed ^ 0x9E3779B97F4A7C15ULL, NTRACKS);
-    const KilnRadioTrack *pad = &PADS[pad_i];
-    const KilnRadioTrack *bell = &BELLS[bell_i];
-    int pad_h = kiln_sfx_load(pad->path);
-    int bell_h = kiln_sfx_load(bell->path);
-    assertf(pad_h >= 0, "nightlight: missing %s", pad->path);
-    assertf(bell_h >= 0, "nightlight: missing %s", bell->path);
-    kiln_sfx_play_ex(pad_h,  PAD_CH,  1, 0.42f, 0.42f);
-    kiln_sfx_play_ex(bell_h, BELL_CH, 1, 0.32f, 0.62f);
+    int pad_i  = kiln_radio_pick(seed, NTRACKS);
+    int bell_i = kiln_radio_pick(seed ^ 0x9E3779B97F4A7C15ULL, NTRACKS);
+    play_pad(pad_h, pad_i);
+    play_bells(bell_h, bell_i);
 
     KilnTet root, pose_root[NPOSE];
     kiln_sierp_regular(&root, TET_R);
@@ -97,18 +116,52 @@ int main(void)
     xf.rot_axis = (fm_vec3_t){{ 0.18f, 1.0f, 0.12f }};
     fm_vec3_norm(&xf.rot_axis, &xf.rot_axis);
 
-    int overlay = 0;
+    int menu = 0;
+    int col = 0;   /* 0 pad, 1 bells */
+    int row = pad_i;
     float yaw = 0.0f, t = 0.0f;
-    uint32_t frames = 0, last_ticks = get_ticks();
-    float fps = 60.0f;
 
     for (;;) {
         kiln_input_update();
         const KilnInput *in = kiln_input_get(1);
-        if (in->edges & KILN_BTN_Z) overlay = !overlay;
+
+        if (in->edges & (KILN_BTN_Z | KILN_BTN_START)) {
+            menu = !menu;
+            if (menu) {
+                col = 0;
+                row = pad_i;
+            }
+        }
+
+        if (menu) {
+            if (in->edges & KILN_BTN_DL) { col = 0; row = pad_i; }
+            if (in->edges & KILN_BTN_DR) { col = 1; row = bell_i; }
+            if (in->edges & KILN_BTN_DU) row = wrap(row, NTRACKS, -1);
+            if (in->edges & KILN_BTN_DD) row = wrap(row, NTRACKS, +1);
+            if (in->edges & KILN_BTN_A) {
+                if (col == 0) { pad_i = row; play_pad(pad_h, pad_i); }
+                else          { bell_i = row; play_bells(bell_h, bell_i); }
+            }
+        } else {
+            if (in->edges & (KILN_BTN_A | KILN_BTN_R | KILN_BTN_CR)) {
+                pad_i = wrap(pad_i, NTRACKS, +1);
+                play_pad(pad_h, pad_i);
+            }
+            if (in->edges & (KILN_BTN_L | KILN_BTN_CL)) {
+                pad_i = wrap(pad_i, NTRACKS, -1);
+                play_pad(pad_h, pad_i);
+            }
+            if (in->edges & KILN_BTN_B) {
+                bell_i = wrap(bell_i, NTRACKS, +1);
+                play_bells(bell_h, bell_i);
+            }
+        }
 
         t += DT;
-        yaw += (DT * 6.2831853f / ORBIT_S) + in->stick_x * 0.03f;
+        if (!menu)
+            yaw += (DT * 6.2831853f / ORBIT_S) + in->stick_x * 0.03f;
+        else
+            yaw += DT * 6.2831853f / ORBIT_S;
         scene.cam_pos = (fm_vec3_t){{
             fm_sinf(yaw) * RADIUS,
             CAM_Y,
@@ -139,16 +192,42 @@ int main(void)
         kiln_transform_pop();
 
         kiln_gui_begin();
-        if (overlay) {
-            if (++frames % 30 == 0) {
-                uint32_t now_t = get_ticks();
-                fps = 30.0f / ((float)TICKS_DISTANCE(last_ticks, now_t) / TICKS_PER_SECOND);
-                last_ticks = now_t;
+        if (menu) {
+            kiln_gui_panel(6, 8, 308, 224,
+                            RGBA32(0x08, 0x0A, 0x14, 0xD0),
+                            RGBA32(0x58, 0x60, 0x78, 0xFF));
+            kiln_gui_text(16, 18, RGBA32(0xC8, 0xD0, 0xE0, 0xFF), "nightlight");
+            kiln_gui_text(16, 32, RGBA32(0x70, 0x78, 0x90, 0xFF),
+                          "D-pad  A play  Z close");
+            kiln_gui_text(16, 52, RGBA32(col == 0 ? 0xFF : 0x90,
+                                         col == 0 ? 0xC8 : 0x98,
+                                         col == 0 ? 0x90 : 0xB0, 0xFF),
+                          "PAD");
+            kiln_gui_text(168, 52, RGBA32(col == 1 ? 0xFF : 0x90,
+                                          col == 1 ? 0xC8 : 0x98,
+                                          col == 1 ? 0x90 : 0xB0, 0xFF),
+                          "BELLS");
+            for (int i = 0; i < NTRACKS; i++) {
+                const int y = 68 + i * 14;
+                const int pad_here = (col == 0 && i == row);
+                const int bell_here = (col == 1 && i == row);
+                kiln_gui_text(16, y,
+                              pad_here ? RGBA32(0xFF, 0xE0, 0xB0, 0xFF)
+                                       : (i == pad_i ? RGBA32(0xC8, 0xD0, 0xE0, 0xFF)
+                                                     : RGBA32(0x58, 0x60, 0x78, 0xFF)),
+                              "%s%s", pad_here ? "> " : "  ", PADS[i].title);
+                kiln_gui_text(168, y,
+                              bell_here ? RGBA32(0xFF, 0xE0, 0xB0, 0xFF)
+                                        : (i == bell_i ? RGBA32(0xC8, 0xD0, 0xE0, 0xFF)
+                                                       : RGBA32(0x58, 0x60, 0x78, 0xFF)),
+                              "%s%s", bell_here ? "> " : "  ", BELLS[i].title);
             }
-            kiln_gui_text(8, 16, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
-            kiln_gui_text(8, 28, RGBA32(0xC8, 0xD0, 0xE0, 0xFF), "%s", pad->title);
-            kiln_gui_text(8, 40, RGBA32(0x70, 0x78, 0x90, 0xFF), "%s + %s",
-                          pad->composer, bell->title);
+            kiln_gui_text(16, 140, RGBA32(0x70, 0x78, 0x90, 0xFF),
+                          "now  %s", PADS[pad_i].title);
+            kiln_gui_text(16, 154, RGBA32(0x70, 0x78, 0x90, 0xFF),
+                          "     %s + %s", PADS[pad_i].composer, BELLS[bell_i].title);
+            kiln_gui_text(16, 180, RGBA32(0x58, 0x60, 0x78, 0xFF),
+                          "closed: A/R next pad  B next bells");
         }
         kiln_gui_end();
         kiln_frame_end();

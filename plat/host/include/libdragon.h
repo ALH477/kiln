@@ -455,6 +455,17 @@ int dfs_seek(uint32_t handle, int offset, int origin);
 int dfs_tell(uint32_t handle);
 int dfs_eof(uint32_t handle);
 
+/* The PI address of a file's body, or 0 when it has none.
+ *
+ * On a host it ALWAYS has none, and 0 is the correct answer rather than a
+ * stub's shrug: a file on a workstation is not directly addressable, so a
+ * caller asking this question must take its copy path. streamdb_io_dfs.c
+ * asks it so that kiln_sdbfs can offer libdragon's wav64 a cartridge address
+ * and keep the async-DMA path; here it correctly gets nothing and the ranged
+ * read is used instead. Declared because the host build compiles the real
+ * streamdb_io_dfs.c rather than a second copy of it. */
+pi_addr_t dfs_rom_addr(const char *path);
+
 /* ── joypad ───────────────────────────────────────────────────────────
  * The bitfield ORDER is copied exactly, because joypad_buttons_t is a union
  * with a uint16_t `raw` and kiln_input diffs raw values between frames to

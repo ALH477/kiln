@@ -57,11 +57,24 @@ typedef enum {
     STREAMDB_EMB_ERR_INVAL = -7,       /**< bad argument                      */
 } streamdb_emb_result_t;
 
-/** Storage backend. `read` must fill exactly `len` bytes or fail. */
+/** Storage backend. `read` must fill exactly `len` bytes or fail.
+ *
+ * `rom_base` is OPTIONAL and may be NULL: it reports the address of byte 0 of
+ * the container in the machine's directly-addressable storage space, so a
+ * caller can bypass `read` entirely and DMA a payload itself. On the N64 that
+ * is the PI address from dfs_rom_addr(); on a host it is meaningless and the
+ * stdio backend leaves it NULL.
+ *
+ * A backend built by hand rather than by one of the constructors below MUST
+ * zero this struct first. The two shipped constructors set every field,
+ * `rom_base` included, so no in-tree caller has to think about it — but a
+ * partially-initialised struct would leave a garbage function pointer that is
+ * only ever called on the fast path, which is the worst place to find one. */
 typedef struct {
     void *ctx;
     int (*read)(void *ctx, uint64_t offset, void *buf, size_t len);
     uint64_t (*size)(void *ctx);
+    uint32_t (*rom_base)(void *ctx);
 } streamdb_emb_io_t;
 
 /** One document index entry, as stored in the index blob. */
@@ -141,6 +154,57 @@ streamdb_emb_result_t streamdb_emb_find(const streamdb_emb_t *db,
 streamdb_emb_result_t streamdb_emb_read(const streamdb_emb_t *db,
                                         const streamdb_emb_doc_t *doc,
                                         void *buf, size_t *len);
+
+/**
+ * Read part of a document's payload. `off` is a byte offset within the
+ * payload; `*len` is the buffer size on entry and the number of bytes read on
+ * return (clamped to what remains after `off`).
+ *
+ * THIS IS THE STREAMING READ, AND IT DOES NOT CHECK THE CRC. It cannot: a
+ * CRC32 covers the whole payload and a caller pulling a 9-byte VADPCM frame
+ * out of a seven-megabyte document is never going to hold the rest of it. The
+ * header's own note on verify_crc already sanctions this trade — "turn it off
+ * for bulk streaming where a bad read is survivable" — and a bad read here is
+ * survivable in the strict sense that matters: it is one frame of audio, not a
+ * corrupted structure the program will later branch on. Use
+ * streamdb_emb_read() when the payload is small enough to verify whole.
+ *
+ * The 8-byte record header at offset-8 IS still checked, once per call, for
+ * the same reason streamdb_emb_read checks it: it is two words, it costs one
+ * extra read of eight bytes, and it catches a stale or wrong doc handle
+ * before the caller starts treating unrelated bytes as content.
+ */
+streamdb_emb_result_t streamdb_emb_read_range(const streamdb_emb_t *db,
+                                              const streamdb_emb_doc_t *doc,
+                                              uint64_t off,
+                                              void *buf, size_t *len);
+
+/**
+ * Report the storage-space address of a document's PAYLOAD, or 0 when the
+ * backend has none.
+ *
+ * A StreamDB payload is stored raw and contiguous — streamdb_emb_read is a
+ * single io.read of doc->size bytes with no decompression step — so on a
+ * machine whose storage is directly addressable the payload is simply
+ * `container_base + doc->offset`, and a caller can DMA it without going
+ * through this reader at all. That is what lets libdragon's wav64 stream a
+ * document off the cartridge with its own asynchronous DMA rather than
+ * copying through us.
+ *
+ * ALIGNMENT IS THE CALLER'S PROBLEM, and it is a real one. dfs_rom_addr
+ * guarantees the container is 2-byte aligned but says nothing about a
+ * document within it, so a payload at an odd offset yields an odd address.
+ * The N64's PI cannot DMA to a mismatched parity; libdragon's wav64 tests for
+ * exactly this and silently falls back to a byte-copy path. A caller that
+ * cares about the fast path must check the parity it gets and say so, because
+ * nothing below will fail loudly.
+ *
+ * Returns STREAMDB_EMB_OK with *out == 0 when the backend is not
+ * memory-addressable (the host stdio one never is).
+ */
+streamdb_emb_result_t streamdb_emb_doc_rom_base(const streamdb_emb_t *db,
+                                                const streamdb_emb_doc_t *doc,
+                                                uint32_t *out);
 
 /** Convenience: find + read in one call. */
 streamdb_emb_result_t streamdb_emb_get(const streamdb_emb_t *db,
