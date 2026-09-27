@@ -1979,6 +1979,11 @@
           # pre-Kiln engine name from coming back; this keeps the engine's
           # symbols from drifting back to kiln_ while the compatibility train
           # of docs/NAMING.md section 9 is still running.
+          # The committed Exsecutor emission still computes what the C it
+          # sits beside computes. Needs no exsc — see the check's header.
+          fig-pose-parity = import ./nix/checks/fig-pose-parity.nix {
+            inherit pkgs; engineSrc = ./engine;
+          };
           fig-names = import ./nix/checks/fig-names.nix {
             inherit pkgs; repo = ./.;
           };

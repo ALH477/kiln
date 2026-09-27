@@ -95,6 +95,66 @@ appends `-fno-fast-math` after n64.mk's global `-ffast-math` for exactly this
 reason. Unlike the StreamDB reader it contains real FP opcodes by design —
 the rasterizer IS f64 arithmetic.
 
+## `fig_pose_*.gen.c` — the bone arithmetic
+
+Generated C. **Never hand-edit either file**; regenerate them. Unlike
+`signaculum_*`, whose source is an Exsecutor EXAMPLE, this one is Figulina's
+own: [`engine/src/kiln/fig_pose.exsc`](../fig_pose.exsc) lives in this repo
+and is the first engine arithmetic written once and emitted per row.
+
+| | x86_64 variant | mips64 variant |
+|---|---|---|
+| source | `engine/src/kiln/fig_pose.exsc` | same |
+| compiler | `exsc` at Exsecutor commit `b77ad1ffef4748d37728e63d75a3f3ec491eb8d1` (503,761 bytes, sha256 `02a16a5091eed50b9f86a88669c89835df525fba2e956523dc4b8705402d0d9c`) | same |
+| row | `--hospes x86_64-linux --emitte c` | `--hospes mips64-none-o64 --emitte c` |
+| bytes | 28,703 | 28,720 |
+| sha256 | `333d6326c85625c817c46a7d7d3b4773d460dfd0232161ce535edb00de35126b` | `01970224d859cf2c4bc0b150f68bd1c5be612ba6d86109e47111faa5894021d1` |
+
+The two emissions differ in **exactly three lines**, and every one is a row
+fact rather than a compiler mood: `_Static_assert(sizeof(void *) == 8)`
+against `== 4`; one `+` gaining an `exsi_norm_u(…, 32)`; and one
+`exsi_mul_u(…, 64)` becoming `…, 32)`. That is `mensura` narrowing to 32 bits
+on the console row, said three times in three places that must agree.
+
+### What it contains, and what it deliberately does not
+
+`exs_fig_quat_mul` (Hamilton product) and `exs_fig_pose_subtree_mask`. Both
+pure, on caller-owned buffers — no allocation, no strings, no `dyn`. That is
+not a style choice: `backend_c/emit_c.inc`'s `__bfc_refuse` declines
+`retain`/`release` by name ("no object header exists in library mode"), so a
+program that allocates cannot be emitted as C at all, and `--emitte c` is the
+ONLY backend for the `mips64-none-o64` row. Anything the console runs must be
+allocation-free.
+
+Three of `kiln_pose.c`'s five functions are **absent and cannot be added
+today**, for one reason rather than three: Exsecutor's float surface is
+eleven IR opcodes (`FADD FCMP FCONST FDIV FEXT FMA FMUL FNEG FSUB FTOI
+FTRUNC`) with no root and no transcendental. `fig_quat_nlerp` normalises by
+`1/sqrtf`, `fig_pose_blend_masked` calls it, and `fig_quat_axis_angle` needs
+`fm_sinf`/`fm_cosf`. A software square root is not a way round it:
+`kiln_pose.h`'s invariant is that a masked blend and an unmasked one agree
+about what halfway means, and the unmasked one is Tiny3D's `t3d_quat_nlerp`
+calling `sqrtf` — an approximation that is only self-consistent breaks
+exactly that agreement. `kiln_pose.c` therefore stays, and this core sits
+beside it rather than replacing it.
+
+### Evidence
+
+`nix/checks/fig-pose-parity.nix` compiles the committed x86_64 emission next
+to `engine/src/kiln/exsc/fig_pose_parity.c` and compares against a
+transcription of `kiln_pose.c`'s arithmetic — 20,000 `quat_mul` cases by
+`memcmp` (zero tolerance: no division, no root, nothing a compiler may
+reassociate) and 100,000 mask cases over depth-first columns. Run four ways
+under `-fsanitize=undefined -fno-sanitize-recover=all`, gcc and clang at
+`-O0` and `-O2`, all four stdouts byte-identical. The check needs **no
+`exsc`**, which is what keeps it cheap and matches how this repo already
+treats `signaculum_*`.
+
+The mips64 emission is verified to COMPILE for the console row (`ELF 32-bit
+MSB relocatable, MIPS, N32 MIPS-III`, exporting exactly the two functions and
+importing exactly `exsrt_abortus`). It is **not** verified behaviourally:
+no qemu run was made, so big-endian bit-identity is unmeasured.
+
 ## Licensing
 
 Exsecutor is GPL-3.0-or-later with a stated exception: **code produced by the
