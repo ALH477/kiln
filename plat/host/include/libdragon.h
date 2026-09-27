@@ -128,6 +128,14 @@ static inline void *malloc_uncached_aligned(int align, size_t size) {
 }
 static inline void free_uncached(void *buf) { free(buf); }
 
+/* The rom:/ stdio hook. libdragon attaches a "rom:" filesystem on console, so
+ * engine code fopens rom:/ paths directly; host_io.c's fig_host_fopen is the
+ * native answer. The macro is deliberately AFTER every system header this
+ * file includes, so <stdio.h>'s own declaration is untouched and only code
+ * compiled against this shim is redirected. */
+FILE *fig_host_fopen(const char *path, const char *mode);
+#define fopen(p_, m_) fig_host_fopen((p_), (m_))
+
 /* ── cache coherency, which is a no-op off-console ────────────────────
  * On the VR4300 these push the CPU's view of memory out so the RSP, reading
  * over the system bus, sees it. A host has one coherent view, so there is

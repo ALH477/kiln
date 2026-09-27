@@ -29,6 +29,7 @@ static const char *USAGE =
 "  --fps <n>         target frame rate (default 60)\n"
 "  --frames <n>      quit after n frames\n"
 "  --shot <file.png> write the last frame and quit (implies --frames 1)\n"
+"  --manifest <file> write the last frame's text runs as text, and quit\n"
 "  --stats           print pixel statistics before quitting\n"
 "  --fullscreen\n"
 "  --mute\n"
@@ -52,6 +53,7 @@ int fig_shell_args(int argc, char **argv, FigShellOpts *o)
         else if (!strcmp(a, "--fps"))        { const char *v; WANT(v); o->fps = atoi(v); }
         else if (!strcmp(a, "--frames"))     { const char *v; WANT(v); o->frames = atoi(v); }
         else if (!strcmp(a, "--shot"))       WANT(o->shot);
+        else if (!strcmp(a, "--manifest"))   WANT(o->manifest);
         else if (!strcmp(a, "--stats"))      o->stats = 1;
         else if (!strcmp(a, "--fullscreen")) o->fullscreen = 1;
         else if (!strcmp(a, "--mute"))       o->mute = 1;
@@ -87,7 +89,8 @@ void fig_shell_tick(void)
      * run's only exit — the launcher gate did not fail, it hung, and a gate
      * that hangs reports nothing at all. Counting here and presenting there
      * also gives the gate two numbers to compare instead of one to trust. */
-    const int limit = g_opts.frames ? g_opts.frames : (g_opts.shot ? 1 : 0);
+    const int limit = g_opts.frames ? g_opts.frames
+                    : ((g_opts.shot || g_opts.manifest) ? 1 : 0);
     if (!limit) return;
 
     /* Frame N's pixels are complete once frame N+1 starts, so the limit is
@@ -109,6 +112,17 @@ void fig_shell_tick(void)
             exit(1);
         }
         fprintf(stderr, "kiln: wrote %s after %d frames\n", g_opts.shot, limit);
+    }
+
+    /* After the capture, not before: both read the frame that just ended, and
+     * writing the cheap one first would report success for a run whose PNG
+     * then failed. */
+    if (g_opts.manifest) {
+        if (fig_host_text_manifest(g_opts.manifest) != 0) {
+            fprintf(stderr, "kiln: could not write %s\n", g_opts.manifest);
+            exit(1);
+        }
+        fprintf(stderr, "kiln: wrote %s after %d frames\n", g_opts.manifest, limit);
     }
     exit(0);
 }

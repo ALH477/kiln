@@ -1,0 +1,110 @@
+// fig_pose.exsc -- the bone arithmetic Figulina does, as pure Exsecutor.
+//
+// Ported from engine/src/kiln/kiln_pose.c, whose header explains why this
+// arithmetic is worth isolating: a masked overlay blend is "code of exactly
+// the kind that renders plausibly when wrong -- a mask off by one bone is an
+// arm that half-follows the attack". Neither failure is distinguishable from
+// an animation authoring mistake in a screenshot, so it wants a proof rather
+// than a look.
+//
+// It is here rather than in C because the same bits have to come out on the
+// VR4300 and on x86-64. Figulina already ships one core on that basis
+// (gen/PROVENANCE.md, the logo rasteriser); this is the second, and the first
+// that is Figulina's OWN arithmetic rather than a borrowed example.
+//
+// -- WHAT IS NOT HERE, AND WHY IT CANNOT BE ------------------------------
+// Three of kiln_pose.c's five functions do not port, and the reason is one
+// missing primitive rather than three separate problems:
+//
+//   fig_quat_nlerp        normalises by 1/sqrtf(len2)
+//   fig_pose_blend_masked calls fig_quat_nlerp
+//   fig_quat_axis_angle   needs sin and cos
+//
+// Exsecutor's float surface is eleven IR opcodes -- FADD FCMP FCONST FDIV
+// FEXT FMA FMUL FNEG FSUB FTOI FTRUNC -- and there is no root and no
+// transcendental among them, in the IR or the prelude. A software sqrt is
+// not a way around it either: kiln_pose.h's stated invariant is that a
+// masked blend and an unmasked one "agree about what halfway means", and the
+// unmasked one is Tiny3D's t3d_quat_nlerp calling sqrtf. An approximation
+// that is merely self-consistent would break exactly the agreement this file
+// exists to hold.
+//
+// So the two below are what a port can carry today. They are not the
+// interesting two, and saying so is the point: the blocker is FSQRT, it is
+// one opcode, and it is measurable rather than a matter of taste.
+//
+// -- CONVENTIONS ---------------------------------------------------------
+// Quaternions are Tiny3D's: index 0..2 are x, y, z and index 3 is w, so
+// identity is {0, 0, 0, 1}. Bones are stored DEPTH-FIRST, which is what lets
+// a subtree be a run of following bones and a mask need nothing but depth.
+
+// Hamilton product, in Tiny3D's component order. Pure arithmetic -- four
+// multiplies and three add/subs per lane, no division, no root -- so this is
+// bit-identical on every row by construction rather than by luck.
+//
+// `out` is a mutable borrow (ADR 0016) and the inputs are values, so the
+// aliasing question kiln_pose.c answers with a comment ("out may alias
+// either input") cannot arise here: a borrow and a value cannot be the same
+// object.
+publica functio fig_quat_mul(out: &mutabilis acies<f32, 4>, a: acies<f32, 4>, b: acies<f32, 4>) -> u8 {
+    firma ax: f32 = a[0];
+    firma ay: f32 = a[1];
+    firma az: f32 = a[2];
+    firma aw: f32 = a[3];
+    firma bx: f32 = b[0];
+    firma by: f32 = b[1];
+    firma bz: f32 = b[2];
+    firma bw: f32 = b[3];
+
+    (*out)[0] = aw * bx + ax * bw + ay * bz - az * by;
+    (*out)[1] = aw * by - ax * bz + ay * bw + az * bx;
+    (*out)[2] = aw * bz + ax * by - ay * bx + az * bw;
+    (*out)[3] = aw * bw - ax * bx - ay * by - az * bz;
+    redde 0;
+}
+
+// The bits of `mask` for one bone's subtree: the bone itself, plus the run of
+// following bones deeper than it. Depth-first storage is what makes that a
+// run and not a search.
+//
+// The C takes `int n` and walks to it while only ever setting bits below 32.
+// Past index 31 the loop body can no longer change `mask`, so stopping at 32
+// is not a narrowing -- it is the same function with the dead tail removed,
+// and it is what lets the parameter be a fixed `acies` instead of a pointer
+// and a length that nothing checks.
+publica functio fig_pose_subtree_mask(depth: acies<u16, 32>, n: mensura, root: mensura) -> mensura {
+    si root ge n {
+        redde 0;
+    }
+    si root ge 32 {
+        redde 0;
+    }
+
+    firma d_root: u16 = depth[root];
+    mutabilis mask: mensura = 0;
+    mutabilis bit: mensura = 1;
+    mutabilis stop: u8 = 0;
+
+    per j in 0..32 {
+        si stop eq 0 {
+            si j ge root {
+                si j ge n {
+                    stop = 1;
+                } aliter {
+                    si j gt root {
+                        si depth[j] le d_root {
+                            stop = 1;
+                        }
+                    }
+                }
+            }
+        }
+        si stop eq 0 {
+            si j ge root {
+                mask = mask aut bit;
+            }
+        }
+        bit = bit * 2;
+    }
+    redde mask;
+}

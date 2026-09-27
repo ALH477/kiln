@@ -124,6 +124,36 @@ static void resolve(char *out, size_t n, const char *path)
     snprintf(out, n, "%s/%s", g_dfs_root, p);
 }
 
+/* ── the rom:/ stdio hook ─────────────────────────────────────────────────
+ * On the console libdragon attaches a "rom:" filesystem, so plain fopen on a
+ * rom:/ path works and engine code uses it — fig_dfs_exists (kiln_engine.c)
+ * probes that way on purpose, because it wants to answer the question the
+ * ASSERTING loaders are about to ask, in their terms.
+ *
+ * Natively there is no such attachment and glibc's fopen has never heard of
+ * the prefix, so every such probe answered "no" for a file that was right
+ * there. That is not a loud failure: fig_dfs_exists returning 0 is the
+ * documented "survivable absence" path, so the game drew without its sky,
+ * sea, storm and palms and said "missing" about four files it had. Found by
+ * the first real host run of a game, which is the whole argument for having
+ * one.
+ *
+ * ONLY rom: paths are redirected. A host check or tool that fopens a file it
+ * just wrote must keep getting that file — resolve() would otherwise put it
+ * under the DFS root, which is a different and much more confusing bug. */
+FILE *fig_host_fopen(const char *path, const char *mode)
+{
+    if (path && strncmp(path, "rom:", 4) == 0) {
+        char real[1024];
+        resolve(real, sizeof real, path);
+        /* Parenthesised so the function-like macro in <libdragon.h> does not
+         * expand here — this IS that macro's target, and gcc's
+         * -Winfinite-recursion caught the unguarded version immediately. */
+        return (fopen)(real, mode);
+    }
+    return (fopen)(path, mode);
+}
+
 int dfs_open(const char *const path)
 {
     if (!path) return DFS_EBADINPUT;

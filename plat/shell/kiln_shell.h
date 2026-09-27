@@ -63,6 +63,13 @@ typedef struct {
     int   fps;              /* target frames per second, default 60      */
     int   frames;           /* stop after N frames, 0 = run forever      */
     const char *shot;       /* write a PNG of the last frame, then exit  */
+    /* Write every text run of the last frame as diffable text, then exit.
+     * The counterpart to --shot, and the more useful one for a HUD: a
+     * regression there is almost always "the wrong string, or the right
+     * string in the wrong place", which is exactly what a pixel diff reports
+     * worst. fig_host_text_manifest has recorded string, position, colour and
+     * measured width all along — this is the flag that reaches it. */
+    const char *manifest;
     int   stats;            /* print pixel statistics on the way out     */
 } FigShellOpts;
 

@@ -28,6 +28,12 @@ pkgs.runCommand "check-kiln-asset"
     cp -r ${embeddedSrc} emb && chmod -R u+w emb
     cp -r ${engineSrc}/src/kiln/kiln_asset.c kiln_asset.c
     cp -r ${engineSrc}/src/kiln/kiln_asset.h kiln_asset.h
+    # Every public engine header now includes the prefix migration train's
+    # shim (docs/NAMING.md section 9 step 2), so a check that copies ONE
+    # header out of the tree has to bring it along. It goes away with the
+    # train; until then this line is what stops `#include "kiln_compat.h"`
+    # from being a fatal error in a check that compiles headers in isolation.
+    cp -r ${engineSrc}/src/kiln/kiln_compat.h kiln_compat.h
 
     # The engine's kiln_asset.h uses <streamdb/streamdb_embedded.h>, matching
     # the install layout (mips64-elf/include/streamdb/). The emb source tree

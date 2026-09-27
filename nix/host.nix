@@ -424,7 +424,7 @@ let
         # Single quotes around the double quotes: these flags are pasted into
         # a shell command line, so an unquoted string literal loses its quotes
         # to word splitting and the define becomes a division by a path.
-        assetFlags = fs: [ "-DKILN_SHELL_DEFAULT_DFS='\"${fs}/filesystem\"'" ];
+        assetFlags = fs: [ "-DFIG_SHELL_DEFAULT_DFS='\"${fs}/filesystem\"'" ];
       };
     };
 
