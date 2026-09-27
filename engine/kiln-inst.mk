@@ -52,4 +52,3 @@ endif
 # so a kiln_* that creeps back into engine sources fails there rather than
 # being silently bridged — which is the same reason nix/checks/kiln-names.nix
 # exists for the last rename this project did.
-N64_CFLAGS += -include kiln_compat.h

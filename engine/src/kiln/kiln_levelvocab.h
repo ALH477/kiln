@@ -15,6 +15,18 @@
 #ifndef FIG_LEVELVOCAB_H
 #define FIG_LEVELVOCAB_H
 
+
+/* The prefix migration train (docs/NAMING.md section 9 step 2). Pulled in by
+ * every public header (a quoted include, so it resolves both in this tree and
+ * in the installed include/kiln prefix) rather than force-included by
+ * kiln-inst.mk, because a
+ * force-include only reaches builds that include that file — a Nix check or a
+ * host build compiling a downstream's sources directly never saw it, and
+ * PetaByte-Madness' pm-cine check is what proved that. Deleting the train is
+ * still a scripted one-line removal from these headers plus the file itself.
+ */
+#include "kiln_compat.h"
+
 #define FIG_LEVEL_MAX_BRUSHES    256
 #define FIG_LEVEL_MAX_FACES      (FIG_LEVEL_MAX_BRUSHES * 6)
 #define FIG_LEVEL_MAX_SPAWNS     64

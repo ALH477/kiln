@@ -28,6 +28,18 @@
 #ifndef FIG_BOARD_H
 #define FIG_BOARD_H
 
+
+/* The prefix migration train (docs/NAMING.md section 9 step 2). Pulled in by
+ * every public header (a quoted include, so it resolves both in this tree and
+ * in the installed include/kiln prefix) rather than force-included by
+ * kiln-inst.mk, because a
+ * force-include only reaches builds that include that file — a Nix check or a
+ * host build compiling a downstream's sources directly never saw it, and
+ * PetaByte-Madness' pm-cine check is what proved that. Deleting the train is
+ * still a scripted one-line removal from these headers plus the file itself.
+ */
+#include "kiln_compat.h"
+
 #include <stdint.h>
 #include <libdragon.h>      // fm_vec3_t lives in libdragon's fast-math
 #include <t3d/t3d.h>        // Tiny3D typedefs fm_vec3_t -> T3DVec3
