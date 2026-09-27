@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
 # examples/streamdb-demo: the FOCUS jump ROM, and host builds of both. The host
-# reads the same assets.streamdb through the same kiln_asset + streamdb-embedded
+# reads the same assets.streamdb through the same fig_asset + streamdb-embedded
 # DFS backend, over a directory.
 ctx: with ctx;
 mkJumpRoms args.streamdbDemoArgs [ "FOCUS" ] // {

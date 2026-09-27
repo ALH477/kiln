@@ -39,7 +39,7 @@ int main(int argc, char **argv)
     wav64_t w;
     wav64_open(&w, argv[1]);
 
-    const KilnHostAudioCounters *c = kiln_host_audio_counters();
+    const FigHostAudioCounters *c = fig_host_audio_counters();
     printf("wav64: opens %u missing %u\n", c->wav_opens, c->wav_missing);
     if (c->wav_missing) { fprintf(stderr, "FAILED: the file did not decode\n"); return 1; }
 
@@ -50,17 +50,17 @@ int main(int argc, char **argv)
 
     /* The decoded PCM, straight from the waveform, before any mixing.
      *
-     * wave.ctx is host_wav64.c's KilnHostWave, and the check reaches into it
+     * wave.ctx is host_wav64.c's FigHostWave, and the check reaches into it
      * on purpose: the point is to measure what the DECODER produced, not what
      * survived the mixer's volume. Through the real "host_internal.h" —
      * nix/host.nix already puts plat/host/src on the include path — and not
      * through a re-declaration of the layout, which is what this was. A
      * second copy of a struct definition inside the check whose whole job is
      * to catch a decoder lying about its output is the wrong place of all
-     * places to put one: add a field to KilnHostWave and the copy reads a
+     * places to put one: add a field to FigHostWave and the copy reads a
      * garbage pointer and reports a plausible RMS instead of failing to
      * compile. */
-    const KilnHostWave *hw = w.wave.ctx;
+    const FigHostWave *hw = w.wave.ctx;
     if (!hw) { fprintf(stderr, "FAILED: no decoded PCM attached\n"); return 1; }
     const int16_t *pcm = hw->pcm;
     const int nsamp = hw->samples * hw->channels;
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
     }
 
     /* Pan hard left: the right channel must go quiet and the left must not.
-     * kiln_sound computes pan from the listener basis, so a mixer that had
+     * fig_sound computes pan from the listener basis, so a mixer that had
      * this backwards would put every positional sound on the wrong side —
      * which is audible, deniable, and exactly the sort of thing nobody files
      * a bug about. */

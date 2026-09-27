@@ -17,7 +17,7 @@
  * reader plus the caller's arena pointer. Kept opaque in the header so a
  * ROM can stack-allocate the streamdb_emb_t directly if it prefers — but
  * the convenience API here is the one the demo uses. */
-struct KilnAsset {
+struct FigAsset {
     streamdb_emb_t db;
     int open;
 };
@@ -28,17 +28,17 @@ struct KilnAsset {
  * then a single static is honest about the actual usage and free.
  *
  * Only used by the DFS-backed open path; the host round-trip check builds
- * this file with the DFS backend off and constructs its own KilnAsset, so
+ * this file with the DFS backend off and constructs its own FigAsset, so
  * gate the static on the same macro to avoid an unused-variable warning
  * under -Werror. */
 #if defined(STREAMDB_EMB_BACKEND_DFS) && (STREAMDB_EMB_BACKEND_DFS + 0)
-static struct KilnAsset g_db;
+static struct FigAsset g_db;
 #endif
 
 /* The DFS-backed open/close/probe are only compiled when the DFS backend is
  * linked in. The host round-trip check (nix/checks/kiln-asset.nix) builds
  * kiln_asset.c with -DSTREAMDB_EMB_BACKEND_DFS=0 and provides its own
- * stdio-backed KilnAsset construction; the accessors below (count/size/load/
+ * stdio-backed FigAsset construction; the accessors below (count/size/load/
  * find_suffix/sprite/model) are backend-agnostic and compile either way. */
 #if defined(STREAMDB_EMB_BACKEND_DFS) && (STREAMDB_EMB_BACKEND_DFS + 0)
 
@@ -55,7 +55,7 @@ static streamdb_emb_io_t io_make_dfs(const char *path, void *storage)
     return io;
 }
 
-size_t kiln_asset_probe_size(const char *dfs_path)
+size_t fig_asset_probe_size(const char *dfs_path)
 {
     if (!dfs_path) return 0;
     /* The DFS backend's storage is small (a fd + a length); stack-allocate
@@ -75,7 +75,7 @@ size_t kiln_asset_probe_size(const char *dfs_path)
     return r == STREAMDB_EMB_OK ? need : 0;
 }
 
-KilnAsset *kiln_asset_open(const char *dfs_path, void *arena, size_t arena_size)
+FigAsset *fig_asset_open(const char *dfs_path, void *arena, size_t arena_size)
 {
     if (!dfs_path || !arena || arena_size == 0) return NULL;
 
@@ -97,7 +97,7 @@ KilnAsset *kiln_asset_open(const char *dfs_path, void *arena, size_t arena_size)
     return &g_db;
 }
 
-void kiln_asset_close(KilnAsset *db)
+void fig_asset_close(FigAsset *db)
 {
     if (!db || !db->open) return;
     streamdb_emb_io_dfs_close(&db->db.io);
@@ -106,23 +106,23 @@ void kiln_asset_close(KilnAsset *db)
 
 #endif /* STREAMDB_EMB_BACKEND_DFS */
 
-streamdb_emb_t *kiln_asset_reader(KilnAsset *db)
+streamdb_emb_t *fig_asset_reader(FigAsset *db)
 {
     if (!db || !db->open) return NULL;
     return &db->db;
 }
 
-uint32_t kiln_asset_count(const KilnAsset *db)
+uint32_t fig_asset_count(const FigAsset *db)
 {
     return db ? streamdb_emb_count(&db->db) : 0u;
 }
 
-size_t kiln_asset_arena_used(const KilnAsset *db)
+size_t fig_asset_arena_used(const FigAsset *db)
 {
     return db ? db->db.arena_used : 0u;
 }
 
-size_t kiln_asset_size(const KilnAsset *db, const char *key, size_t key_len)
+size_t fig_asset_size(const FigAsset *db, const char *key, size_t key_len)
 {
     if (!db || !key || !key_len) return 0;
     streamdb_emb_doc_t doc;
@@ -132,14 +132,14 @@ size_t kiln_asset_size(const KilnAsset *db, const char *key, size_t key_len)
     return doc.size;
 }
 
-int kiln_asset_exists(const KilnAsset *db, const char *key, size_t key_len)
+int fig_asset_exists(const FigAsset *db, const char *key, size_t key_len)
 {
     if (!db || !key || !key_len) return 0;
     streamdb_emb_doc_t doc;
     return streamdb_emb_find(&db->db, key, key_len, &doc) == STREAMDB_EMB_OK;
 }
 
-int kiln_asset_load(const KilnAsset *db,
+int fig_asset_load(const FigAsset *db,
                    const char *key, size_t key_len,
                    void *buf, size_t *len)
 {
@@ -147,7 +147,7 @@ int kiln_asset_load(const KilnAsset *db,
     return streamdb_emb_get(&db->db, key, key_len, buf, len);
 }
 
-int kiln_asset_find_suffix(const KilnAsset *db,
+int fig_asset_find_suffix(const FigAsset *db,
                           const char *suffix, size_t suffix_len,
                           int (*cb)(const streamdb_emb_doc_t *doc, void *user),
                           void *user)
@@ -156,18 +156,18 @@ int kiln_asset_find_suffix(const KilnAsset *db,
     return streamdb_emb_find_suffix(&db->db, suffix, suffix_len, cb, user);
 }
 
-sprite_t *kiln_asset_sprite(const KilnAsset *db, const char *key, size_t key_len)
+sprite_t *fig_asset_sprite(const FigAsset *db, const char *key, size_t key_len)
 {
     if (!db || !key || !key_len) return NULL;
 
-    size_t len = kiln_asset_size(db, key, key_len);
+    size_t len = fig_asset_size(db, key, key_len);
     if (len == 0) return NULL;
 
     void *buf = malloc(len);
     if (!buf) return NULL;
 
     size_t got = len;
-    if (kiln_asset_load(db, key, key_len, buf, &got) != STREAMDB_EMB_OK) {
+    if (fig_asset_load(db, key, key_len, buf, &got) != STREAMDB_EMB_OK) {
         free(buf);
         return NULL;
     }
@@ -189,11 +189,11 @@ sprite_t *kiln_asset_sprite(const KilnAsset *db, const char *key, size_t key_len
     return sp;
 }
 
-T3DModel *kiln_asset_model(const KilnAsset *db, const char *key, size_t key_len)
+T3DModel *fig_asset_model(const FigAsset *db, const char *key, size_t key_len)
 {
     if (!db || !key || !key_len) return NULL;
 
-    size_t len = kiln_asset_size(db, key, key_len);
+    size_t len = fig_asset_size(db, key, key_len);
     if (len == 0) return NULL;
 
     /* t3d_model_load_buf also parses in place, so the buffer must outlive
@@ -204,7 +204,7 @@ T3DModel *kiln_asset_model(const KilnAsset *db, const char *key, size_t key_len)
     if (!buf) return NULL;
 
     size_t got = len;
-    if (kiln_asset_load(db, key, key_len, buf, &got) != STREAMDB_EMB_OK) {
+    if (fig_asset_load(db, key, key_len, buf, &got) != STREAMDB_EMB_OK) {
         free(buf);
         return NULL;
     }

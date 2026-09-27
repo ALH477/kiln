@@ -1,11 +1,18 @@
 /* SPDX-License-Identifier: MIT
  *
  * plat/host/include/t3d/t3danim.h — the host's <t3d/t3danim.h>.
- * Types only; every entry point aborts. See t3dskeleton.h for why that is the
- * right shape rather than a no-op.
+ *
+ * The clock is real and is Tiny3D's, line for line (t3danim.c:170-184): time
+ * advances by deltaTime * speed, wraps at duration, and stops a non-looping
+ * clip. The KEYFRAMES are not read — they live in a .sdata sidecar the host
+ * does not stream — so bones stay in their bind pose and t3d_anim_update says
+ * so once per clip. See t3dskeleton.h for why that split is where it is.
+ *
+ * t3d_anim_get_length reads animRef->duration, which the .t3dm parser refuses
+ * to accept as zero: fig_skel_set_phase divides by it.
  */
-#ifndef KILN_HOST_T3DANIM_H
-#define KILN_HOST_T3DANIM_H
+#ifndef FIG_HOST_T3DANIM_H
+#define FIG_HOST_T3DANIM_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -34,4 +41,4 @@ bool t3d_anim_is_playing(const T3DAnim *anim);
 static inline float t3d_anim_get_time(const T3DAnim *anim) { return anim->time; }
 static inline float t3d_anim_get_length(const T3DAnim *anim) { return anim->animRef->duration; }
 
-#endif /* KILN_HOST_T3DANIM_H */
+#endif /* FIG_HOST_T3DANIM_H */

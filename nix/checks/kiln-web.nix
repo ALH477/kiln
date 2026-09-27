@@ -22,7 +22,7 @@
 # survives a machine with no AudioContext — which is also every browser tab
 # before the user's first gesture. And the Kiln Studio bridge: the frame count
 # the launcher publishes matches the canvas's, a console command queued before
-# start is run by the real kiln_console (its log comes back holding `help`'s
+# start is run by the real fig_console (its log comes back holding `help`'s
 # output), and queued pad input reaches the pad the launcher pushes into the
 # engine. A second run with nothing queued must fail those assertions, so they
 # cannot pass on a launcher that never drains the queues.

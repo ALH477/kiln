@@ -19,7 +19,7 @@
 #
 # Order is load-bearing to the extent that `ar rcs` writes members in argument
 # order — keep appends at the end so an unrelated bump does not rewrite every
-# byte of libkiln.a.
+# byte of libfigulina.a.
 MODULES := \
 	kiln_engine kiln_gui kiln_actor kiln_room kiln_asset kiln_audio kiln_camera \
 	kiln_skel kiln_input kiln_clip kiln_dict kiln_map kiln_surface kiln_sound \
@@ -30,7 +30,7 @@ MODULES := \
 	kiln_board kiln_turn kiln_char kiln_widget kiln_save kiln_splash kiln_crater \
 	kiln_video kiln_debugdraw kiln_store kiln_voxel kiln_voxmesh kiln_camlint \
 	kiln_stream kiln_streamio kiln_prim kiln_pose \
-	kiln_soft3d kiln_radio kiln_sierp kiln_sdbfs
+	kiln_soft3d kiln_radio kiln_sierp kiln_sdbfs kiln_cull kiln_detail
 
 # ── Header-only modules ────────────────────────────────────────────────
 # Installed, but contributing no object. There is exactly one so far and it is
@@ -45,7 +45,12 @@ MODULES := \
 # still checked for being installed.
 # kiln_levelvocab is generated (tools/schema/level_vocab.py) and contributes no
 # object, same as kiln_camkey — it is macros only.
-HEADER_ONLY := kiln_camkey kiln_levelvocab
+# kiln_compat is the prefix migration train's shim (docs/NAMING.md section 9
+# step 2). It has no .c, and it must INSTALL, because kiln-inst.mk
+# force-includes it into every downstream build — a header-only module that
+# does not land is the one failure mode nix/engine.nix's installCheck exists
+# to catch. It leaves when the train ends (section 9 step 6).
+HEADER_ONLY := kiln_camkey kiln_levelvocab kiln_compat
 
 # ── The host tier ──────────────────────────────────────────────────────
 # The modules that compile NATIVELY, against plat/host/include's <libdragon.h>
@@ -87,7 +92,7 @@ HOST_MODULES := \
 	kiln_trigger kiln_turn kiln_twopass kiln_vanim kiln_voxel kiln_voxmesh \
 	kiln_weapon kiln_weapons \
 	kiln_widget kiln_prim kiln_pose \
-	kiln_soft3d kiln_radio kiln_sierp
+	kiln_soft3d kiln_radio kiln_sierp kiln_cull kiln_detail kiln_sdbfs
 
 # nix/engine.nix's installCheck and nix/checks/kiln-parity.nix ask make for
 # these rather than restating any list in Nix — which is exactly how the old

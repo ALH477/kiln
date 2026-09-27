@@ -30,7 +30,7 @@
 #include <libdragon.h>
 #include <kiln/kiln_actor.h>
 #include <kiln/kiln_gui.h>
-#include <kiln/kiln_input.h>   /* KILN_BTN_* button bits */
+#include <kiln/kiln_input.h>   /* FIG_BTN_* button bits */
 #include <kiln/kiln_prof.h>
 
 #include <stdarg.h>
@@ -91,7 +91,7 @@ static int  g_cmd_len;
 static int g_frame; /* cursor blink */
 
 #define CON_CMD_CAP 16
-static const KilnConsoleCmd *g_cmds[CON_CMD_CAP];
+static const FigConsoleCmd *g_cmds[CON_CMD_CAP];
 static size_t g_cmd_count;
 
 /* Uppercase labels — the debug font renders uppercase cleanly. The dispatcher
@@ -114,7 +114,7 @@ static void log_push(const char *s)
     if (g_log_count < CON_LOG_LINES) g_log_count++;
 }
 
-void kiln_console_log(const char *fmt, ...)
+void fig_console_log(const char *fmt, ...)
 {
     char line[CON_LOG_LEN];
     uint32_t elapsed = TICKS_SINCE(g_init_ticks);
@@ -138,10 +138,10 @@ void kiln_console_log(const char *fmt, ...)
 static void cmd_help(int argc, const char **argv)
 {
     (void)argc; (void)argv;
-    kiln_console_log("commands:");
-    kiln_console_log("  help  clear  exit");
+    fig_console_log("commands:");
+    fig_console_log("  help  clear  exit");
     for (size_t i = 0; i < g_cmd_count; i++)
-        kiln_console_log("  %s  %s", g_cmds[i]->name,
+        fig_console_log("  %s  %s", g_cmds[i]->name,
                         g_cmds[i]->help ? g_cmds[i]->help : "");
 }
 
@@ -155,33 +155,33 @@ static void cmd_exit(int argc, const char **argv)
 {
     (void)argc; (void)argv;
     g_open = false;
-    kiln_console_log("console closed");
+    fig_console_log("console closed");
 }
 
 static void cmd_actors(int argc, const char **argv)
 {
     (void)argc; (void)argv;
-    uint16_t total = kiln_actor_count(KILN_ACTOR_CATEGORY_COUNT);
-    if (total == 0 && kiln_actor_count(KILN_ACTOR_CAT_PLAYER) == 0) {
-        kiln_console_log("actors: not initialised");
+    uint16_t total = fig_actor_count(FIG_ACTOR_CATEGORY_COUNT);
+    if (total == 0 && fig_actor_count(FIG_ACTOR_CAT_PLAYER) == 0) {
+        fig_console_log("actors: not initialised");
         return;
     }
-    kiln_console_log("player %u  enemy %u  npc %u  prop %u  item %u  total %u",
-                    kiln_actor_count(KILN_ACTOR_CAT_PLAYER),
-                    kiln_actor_count(KILN_ACTOR_CAT_ENEMY),
-                    kiln_actor_count(KILN_ACTOR_CAT_NPC),
-                    kiln_actor_count(KILN_ACTOR_CAT_PROP),
-                    kiln_actor_count(KILN_ACTOR_CAT_ITEM),
+    fig_console_log("player %u  enemy %u  npc %u  prop %u  item %u  total %u",
+                    fig_actor_count(FIG_ACTOR_CAT_PLAYER),
+                    fig_actor_count(FIG_ACTOR_CAT_ENEMY),
+                    fig_actor_count(FIG_ACTOR_CAT_NPC),
+                    fig_actor_count(FIG_ACTOR_CAT_PROP),
+                    fig_actor_count(FIG_ACTOR_CAT_ITEM),
                     total);
 }
 
 static void cmd_prof(int argc, const char **argv)
 {
     (void)argc; (void)argv;
-    kiln_prof_print();
+    fig_prof_print();
 }
 
-static const KilnConsoleCmd BUILTIN[] = {
+static const FigConsoleCmd BUILTIN[] = {
     { "help",   "list commands",     cmd_help   },
     { "clear",  "clear the log",     cmd_clear  },
     { "exit",   "close the console", cmd_exit   },
@@ -223,12 +223,12 @@ static void dispatch(char *line)
             g_cmds[i]->fn(argc, argv);
             return;
         }
-    kiln_console_log("unknown: %s", argv[0]);
+    fig_console_log("unknown: %s", argv[0]);
 }
 
 /* ── Init / register ─────────────────────────────────────────────────── */
 
-void kiln_console_init(void)
+void fig_console_init(void)
 {
     g_log_count = 0; g_log_head = 0;
     g_open = false;
@@ -241,22 +241,22 @@ void kiln_console_init(void)
     g_init_ticks = TICKS_READ();
 }
 
-void kiln_console_register(const KilnConsoleCmd *cmds, size_t n)
+void fig_console_register(const FigConsoleCmd *cmds, size_t n)
 {
     for (size_t i = 0; i < n && g_cmd_count < CON_CMD_CAP; i++)
         g_cmds[g_cmd_count++] = &cmds[i];
 }
 
-bool kiln_console_is_open(void) { return g_open; }
+bool fig_console_is_open(void) { return g_open; }
 
-int kiln_console_tail_lines(void)
+int fig_console_tail_lines(void)
 {
     return g_log_count < CON_LOG_LINES ? g_log_count : CON_LOG_LINES;
 }
 
-const char *kiln_console_tail_line(int idx)
+const char *fig_console_tail_line(int idx)
 {
-    int n = kiln_console_tail_lines();
+    int n = fig_console_tail_lines();
     if (idx < 0 || idx >= n) return "";
     int start = (g_log_head - g_log_count + CON_LOG_LINES) % CON_LOG_LINES;
     int real = (start + idx) % CON_LOG_LINES;
@@ -265,26 +265,26 @@ const char *kiln_console_tail_line(int idx)
 
 /* ── Input: chord + keyboard ─────────────────────────────────────────── */
 
-static const uint32_t C_SEQ[4] = { KILN_BTN_CU, KILN_BTN_CL,
-                                   KILN_BTN_CD,  KILN_BTN_CR };
+static const uint32_t C_SEQ[4] = { FIG_BTN_CU, FIG_BTN_CL,
+                                   FIG_BTN_CD,  FIG_BTN_CR };
 
 static void poll_chord(uint32_t held, uint32_t pressed)
 {
     /* Start must be held throughout the chord. */
-    if (!(held & KILN_BTN_START)) {
+    if (!(held & FIG_BTN_START)) {
         g_chord_step = 0;
         return;
     }
     /* Any C-button press this frame. */
-    uint32_t c_any = pressed & (KILN_BTN_CU | KILN_BTN_CL
-                                | KILN_BTN_CD | KILN_BTN_CR);
+    uint32_t c_any = pressed & (FIG_BTN_CU | FIG_BTN_CL
+                                | FIG_BTN_CD | FIG_BTN_CR);
     if (!c_any) return;
 
     if (pressed & C_SEQ[g_chord_step]) {
         if (++g_chord_step == 4) {
             g_open = !g_open;
             g_chord_step = 0;
-            kiln_console_log(g_open ? "console open" : "console closed");
+            fig_console_log(g_open ? "console open" : "console closed");
         }
     } else {
         /* Wrong C button — restart. */
@@ -296,7 +296,7 @@ static void poll_stick(int stick_x, int stick_y)
 {
     /* Discrete stick navigation: move one cell when the stick crosses the
      * threshold in a direction it wasn't last frame. A 32-unit deadzone
-     * matches the engine's kiln_input default. */
+     * matches the engine's fig_input default. */
     int dx = 0, dy = 0;
     if (stick_x >  32) dx =  1;
     if (stick_x < -32) dx = -1;
@@ -335,13 +335,13 @@ static void type_cell(void)
 
 static void backspace(void) { if (g_cmd_len > 0) g_cmd_len--; }
 
-void kiln_console_exec(const char *line)
+void fig_console_exec(const char *line)
 {
     /* dispatch() tokenises in place, so it always gets a private copy. */
     char buf[CON_CMD_MAX];
     snprintf(buf, sizeof buf, "%s", line ? line : "");
     if (buf[0] == '\0') return;
-    kiln_console_log("> %s", buf);
+    fig_console_log("> %s", buf);
     dispatch(buf);
 }
 
@@ -350,17 +350,17 @@ static void submit(void)
     if (g_cmd_len == 0) return; /* empty submit is a no-op */
     g_cmd[g_cmd_len] = '\0';
     g_cmd_len = 0;
-    kiln_console_exec(g_cmd);
+    fig_console_exec(g_cmd);
 }
 
-void kiln_console_update(int port)
+void fig_console_update(int port)
 {
-    /* Through kiln_input, not the joypad. This read joypad_get_buttons and
-     * diffed its own edges, so a kiln_input tape — an attract mode, or a jump
+    /* Through fig_input, not the joypad. This read joypad_get_buttons and
+     * diffed its own edges, so a fig_input tape — an attract mode, or a jump
      * ROM entering the chord for a capture — could never open the console or
-     * type into it: scripted input stopped at kiln_input and the console never
-     * saw it. Every caller already runs kiln_input_update first each frame. */
-    const KilnInput *in = kiln_input_get(port <= 0 ? 1 : port);
+     * type into it: scripted input stopped at fig_input and the console never
+     * saw it. Every caller already runs fig_input_update first each frame. */
+    const FigInput *in = fig_input_get(port <= 0 ? 1 : port);
     const uint32_t held = in->buttons;
     const uint32_t pressed = in->edges;
 
@@ -369,9 +369,9 @@ void kiln_console_update(int port)
     if (!g_open) return;
 
     /* Keyboard input. A = type, B = backspace, Start = submit. */
-    if (pressed & KILN_BTN_A)  type_cell();
-    if (pressed & KILN_BTN_B)  backspace();
-    if (pressed & KILN_BTN_START) submit();
+    if (pressed & FIG_BTN_A)  type_cell();
+    if (pressed & FIG_BTN_B)  backspace();
+    if (pressed & FIG_BTN_START) submit();
 
     poll_stick((int)(in->stick_x * (float)JOYPAD_RANGE_N64_STICK_MAX),
                (int)(in->stick_y * (float)JOYPAD_RANGE_N64_STICK_MAX));
@@ -395,24 +395,24 @@ static const char *log_at(int from_bottom)
 static void draw_tail(void)
 {
     if (g_log_count == 0) return;
-    kiln_gui_panel(CON_TAIL_X, CON_TAIL_Y, CON_TAIL_W, CON_TAIL_H,
+    fig_gui_panel(CON_TAIL_X, CON_TAIL_Y, CON_TAIL_W, CON_TAIL_H,
                   C_FILL, C_BORDER);
     for (int i = 0; i < CON_TAIL_ROWS; i++) {
         const char *line = log_at(CON_TAIL_ROWS - 1 - i);
         if (line[0])
-            kiln_gui_text(CON_TAIL_X + 4, CON_TAIL_Y + 10 + i * 10,
+            fig_gui_text(CON_TAIL_X + 4, CON_TAIL_Y + 10 + i * 10,
                          C_TEXT, "%s", line);
     }
 }
 
 static void draw_log_panel(void)
 {
-    kiln_gui_panel(0, CON_PANEL_Y, CON_SCREEN_W, CON_PANEL_H, C_FILL, C_BORDER);
-    kiln_gui_text(8, CON_LOG_Y, C_ACCENT, "log");
+    fig_gui_panel(0, CON_PANEL_Y, CON_SCREEN_W, CON_PANEL_H, C_FILL, C_BORDER);
+    fig_gui_text(8, CON_LOG_Y, C_ACCENT, "log");
     for (int i = 0; i < CON_LOG_ROWS; i++) {
         const char *line = log_at(CON_LOG_ROWS - 1 - i);
         if (line[0])
-            kiln_gui_text(8, CON_LOG_Y + 12 + i * 10, C_TEXT, "%s", line);
+            fig_gui_text(8, CON_LOG_Y + 12 + i * 10, C_TEXT, "%s", line);
     }
 }
 
@@ -426,31 +426,31 @@ static void draw_keyboard(void)
             color_t fill = active ? C_CUR : C_FILL;
             color_t txt  = active ? C_FILL : C_TEXT;
             color_t border = active ? C_CUR : C_BORDER;
-            kiln_gui_panel(x, y, CON_KB_CELL_W - 2, CON_KB_CELL_H - 2,
+            fig_gui_panel(x, y, CON_KB_CELL_W - 2, CON_KB_CELL_H - 2,
                           fill, border);
             char label[2] = { KB_LABELS[r][c], '\0' };
-            kiln_gui_text(x + 8, y + 2, txt, "%s", label);
+            fig_gui_text(x + 8, y + 2, txt, "%s", label);
         }
     }
 }
 
 static void draw_cmdline(void)
 {
-    kiln_gui_text(8, CON_CMD_Y, C_ACCENT, ">");
+    fig_gui_text(8, CON_CMD_Y, C_ACCENT, ">");
     /* Render whatever's typed. The cursor blinks at the end of the line. */
     char buf[CON_CMD_MAX + 2];
     memcpy(buf, g_cmd, g_cmd_len);
     buf[g_cmd_len] = '\0';
-    kiln_gui_text(20, CON_CMD_Y, C_TEXT, "%s", buf);
+    fig_gui_text(20, CON_CMD_Y, C_TEXT, "%s", buf);
     if ((g_frame / 30) % 2 == 0) {
         int cx = 20 + g_cmd_len * 8;
-        kiln_gui_rect(cx, CON_CMD_Y, 8, 9, C_ACCENT);
+        fig_gui_rect(cx, CON_CMD_Y, 8, 9, C_ACCENT);
     }
-    kiln_gui_text(CON_SCREEN_W - 116, CON_CMD_Y, C_TEXT,
+    fig_gui_text(CON_SCREEN_W - 116, CON_CMD_Y, C_TEXT,
                  "A: type  B: bk  Start: send");
 }
 
-void kiln_console_draw(void)
+void fig_console_draw(void)
 {
     g_frame++;
     if (!g_open) {

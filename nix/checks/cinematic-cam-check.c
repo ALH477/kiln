@@ -6,10 +6,10 @@
  * models drawn into it, and every camera sat inside a model or a wall. That
  * built, linked and booted to a screen of flat colour. Finding it needed no
  * emulator: the cast's positions are pure functions of time (cine_script.h)
- * and the camera is a set of kiln_camkey tables (cine_shots.h), so both can be
+ * and the camera is a set of fig_camkey tables (cine_shots.h), so both can be
  * sampled here across the whole loop and compared.
  *
- *   camlint     kiln_camlint over every shot: no hard failures, no eye
+ *   camlint     fig_camlint over every shot: no hard failures, no eye
  *               outside the hangar, and shots that tile the loop exactly
  *   clearance   at every 1/30 s the flown eye stays clear of the walls, floor
  *               and ceiling, the ship, the pad, every actor (its box at any
@@ -146,7 +146,7 @@ static void bounds_line(const char *name, const CineBounds *b)
 int main(void)
 {
     const int n = CINE_SHOT_COUNT;
-    const KilnCamBounds room = { {{ -CINE_WALL_IN, CINE_FLOOR_Y, -CINE_WALL_IN }},
+    const FigCamBounds room = { {{ -CINE_WALL_IN, CINE_FLOOR_Y, -CINE_WALL_IN }},
                                  {{  CINE_WALL_IN, CINE_CEIL_Y,   CINE_WALL_IN }}, 1 };
 
     /* ── camlint, per shot, and the shots tile the loop ── */
@@ -156,16 +156,16 @@ int main(void)
         const float end = (i + 1 < n) ? CINE_SHOTS[i + 1].start : CINE_LOOP_T;
         CHECK(s->start + s->dur == end, "shot %d runs %.2f..%.2f but the next starts at %.2f",
               i, s->start, s->start + s->dur, end);
-        const KilnCamShot shot = { s->keys, s->n, s->dur, CINE_NEAR_Z, CINE_FAR_Z, 0 };
-        KilnCamReport rep;
-        const uint32_t err = kiln_camlint(&shot, &room, &rep);
+        const FigCamShot shot = { s->keys, s->n, s->dur, CINE_NEAR_Z, CINE_FAR_Z, 0 };
+        FigCamReport rep;
+        const uint32_t err = fig_camlint(&shot, &room, &rep);
         printf("shot %d %-14s err 0x%x note 0x%x overshoot %.2f speed %.1f..%.1f subject %.1f tail %.2f\n",
                i, s->title ? s->title : "(untitled)", (unsigned)err, (unsigned)rep.note,
                rep.overshoot, rep.speed_min, rep.speed_max, rep.subject_dist, rep.tail);
-        for (int b = 0; b < KILN_CAMLINT_ERR_COUNT; b++)
+        for (int b = 0; b < FIG_CAMLINT_ERR_COUNT; b++)
             CHECK(!(err & (1u << b)), "shot %d: camlint %s (key %d)", i,
-                  kiln_camlint_err_name(1u << b), rep.bad_key);
-        CHECK(!(rep.note & KILN_CAMLINT_NOTE_OUTSIDE), "shot %d: key %d's eye is outside the hangar",
+                  fig_camlint_err_name(1u << b), rep.bad_key);
+        CHECK(!(rep.note & FIG_CAMLINT_NOTE_OUTSIDE), "shot %d: key %d's eye is outside the hangar",
               i, rep.outside_key);
         CHECK(s->keys[s->n - 1].t == s->dur, "shot %d: its last key is not at its end, so it holds", i);
     }
@@ -178,10 +178,10 @@ int main(void)
 
     /* ── negative: the same flight must see an eye put inside the ship ── */
     CineShot broken_shots[16];
-    KilnCamKey broken_keys[16];
+    FigCamKey broken_keys[16];
     CHECK(n <= 16 && CINE_SHOTS[2].n <= 16, "tables too big for the negative copy");
     memcpy(broken_shots, CINE_SHOTS, sizeof(CineShot) * (size_t)n);
-    memcpy(broken_keys, CINE_SHOTS[2].keys, sizeof(KilnCamKey) * (size_t)CINE_SHOTS[2].n);
+    memcpy(broken_keys, CINE_SHOTS[2].keys, sizeof(FigCamKey) * (size_t)CINE_SHOTS[2].n);
     broken_keys[0].eye = (fm_vec3_t){{ 0.0f, cine_stand_y(&CINE_B_SHIP, CINE_PAD_TOP) + 2.0f, 0.0f }};
     broken_shots[2].keys = broken_keys;
     const Clear bad = fly(broken_shots, n, 0);

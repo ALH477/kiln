@@ -27,7 +27,7 @@ regenerate-and-diff shape nix/checks/kiln-font.nix uses.
     python3 tools/schema/level_vocab.py --emit-forge  Forge/src/forge_vocab.gen.h
     python3 tools/schema/level_vocab.py --emit-engine engine/src/kiln/kiln_levelvocab.h
 
-profile_id appears nowhere and must never appear: kiln_map_register_classname
+profile_id appears nowhere and must never appear: fig_map_register_classname
 is a per-GAME call binding a classname to that game's own actor profile enum.
 The schema owns the vocabulary; it does not own anyone's numbering.
 """
@@ -324,24 +324,24 @@ def emit_engine():
     out += [" * " + l for l in BANNER.split("\n")]
     out += [" *",
             " * Macros only, deliberately. The engine has no use for the classname",
-            " * strings -- kiln_map_register_classname is how a GAME binds one to its",
-            " * own profile id -- and a header that published both a KILN_LEVEL_* macro",
+            " * strings -- fig_map_register_classname is how a GAME binds one to its",
+            " * own profile id -- and a header that published both a FIG_LEVEL_* macro",
             " * set and a table would be two namespaces in one file. See CLAUDE.md:",
             ' * "a generated header is a namespace, not just a file".',
             " *",
-            " * KILN_LEVEL_MAX_FACES is brushes x 6, the way kiln_map.c always derived",
+            " * FIG_LEVEL_MAX_FACES is brushes x 6, the way kiln_map.c always derived",
             " * MAX_FACES; storing 1536 would be the same arithmetic written twice.",
             " */",
-            "#ifndef KILN_LEVELVOCAB_H", "#define KILN_LEVELVOCAB_H", "",
-            f"#define KILN_LEVEL_MAX_BRUSHES    {lim['brushes']}",
-            f"#define KILN_LEVEL_MAX_FACES      (KILN_LEVEL_MAX_BRUSHES * 6)",
-            f"#define KILN_LEVEL_MAX_SPAWNS     {lim['spawns']}",
-            f"#define KILN_LEVEL_MAX_CLASSNAMES {lim['classnames']}",
-            f"#define KILN_LEVEL_MAX_ENTITIES   {lim['entities']}",
-            f"#define KILN_LEVEL_MAX_COORD      {lim['coord']}",
-            f"#define KILN_LEVEL_MAX_BRUSH_PLANES {lim['brush_planes']}",
-            f"#define KILN_LEVEL_MAX_FACE_VERTS   {lim['face_verts']}", "",
-            "#endif /* KILN_LEVELVOCAB_H */", ""]
+            "#ifndef FIG_LEVELVOCAB_H", "#define FIG_LEVELVOCAB_H", "",
+            f"#define FIG_LEVEL_MAX_BRUSHES    {lim['brushes']}",
+            f"#define FIG_LEVEL_MAX_FACES      (FIG_LEVEL_MAX_BRUSHES * 6)",
+            f"#define FIG_LEVEL_MAX_SPAWNS     {lim['spawns']}",
+            f"#define FIG_LEVEL_MAX_CLASSNAMES {lim['classnames']}",
+            f"#define FIG_LEVEL_MAX_ENTITIES   {lim['entities']}",
+            f"#define FIG_LEVEL_MAX_COORD      {lim['coord']}",
+            f"#define FIG_LEVEL_MAX_BRUSH_PLANES {lim['brush_planes']}",
+            f"#define FIG_LEVEL_MAX_FACE_VERTS   {lim['face_verts']}", "",
+            "#endif /* FIG_LEVELVOCAB_H */", ""]
     return "\n".join(out)
 
 

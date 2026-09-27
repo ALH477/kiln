@@ -40,7 +40,7 @@ static int chunk(FILE *f, const char *tag, const uint8_t *data, uint32_t len)
     return fwrite(crcb, 1, 4, f) == 4 ? 0 : -1;
 }
 
-int kiln_host_write_png(const char *path, const uint8_t *rgba, int w, int h)
+int fig_host_write_png(const char *path, const uint8_t *rgba, int w, int h)
 {
     if (w <= 0 || h <= 0) return -1;
 

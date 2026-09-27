@@ -3,10 +3,10 @@
 # nix/checks/kiln-widget.nix — the widget screens still render, and render the
 # same.
 #
-# tools/uipreview draws kiln_widget's real screens on the host so a UI whose
+# tools/uipreview draws fig_widget's real screens on the host so a UI whose
 # brief is "off-kilter" can actually be looked at. Nothing verified it, so it
 # could rot silently — and it very nearly did something worse than rot: until
-# it was moved onto plat/host it implemented kiln_gui's primitives ITSELF, and
+# it was moved onto plat/host it implemented fig_gui's primitives ITSELF, and
 # disagreed with the real ones about panel edge order, bar inset, and whether
 # alpha blends at all. See tools/uipreview/uipreview.c's header.
 #
@@ -15,8 +15,8 @@
 # makes a design change show up as a reviewable diff rather than as a thing
 # somebody notices later.
 #
-# kiln_widget is the only module in HOST_MODULES that compiles but has no
-# assertions in kiln-logic (it calls into kiln_gui, so it cannot be linked
+# fig_widget is the only module in HOST_MODULES that compiles but has no
+# assertions in kiln-logic (it calls into fig_gui, so it cannot be linked
 # standalone there). This is its coverage.
 #
 # ── One body, every architecture ───────────────────────────────────────
@@ -29,7 +29,7 @@ target.mkCheck {
   pname = "uipreview";
   sources = [ "${uipreviewSrc}/uipreview.c" ];
   args = "ui";
-  meta.description = "kiln_widget's screens render byte-identically to their references";
+  meta.description = "fig_widget's screens render byte-identically to their references";
   script = ''
     fail=0
     for s in title select results hud title-plain; do

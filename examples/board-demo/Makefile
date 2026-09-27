@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# board-demo: kiln_rng + kiln_dice + kiln_board + kiln_turn end-to-end proof.
+# board-demo: fig_rng + fig_dice + fig_board + fig_turn end-to-end proof.
 # Four tokens advance around a branching graph by die rolls, taking turns
 # across rounds. No 3D, no assets — the proof is the topology + state
 # machine, not rendering.

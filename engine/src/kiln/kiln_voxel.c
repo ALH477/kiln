@@ -17,15 +17,15 @@
 
 /* ── Indexing ──────────────────────────────────────────────────────────*/
 
-#define GI(cx, cy, cz) (((cz) * KILN_VOXEL_GRID_Y + (cy)) * KILN_VOXEL_GRID_X + (cx))
-#define BI(x, y, z)    (((z) * KILN_VOXEL_CHUNK + (y)) * KILN_VOXEL_CHUNK + (x))
+#define GI(cx, cy, cz) (((cz) * FIG_VOXEL_GRID_Y + (cy)) * FIG_VOXEL_GRID_X + (cx))
+#define BI(x, y, z)    (((z) * FIG_VOXEL_CHUNK + (y)) * FIG_VOXEL_CHUNK + (x))
 
-/* Face tables. ONE definition, exported through kiln_voxel_dir_axes, because the
+/* Face tables. ONE definition, exported through fig_voxel_dir_axes, because the
  * mesher, the vertex packer and the .map emitter all have to agree about which
  * axis a quad's `w` runs along and three copies would be three chances to
  * disagree — the failure being a wall whose texture is rotated, or a brush that
  * is inside out. Axis order is u, v, normal. */
-static const int DIR_AXES[KILN_VOXEL_DIRS][3] = {
+static const int DIR_AXES[FIG_VOXEL_DIRS][3] = {
     /* XP */ { 2, 1, 0 },   /* u = z, v = y, n = x */
     /* XN */ { 2, 1, 0 },
     /* YP */ { 0, 2, 1 },   /* u = x, v = z, n = y */
@@ -33,33 +33,33 @@ static const int DIR_AXES[KILN_VOXEL_DIRS][3] = {
     /* ZP */ { 0, 1, 2 },   /* u = x, v = y, n = z */
     /* ZN */ { 0, 1, 2 },
 };
-static const int DIR_SIGN[KILN_VOXEL_DIRS] = { +1, -1, +1, -1, +1, -1 };
+static const int DIR_SIGN[FIG_VOXEL_DIRS] = { +1, -1, +1, -1, +1, -1 };
 
-void kiln_voxel_dir_axes(uint8_t dir, int axes[3], int *sign)
+void fig_voxel_dir_axes(uint8_t dir, int axes[3], int *sign)
 {
-    if (dir >= KILN_VOXEL_DIRS) dir = 0;
+    if (dir >= FIG_VOXEL_DIRS) dir = 0;
     axes[0] = DIR_AXES[dir][0];
     axes[1] = DIR_AXES[dir][1];
     axes[2] = DIR_AXES[dir][2];
     if (sign) *sign = DIR_SIGN[dir];
 }
 
-int kiln_voxel_in_bounds(int x, int y, int z)
+int fig_voxel_in_bounds(int x, int y, int z)
 {
     return x >= 0 && y >= 0 && z >= 0 &&
-           x < KILN_VOXEL_DIM_X && y < KILN_VOXEL_DIM_Y && z < KILN_VOXEL_DIM_Z;
+           x < FIG_VOXEL_DIM_X && y < FIG_VOXEL_DIM_Y && z < FIG_VOXEL_DIM_Z;
 }
 
-void kiln_voxel_clear(KilnVoxelWorld *w)
+void fig_voxel_clear(FigVoxelWorld *w)
 {
     /* memset over the whole struct rather than a per-field reset: `index` is
      * slot+1 so all-zero IS the valid empty state, and a chunk's contents are
      * unreachable while its index entry is 0. That identity is the reason the
-     * +1 is there at all (see the header's note about kiln_cache's handle 0). */
+     * +1 is there at all (see the header's note about fig_cache's handle 0). */
     memset(w, 0, sizeof *w);
 }
 
-static const KilnVoxelChunk *chunk_at(const KilnVoxelWorld *w, int cx, int cy, int cz)
+static const FigVoxelChunk *chunk_at(const FigVoxelWorld *w, int cx, int cy, int cz)
 {
     uint16_t e = w->index[GI(cx, cy, cz)];
     return e ? &w->chunks[e - 1] : NULL;
@@ -70,32 +70,32 @@ static const KilnVoxelChunk *chunk_at(const KilnVoxelWorld *w, int cx, int cy, i
  * off the front of the struct that happens to land in `chunks` — it would
  * "work" for years and corrupt a block. The caller passes neighbours that may
  * be off the grid by construction, so the guard belongs on this side. */
-static void mark_dirty(KilnVoxelWorld *w, int cx, int cy, int cz)
+static void mark_dirty(FigVoxelWorld *w, int cx, int cy, int cz)
 {
     if (cx < 0 || cy < 0 || cz < 0) return;
-    if (cx >= KILN_VOXEL_GRID_X || cy >= KILN_VOXEL_GRID_Y || cz >= KILN_VOXEL_GRID_Z)
+    if (cx >= FIG_VOXEL_GRID_X || cy >= FIG_VOXEL_GRID_Y || cz >= FIG_VOXEL_GRID_Z)
         return;
     uint16_t e = w->index[GI(cx, cy, cz)];
     if (e) w->chunks[e - 1].dirty = 1;
 }
 
-uint8_t kiln_voxel_get(const KilnVoxelWorld *w, int x, int y, int z)
+uint8_t fig_voxel_get(const FigVoxelWorld *w, int x, int y, int z)
 {
-    if (!kiln_voxel_in_bounds(x, y, z)) return KILN_VOXEL_AIR;
-    const KilnVoxelChunk *c = chunk_at(w, x / KILN_VOXEL_CHUNK,
-                                        y / KILN_VOXEL_CHUNK,
-                                        z / KILN_VOXEL_CHUNK);
-    if (!c) return KILN_VOXEL_AIR;
-    return c->blocks[BI(x % KILN_VOXEL_CHUNK, y % KILN_VOXEL_CHUNK,
-                        z % KILN_VOXEL_CHUNK)];
+    if (!fig_voxel_in_bounds(x, y, z)) return FIG_VOXEL_AIR;
+    const FigVoxelChunk *c = chunk_at(w, x / FIG_VOXEL_CHUNK,
+                                        y / FIG_VOXEL_CHUNK,
+                                        z / FIG_VOXEL_CHUNK);
+    if (!c) return FIG_VOXEL_AIR;
+    return c->blocks[BI(x % FIG_VOXEL_CHUNK, y % FIG_VOXEL_CHUNK,
+                        z % FIG_VOXEL_CHUNK)];
 }
 
-int kiln_voxel_set(KilnVoxelWorld *w, int x, int y, int z, uint8_t block)
+int fig_voxel_set(FigVoxelWorld *w, int x, int y, int z, uint8_t block)
 {
-    if (!kiln_voxel_in_bounds(x, y, z)) return 0;
-    if (block > KILN_VOXEL_TYPE_MAX) return KILN_VOXEL_ETYPE;
+    if (!fig_voxel_in_bounds(x, y, z)) return 0;
+    if (block > FIG_VOXEL_TYPE_MAX) return FIG_VOXEL_ETYPE;
 
-    int cx = x / KILN_VOXEL_CHUNK, cy = y / KILN_VOXEL_CHUNK, cz = z / KILN_VOXEL_CHUNK;
+    int cx = x / FIG_VOXEL_CHUNK, cy = y / FIG_VOXEL_CHUNK, cz = z / FIG_VOXEL_CHUNK;
     int gi = GI(cx, cy, cz);
     uint16_t e = w->index[gi];
 
@@ -103,13 +103,13 @@ int kiln_voxel_set(KilnVoxelWorld *w, int x, int y, int z, uint8_t block)
         /* Clearing air out of a chunk that does not exist is not an error and
          * must not allocate — otherwise a break aimed at the sky costs a chunk
          * slot, and the slot budget is the scarce thing here. */
-        if (block == KILN_VOXEL_AIR) return 0;
+        if (block == FIG_VOXEL_AIR) return 0;
         int slot = -1;
-        for (int i = 0; i < KILN_VOXEL_MAX_CHUNKS; i++)
+        for (int i = 0; i < FIG_VOXEL_MAX_CHUNKS; i++)
             if (!w->used[i]) { slot = i; break; }
-        if (slot < 0) return KILN_VOXEL_EFULL;
+        if (slot < 0) return FIG_VOXEL_EFULL;
         w->used[slot] = 1;
-        KilnVoxelChunk *nc = &w->chunks[slot];
+        FigVoxelChunk *nc = &w->chunks[slot];
         memset(nc, 0, sizeof *nc);
         nc->cx = (uint8_t)cx; nc->cy = (uint8_t)cy; nc->cz = (uint8_t)cz;
         w->index[gi] = (uint16_t)(slot + 1);
@@ -117,14 +117,14 @@ int kiln_voxel_set(KilnVoxelWorld *w, int x, int y, int z, uint8_t block)
         e = (uint16_t)(slot + 1);
     }
 
-    KilnVoxelChunk *c = &w->chunks[e - 1];
-    int bi = BI(x % KILN_VOXEL_CHUNK, y % KILN_VOXEL_CHUNK, z % KILN_VOXEL_CHUNK);
+    FigVoxelChunk *c = &w->chunks[e - 1];
+    int bi = BI(x % FIG_VOXEL_CHUNK, y % FIG_VOXEL_CHUNK, z % FIG_VOXEL_CHUNK);
     uint8_t old = c->blocks[bi];
     if (old == block) return 0;
 
     c->blocks[bi] = block;
-    if (old == KILN_VOXEL_AIR) c->solid++;
-    else if (block == KILN_VOXEL_AIR) c->solid--;
+    if (old == FIG_VOXEL_AIR) c->solid++;
+    else if (block == FIG_VOXEL_AIR) c->solid--;
     c->dirty = 1;
 
     /* A neighbouring chunk's surface changes when a block on this side of the
@@ -133,13 +133,13 @@ int kiln_voxel_set(KilnVoxelWorld *w, int x, int y, int z, uint8_t block)
      * is right, the mesh next door still has a face where air now is. Only the
      * faces on the chunk boundary can be affected, so only those neighbours are
      * touched. */
-    int lx = x % KILN_VOXEL_CHUNK, ly = y % KILN_VOXEL_CHUNK, lz = z % KILN_VOXEL_CHUNK;
+    int lx = x % FIG_VOXEL_CHUNK, ly = y % FIG_VOXEL_CHUNK, lz = z % FIG_VOXEL_CHUNK;
     if (lx == 0)                   mark_dirty(w, cx - 1, cy, cz);
-    if (lx == KILN_VOXEL_CHUNK - 1) mark_dirty(w, cx + 1, cy, cz);
+    if (lx == FIG_VOXEL_CHUNK - 1) mark_dirty(w, cx + 1, cy, cz);
     if (ly == 0)                   mark_dirty(w, cx, cy - 1, cz);
-    if (ly == KILN_VOXEL_CHUNK - 1) mark_dirty(w, cx, cy + 1, cz);
+    if (ly == FIG_VOXEL_CHUNK - 1) mark_dirty(w, cx, cy + 1, cz);
     if (lz == 0)                   mark_dirty(w, cx, cy, cz - 1);
-    if (lz == KILN_VOXEL_CHUNK - 1) mark_dirty(w, cx, cy, cz + 1);
+    if (lz == FIG_VOXEL_CHUNK - 1) mark_dirty(w, cx, cy, cz + 1);
 
     /* Release an emptied chunk. Without this, hollowing out a room leaves its
      * chunks resident forever and the 24-slot budget is spent on air. */
@@ -151,10 +151,10 @@ int kiln_voxel_set(KilnVoxelWorld *w, int x, int y, int z, uint8_t block)
     return 0;
 }
 
-int kiln_voxel_fill(KilnVoxelWorld *w, int x0, int y0, int z0,
+int fig_voxel_fill(FigVoxelWorld *w, int x0, int y0, int z0,
                    int x1, int y1, int z1, uint8_t block)
 {
-    if (block > KILN_VOXEL_TYPE_MAX) return KILN_VOXEL_ETYPE;
+    if (block > FIG_VOXEL_TYPE_MAX) return FIG_VOXEL_ETYPE;
     /* Accept the corners in any order — a drag selection has no reason to run
      * in +X+Y+Z, and a caller that has to sort them first will eventually
      * forget to. */
@@ -166,52 +166,52 @@ int kiln_voxel_fill(KilnVoxelWorld *w, int x0, int y0, int z0,
     for (int z = z0; z <= z1; z++)
         for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++) {
-                if (!kiln_voxel_in_bounds(x, y, z)) continue;
-                if (kiln_voxel_get(w, x, y, z) == block) continue;
-                int st = kiln_voxel_set(w, x, y, z, block);
-                if (st == KILN_VOXEL_EFULL) return KILN_VOXEL_EFULL;
+                if (!fig_voxel_in_bounds(x, y, z)) continue;
+                if (fig_voxel_get(w, x, y, z) == block) continue;
+                int st = fig_voxel_set(w, x, y, z, block);
+                if (st == FIG_VOXEL_EFULL) return FIG_VOXEL_EFULL;
                 changed++;
             }
     return changed;
 }
 
-int kiln_voxel_chunk_count(const KilnVoxelWorld *w) { return w->chunk_count; }
+int fig_voxel_chunk_count(const FigVoxelWorld *w) { return w->chunk_count; }
 
-uint32_t kiln_voxel_solid_count(const KilnVoxelWorld *w)
+uint32_t fig_voxel_solid_count(const FigVoxelWorld *w)
 {
     uint32_t n = 0;
-    for (int i = 0; i < KILN_VOXEL_MAX_CHUNKS; i++)
+    for (int i = 0; i < FIG_VOXEL_MAX_CHUNKS; i++)
         if (w->used[i]) n += w->chunks[i].solid;
     return n;
 }
 
-int kiln_voxel_slot_first(const KilnVoxelWorld *w)
+int fig_voxel_slot_first(const FigVoxelWorld *w)
 {
-    for (int i = 0; i < KILN_VOXEL_MAX_CHUNKS; i++) if (w->used[i]) return i;
+    for (int i = 0; i < FIG_VOXEL_MAX_CHUNKS; i++) if (w->used[i]) return i;
     return -1;
 }
 
-int kiln_voxel_slot_next(const KilnVoxelWorld *w, int slot)
+int fig_voxel_slot_next(const FigVoxelWorld *w, int slot)
 {
-    for (int i = slot + 1; i < KILN_VOXEL_MAX_CHUNKS; i++) if (w->used[i]) return i;
+    for (int i = slot + 1; i < FIG_VOXEL_MAX_CHUNKS; i++) if (w->used[i]) return i;
     return -1;
 }
 
-int kiln_voxel_bounds(const KilnVoxelWorld *w, int mins[3], int maxs[3])
+int fig_voxel_bounds(const FigVoxelWorld *w, int mins[3], int maxs[3])
 {
-    int lo[3] = { KILN_VOXEL_DIM_X, KILN_VOXEL_DIM_Y, KILN_VOXEL_DIM_Z };
+    int lo[3] = { FIG_VOXEL_DIM_X, FIG_VOXEL_DIM_Y, FIG_VOXEL_DIM_Z };
     int hi[3] = { -1, -1, -1 };
     int any = 0;
 
-    for (int s = kiln_voxel_slot_first(w); s >= 0; s = kiln_voxel_slot_next(w, s)) {
-        const KilnVoxelChunk *c = &w->chunks[s];
-        int ox = c->cx * KILN_VOXEL_CHUNK;
-        int oy = c->cy * KILN_VOXEL_CHUNK;
-        int oz = c->cz * KILN_VOXEL_CHUNK;
-        for (int z = 0; z < KILN_VOXEL_CHUNK; z++)
-            for (int y = 0; y < KILN_VOXEL_CHUNK; y++)
-                for (int x = 0; x < KILN_VOXEL_CHUNK; x++) {
-                    if (c->blocks[BI(x, y, z)] == KILN_VOXEL_AIR) continue;
+    for (int s = fig_voxel_slot_first(w); s >= 0; s = fig_voxel_slot_next(w, s)) {
+        const FigVoxelChunk *c = &w->chunks[s];
+        int ox = c->cx * FIG_VOXEL_CHUNK;
+        int oy = c->cy * FIG_VOXEL_CHUNK;
+        int oz = c->cz * FIG_VOXEL_CHUNK;
+        for (int z = 0; z < FIG_VOXEL_CHUNK; z++)
+            for (int y = 0; y < FIG_VOXEL_CHUNK; y++)
+                for (int x = 0; x < FIG_VOXEL_CHUNK; x++) {
+                    if (c->blocks[BI(x, y, z)] == FIG_VOXEL_AIR) continue;
                     int p[3] = { ox + x, oy + y, oz + z };
                     for (int a = 0; a < 3; a++) {
                         if (p[a] < lo[a]) lo[a] = p[a];
@@ -228,12 +228,12 @@ int kiln_voxel_bounds(const KilnVoxelWorld *w, int mins[3], int maxs[3])
 
 /* ── Raycast: Amanatides-Woo DDA ───────────────────────────────────────*/
 
-int kiln_voxel_raycast(const KilnVoxelWorld *w, const fm_vec3_t *origin,
-                      const fm_vec3_t *dir, float max_dist, KilnVoxelHit *out)
+int fig_voxel_raycast(const FigVoxelWorld *w, const fm_vec3_t *origin,
+                      const fm_vec3_t *dir, float max_dist, FigVoxelHit *out)
 {
     if (out) memset(out, 0, sizeof *out);
 
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
     /* Into block space, so the DDA works in unit cells and the only place the
      * block size appears is here and at the end. */
     float o[3], d[3];
@@ -272,14 +272,14 @@ int kiln_voxel_raycast(const KilnVoxelWorld *w, const fm_vec3_t *origin,
      * behind the ray. A caller that wants "the first block I am NOT in" can
      * check hit.dist == 0; silently skipping it would make a block placed on
      * top of the camera unbreakable. */
-    if (kiln_voxel_get(w, cell[0], cell[1], cell[2]) != KILN_VOXEL_AIR) {
+    if (fig_voxel_get(w, cell[0], cell[1], cell[2]) != FIG_VOXEL_AIR) {
         if (out) {
             out->hit = 1;
             out->x = cell[0]; out->y = cell[1]; out->z = cell[2];
             out->px = cell[0]; out->py = cell[1]; out->pz = cell[2];
-            out->block = kiln_voxel_get(w, cell[0], cell[1], cell[2]);
+            out->block = fig_voxel_get(w, cell[0], cell[1], cell[2]);
             out->dist = 0.0f;
-            out->dir = KILN_VOXEL_YP;
+            out->dir = FIG_VOXEL_YP;
             out->ny = 1;
         }
         return 1;
@@ -309,13 +309,13 @@ int kiln_voxel_raycast(const KilnVoxelWorld *w, const fm_vec3_t *origin,
          * ray missed. The whole reticle read "aim -" with a room filling the
          * screen — a failure that looks like the camera being wrong, or the
          * world being empty, and is neither. */
-        static const int DIM[3] = { KILN_VOXEL_DIM_X, KILN_VOXEL_DIM_Y, KILN_VOXEL_DIM_Z };
+        static const int DIM[3] = { FIG_VOXEL_DIM_X, FIG_VOXEL_DIM_Y, FIG_VOXEL_DIM_Z };
         if ((step[axis] > 0 && cell[axis] >= DIM[axis]) ||
             (step[axis] < 0 && cell[axis] < 0))
             return 0;
 
-        uint8_t b = kiln_voxel_get(w, cell[0], cell[1], cell[2]);
-        if (b == KILN_VOXEL_AIR) continue;
+        uint8_t b = fig_voxel_get(w, cell[0], cell[1], cell[2]);
+        if (b == FIG_VOXEL_AIR) continue;
 
         if (out) {
             out->hit = 1;
@@ -327,9 +327,9 @@ int kiln_voxel_raycast(const KilnVoxelWorld *w, const fm_vec3_t *origin,
              * from the normal is what makes it impossible to get the sign
              * backwards — the classic "blocks appear inside the wall" bug. */
             out->px = cell[0]; out->py = cell[1]; out->pz = cell[2];
-            if (axis == 0) { out->px -= step[0]; out->nx = -step[0]; out->dir = step[0] > 0 ? KILN_VOXEL_XN : KILN_VOXEL_XP; }
-            if (axis == 1) { out->py -= step[1]; out->ny = -step[1]; out->dir = step[1] > 0 ? KILN_VOXEL_YN : KILN_VOXEL_YP; }
-            if (axis == 2) { out->pz -= step[2]; out->nz = -step[2]; out->dir = step[2] > 0 ? KILN_VOXEL_ZN : KILN_VOXEL_ZP; }
+            if (axis == 0) { out->px -= step[0]; out->nx = -step[0]; out->dir = step[0] > 0 ? FIG_VOXEL_XN : FIG_VOXEL_XP; }
+            if (axis == 1) { out->py -= step[1]; out->ny = -step[1]; out->dir = step[1] > 0 ? FIG_VOXEL_YN : FIG_VOXEL_YP; }
+            if (axis == 2) { out->pz -= step[2]; out->nz = -step[2]; out->dir = step[2] > 0 ? FIG_VOXEL_ZN : FIG_VOXEL_ZP; }
         }
         return 1;
     }
@@ -363,39 +363,39 @@ int kiln_voxel_raycast(const KilnVoxelWorld *w, const fm_vec3_t *origin,
  * A claim bitmap over the whole grid would be 256*64*256/8 = 512 KB, which is
  * not available. So it is per-chunk and boxes never cross a chunk boundary. That
  * costs some brushes on a long wall (one per 16 blocks) and buys a 512-byte
- * bitmap; at kiln_map's 256-brush ceiling the trade still leaves room for a
+ * bitmap; at fig_map's 256-brush ceiling the trade still leaves room for a
  * 4096-block room, and the alternative is a data structure that does not fit.
  */
-int kiln_voxel_boxes(const KilnVoxelWorld *w, KilnBrush *out, uint16_t cap,
+int fig_voxel_boxes(const FigVoxelWorld *w, FigBrush *out, uint16_t cap,
                     const uint8_t *surface_of)
 {
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
     uint32_t written = 0, needed = 0;
-    uint8_t claimed[KILN_VOXEL_CHUNK_BLOCKS];
+    uint8_t claimed[FIG_VOXEL_CHUNK_BLOCKS];
 
-    for (int s = kiln_voxel_slot_first(w); s >= 0; s = kiln_voxel_slot_next(w, s)) {
-        const KilnVoxelChunk *c = &w->chunks[s];
+    for (int s = fig_voxel_slot_first(w); s >= 0; s = fig_voxel_slot_next(w, s)) {
+        const FigVoxelChunk *c = &w->chunks[s];
         memset(claimed, 0, sizeof claimed);
-        int ox = c->cx * KILN_VOXEL_CHUNK;
-        int oy = c->cy * KILN_VOXEL_CHUNK;
-        int oz = c->cz * KILN_VOXEL_CHUNK;
+        int ox = c->cx * FIG_VOXEL_CHUNK;
+        int oy = c->cy * FIG_VOXEL_CHUNK;
+        int oz = c->cz * FIG_VOXEL_CHUNK;
 
-        for (int y = 0; y < KILN_VOXEL_CHUNK; y++)
-        for (int z = 0; z < KILN_VOXEL_CHUNK; z++)
-        for (int x = 0; x < KILN_VOXEL_CHUNK; x++) {
+        for (int y = 0; y < FIG_VOXEL_CHUNK; y++)
+        for (int z = 0; z < FIG_VOXEL_CHUNK; z++)
+        for (int x = 0; x < FIG_VOXEL_CHUNK; x++) {
             int bi = BI(x, y, z);
             uint8_t t = c->blocks[bi];
-            if (t == KILN_VOXEL_AIR || claimed[bi]) continue;
+            if (t == FIG_VOXEL_AIR || claimed[bi]) continue;
 
             int wx = 1;
-            while (x + wx < KILN_VOXEL_CHUNK) {
+            while (x + wx < FIG_VOXEL_CHUNK) {
                 int j = BI(x + wx, y, z);
                 if (c->blocks[j] != t || claimed[j]) break;
                 wx++;
             }
 
             int wz = 1;
-            while (z + wz < KILN_VOXEL_CHUNK) {
+            while (z + wz < FIG_VOXEL_CHUNK) {
                 int ok = 1;
                 for (int i = 0; i < wx && ok; i++) {
                     int j = BI(x + i, y, z + wz);
@@ -406,7 +406,7 @@ int kiln_voxel_boxes(const KilnVoxelWorld *w, KilnBrush *out, uint16_t cap,
             }
 
             int wy = 1;
-            while (y + wy < KILN_VOXEL_CHUNK) {
+            while (y + wy < FIG_VOXEL_CHUNK) {
                 int ok = 1;
                 for (int k = 0; k < wz && ok; k++)
                     for (int i = 0; i < wx && ok; i++) {
@@ -424,7 +424,7 @@ int kiln_voxel_boxes(const KilnVoxelWorld *w, KilnBrush *out, uint16_t cap,
 
             needed++;
             if (out && written < cap) {
-                KilnBrush *br = &out[written];
+                FigBrush *br = &out[written];
                 br->mins.v[0] = w->offset.v[0] + (float)(ox + x) * B;
                 br->mins.v[1] = w->offset.v[1] + (float)(oy + y) * B;
                 br->mins.v[2] = w->offset.v[2] + (float)(oz + z) * B;
@@ -448,54 +448,54 @@ int kiln_voxel_boxes(const KilnVoxelWorld *w, KilnBrush *out, uint16_t cap,
  * The standard greedy surface mesher, one 2D pass per face direction over the
  * chunk's 16 slices along that direction's normal axis. A face exists where the
  * block is solid and its neighbour along the normal is air — and the neighbour
- * is fetched through kiln_voxel_get on WORLD coordinates, which is what makes a
+ * is fetched through fig_voxel_get on WORLD coordinates, which is what makes a
  * chunk seam invisible. Meshing a chunk against its own array instead treats
  * the chunk boundary as air and welds a wall across every seam; that reads as
  * "the level is made of boxes", which would in fact be true.
  */
-int kiln_voxel_quads(const KilnVoxelWorld *w, int slot,
-                    KilnVoxelQuad *out, uint32_t cap)
+int fig_voxel_quads(const FigVoxelWorld *w, int slot,
+                    FigVoxelQuad *out, uint32_t cap)
 {
-    if (slot < 0 || slot >= KILN_VOXEL_MAX_CHUNKS || !w->used[slot]) return 0;
-    const KilnVoxelChunk *c = &w->chunks[slot];
-    const int org[3] = { c->cx * KILN_VOXEL_CHUNK,
-                         c->cy * KILN_VOXEL_CHUNK,
-                         c->cz * KILN_VOXEL_CHUNK };
+    if (slot < 0 || slot >= FIG_VOXEL_MAX_CHUNKS || !w->used[slot]) return 0;
+    const FigVoxelChunk *c = &w->chunks[slot];
+    const int org[3] = { c->cx * FIG_VOXEL_CHUNK,
+                         c->cy * FIG_VOXEL_CHUNK,
+                         c->cz * FIG_VOXEL_CHUNK };
 
     uint32_t written = 0, needed = 0;
     /* mask[v][u] holds the block type whose face is exposed here, 0 for none. */
-    uint8_t mask[KILN_VOXEL_CHUNK][KILN_VOXEL_CHUNK];
+    uint8_t mask[FIG_VOXEL_CHUNK][FIG_VOXEL_CHUNK];
 
-    for (uint8_t dir = 0; dir < KILN_VOXEL_DIRS; dir++) {
+    for (uint8_t dir = 0; dir < FIG_VOXEL_DIRS; dir++) {
         const int au = DIR_AXES[dir][0], av = DIR_AXES[dir][1], an = DIR_AXES[dir][2];
         const int sgn = DIR_SIGN[dir];
 
-        for (int n = 0; n < KILN_VOXEL_CHUNK; n++) {
+        for (int n = 0; n < FIG_VOXEL_CHUNK; n++) {
             memset(mask, 0, sizeof mask);
 
-            for (int v = 0; v < KILN_VOXEL_CHUNK; v++)
-            for (int u = 0; u < KILN_VOXEL_CHUNK; u++) {
+            for (int v = 0; v < FIG_VOXEL_CHUNK; v++)
+            for (int u = 0; u < FIG_VOXEL_CHUNK; u++) {
                 int local[3];
                 local[au] = u; local[av] = v; local[an] = n;
                 uint8_t here = c->blocks[BI(local[0], local[1], local[2])];
-                if (here == KILN_VOXEL_AIR) continue;
+                if (here == FIG_VOXEL_AIR) continue;
 
                 int nb[3] = { org[0] + local[0], org[1] + local[1], org[2] + local[2] };
                 nb[an] += sgn;
-                if (kiln_voxel_get(w, nb[0], nb[1], nb[2]) != KILN_VOXEL_AIR) continue;
+                if (fig_voxel_get(w, nb[0], nb[1], nb[2]) != FIG_VOXEL_AIR) continue;
                 mask[v][u] = here;
             }
 
-            for (int v = 0; v < KILN_VOXEL_CHUNK; v++)
-            for (int u = 0; u < KILN_VOXEL_CHUNK; u++) {
+            for (int v = 0; v < FIG_VOXEL_CHUNK; v++)
+            for (int u = 0; u < FIG_VOXEL_CHUNK; u++) {
                 uint8_t t = mask[v][u];
                 if (!t) continue;
 
                 int qw = 1;
-                while (u + qw < KILN_VOXEL_CHUNK && mask[v][u + qw] == t) qw++;
+                while (u + qw < FIG_VOXEL_CHUNK && mask[v][u + qw] == t) qw++;
 
                 int qh = 1;
-                while (v + qh < KILN_VOXEL_CHUNK) {
+                while (v + qh < FIG_VOXEL_CHUNK) {
                     int ok = 1;
                     for (int i = 0; i < qw && ok; i++)
                         if (mask[v + qh][u + i] != t) ok = 0;
@@ -511,7 +511,7 @@ int kiln_voxel_quads(const KilnVoxelWorld *w, int slot,
                 if (out && written < cap) {
                     int local[3];
                     local[au] = u; local[av] = v; local[an] = n;
-                    KilnVoxelQuad *q = &out[written];
+                    FigVoxelQuad *q = &out[written];
                     q->x = (int16_t)(org[0] + local[0]);
                     q->y = (int16_t)(org[1] + local[1]);
                     q->z = (int16_t)(org[2] + local[2]);

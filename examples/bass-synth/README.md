@@ -41,7 +41,7 @@ portamento, scale, volume) and a global page (master gain, LFO rate).
 L/R or C-left/right changes page, D-up/down the row, D-left/right the value.
 Start closes it and saves.
 
-**Saving goes through `kiln_store`**, which takes the first backend that works:
+**Saving goes through `fig_store`**, which takes the first backend that works:
 the flashcart's SD card (`sd:/FORGE/BASSPAT.*`), then the 32 KB save chip
 (`saveType = "sram256k"`), then read-only `rom:/`. The top-right of the status
 line names the backend — teal when it can write, red when it cannot — and the
@@ -99,7 +99,7 @@ Linear ramps, one multiply per stage per frame.
 ## On screen
 
 - **Status line**: notes in use, master, LFO rate, and the save backend.
-- **Scope**: the mixed output buffer, from `kiln_audio_set_tap` — what the RSP
+- **Scope**: the mixed output buffer, from `fig_audio_set_tap` — what the RSP
   actually produced.
 - **The arc**: 24 bars on a fixed sweep in front of a fixed camera, six per
   player in the player's colour. Bar 0 is the sub layer, bars 1–5 the body

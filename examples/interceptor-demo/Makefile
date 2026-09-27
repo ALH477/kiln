@@ -10,9 +10,9 @@
 #   sfx/blip.wav64            -> SFX (re-used as engine whoosh)
 #   music/test.xm64           -> music
 #
-# Same include order as examples/engine: n64.mk, t3d.mk, kiln.mk. libkiln calls
+# Same include order as examples/engine: n64.mk, t3d.mk, kiln.mk. libfigulina calls
 # into Tiny3D, which calls into libdragon, so the link line must be Tiny3D
-# left of libkiln.
+# left of libfigulina.
 
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk

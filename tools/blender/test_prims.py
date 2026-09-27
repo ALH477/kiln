@@ -234,6 +234,90 @@ def main():
     fail += check_outward("welded segment still solid", v1, f1,
                           inside=(0.185, 0.055, -0.415))
 
+    # ── emitted vertices ──────────────────────────────────────────────────
+    # The number the console actually pays. kilnlib.report() used to print
+    # len(mesh.vertices) instead, which understates it by up to 3x on this
+    # project's flat-shaded, per-face-coloured meshes — see emitted_verts.
+    #
+    # box() is the case where the two agree: its 24 split corners are 8
+    # positions each carrying three different face normals, so the exporter
+    # emits 24 however the colours fall, and flat and smooth cost the same.
+    verts, faces = m.box(0, 0, 0, 1, 1, 1)
+    six = [(1, 0, 0, 1), (0, 1, 0, 1), (0, 0, 1, 1),
+           (1, 1, 0, 1), (0, 1, 1, 1), (1, 0, 1, 1)]
+    e_flat = m.emitted_verts("t", verts, faces, colors=six)
+    e_one = m.emitted_verts("t", verts, faces, colors=(1, 1, 1, 1))
+    e_smooth = m.emitted_verts("t", verts, faces, colors=six, smooth=True)
+    ok = e_flat == 24 and e_one == 24 and e_smooth == 24
+    print(f"  {'emit: split cube is 24':<28} "
+          f"flat {e_flat}  1-colour {e_one}  smooth {e_smooth}  "
+          f"{'ok' if ok else 'FAIL'}")
+    fail += 0 if ok else 1
+
+    # And the case where they do not agree, which is the whole point: the same
+    # 168 triangles cost three times as many vertices flat as smooth. This is
+    # the lever a model has to pull to get cheaper without losing a triangle,
+    # so if this ever stops holding, emitted_verts has stopped measuring.
+    sv, sf, suv = m.uv_sphere(1.0, 12, 8)
+    stris = m.tris_in(sf)
+    e_sflat = m.emitted_verts("s", sv, sf)
+    e_ssmooth = m.emitted_verts("s", sv, sf, smooth=True)
+    e_suv = m.emitted_verts("s", sv, sf, uvs=suv, smooth=True)
+    ok = (e_ssmooth < e_sflat
+          and e_ssmooth < stris
+          and e_sflat > 2 * stris
+          and e_suv == e_ssmooth        # a seam already split in the vert list
+          and m.parts_for(e_sflat) > m.parts_for(e_ssmooth))
+    print(f"  {'emit: smooth beats flat':<28} "
+          f"{stris}t  flat {e_sflat} ({m.parts_for(e_sflat)}p)  "
+          f"smooth {e_ssmooth} ({m.parts_for(e_ssmooth)}p)  "
+          f"{'ok' if ok else 'FAIL'}")
+    fail += 0 if ok else 1
+
+    # Bounds that must hold for any mesh: never fewer than the distinct
+    # positions, never more than one per face corner.
+    loops = sum(len(f) for f in sf)
+    uniq_pos = len({tuple(round(c, 5) for c in v) for v in sv})
+    ok = uniq_pos <= e_sflat <= loops
+    print(f"  {'emit: within its bounds':<28} "
+          f"{uniq_pos} <= {e_sflat} <= {loops}  {'ok' if ok else 'FAIL'}")
+    fail += 0 if ok else 1
+
+    # ── detail tier names ─────────────────────────────────────────────────
+    # The same table the engine's kiln_cull.c is held to (kiln-logic-check.c)
+    # and the same one tools/asset_budget.py asserts. Three implementations of
+    # one rule, because they sit in three languages on three sides of a build —
+    # so the table is what keeps them one rule rather than three.
+    #
+    # `torso.001` is the case worth spelling out: that is Blender's own suffix
+    # for a name collision, and reading it as tier 1 would drop real geometry
+    # out of the frame with a hole in the model as the only symptom.
+    want_tier = {
+        "torso": 0, "torso.lod1": 1, "torso.lod2": 2, "torso.lod10": 10,
+        "torso.001": 0, "lod1": 0, "torso.lodX": 0, "torso.lod": 0,
+        ".lod1": 0, "a.b.lod3": 3, "": 0, None: 0,
+    }
+    bad_tier = {n: m.tier_of(n) for n, w in want_tier.items()
+                if m.tier_of(n) != w}
+    print(f"  {'tier_of: .lodN and no more':<28} "
+          f"{'ok' if not bad_tier else 'FAIL ' + str(bad_tier)}")
+    fail += len(bad_tier)
+
+    round_trip = [t for t in (0, 1, 2, 9)
+                  if m.tier_of(m.tier_name("torso", t)) != t]
+    print(f"  {'tier_name round-trips':<28} "
+          f"{'ok' if not round_trip else 'FAIL ' + str(round_trip)}")
+    fail += len(round_trip)
+
+    # parts_for is the vertex-load count, and the boundary is the one that
+    # matters: VERT_CACHE exactly is still one load, one more is two.
+    want = [(0, 1), (1, 1), (m.VERT_CACHE, 1), (m.VERT_CACHE + 1, 2),
+            (m.VERT_CACHE * 2, 2), (m.VERT_CACHE * 2 + 1, 3)]
+    bad = [(n, m.parts_for(n), w) for n, w in want if m.parts_for(n) != w]
+    print(f"  {'emit: parts_for boundaries':<28} "
+          f"cache {m.VERT_CACHE}  {'ok' if not bad else 'FAIL ' + str(bad)}")
+    fail += len(bad)
+
     # ease() must be pinned at both ends whatever the mode, or an action
     # built from it will not return to its own start pose and every loop
     # will visibly pop.

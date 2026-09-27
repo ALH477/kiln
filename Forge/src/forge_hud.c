@@ -36,18 +36,18 @@ static const char *MODE_NAME[FORGE_MODE_COUNT] = {
 
 void forge_hud_draw(Forge *f)
 {
-    int chunks = kiln_voxel_chunk_count(&f->world);
-    uint32_t mesh_pct = kiln_voxmesh_arena_used_pct(&f->arena);
+    int chunks = fig_voxel_chunk_count(&f->world);
+    uint32_t mesh_pct = fig_voxmesh_arena_used_pct(&f->arena);
 
-    color_t chunk_col = chunks >= KILN_VOXEL_MAX_CHUNKS ? BAD_COL : OK_COL;
+    color_t chunk_col = chunks >= FIG_VOXEL_MAX_CHUNKS ? BAD_COL : OK_COL;
     color_t mesh_col  = (f->arena_overflow || mesh_pct >= 100) ? BAD_COL : OK_COL;
 
-    kiln_gui_text(6, 8, HOT_COL, "FORGE %s  blk %d  %.0f fps",
+    fig_gui_text(6, 8, HOT_COL, "FORGE %s  blk %d  %.0f fps",
                  MODE_NAME[f->mode], f->block, f->fps);
 
-    kiln_gui_text(6, 20, chunk_col, "chunks %d/%d  solid %lu",
-                 chunks, KILN_VOXEL_MAX_CHUNKS,
-                 (unsigned long)kiln_voxel_solid_count(&f->world));
+    fig_gui_text(6, 20, chunk_col, "chunks %d/%d  solid %lu",
+                 chunks, FIG_VOXEL_MAX_CHUNKS,
+                 (unsigned long)fig_voxel_solid_count(&f->world));
 
     /* Quads AND the arena percentage. The percentage alone read "mesh 0%" over
      * a room that was plainly drawn — greedy merging is effective enough that a
@@ -55,11 +55,11 @@ void forge_hud_draw(Forge *f)
      * rounds to zero and looks exactly like nothing was meshed. A gauge that
      * says 0 when the answer is "yes, and cheaply" is a gauge nobody will
      * believe the next time it says 0 for a real reason. */
-    kiln_gui_text(6, 30, mesh_col, "quads %lu  arena %lu%%",
+    fig_gui_text(6, 30, mesh_col, "quads %lu  arena %lu%%",
                  (unsigned long)f->quads_drawn, (unsigned long)mesh_pct);
 
     if (f->remesh_overflow)
-        kiln_gui_text(150, 30, BAD_COL, "OVER by %d", f->remesh_overflow);
+        fig_gui_text(150, 30, BAD_COL, "OVER by %d", f->remesh_overflow);
 
     /* The clip world, printed in both modes rather than only in WALK: knowing
      * how many brushes the level WILL export as is the number you want while
@@ -68,13 +68,13 @@ void forge_hud_draw(Forge *f)
     color_t box_col = OK_COL;
     if (f->mode == FORGE_MODE_WALK && f->boxes_used == 0) box_col = BAD_COL;
     if (f->box_overflow) box_col = BAD_COL;
-    kiln_gui_text(6, 40, box_col, "clip %lu/%d%s%s", (unsigned long)f->boxes_used,
+    fig_gui_text(6, 40, box_col, "clip %lu/%d%s%s", (unsigned long)f->boxes_used,
                  FORGE_MAX_BOXES, f->box_overflow ? " OVER" : "",
                  f->fell ? " FELL-RESPAWNED" : "");
 
     /* Where the camera actually is, and the frustum it built the scene from.
      * "the camera is inside the geometry" is not answerable from a picture. */
-    kiln_gui_text(6, 50, DIM_COL, "eye %.0f %.0f %.0f  near %.0f far %.0f",
+    fig_gui_text(6, 50, DIM_COL, "eye %.0f %.0f %.0f  near %.0f far %.0f",
                  (double)f->scene.cam_pos.v[0], (double)f->scene.cam_pos.v[1],
                  (double)f->scene.cam_pos.v[2],
                  (double)f->scene.near_z, (double)f->scene.far_z);
@@ -83,23 +83,23 @@ void forge_hud_draw(Forge *f)
      * generator or a comment. World units are derivable; block indices are what
      * the level is authored in. */
     if (f->aim.hit && (f->mode == FORGE_MODE_GEO || f->mode == FORGE_MODE_ENT))
-        kiln_gui_text(6, 60, DIM_COL, "aim %d %d %d t%d  put %d %d %d  d %.0f",
+        fig_gui_text(6, 60, DIM_COL, "aim %d %d %d t%d  put %d %d %d  d %.0f",
                      f->aim.x, f->aim.y, f->aim.z, f->aim.block,
                      f->aim.px, f->aim.py, f->aim.pz, (double)f->aim.dist);
     else if (f->mode == FORGE_MODE_GEO || f->mode == FORGE_MODE_ENT)
-        kiln_gui_text(6, 60, DIM_COL, "aim -");
+        fig_gui_text(6, 60, DIM_COL, "aim -");
 
     /* Storage. `cart` and `store` are printed every frame and not behind a key,
      * for the reason pm_cine prints its pose continuously: it means any
      * screenshot of the editor carries the answer to "could this have saved?" */
-    color_t st_col = (f->last_store == KILN_STORE_OK) ? OK_COL : BAD_COL;
-    kiln_gui_text(6, FORGE_SCREEN_H - 30, kiln_store_writable() ? OK_COL : BAD_COL,
+    color_t st_col = (f->last_store == FIG_STORE_OK) ? OK_COL : BAD_COL;
+    fig_gui_text(6, FORGE_SCREEN_H - 30, fig_store_writable() ? OK_COL : BAD_COL,
                  "cart %s  store %s  bus %s",
-                 kiln_store_cart_name(), kiln_store_kind_name(),
-                 kiln_store_bus_name());
+                 fig_store_cart_name(), fig_store_kind_name(),
+                 fig_store_bus_name());
     if (f->last_action)
-        kiln_gui_text(6, FORGE_SCREEN_H - 20, st_col, "%s %s",
-                     f->last_action, kiln_store_status_name(f->last_store));
+        fig_gui_text(6, FORGE_SCREEN_H - 20, st_col, "%s %s",
+                     f->last_action, fig_store_status_name(f->last_store));
 
     /* The control reminder stays on screen. An editor whose bindings have to be
      * remembered from a README is an editor used with a laptop open next to the
@@ -131,5 +131,5 @@ void forge_hud_draw(Forge *f)
         [FORGE_MODE_CAM]   = "A key  B del  Z play  dpad scrub  R/L dur  START save",
     };
 
-    kiln_gui_text(6, FORGE_SCREEN_H - 10, DIM_COL, "%s", HELP[f->mode]);
+    fig_gui_text(6, FORGE_SCREEN_H - 10, DIM_COL, "%s", HELP[f->mode]);
 }

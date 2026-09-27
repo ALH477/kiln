@@ -5,13 +5,13 @@
 #
 # kiln-gui covers the 2D half. This covers the whole bracket:
 #
-#     kiln_frame_begin()      attach colour + Z
-#       kiln_scene_begin()    3D: perspective, lit, depth-tested
+#     fig_frame_begin()      attach colour + Z
+#       fig_scene_begin()    3D: perspective, lit, depth-tested
 #         ... geometry ...
-#       kiln_gui_begin()      <- the seam: depth OFF
+#       fig_gui_begin()      <- the seam: depth OFF
 #         ... HUD ...
-#       kiln_gui_end()
-#     kiln_frame_end()        present
+#       fig_gui_end()
+#     fig_frame_end()        present
 #
 # which CLAUDE.md calls the one state transition per frame and the thing that
 # makes drawing HUD inside the 3D pass an obvious mistake. Until this existed,

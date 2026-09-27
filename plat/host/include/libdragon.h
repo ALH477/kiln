@@ -25,8 +25,8 @@
  * Where a host value cannot match the console's, it is stated rather than
  * papered over — see TICKS_PER_SECOND.
  */
-#ifndef KILN_HOST_LIBDRAGON_H
-#define KILN_HOST_LIBDRAGON_H
+#ifndef FIG_HOST_LIBDRAGON_H
+#define FIG_HOST_LIBDRAGON_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -39,11 +39,11 @@
 
 /* ── diagnostics ───────────────────────────────────────────────────────
  * debugf goes to stderr rather than nowhere: several modules use it to report
- * a policy decision a caller may want to see (kiln_event's pool-full
- * eviction, kiln_cache's refcount complaints), and discarding them would make
+ * a policy decision a caller may want to see (fig_event's pool-full
+ * eviction, fig_cache's refcount complaints), and discarding them would make
  * "handled and reported" indistinguishable from "silently did nothing".
  *
- * assertf ABORTS, matching libdragon rather than softening it. kiln_clip uses
+ * assertf ABORTS, matching libdragon rather than softening it. fig_clip uses
  * it for the caller-contract violations it refuses to guess about; a host
  * build that merely logged would run on input the console dies on, which is
  * the opposite of useful. */
@@ -84,7 +84,7 @@ _Static_assert(sizeof(color_t) == 4, "invalid sizeof for color_t");
     }))
 
 /* ── display geometry ──────────────────────────────────────────────────
- * kiln_engine_init takes a resolution_t. Only the geometry fields are read by
+ * fig_engine_init takes a resolution_t. Only the geometry fields are read by
  * anything in the engine; the rest of libdragon's struct is reproduced so the
  * designated initialisers below stay valid. */
 typedef enum { INTERLACE_OFF, INTERLACE_HALF, INTERLACE_FULL } interlace_mode_t;
@@ -113,7 +113,7 @@ static const resolution_t RESOLUTION_640x480 = { .width = 640, .height = 480, .i
  * writes without a cache writeback. A host has one coherent view, so plain
  * malloc is not an approximation of this — it is the whole of what the
  * abstraction means off-console. The alignment is honoured because callers
- * (kiln_voxmesh's vertex arena, kiln_map's face buffers) DMA from it on
+ * (fig_voxmesh's vertex arena, fig_map's face buffers) DMA from it on
  * hardware and assume it. */
 static inline void *malloc_uncached(size_t size) {
     void *p = NULL;
@@ -149,7 +149,7 @@ static inline void inst_cache_hit_invalidate(volatile void *p, unsigned long n)
 
 /* Segment translation. On console these move a pointer between the cached and
  * uncached views of the same physical memory; here there is one view, so both
- * are the identity. Kept because kiln_scratch names them explicitly. */
+ * are the identity. Kept because fig_scratch names them explicitly. */
 #define UncachedAddr(p)       (p)
 #define CachedAddr(p)         (p)
 #define UncachedShortAddr(p)  (p)
@@ -158,26 +158,26 @@ static inline void inst_cache_hit_invalidate(volatile void *p, unsigned long n)
 /* ── the tick counter ──────────────────────────────────────────────────
  * TICKS_READ() is COP0's count register, which ticks at half the VR4300's
  * 93.75 MHz. There is no host equivalent and pretending otherwise would make
- * kiln_prof report numbers that look like console numbers and are not, so the
+ * fig_prof report numbers that look like console numbers and are not, so the
  * host counter is monotonic nanoseconds scaled to the SAME rate: a duration
  * measured in ticks means the same span of wall time on both targets, while
  * an absolute tick value means nothing on either.
  *
- * What a host build therefore CANNOT tell you is what kiln_prof exists to
+ * What a host build therefore CANNOT tell you is what fig_prof exists to
  * measure — the VR4300's actual cost. Wall time on a machine three orders of
  * magnitude faster is not that. Profile on hardware; see nix/faust.nix's
  * cycle-budget gate for the same caveat stated about static estimates. */
 #define CPU_FREQUENCY    (93750000)
 #define TICKS_PER_SECOND (CPU_FREQUENCY / 2)
 
-static inline uint32_t kiln_host_ticks32(void) {
+static inline uint32_t fig_host_ticks32(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     uint64_t ns = (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
     return (uint32_t)((ns * TICKS_PER_SECOND) / 1000000000ull);
 }
 
-#define TICKS_READ()             kiln_host_ticks32()
+#define TICKS_READ()             fig_host_ticks32()
 #define TICKS_DISTANCE(from, to) ((int32_t)((uint32_t)(to) - (uint32_t)(from)))
 #define TICKS_SINCE(t0)          TICKS_DISTANCE(t0, TICKS_READ())
 #define TICKS_BEFORE(t1, t2)     (TICKS_DISTANCE(t1, t2) > 0)
@@ -259,7 +259,7 @@ static inline tex_format_t surface_get_format(const surface_t *s)
     return (tex_format_t)(s->flags & SURFACE_FLAGS_TEXFORMAT);
 }
 
-/* Verbatim from libdragon's sprite.h. kiln_texanim reaches into width/height
+/* Verbatim from libdragon's sprite.h. fig_texanim reaches into width/height
  * and the format bits, so the layout is not optional. */
 typedef struct sprite_s {
     uint16_t width;
@@ -366,7 +366,7 @@ void rspq_flush(void);
  * be DMA'd into before it can be drawn. Overflowing it does not fail — it
  * wraps, and you get a texture built out of whatever else was resident. So
  * the host TRACKS occupancy and asserts, which is one of the few console
- * limits a host build can genuinely check. See kiln_host_tmem_used(). */
+ * limits a host build can genuinely check. See fig_host_tmem_used(). */
 #define TMEM_BYTES 4096
 
 #define REPEAT_INFINITE 2048
@@ -426,7 +426,7 @@ static inline void rdpq_texture_rectangle(rdpq_tile_t tile, float x0, float y0,
 #define DITHER_SQUARE_SQUARE 1
 
 /** TMEM bytes currently occupied by uploaded textures and the TLUT. */
-int kiln_host_tmem_used(void);
+int fig_host_tmem_used(void);
 
 /* ── DragonFS: a directory, on the host ───────────────────────────────
  * On console this reads a filesystem image appended to the ROM. Here it is a
@@ -439,6 +439,15 @@ int kiln_host_tmem_used(void);
  * below degraded politely. A host VFS over a real directory makes the same
  * mismatch a missing file you can see with ls. */
 #define DFS_DEFAULT_LOCATION  0
+/* libdragon spells this as a macro over an _internal function so the level is
+ * a compile-time constant; reproduce the shape, not just the name. */
+void asset_init_compression_internal(int level);
+#define asset_init_compression(level) asset_init_compression_internal(level)
+
+/* Save and restore the render mode — see host_gfx.c. */
+void rdpq_mode_push(void);
+void rdpq_mode_pop(void);
+
 #define DFS_ESUCCESS          0
 #define DFS_EBADINPUT        -1
 #define DFS_ENOFILE          -2
@@ -460,7 +469,7 @@ int dfs_eof(uint32_t handle);
  * On a host it ALWAYS has none, and 0 is the correct answer rather than a
  * stub's shrug: a file on a workstation is not directly addressable, so a
  * caller asking this question must take its copy path. streamdb_io_dfs.c
- * asks it so that kiln_sdbfs can offer libdragon's wav64 a cartridge address
+ * asks it so that fig_sdbfs can offer libdragon's wav64 a cartridge address
  * and keep the async-DMA path; here it correctly gets nothing and the ranged
  * read is used instead. Declared because the host build compiles the real
  * streamdb_io_dfs.c rather than a second copy of it. */
@@ -468,7 +477,7 @@ pi_addr_t dfs_rom_addr(const char *path);
 
 /* ── joypad ───────────────────────────────────────────────────────────
  * The bitfield ORDER is copied exactly, because joypad_buttons_t is a union
- * with a uint16_t `raw` and kiln_input diffs raw values between frames to
+ * with a uint16_t `raw` and fig_input diffs raw values between frames to
  * derive edges. A field in the wrong bit makes every edge test wrong in a way
  * that reads as a controller problem. */
 typedef enum { JOYPAD_PORT_1 = 0, JOYPAD_PORT_2, JOYPAD_PORT_3,
@@ -496,7 +505,7 @@ typedef struct __attribute__((packed)) joypad_inputs_s {
     uint8_t analog_l, analog_r;
 } joypad_inputs_t;
 
-/* Stick ranges, copied. kiln_input normalises against these, so a wrong value
+/* Stick ranges, copied. fig_input normalises against these, so a wrong value
  * silently rescales every stick read — which reads as a deadzone problem. */
 #define JOYPAD_RANGE_N64_STICK_MAX    90
 #define JOYPAD_RANGE_GCN_STICK_MAX    100
@@ -515,12 +524,12 @@ bool joypad_is_connected(joypad_port_t port);
 
 /** Host-only: drive the pad from a test or a launcher. There is no physical
  *  controller in a Nix sandbox, so a check that wants to exercise
- *  kiln_input's edge detection sets state here. */
-void kiln_host_pad_set(joypad_port_t port, joypad_inputs_t in);
+ *  fig_input's edge detection sets state here. */
+void fig_host_pad_set(joypad_port_t port, joypad_inputs_t in);
 
 /* ── EEPROM filesystem ────────────────────────────────────────────────
- * Backed by one file, $KILN_HOST_EEPROM (default "kiln-eeprom.bin"). The
- * console's 4 Kbit / 16 Kbit sizes are enforced, because kiln_save's whole
+ * Backed by one file, $FIG_HOST_EEPROM (default "kiln-eeprom.bin"). The
+ * console's 4 Kbit / 16 Kbit sizes are enforced, because fig_save's whole
  * job is fitting a game's state into them and a host that let a save grow
  * would answer the wrong question. */
 typedef enum { EEPROM_NONE = 0, EEPROM_4K = 1, EEPROM_16K = 2 } eeprom_type_t;
@@ -540,7 +549,7 @@ typedef struct eepfs_entry_t {
 #define EEPFS_EBADHANDLE   -5
 
 /* ── audio: the channel arithmetic, and its samples ───────────────────
- * kiln_audio is a wrapper over libdragon's RSP mixer, and almost all of what
+ * fig_audio is a wrapper over libdragon's RSP mixer, and almost all of what
  * it does is bookkeeping: partition the 32 channels into an SFX range and a
  * music range, steal the lowest-priority voice when the SFX range is full,
  * crossfade room music. None of that needs a single PCM sample to be correct,
@@ -591,7 +600,7 @@ int  audio_get_buffer_length(void);
 short *audio_write_begin(void);
 void  audio_write_end(void);
 
-/* The RSP mixer's hard channel ceiling. kiln_audio's default partition is
+/* The RSP mixer's hard channel ceiling. fig_audio's default partition is
  * 16 SFX + 10 music = 26 against this, and its header explains why the sum is
  * the thing that matters. */
 #define MIXER_MAX_CHANNELS 32
@@ -646,14 +655,14 @@ typedef struct {
     int      channels;
     int      frequency;
     int      channels_playing;
-} KilnHostAudioCounters;
+} FigHostAudioCounters;
 
-const KilnHostAudioCounters *kiln_host_audio_counters(void);
+const FigHostAudioCounters *fig_host_audio_counters(void);
 
 /* ── libdragon's debug SD surface ─────────────────────────────────────
  * On console debug_init_sdfs mounts a flashcart's SD card through newlib,
- * which is how kiln_store gets a writable backend on an ED64 Plus. There is no
- * cart here, so it fails — and kiln_store is written to walk on to the next
+ * which is how fig_store gets a writable backend on an ED64 Plus. There is no
+ * cart here, so it fails — and fig_store is written to walk on to the next
  * backend when it does. */
 bool debug_init_sdfs(const char *prefix, int npart);
 void debug_close_sdfs(void);
@@ -663,10 +672,10 @@ bool debug_init_isviewer(void);
 /* ── SRAM ─────────────────────────────────────────────────────────────
  * There is no save chip. sram_detect returns 0, which is what libdragon
  * actually does with no chip present — its own doc comment says -1, and
- * kiln_store's history is the reason that matters: a `< 0` test could never
+ * fig_store's history is the reason that matters: a `< 0` test could never
  * fail, so the SRAM backend was selected on machines with no chip at all,
  * after which writes went nowhere and reads came back as zeros that parse as
- * a valid EMPTY directory. Returning the honest 0 keeps kiln_store's fixed
+ * a valid EMPTY directory. Returning the honest 0 keeps fig_store's fixed
  * `<= 0` test meaningful on the host too. */
 void sram_init(void);
 int  sram_detect(void);
@@ -712,4 +721,4 @@ int          rdpq_text_print(const rdpq_textparms_t *parms, uint8_t font_id,
 
 #define FONT_MAGIC_LOADED "FNL"
 
-#endif /* KILN_HOST_LIBDRAGON_H */
+#endif /* FIG_HOST_LIBDRAGON_H */

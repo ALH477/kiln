@@ -19,7 +19,7 @@
  * init-once, deterministic.
  *
  * ── The stack is the caller's problem, and it is not small ─────────────
- * kiln_soft3d_render_frame's callee frame is 36,176 bytes on
+ * fig_soft3d_render_frame's callee frame is 36,176 bytes on
  * mips64-elf-gcc 14.4.0 -mabi=o64 -march=vr4300 -Os (-fstack-usage;
  * gen/PROVENANCE.md). Do NOT call it from main: libdragon's main thread
  * stack would survive it, but the intent is the precedent set by
@@ -44,8 +44,8 @@
  * switch is the first one, and it is about which generated unit feeds the
  * compiler, not about behaviour.
  */
-#ifndef KILN_SOFT3D_H
-#define KILN_SOFT3D_H
+#ifndef FIG_SOFT3D_H
+#define FIG_SOFT3D_H
 
 #include <libdragon.h>
 #include <stdint.h>
@@ -55,17 +55,17 @@ extern "C" {
 #endif
 
 /** Byte counts of the wire contract, from forma.exsc's signature. */
-#define KILN_SOFT3D_EXSG_BYTES 44801u    /* acies<u8, 44801>  */
-#define KILN_SOFT3D_FB_BYTES   196608u   /* 256 * 256 * 3     */
-#define KILN_SOFT3D_SIDE       256u      /* the source frame is square */
+#define FIG_SOFT3D_EXSG_BYTES 44801u    /* acies<u8, 44801>  */
+#define FIG_SOFT3D_FB_BYTES   196608u   /* 256 * 256 * 3     */
+#define FIG_SOFT3D_SIDE       256u      /* the source frame is square */
 
 /** signaculum_pingue's return codes (forma.exsc's own header comment). */
 enum {
-    KILN_SOFT3D_OK             = 0,
-    KILN_SOFT3D_BAD_MAGIC      = 1,      /* not "EXSG"                    */
-    KILN_SOFT3D_BAD_COUNTS     = 2,      /* not the 1493/2981 this bakes  */
-    KILN_SOFT3D_SHORT_STREAM   = 3,      /* a decode read ran past the end */
-    KILN_SOFT3D_TRAILING_BYTES = 4,      /* decode did not end at 44801   */
+    FIG_SOFT3D_OK             = 0,
+    FIG_SOFT3D_BAD_MAGIC      = 1,      /* not "EXSG"                    */
+    FIG_SOFT3D_BAD_COUNTS     = 2,      /* not the 1493/2981 this bakes  */
+    FIG_SOFT3D_SHORT_STREAM   = 3,      /* a decode read ran past the end */
+    FIG_SOFT3D_TRAILING_BYTES = 4,      /* decode did not end at 44801   */
 };
 
 /** The pure core, emitted by exsc. Prototype by hand, checked by inclusion
@@ -79,19 +79,19 @@ uint64_t exs_signaculum_pingue(unsigned char *p0, unsigned char *p1,
 _Noreturn void exsrt_abortus(unsigned kind);
 
 /** Copy `len` bytes of an EXSG stream into the module's storage. Asserts on
- *  anything but exactly KILN_SOFT3D_EXSG_BYTES — the core's decode checks
+ *  anything but exactly FIG_SOFT3D_EXSG_BYTES — the core's decode checks
  *  are belt-and-braces against a well-formed stream, not a size discovery
  *  protocol. Does not render. */
-void kiln_soft3d_init(const void *exsg_blob, uint32_t len);
+void fig_soft3d_init(const void *exsg_blob, uint32_t len);
 
 /** Rasterize the logo: clear fb/zb and draw the full mesh into the module's
- *  own storage. Returns signaculum_pingue's status (KILN_SOFT3D_OK on
+ *  own storage. Returns signaculum_pingue's status (FIG_SOFT3D_OK on
  *  success). THE FRAME IS 36,176 BYTES — see the header comment. */
-uint8_t kiln_soft3d_render_frame(void);
+uint8_t fig_soft3d_render_frame(void);
 
 /** Read-only access to the 196,608-byte RGB888 framebuffer, for the demo's
- *  in-ROM CRC self-check. Valid after kiln_soft3d_render_frame. */
-const uint8_t *kiln_soft3d_framebuffer(void);
+ *  in-ROM CRC self-check. Valid after fig_soft3d_render_frame. */
+const uint8_t *fig_soft3d_framebuffer(void);
 
 /** Map the 256×256 RGB888 frame into `disp`, a 320×240 display surface:
  *  32 px of opaque-black letterbox on each side, 8 rows cropped top and
@@ -105,10 +105,10 @@ const uint8_t *kiln_soft3d_framebuffer(void);
  *  nor the RDP reads that view. plat/host's no-op copy of
  *  data_cache_hit_writeback is the correct host implementation, not a
  *  missing one. */
-void kiln_soft3d_present(surface_t *disp);
+void fig_soft3d_present(surface_t *disp);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_SOFT3D_H */
+#endif /* FIG_SOFT3D_H */

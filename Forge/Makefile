@@ -3,7 +3,7 @@
 # Forge — the on-console voxel level/cinematic editor.
 #
 # Include order n64.mk, t3d.mk, kiln.mk: each prepends its own -l, so the last
-# included lands leftmost, which matches the dependency direction (libkiln calls
+# included lands leftmost, which matches the dependency direction (libfigulina calls
 # Tiny3D calls libdragon).
 BUILD_DIR = build
 SOURCE_DIR = src

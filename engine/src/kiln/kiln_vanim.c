@@ -10,12 +10,12 @@
 
 /* ── Vertex FX ────────────────────────────────────────────────────────── */
 
-void kiln_vfx_set(KilnVertexFX fx, int16_t arg0, int16_t arg1)
+void fig_vfx_set(FigVertexFX fx, int16_t arg0, int16_t arg1)
 {
     t3d_state_set_vertex_fx((enum T3DVertexFX)fx, arg0, arg1);
 }
 
-void kiln_vfx_clear(void)
+void fig_vfx_clear(void)
 {
     t3d_state_set_vertex_fx(T3D_VERTEX_FX_NONE, 0, 0);
 }
@@ -62,13 +62,13 @@ static void patch_objects(const T3DModel *model, uint8_t segment_id)
 
 /* ── Morph targets ────────────────────────────────────────────────────── */
 
-void kiln_morph_init(KilnMorph *m, const T3DModel *model,
+void fig_morph_init(FigMorph *m, const T3DModel *model,
                     T3DVertPacked **targets, int target_count,
                     int buffer_count, uint8_t segment_id)
 {
-    assertf(buffer_count >= 2, "kiln_morph: buffer_count must be >= 2");
+    assertf(buffer_count >= 2, "fig_morph: buffer_count must be >= 2");
     assertf(segment_id >= 1 && segment_id <= 6,
-            "kiln_morph: segment_id must be 1-6 (7 is reserved for skeleton)");
+            "fig_morph: segment_id must be 1-6 (7 is reserved for skeleton)");
 
     m->model = model;
     m->targets = targets;
@@ -81,14 +81,14 @@ void kiln_morph_init(KilnMorph *m, const T3DModel *model,
 
     size_t sz = packed_size(model->totalVertCount);
     m->work_buffers = malloc_uncached(sz * buffer_count);
-    assertf(m->work_buffers, "kiln_morph: failed to allocate %zu bytes uncached",
+    assertf(m->work_buffers, "fig_morph: failed to allocate %zu bytes uncached",
             sz * buffer_count);
 
     patch_objects(model, segment_id);
     m->initialised = true;
 }
 
-void kiln_morph_destroy(KilnMorph *m)
+void fig_morph_destroy(FigMorph *m)
 {
     free(m->weights);
     m->weights = NULL;
@@ -127,7 +127,7 @@ static uint16_t blend_normal(uint16_t a, uint16_t b, float t)
     return t3d_vert_pack_normal(&n);
 }
 
-void kiln_morph_update(KilnMorph *m, float dt)
+void fig_morph_update(FigMorph *m, float dt)
 {
     (void)dt;
     if (!m->initialised) return;
@@ -217,7 +217,7 @@ void kiln_morph_update(KilnMorph *m, float dt)
     m->current_buffer = (m->current_buffer + 1) % m->buffer_count;
 }
 
-void kiln_morph_draw(KilnMorph *m)
+void fig_morph_draw(FigMorph *m)
 {
     if (!m->initialised) return;
     int pc = packed_count(m->model->totalVertCount);
@@ -229,13 +229,13 @@ void kiln_morph_draw(KilnMorph *m)
 
 /* ── Procedural deformation ───────────────────────────────────────────── */
 
-void kiln_deform_init(KilnDeform *d, const T3DModel *model,
-                     KilnDeformFn fn, void *user_data,
+void fig_deform_init(FigDeform *d, const T3DModel *model,
+                     FigDeformFn fn, void *user_data,
                      int buffer_count, uint8_t segment_id)
 {
-    assertf(buffer_count >= 2, "kiln_deform: buffer_count must be >= 2");
+    assertf(buffer_count >= 2, "fig_deform: buffer_count must be >= 2");
     assertf(segment_id >= 1 && segment_id <= 6,
-            "kiln_deform: segment_id must be 1-6");
+            "fig_deform: segment_id must be 1-6");
 
     int vc = model->totalVertCount;
     size_t sz = packed_size(vc);
@@ -250,12 +250,12 @@ void kiln_deform_init(KilnDeform *d, const T3DModel *model,
     d->time = 0.0f;
 
     d->work_buffers = malloc_uncached(sz * buffer_count);
-    assertf(d->work_buffers, "kiln_deform: failed to allocate %zu bytes", sz * buffer_count);
+    assertf(d->work_buffers, "fig_deform: failed to allocate %zu bytes", sz * buffer_count);
 
     /* Copy the original vertices so the deform callback can start from a
      * known reference each frame. */
     d->base_buffer = malloc_uncached(sz);
-    assertf(d->base_buffer, "kiln_deform: failed to allocate base buffer");
+    assertf(d->base_buffer, "fig_deform: failed to allocate base buffer");
     T3DVertPacked *src = t3d_model_get_vertices(model);
     memcpy(d->base_buffer, src, sz);
     data_cache_hit_writeback(d->base_buffer, sz);
@@ -264,7 +264,7 @@ void kiln_deform_init(KilnDeform *d, const T3DModel *model,
     d->initialised = true;
 }
 
-void kiln_deform_destroy(KilnDeform *d)
+void fig_deform_destroy(FigDeform *d)
 {
     if (d->work_buffers) {
         free_uncached(d->work_buffers);
@@ -277,7 +277,7 @@ void kiln_deform_destroy(KilnDeform *d)
     d->initialised = false;
 }
 
-void kiln_deform_update(KilnDeform *d, float dt)
+void fig_deform_update(FigDeform *d, float dt)
 {
     if (!d->initialised) return;
     d->time += dt;
@@ -297,7 +297,7 @@ void kiln_deform_update(KilnDeform *d, float dt)
     d->current_buffer = (d->current_buffer + 1) % d->buffer_count;
 }
 
-void kiln_deform_draw(KilnDeform *d)
+void fig_deform_draw(FigDeform *d)
 {
     if (!d->initialised) return;
     int pc = packed_count(d->vert_count);

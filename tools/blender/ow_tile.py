@@ -21,7 +21,7 @@ largest height the demo's height field makes (192).
   1   a 2x2 top and a reduced prop set
   2   one top quad and the skirt: a convex box, nothing else
 
-LOD 2 being convex is load-bearing. kiln_twopass draws far tiles with the
+LOD 2 being convex is load-bearing. fig_twopass draws far tiles with the
 Z-buffer OFF, and a convex solid with back faces culled (the `shade` preset's
 default) draws correctly with no depth test at all. Anything with a prop on
 top would not.

@@ -28,7 +28,7 @@ workflow changes.
 | `packages.toolchain` | `mips64-elf-` GCC 14.4.0 + binutils 2.46 + newlib 4.6.0 |
 | `packages.libdragon` | libdragon (`preview`) + host tools (`n64tool`, `mkdfs`, `audioconv64`, `mksprite`, `mkfont`, `n64sym`) |
 | `packages.tiny3d` | Tiny3D — RSP-accelerated 3D + `gltf_to_t3d` |
-| `packages.engine` | `libkiln` — 3D on Tiny3D, 2D GUI on rdpq, actors/rooms/camera/skeletal-animation runtime, audio on the RSP mixer |
+| `packages.engine` | `libfigulina` — 3D on Tiny3D, 2D GUI on rdpq, actors/rooms/camera/skeletal-animation runtime, audio on the RSP mixer |
 | `packages.engine-demo` | worked example — lit spinning cube + HUD, 59.8 fps |
 | `packages.actors-demo` / `rooms-demo` / `camera-skel-demo` | worked examples — the actor pool, room streaming, and the OoT-style follow camera + skinned animation + footstep SFX together |
 | `packages.streamdb-demo` | worked example — model/sprite/level-blob loaded from one indexed `.streamdb` container at runtime |
@@ -77,13 +77,13 @@ numbers.
 Two layers, one RDP state transition per frame:
 
 ```c
-kiln_frame_begin();            // attach framebuffer + Z-buffer
-  kiln_scene_begin(&scene);    // 3D: Tiny3D, perspective, lit, depth-tested
+fig_frame_begin();            // attach framebuffer + Z-buffer
+  fig_scene_begin(&scene);    // 3D: Tiny3D, perspective, lit, depth-tested
   ... geometry ...
-  kiln_gui_begin();            // the seam: depth OFF, screen space
-  kiln_gui_panel(...); kiln_gui_text(...); kiln_gui_bar(...);
-  kiln_gui_end();
-kiln_frame_end();              // present
+  fig_gui_begin();            // the seam: depth OFF, screen space
+  fig_gui_panel(...); fig_gui_text(...); fig_gui_bar(...);
+  fig_gui_end();
+fig_frame_end();              // present
 ```
 
 The GUI is immediate mode — for a HUD of a dozen rectangles on a 93.75 MHz

@@ -1,7 +1,7 @@
 # exsec-signaculum-demo
 
 The Exsecutor logo, rasterized on the VR4300 by code the Exsecutor compiler
-emitted — Kiln's built-in software 3D path (`kiln_soft3d`, the engine
+emitted — Kiln's built-in software 3D path (`fig_soft3d`, the engine
 module wrapping `exs_signaculum_pingue`) — and **checked in-ROM**: a CRC-32
 of the 196,608-byte framebuffer against the constant baked from Exsecutor's
 own `expected.out` (see `main.c` and
@@ -19,7 +19,7 @@ The verdict line is on debugf (ISViewer): `signaculum: AGREE ...` or
 
 ```sh
 nix develop                                   # sets N64_INST + N64_GCCPREFIX
-make -C ../../engine all                      # libkiln.a incl. kiln_soft3d.o
+make -C ../../engine all                      # libfigulina.a incl. kiln_soft3d.o
                                               # (`all` named: the default goal
                                               #  is print-modules, a flake
                                               #  interface, not the archive)

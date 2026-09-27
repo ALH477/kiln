@@ -5,13 +5,13 @@
 # `./dev map-render` and nix/checks/kiln-map.nix compile the same
 # tools/maprender/map_render.c and are held to the same
 # nix/checks/refs/kiln-map.png. This check is what makes that a fact instead of
-# a code-review convention: if either main() grows a kiln_gui_* or kiln_dd_*
+# a code-review convention: if either main() grows a fig_gui_* or fig_dd_*
 # call of its own, the two frames diverge and this goes red.
 #
 # There is deliberately NO second reference image. A per-tool reference would
 # only prove each tool agrees with itself, which is exactly the failure
 # AGENTS.md names for per-architecture references — and exactly how
-# tools/uipreview came to disagree with the console about kiln_gui for as long
+# tools/uipreview came to disagree with the console about fig_gui for as long
 # as it did.
 { pkgs, target, mapAsset, mapRenderSrc }:
 

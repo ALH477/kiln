@@ -9,7 +9,7 @@ BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk
 # streamdb.mk BEFORE kiln.mk: both prepend to N64_LDFLAGS, so the later
-# include wins the leftmost slot. kiln_asset.o (in libkiln) calls into
+# include wins the leftmost slot. kiln_asset.o (in libfigulina) calls into
 # libstreamdb_emb, and streamdb_io_dfs.o calls back into libdragon — so the
 # correct link order is -lkiln -lstreamdb_emb -lt3d -ldragon, which means
 # kiln.mk must run AFTER streamdb.mk.

@@ -7,7 +7,7 @@
 # why this is a separate implementation rather than a port of the upstream C
 # edition (short version: pthreads, flock, fsync and a 1 KB-per-node trie).
 #
-# Installed with the same layout as libdragon/Tiny3D/libkiln so it merges into
+# Installed with the same layout as libdragon/Tiny3D/libfigulina so it merges into
 # the one $N64_INST prefix and a ROM links it with -lstreamdb_emb.
 #
 # Built against libdragon alone (not n64InstBase): streamdb-embedded needs only

@@ -39,7 +39,7 @@ static uint16_t intern_key(const char *key)
         if (strcmp(g_key_table[i], key) == 0) return i;
     }
     if (g_key_count >= KEY_TABLE_SIZE) {
-        debugf("kiln_dict: key table full, dropping key '%s'\n", key);
+        debugf("fig_dict: key table full, dropping key '%s'\n", key);
         return 0;
     }
     size_t n = strlen(key);
@@ -70,7 +70,7 @@ static uint16_t intern_str(const char *str)
         if (strcmp(g_str_table[i], str) == 0) return i;
     }
     if (g_str_count >= STRING_TABLE_SIZE) {
-        debugf("kiln_dict: string table full, dropping string '%s'\n", str);
+        debugf("fig_dict: string table full, dropping string '%s'\n", str);
         return 0;
     }
     size_t n = strlen(str);
@@ -86,7 +86,7 @@ static const char *str_by_id(uint16_t id)
     return g_str_table[id];
 }
 
-static int find_key(const KilnDict *d, uint16_t key_id)
+static int find_key(const FigDict *d, uint16_t key_id)
 {
     for (int i = 0; i < d->count; i++) {
         if (d->entries[i].key_id == key_id) return i;
@@ -94,18 +94,18 @@ static int find_key(const KilnDict *d, uint16_t key_id)
     return -1;
 }
 
-static int find_or_append(KilnDict *d, uint16_t key_id, KilnDictType type)
+static int find_or_append(FigDict *d, uint16_t key_id, FigDictType type)
 {
     int idx = find_key(d, key_id);
     if (idx >= 0) {
         if (d->entries[idx].type != (uint8_t)type) {
-            debugf("kiln_dict: key '%s' overwritten with different type\n",
+            debugf("fig_dict: key '%s' overwritten with different type\n",
                    g_key_table[key_id]);
         }
         return idx;
     }
-    if (d->count >= KILN_DICT_MAX_KEYS) {
-        debugf("kiln_dict: dict full, cannot add key '%s'\n", g_key_table[key_id]);
+    if (d->count >= FIG_DICT_MAX_KEYS) {
+        debugf("fig_dict: dict full, cannot add key '%s'\n", g_key_table[key_id]);
         return -1;
     }
     idx = d->count++;
@@ -114,117 +114,117 @@ static int find_or_append(KilnDict *d, uint16_t key_id, KilnDictType type)
     return idx;
 }
 
-void kiln_dict_init(KilnDict *d)
+void fig_dict_init(FigDict *d)
 {
     d->count = 0;
-    for (int i = 0; i < KILN_DICT_MAX_KEYS; i++) {
+    for (int i = 0; i < FIG_DICT_MAX_KEYS; i++) {
         d->entries[i].key_id = 0;
         d->entries[i].type = 0;
         d->entries[i].u.i = 0;
     }
 }
 
-void kiln_dict_set_int(KilnDict *d, const char *key, int v)
+void fig_dict_set_int(FigDict *d, const char *key, int v)
 {
     uint16_t kid = intern_key(key);
-    int idx = find_or_append(d, kid, KILN_DICT_INT);
+    int idx = find_or_append(d, kid, FIG_DICT_INT);
     if (idx >= 0) d->entries[idx].u.i = v;
 }
 
-void kiln_dict_set_float(KilnDict *d, const char *key, float v)
+void fig_dict_set_float(FigDict *d, const char *key, float v)
 {
     uint16_t kid = intern_key(key);
-    int idx = find_or_append(d, kid, KILN_DICT_FLOAT);
+    int idx = find_or_append(d, kid, FIG_DICT_FLOAT);
     if (idx >= 0) d->entries[idx].u.f = v;
 }
 
-void kiln_dict_set_vec3(KilnDict *d, const char *key, fm_vec3_t v)
+void fig_dict_set_vec3(FigDict *d, const char *key, fm_vec3_t v)
 {
     uint16_t kid = intern_key(key);
-    int idx = find_or_append(d, kid, KILN_DICT_VEC3);
+    int idx = find_or_append(d, kid, FIG_DICT_VEC3);
     if (idx >= 0) d->entries[idx].u.v = v;
 }
 
-void kiln_dict_set_str(KilnDict *d, const char *key, const char *v)
+void fig_dict_set_str(FigDict *d, const char *key, const char *v)
 {
     uint16_t kid = intern_key(key);
-    int idx = find_or_append(d, kid, KILN_DICT_STRING);
+    int idx = find_or_append(d, kid, FIG_DICT_STRING);
     if (idx >= 0) d->entries[idx].u.s_id = intern_str(v);
 }
 
-int kiln_dict_get_int(const KilnDict *d, const char *key, int def)
+int fig_dict_get_int(const FigDict *d, const char *key, int def)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    if (idx < 0 || d->entries[idx].type != KILN_DICT_INT) return def;
+    if (idx < 0 || d->entries[idx].type != FIG_DICT_INT) return def;
     return d->entries[idx].u.i;
 }
 
-float kiln_dict_get_float(const KilnDict *d, const char *key, float def)
+float fig_dict_get_float(const FigDict *d, const char *key, float def)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    if (idx < 0 || d->entries[idx].type != KILN_DICT_FLOAT) return def;
+    if (idx < 0 || d->entries[idx].type != FIG_DICT_FLOAT) return def;
     return d->entries[idx].u.f;
 }
 
-fm_vec3_t kiln_dict_get_vec3(const KilnDict *d, const char *key, fm_vec3_t def)
+fm_vec3_t fig_dict_get_vec3(const FigDict *d, const char *key, fm_vec3_t def)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    if (idx < 0 || d->entries[idx].type != KILN_DICT_VEC3) return def;
+    if (idx < 0 || d->entries[idx].type != FIG_DICT_VEC3) return def;
     return d->entries[idx].u.v;
 }
 
-const char *kiln_dict_get_str(const KilnDict *d, const char *key, const char *def)
+const char *fig_dict_get_str(const FigDict *d, const char *key, const char *def)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    if (idx < 0 || d->entries[idx].type != KILN_DICT_STRING) return def;
+    if (idx < 0 || d->entries[idx].type != FIG_DICT_STRING) return def;
     return str_by_id(d->entries[idx].u.s_id);
 }
 
-int kiln_dict_has_int(const KilnDict *d, const char *key)
+int fig_dict_has_int(const FigDict *d, const char *key)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    return idx >= 0 && d->entries[idx].type == KILN_DICT_INT;
+    return idx >= 0 && d->entries[idx].type == FIG_DICT_INT;
 }
 
-int kiln_dict_has_float(const KilnDict *d, const char *key)
+int fig_dict_has_float(const FigDict *d, const char *key)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    return idx >= 0 && d->entries[idx].type == KILN_DICT_FLOAT;
+    return idx >= 0 && d->entries[idx].type == FIG_DICT_FLOAT;
 }
 
-int kiln_dict_has_vec3(const KilnDict *d, const char *key)
+int fig_dict_has_vec3(const FigDict *d, const char *key)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    return idx >= 0 && d->entries[idx].type == KILN_DICT_VEC3;
+    return idx >= 0 && d->entries[idx].type == FIG_DICT_VEC3;
 }
 
-int kiln_dict_has_str(const KilnDict *d, const char *key)
+int fig_dict_has_str(const FigDict *d, const char *key)
 {
     uint16_t kid = lookup_key(key);
     int idx = find_key(d, kid);
-    return idx >= 0 && d->entries[idx].type == KILN_DICT_STRING;
+    return idx >= 0 && d->entries[idx].type == FIG_DICT_STRING;
 }
 
-int kiln_dict_parse_int(const char *v)
+int fig_dict_parse_int(const char *v)
 {
     if (!v) return 0;
     return (int)atoi(v);
 }
 
-float kiln_dict_parse_float(const char *v)
+float fig_dict_parse_float(const char *v)
 {
     if (!v) return 0.0f;
     return (float)atof(v);
 }
 
-fm_vec3_t kiln_dict_parse_vec3(const char *v)
+fm_vec3_t fig_dict_parse_vec3(const char *v)
 {
     fm_vec3_t r = {{ 0, 0, 0 }};
     if (!v) return r;
@@ -236,10 +236,10 @@ fm_vec3_t kiln_dict_parse_vec3(const char *v)
     return r;
 }
 
-void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
+void fig_dict_set_auto(FigDict *d, const char *key, const char *v)
 {
     if (!v || v[0] == '\0') {
-        kiln_dict_set_str(d, key, v);
+        fig_dict_set_str(d, key, v);
         return;
     }
 
@@ -249,7 +249,7 @@ void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
 
     x = (float)strtod(v, &endptr);
     if (endptr == v) {
-        kiln_dict_set_str(d, key, v);
+        fig_dict_set_str(d, key, v);
         return;
     }
     /* strtod accepts "inf"/"infinity"/"nan" as a prefix even when not
@@ -260,7 +260,7 @@ void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
     uint32_t bits;
     memcpy(&bits, &x, sizeof(bits));
     if ((bits & 0x7F800000u) == 0x7F800000u) {
-        kiln_dict_set_str(d, key, v);
+        fig_dict_set_str(d, key, v);
         return;
     }
     int is_float0 = (strchr(v, '.') != NULL);
@@ -269,8 +269,8 @@ void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
     y = (float)strtod(p1, &endptr);
     if (endptr == p1) {
         /* Exactly one number. */
-        if (is_float0) kiln_dict_set_float(d, key, x);
-        else           kiln_dict_set_int(d, key, (int)x);
+        if (is_float0) fig_dict_set_float(d, key, x);
+        else           fig_dict_set_int(d, key, (int)x);
         return;
     }
 
@@ -278,7 +278,7 @@ void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
     z = (float)strtod(p2, &endptr);
     if (endptr == p2) {
         /* Two numbers — ambiguous; store as string. */
-        kiln_dict_set_str(d, key, v);
+        fig_dict_set_str(d, key, v);
         return;
     }
 
@@ -288,9 +288,9 @@ void kiln_dict_set_auto(KilnDict *d, const char *key, const char *v)
     while (*tail == ' ' || *tail == '\t' || *tail == '\n' || *tail == '\r')
         tail++;
     if (*tail != '\0') {
-        kiln_dict_set_str(d, key, v);
+        fig_dict_set_str(d, key, v);
         return;
     }
 
-    kiln_dict_set_vec3(d, key, (fm_vec3_t){{ x, y, z }});
+    fig_dict_set_vec3(d, key, (fm_vec3_t){{ x, y, z }});
 }

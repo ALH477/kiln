@@ -43,25 +43,25 @@
  * Zero-initialised before main runs; the core rewrites every byte of fb and
  * zb on every call anyway (forma.exsc fills the ground and zeroes zb before
  * drawing), so the .bss guarantee is belt-and-braces, not load-bearing. */
-static uint8_t g_exsg[KILN_SOFT3D_EXSG_BYTES];
-static uint8_t g_fb[KILN_SOFT3D_FB_BYTES];
+static uint8_t g_exsg[FIG_SOFT3D_EXSG_BYTES];
+static uint8_t g_fb[FIG_SOFT3D_FB_BYTES];
 static double  g_zb[256 * 256];
 
-static int g_ready; /* kiln_soft3d_init ran; render is callable */
+static int g_ready; /* fig_soft3d_init ran; render is callable */
 
-void kiln_soft3d_init(const void *exsg_blob, uint32_t len)
+void fig_soft3d_init(const void *exsg_blob, uint32_t len)
 {
-    assertf(exsg_blob != NULL, "kiln_soft3d_init: NULL stream");
-    assertf(len == KILN_SOFT3D_EXSG_BYTES,
-            "kiln_soft3d_init: stream is %lu bytes, the contract is %u",
-            (unsigned long)len, KILN_SOFT3D_EXSG_BYTES);
-    memcpy(g_exsg, exsg_blob, KILN_SOFT3D_EXSG_BYTES);
+    assertf(exsg_blob != NULL, "fig_soft3d_init: NULL stream");
+    assertf(len == FIG_SOFT3D_EXSG_BYTES,
+            "fig_soft3d_init: stream is %lu bytes, the contract is %u",
+            (unsigned long)len, FIG_SOFT3D_EXSG_BYTES);
+    memcpy(g_exsg, exsg_blob, FIG_SOFT3D_EXSG_BYTES);
     g_ready = 1;
 }
 
-uint8_t kiln_soft3d_render_frame(void)
+uint8_t fig_soft3d_render_frame(void)
 {
-    assertf(g_ready, "kiln_soft3d_render_frame before kiln_soft3d_init");
+    assertf(g_ready, "fig_soft3d_render_frame before fig_soft3d_init");
     /* THE CALLER'S STACK: exs_signaculum_pingue alone frames 36,176 bytes
      * (mips64-elf-gcc 14.4.0 -Os, -fstack-usage — gen/PROVENANCE.md). Call
      * this from a >= 49,152-byte kthread, never from main, and the demo's
@@ -70,17 +70,17 @@ uint8_t kiln_soft3d_render_frame(void)
                                           (unsigned char *)g_zb);
 }
 
-const uint8_t *kiln_soft3d_framebuffer(void)
+const uint8_t *fig_soft3d_framebuffer(void)
 {
     return g_fb;
 }
 
-void kiln_soft3d_present(surface_t *disp)
+void fig_soft3d_present(surface_t *disp)
 {
     assertf(disp != NULL && disp->buffer != NULL,
-            "kiln_soft3d_present: no surface");
+            "fig_soft3d_present: no surface");
     assertf(disp->width == 320 && disp->height == 240,
-            "kiln_soft3d_present: the mapping is fixed for 320x240, got %dx%d",
+            "fig_soft3d_present: the mapping is fixed for 320x240, got %dx%d",
             disp->width, disp->height);
 
     /* The crop and the letterbox, fixed: source rows [8, 248) land at
@@ -91,7 +91,7 @@ void kiln_soft3d_present(surface_t *disp)
      * a pixel. */
     const bool wide = disp->stride >= (uint16_t)(disp->width * 4);
     assertf(wide || disp->stride >= (uint16_t)(disp->width * 2),
-            "kiln_soft3d_present: stride %u cannot hold %u-wide pixels",
+            "fig_soft3d_present: stride %u cannot hold %u-wide pixels",
             disp->stride, disp->width);
 
     for (int y = 0; y < 240; y++) {

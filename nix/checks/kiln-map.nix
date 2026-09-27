@@ -6,14 +6,14 @@
 # This is the payoff for the IO tier: the first time a level in this repo has
 # been drawn anywhere but a ROM. It also proves the negative first, because that
 # is the failure this project actually had — a missing map must be a loud miss,
-# not a silent empty world. On console kiln_map_load returns non-zero rather
+# not a silent empty world. On console fig_map_load returns non-zero rather
 # than asserting, an empty clip world makes every trace report "nothing in the
 # way", and the composition is silent; CLAUDE.md records that costing PetaByte
 # Madness its entire PLAY screen. Here the same mismatch prints the resolved
 # path.
 #
-# ── It found three defects in kiln_map, and now pins their fix ────────
-# 1. kiln_map_draw did not render the brush's FACES. A Quake .map gives three
+# ── It found three defects in fig_map, and now pins their fix ────────
+# 1. fig_map_draw did not render the brush's FACES. A Quake .map gives three
 #    points per face and those points define a PLANE — conventionally one unit
 #    apart, which is exactly what assets/quake_test.map uses. kiln_map.c
 #    treated them as face corners, so a 128-unit wall rendered as a 1x2-unit
@@ -76,7 +76,7 @@ target.mkCheck {
       echo ""
       echo "FAILED: the rendered map changed."
       echo "  reference $(stat -c%s ${./refs/kiln-map.png}) bytes, rendered $(stat -c%s out.png) bytes"
-      echo "If kiln_map now does real brush CSG, this reference is obsolete and"
+      echo "If fig_map now does real brush CSG, this reference is obsolete and"
       echo "that is the good news — regenerate it and look at the result."
       exit 1
     fi

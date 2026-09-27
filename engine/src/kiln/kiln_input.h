@@ -7,8 +7,8 @@
  * `joypad_get_inputs` directly at the top of its frame loop. That works but
  * scatters the deadzone, edge-detection and stick-normalisation logic across
  * every ROM that ever reads a controller. This module is the single place
- * those decisions live: `kiln_input_update()` polls once at the top of the
- * frame, and `kiln_input_get(port)` returns a deadzoned, edge-flagged view.
+ * those decisions live: `fig_input_update()` polls once at the top of the
+ * frame, and `fig_input_get(port)` returns a deadzoned, edge-flagged view.
  *
  * ── Why a squared-magnitude deadzone, not a per-axis threshold ─────────
  * A per-axis threshold of "if |x| < 8, x = 0" makes the playable region a
@@ -34,8 +34,8 @@
  * anyway. C-stick is exposed but not normalised here; the camera code that uses
  * it can apply its own curve.
  */
-#ifndef KILN_INPUT_H
-#define KILN_INPUT_H
+#ifndef FIG_INPUT_H
+#define FIG_INPUT_H
 
 #include <libdragon.h>
 
@@ -48,20 +48,20 @@ extern "C" {
  *  table. The named `JOYPAD_BUTTON_*` aren't used because they aren't stable
  *  across libdragon revisions; the bit positions are. */
 enum {
-    KILN_BTN_A     = 1 << 0,
-    KILN_BTN_B     = 1 << 1,
-    KILN_BTN_Z     = 1 << 2,
-    KILN_BTN_START = 1 << 3,
-    KILN_BTN_DU    = 1 << 4,
-    KILN_BTN_DD    = 1 << 5,
-    KILN_BTN_DL    = 1 << 6,
-    KILN_BTN_DR    = 1 << 7,
-    KILN_BTN_L     = 1 << 10,
-    KILN_BTN_R     = 1 << 11,
-    KILN_BTN_CU    = 1 << 12,
-    KILN_BTN_CD    = 1 << 13,
-    KILN_BTN_CL    = 1 << 14,
-    KILN_BTN_CR    = 1 << 15,
+    FIG_BTN_A     = 1 << 0,
+    FIG_BTN_B     = 1 << 1,
+    FIG_BTN_Z     = 1 << 2,
+    FIG_BTN_START = 1 << 3,
+    FIG_BTN_DU    = 1 << 4,
+    FIG_BTN_DD    = 1 << 5,
+    FIG_BTN_DL    = 1 << 6,
+    FIG_BTN_DR    = 1 << 7,
+    FIG_BTN_L     = 1 << 10,
+    FIG_BTN_R     = 1 << 11,
+    FIG_BTN_CU    = 1 << 12,
+    FIG_BTN_CD    = 1 << 13,
+    FIG_BTN_CL    = 1 << 14,
+    FIG_BTN_CR    = 1 << 15,
 };
 
 typedef struct {
@@ -69,28 +69,28 @@ typedef struct {
     float    stick_y;   /**< deadzoned, normalised to [-1, 1], up    = +      */
     float    cstick_x;  /**< raw / RANGE_N64_STICK_MAX; not deadzoned         */
     float    cstick_y;  /**< raw / RANGE_N64_STICK_MAX; not deadzoned         */
-    uint32_t buttons;   /**< held this frame (KILN_BTN_*)                       */
+    uint32_t buttons;   /**< held this frame (FIG_BTN_*)                       */
     uint32_t edges;     /**< pressed this frame (was up last frame)            */
     uint32_t released;  /**< released this frame (was down last frame)         */
-} KilnInput;
+} FigInput;
 
 /** Call `joypad_init` first (it is NOT called here — examples that don't read
  *  a controller shouldn't pay for the interrupt). This only zeroes state. */
-void kiln_input_init(void);
+void fig_input_init(void);
 
 /** Poll once per frame, at the top of the frame before any actor update.
  *  Computes edges by diffing against last frame's buttons. */
-void kiln_input_update(void);
+void fig_input_update(void);
 
 /** NULL → port 1 (JOYPAD_PORT_1). Returns a pointer to module-static state;
  *  do not cache across frames — always re-fetch in the frame you use it. */
-const KilnInput *kiln_input_get(int port);
+const FigInput *fig_input_get(int port);
 
 /** Convenience predicates. `port` is 1-based to match libdragon's
  *  JOYPAD_PORT_1..4; pass 0 for the default (port 1). */
-int kiln_input_held    (int port, uint32_t mask);
-int kiln_input_pressed (int port, uint32_t mask); /**< edge: was up, is down */
-int kiln_input_released(int port, uint32_t mask);
+int fig_input_held    (int port, uint32_t mask);
+int fig_input_pressed (int port, uint32_t mask); /**< edge: was up, is down */
+int fig_input_released(int port, uint32_t mask);
 
 /* ── Tapes: scripted input, for attract modes and jump ROMs ─────────────
  * A tape replaces a port's RAW pad state — buttons and stick counts — before
@@ -100,11 +100,11 @@ int kiln_input_released(int port, uint32_t mask);
  * the same player code a person does.
  *
  * Two ways to run one, and they differ only in who wins:
- *   kiln_input_play        FORCED. The tape drives the port and the physical
+ *   fig_input_play        FORCED. The tape drives the port and the physical
  *                          pad is ignored. For jump ROMs: `./dev shot` has no
  *                          input path, and a build that must reach a state
  *                          cannot depend on `./dev drive`'s uinput chain.
- *   kiln_input_set_attract STANDBY. After `idle_frames` consecutive frames of
+ *   fig_input_set_attract STANDBY. After `idle_frames` consecutive frames of
  *                          no buttons and a centred stick, the tape takes over
  *                          from its start; any real input hands the port back
  *                          on that same frame and restarts the idle count.
@@ -112,40 +112,40 @@ int kiln_input_released(int port, uint32_t mask);
  * A ROM that installs neither behaves exactly as before. */
 
 /** One key: from `frame` on, the port reads these values until the next key.
- *  `buttons` is KILN_BTN_*; sticks are raw counts (±85 is full tilt). */
+ *  `buttons` is FIG_BTN_*; sticks are raw counts (±85 is full tilt). */
 typedef struct {
     uint16_t frame;
     uint16_t buttons;
     int8_t   sx, sy;
     int8_t   cx, cy;
-} KilnInputKey;
+} FigInputKey;
 
 /** Keys in ascending `frame` order. The LAST key marks the end of the tape: a
  *  looping tape jumps to `loop_frame` on reaching it (the last key's own values
- *  are never applied), and a tape with `loop_frame == KILN_INPUT_NO_LOOP` holds
+ *  are never applied), and a tape with `loop_frame == FIG_INPUT_NO_LOOP` holds
  *  the last key's values forever. Before the first key the port reads idle. */
 typedef struct {
-    const KilnInputKey *keys;
+    const FigInputKey *keys;
     uint16_t            count;
     uint16_t            loop_frame;
-} KilnInputTape;
+} FigInputTape;
 
-#define KILN_INPUT_NO_LOOP 0xFFFF
+#define FIG_INPUT_NO_LOOP 0xFFFF
 
 /** Drive `port` from `tape` starting next update, ignoring the pad. NULL stops.
  *  The tape is referenced, not copied — keep it static. */
-void kiln_input_play(int port, const KilnInputTape *tape);
+void fig_input_play(int port, const FigInputTape *tape);
 
 /** Arm `tape` to take over `port` after `idle_frames` idle updates. NULL
  *  disarms. A forced tape on the same port takes precedence. */
-void kiln_input_set_attract(int port, const KilnInputTape *tape, uint16_t idle_frames);
+void fig_input_set_attract(int port, const FigInputTape *tape, uint16_t idle_frames);
 
 /** 1 while a tape (forced or attract) is driving `port` — for a HUD badge, so
  *  a viewer can tell a demo playing itself from a stuck controller. */
-int kiln_input_scripted(int port);
+int fig_input_scripted(int port);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_INPUT_H */
+#endif /* FIG_INPUT_H */

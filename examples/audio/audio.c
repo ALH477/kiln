@@ -5,7 +5,7 @@
 // dsp/ks.dsp is rendered offline at full quality, VADPCM-encoded by
 // audioconv64 into rom:/ksvoice.wav64 (a 2 s Karplus-Strong string at A3), and
 // every note here is that same file started on a free mixer channel and pitched
-// by the RSP: kiln_sfx_play_ex + kiln_sfx_set_pitch. Nothing is synthesised on
+// by the RSP: fig_sfx_play_ex + fig_sfx_set_pitch. Nothing is synthesised on
 // the VR4300 — the expensive thing on this console is synthesis, not playback,
 // and this is what "bake 80-90% of the audio" sounds like in practice.
 //
@@ -13,7 +13,7 @@
 //                 with a root/fifth bass an octave below the lowest key
 //   the keys      ten pedestals on an arc; a note lifts its tine and throws a
 //                 ring across the floor that fades as the pluck decays
-//   the HUD       a scope of what the RSP actually mixed (kiln_audio's output
+//   the HUD       a scope of what the RSP actually mixed (fig_audio's output
 //                 tap, not a model of it), the last 40 notes as bars, voices
 //
 //   stick / D-pad  pick a key      A  pluck it      B  pluck a triad
@@ -135,31 +135,31 @@ static void scope_tap(const int16_t *s, int frames, void *ctx)
 }
 
 // ── Attract tape: walk the cursor up and back, plucking, over the sequence ──
-static const KilnInputKey ATTRACT_KEYS[] = {
+static const FigInputKey ATTRACT_KEYS[] = {
     { .frame =   0 },
     { .frame =  30, .sx =  70 },
     { .frame =  44 },
-    { .frame =  60, .buttons = KILN_BTN_A },
+    { .frame =  60, .buttons = FIG_BTN_A },
     { .frame =  66 },
-    { .frame =  90, .buttons = KILN_BTN_A },
+    { .frame =  90, .buttons = FIG_BTN_A },
     { .frame =  96 },
     { .frame = 120, .sx =  70 },
     { .frame = 150 },
-    { .frame = 160, .buttons = KILN_BTN_B },
+    { .frame = 160, .buttons = FIG_BTN_B },
     { .frame = 166 },
     { .frame = 200, .sx =  70 },
     { .frame = 214 },
-    { .frame = 230, .buttons = KILN_BTN_A },
+    { .frame = 230, .buttons = FIG_BTN_A },
     { .frame = 236 },
     { .frame = 270, .sx = -70 },
     { .frame = 310 },
-    { .frame = 320, .buttons = KILN_BTN_B },
+    { .frame = 320, .buttons = FIG_BTN_B },
     { .frame = 326 },
-    { .frame = 350, .buttons = KILN_BTN_A },
+    { .frame = 350, .buttons = FIG_BTN_A },
     { .frame = 356 },
     { .frame = 400 },
 };
-static const KilnInputTape ATTRACT = { ATTRACT_KEYS, sizeof ATTRACT_KEYS / sizeof ATTRACT_KEYS[0], 0 };
+static const FigInputTape ATTRACT = { ATTRACT_KEYS, sizeof ATTRACT_KEYS / sizeof ATTRACT_KEYS[0], 0 };
 
 // ── A ring: 16 flat quads facing +Y, radius 28..32 at scale 1 ───────────────
 static void ring_vert(T3DVertPacked *base, int vi, float x, float z, uint32_t rgba, uint16_t norm)
@@ -171,7 +171,7 @@ static void ring_vert(T3DVertPacked *base, int vi, float x, float z, uint32_t rg
     else        { memcpy(p->posA, pos, sizeof pos); p->normA = norm; p->rgbaA = rgba; }
 }
 
-static int ring_build(KilnPrim *out, uint32_t rgba)
+static int ring_build(FigPrim *out, uint32_t rgba)
 {
     enum { SEG = 16 };
     const float RIN = 28.0f, ROUT = 32.0f;
@@ -216,9 +216,9 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ?
 static void pluck(int key, float ratio, float vol, int pri, float now)
 {
     const float pan = key < 0 ? 0.5f : 0.2f + 0.6f * (float)key / (KEYS - 1);
-    const int ch = kiln_sfx_play_ex(g_sfx, -1, pri, vol, pan);
+    const int ch = fig_sfx_play_ex(g_sfx, -1, pri, vol, pan);
     if (ch < 0 || ch >= VOICES) return;
-    kiln_sfx_set_pitch(ch, ratio);
+    fig_sfx_set_pitch(ch, ratio);
     g_voice[ch] = (Voice){ .active = 1, .key = key, .vol = vol, .pan = pan,
                            .t_end = now + SAMPLE_SECS / ratio - 0.12f };
 
@@ -241,77 +241,77 @@ static void voices_update(float now)
     for (int ch = 0; ch < VOICES; ch++) {
         Voice *v = &g_voice[ch];
         if (!v->active) continue;
-        if (!kiln_sfx_playing(ch)) { v->active = 0; continue; }
+        if (!fig_sfx_playing(ch)) { v->active = 0; continue; }
         const float left = v->t_end - now;
         if (left <= 0.0f) {
-            kiln_sfx_stop(ch);
+            fig_sfx_stop(ch);
             v->active = 0;
         } else if (left < FADE_SECS) {
-            kiln_sfx_set_vol_pan(ch, v->vol * left / FADE_SECS, v->pan);
+            fig_sfx_set_vol_pan(ch, v->vol * left / FADE_SECS, v->pan);
         }
     }
 }
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     // Mount the ROM's DragonFS before anything opens rom:/.
     dfs_init(DFS_DEFAULT_LOCATION);
     joypad_init();
-    kiln_input_init();
+    fig_input_init();
 
-    kiln_audio_init((KilnAudioConfig){
+    fig_audio_init((FigAudioConfig){
         .sample_rate = SAMPLE_RATE, .latency = 0.16f, .sfx_channels = VOICES, .music_channels = 0,
     });
     for (int ch = 0; ch < VOICES; ch++)
         mixer_ch_set_limits(ch, 16, SAMPLE_RATE * MAX_RATIO, 0);
-    g_sfx = kiln_sfx_load("rom:/ksvoice.wav64");
-    kiln_audio_set_tap(scope_tap, NULL);
+    g_sfx = fig_sfx_load("rom:/ksvoice.wav64");
+    fig_audio_set_tap(scope_tap, NULL);
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x14, 0x18, 0x2E, 0xFF), 200.0f, 420.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x14, 0x18, 0x2E, 0xFF), 200.0f, 420.0f);
     scene.fov_deg = 60.0f;
     scene.near_z = 10.0f;
     scene.far_z = 420.0f;
 
     // ── geometry, built once: nothing below is rewritten after this ────────
-    KilnPrim floor_prim, pedestal[KEYS], tine_lit[KEYS], tine_dim[KEYS], cursor;
-    KilnPrim ring[KEYS + 1][RING_LEVELS];
+    FigPrim floor_prim, pedestal[KEYS], tine_lit[KEYS], tine_dim[KEYS], cursor;
+    FigPrim ring[KEYS + 1][RING_LEVELS];
     static const float LEVEL_SHADE[RING_LEVELS] = { 1.0f, 0.7f, 0.45f, 0.25f };
-    kiln_prim_floor(&floor_prim, 220.0f, 16, kiln_prim_rgba(0x46, 0x4C, 0x6A), kiln_prim_rgba(0x3A, 0x40, 0x5C));
+    fig_prim_floor(&floor_prim, 220.0f, 16, fig_prim_rgba(0x46, 0x4C, 0x6A), fig_prim_rgba(0x3A, 0x40, 0x5C));
     for (int k = 0; k < KEYS; k++) {
         const uint32_t c = KEY_RGB[k];
-        kiln_prim_box(&pedestal[k], (fm_vec3_t){{ 0, 4, 0 }}, (fm_vec3_t){{ 9, 4, 9 }},
-                      kiln_prim_shade(c, 0.55f), kiln_prim_rgba(0x5A, 0x60, 0x80), kiln_prim_rgba(0x20, 0x22, 0x30));
-        kiln_prim_box(&tine_lit[k], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 4, 10, 4 }},
-                      kiln_prim_shade(c, 1.25f), c, c);
-        kiln_prim_box(&tine_dim[k], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 4, 10, 4 }},
-                      kiln_prim_shade(c, 0.6f), kiln_prim_shade(c, 0.4f), kiln_prim_shade(c, 0.4f));
+        fig_prim_box(&pedestal[k], (fm_vec3_t){{ 0, 4, 0 }}, (fm_vec3_t){{ 9, 4, 9 }},
+                      fig_prim_shade(c, 0.55f), fig_prim_rgba(0x5A, 0x60, 0x80), fig_prim_rgba(0x20, 0x22, 0x30));
+        fig_prim_box(&tine_lit[k], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 4, 10, 4 }},
+                      fig_prim_shade(c, 1.25f), c, c);
+        fig_prim_box(&tine_dim[k], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 4, 10, 4 }},
+                      fig_prim_shade(c, 0.6f), fig_prim_shade(c, 0.4f), fig_prim_shade(c, 0.4f));
     }
     for (int k = 0; k <= KEYS; k++)
         for (int l = 0; l < RING_LEVELS; l++)
-            ring_build(&ring[k][l], kiln_prim_shade(k < KEYS ? KEY_RGB[k] : BASS_RGB, LEVEL_SHADE[l]));
-    kiln_prim_box(&cursor, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 3, 3, 3 }},
-                  kiln_prim_rgba(0xFF, 0xFF, 0xFF), kiln_prim_rgba(0xFF, 0xE0, 0x60), kiln_prim_rgba(0x80, 0x60, 0x20));
+            ring_build(&ring[k][l], fig_prim_shade(k < KEYS ? KEY_RGB[k] : BASS_RGB, LEVEL_SHADE[l]));
+    fig_prim_box(&cursor, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 3, 3, 3 }},
+                  fig_prim_rgba(0xFF, 0xFF, 0xFF), fig_prim_rgba(0xFF, 0xE0, 0x60), fig_prim_rgba(0x80, 0x60, 0x20));
 
     // One transform per drawn object: the RSP reads matrices asynchronously,
     // so a transform reused between two draws in a frame would race it.
-    KilnTransform floor_xf, ped_xf[KEYS], tine_xf[KEYS], ring_xf[RINGS], cursor_xf;
-    kiln_transform_init(&floor_xf);
-    kiln_transform_init(&cursor_xf);
+    FigTransform floor_xf, ped_xf[KEYS], tine_xf[KEYS], ring_xf[RINGS], cursor_xf;
+    fig_transform_init(&floor_xf);
+    fig_transform_init(&cursor_xf);
     for (int k = 0; k < KEYS; k++) {
-        kiln_transform_init(&ped_xf[k]);
-        kiln_transform_init(&tine_xf[k]);
+        fig_transform_init(&ped_xf[k]);
+        fig_transform_init(&tine_xf[k]);
         ped_xf[k].pos = key_pos(k);
         tine_xf[k].pos = key_pos(k);
         tine_xf[k].pos.v[1] = 8.0f;
         g_hit[k] = -10.0f;
     }
-    for (int i = 0; i < RINGS; i++) kiln_transform_init(&ring_xf[i]);
+    for (int i = 0; i < RINGS; i++) fig_transform_init(&ring_xf[i]);
     memset(g_hist, -2, sizeof g_hist);   // -2 = empty slot
 
-    kiln_input_set_attract(1, &ATTRACT, 180);
+    fig_input_set_attract(1, &ATTRACT, 180);
 
     float now = 0.0f, seq_next = 0.5f;
     int step = 0, seq_on = 1, sel = 4, repeat = 0;
@@ -324,11 +324,11 @@ int main(void)
         now += dt;
 
         // ── input ───────────────────────────────────────────────────────
-        kiln_input_update();
-        const KilnInput *in = kiln_input_get(1);
+        fig_input_update();
+        const FigInput *in = fig_input_get(1);
         int move = 0;
-        if (in->edges & KILN_BTN_DR) move = 1;
-        if (in->edges & KILN_BTN_DL) move = -1;
+        if (in->edges & FIG_BTN_DR) move = 1;
+        if (in->edges & FIG_BTN_DL) move = -1;
         if (in->stick_x > 0.5f || in->stick_x < -0.5f) {
             if (repeat <= 0) { move = in->stick_x > 0 ? 1 : -1; repeat = repeat < 0 ? 6 : 14; }
             else repeat--;
@@ -336,15 +336,15 @@ int main(void)
             repeat = 0;
         }
         sel = (int)clampf((float)(sel + move), 0.0f, KEYS - 1);
-        if (in->edges & KILN_BTN_A) pluck(sel, KEY_RATIO[sel], 0.9f, 3, now);
-        if (in->edges & KILN_BTN_B) {
+        if (in->edges & FIG_BTN_A) pluck(sel, KEY_RATIO[sel], 0.9f, 3, now);
+        if (in->edges & FIG_BTN_B) {
             // Root, third and fifth of the pentatonic from the selected key,
             // shifted down at the top of the arc so all three exist.
             const int root = sel < KEYS - 4 ? sel : KEYS - 5;
             for (int j = 0; j < 3; j++)
                 pluck(root + j * 2, KEY_RATIO[root + j * 2], 0.6f, 3, now);
         }
-        if (in->edges & KILN_BTN_Z) seq_on = !seq_on;
+        if (in->edges & FIG_BTN_Z) seq_on = !seq_on;
 
         // ── sequencer ───────────────────────────────────────────────────
         if (now - seq_next > 0.5f) seq_next = now;   // after a stall, don't flam
@@ -364,13 +364,13 @@ int main(void)
         // ── camera: a slow sway over the arc ────────────────────────────
         scene.cam_pos = (fm_vec3_t){{ fm_sinf(now * 0.2f) * 45.0f, 95.0f + fm_sinf(now * 0.13f) * 10.0f, -150.0f }};
         scene.cam_target = (fm_vec3_t){{ 0, 12, 40 }};
-        kiln_scene_update(&scene);
+        fig_scene_update(&scene);
 
         // ── 3D ──────────────────────────────────────────────────────────
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
+        fig_frame_begin();
+        fig_scene_begin(&scene);
 
-        kiln_transform_push(&floor_xf); kiln_prim_draw(&floor_prim); kiln_transform_pop();
+        fig_transform_push(&floor_xf); fig_prim_draw(&floor_prim); fig_transform_pop();
 
         for (int i = 0; i < RINGS; i++) {
             Ring *r = &g_ring[i];
@@ -382,18 +382,18 @@ int main(void)
             ring_xf[i].pos = r->pos;
             ring_xf[i].pos.v[1] = 0.8f;
             ring_xf[i].scale = (fm_vec3_t){{ grow, 1.0f, grow }};
-            kiln_transform_push(&ring_xf[i]);
-            kiln_prim_draw(&ring[r->key < 0 ? KEYS : r->key][level]);
-            kiln_transform_pop();
+            fig_transform_push(&ring_xf[i]);
+            fig_prim_draw(&ring[r->key < 0 ? KEYS : r->key][level]);
+            fig_transform_pop();
         }
 
         for (int k = 0; k < KEYS; k++) {
             const float env = key_env(now - g_hit[k]);
-            kiln_transform_push(&ped_xf[k]); kiln_prim_draw(&pedestal[k]); kiln_transform_pop();
+            fig_transform_push(&ped_xf[k]); fig_prim_draw(&pedestal[k]); fig_transform_pop();
             tine_xf[k].scale = (fm_vec3_t){{ 1.0f, 0.4f + 2.6f * env, 1.0f }};
-            kiln_transform_push(&tine_xf[k]);
-            kiln_prim_draw(env > 0.05f ? &tine_lit[k] : &tine_dim[k]);
-            kiln_transform_pop();
+            fig_transform_push(&tine_xf[k]);
+            fig_prim_draw(env > 0.05f ? &tine_lit[k] : &tine_dim[k]);
+            fig_transform_pop();
         }
 
         const float sel_h = 8.0f + 20.0f * (0.4f + 2.6f * key_env(now - g_hit[sel]));
@@ -401,10 +401,10 @@ int main(void)
         cursor_xf.pos.v[1] = sel_h + 10.0f + 3.0f * fm_sinf(now * 4.0f);
         cursor_xf.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
         cursor_xf.rot_angle = now * 2.0f;
-        kiln_transform_push(&cursor_xf); kiln_prim_draw(&cursor); kiln_transform_pop();
+        fig_transform_push(&cursor_xf); fig_prim_draw(&cursor); fig_transform_pop();
 
         // ── 2D ──────────────────────────────────────────────────────────
-        kiln_gui_begin();
+        fig_gui_begin();
         const color_t ink  = RGBA32(0xE8, 0xE8, 0xF0, 0xFF);
         const color_t dim  = RGBA32(0x90, 0x98, 0xB0, 0xFF);
         const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
@@ -413,56 +413,56 @@ int main(void)
         int voices = 0;
         for (int ch = 0; ch < VOICES; ch++) voices += g_voice[ch].active;
 
-        kiln_gui_panel(8, 8, 150, 48, panel, teal);
-        kiln_gui_text(14, 21, teal, "KILN AUDIO");
-        kiln_gui_text(14, 33, ink, "ksvoice.wav64 VADPCM");
-        kiln_gui_text(14, 45, ink, "voices %d/%d  seq %s", voices, VOICES, seq_on ? "on" : "off");
-        kiln_gui_bar(118, 17, 34, 5, (float)step / SEQ_STEPS, teal, RGBA32(0x2A, 0x2A, 0x3E, 0xFF));
+        fig_gui_panel(8, 8, 150, 48, panel, teal);
+        fig_gui_text(14, 21, teal, "KILN AUDIO");
+        fig_gui_text(14, 33, ink, "ksvoice.wav64 VADPCM");
+        fig_gui_text(14, 45, ink, "voices %d/%d  seq %s", voices, VOICES, seq_on ? "on" : "off");
+        fig_gui_bar(118, 17, 34, 5, (float)step / SEQ_STEPS, teal, RGBA32(0x2A, 0x2A, 0x3E, 0xFF));
 
         // What the RSP mixed last buffer, not a picture of what it should have.
         const int sx0 = SCREEN_W - 120, sy0 = 8;
-        kiln_gui_panel(sx0, sy0, 112, 48, panel, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(sx0 + 6, sy0 + 13, dim, "RSP mix");
-        kiln_gui_bar(sx0 + 56, sy0 + 6, 50, 5, g_scope_peak / 32768.0f,
+        fig_gui_panel(sx0, sy0, 112, 48, panel, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        fig_gui_text(sx0 + 6, sy0 + 13, dim, "RSP mix");
+        fig_gui_bar(sx0 + 56, sy0 + 6, 50, 5, g_scope_peak / 32768.0f,
                      RGBA32(0xFF, 0xD9, 0x4C, 0xFF), RGBA32(0x2A, 0x2A, 0x3E, 0xFF));
         const int mid = sy0 + 32;
         for (int i = 1; i < SCOPE_N; i++) {
             const int x0 = sx0 + 8 + (i - 1) * 96 / SCOPE_N, x1 = sx0 + 8 + i * 96 / SCOPE_N;
             const int y0 = mid - (int)clampf(g_scope[i - 1] / 600.0f, -12, 12);
             const int y1 = mid - (int)clampf(g_scope[i] / 600.0f, -12, 12);
-            kiln_gui_line(x0, y0, x1, y1, 1, teal);
+            fig_gui_line(x0, y0, x1, y1, 1, teal);
         }
 
-        if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, 62, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 74, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        if (fig_input_scripted(1)) {
+            fig_gui_panel(SCREEN_W - 58, 62, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            fig_gui_text(SCREEN_W - 49, 74, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
 
         // The selected key's name, over the key.
         int lx, ly;
         fm_vec3_t top = cursor_xf.pos;
         top.v[1] += 12.0f;
-        if (kiln_scene_project(&scene, top, SCREEN_W, SCREEN_H, &lx, &ly))
-            kiln_gui_text(lx - 6, ly, RGBA32(0xFF, 0xE0, 0x60, 0xFF), "%s", KEY_NAME[sel]);
+        if (fig_scene_project(&scene, top, SCREEN_W, SCREEN_H, &lx, &ly))
+            fig_gui_text(lx - 6, ly, RGBA32(0xFF, 0xE0, 0x60, 0xFF), "%s", KEY_NAME[sel]);
 
         // Note history: oldest at the left, bass as a short white bar.
         const int hy = SCREEN_H - 64;
-        kiln_gui_panel(8, hy, SCREEN_W - 16, 38, panel, RGBA32(0x3A, 0x40, 0x5C, 0xFF));
+        fig_gui_panel(8, hy, SCREEN_W - 16, 38, panel, RGBA32(0x3A, 0x40, 0x5C, 0xFF));
         for (int i = 0; i < HISTORY; i++) {
             const int k = g_hist[(g_hist_head + i) % HISTORY];
             if (k == -2) continue;
             const int h = k < 0 ? 5 : 8 + k * 2;
             const uint32_t rgb = k < 0 ? BASS_RGB : KEY_RGB[k];
-            kiln_gui_rect(14 + i * 7, hy + 33 - h, 5, h,
+            fig_gui_rect(14 + i * 7, hy + 33 - h, 5, h,
                           RGBA32(rgb >> 24, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, 0xFF));
         }
 
-        kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, panel, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(14, SCREEN_H - 12, ink, "stick key  A pluck  B triad  Z seq");
+        fig_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, panel, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        fig_gui_text(14, SCREEN_H - 12, ink, "stick key  A pluck  B triad  Z seq");
 
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_end();
+        fig_frame_end();
 
-        kiln_audio_update();
+        fig_audio_update();
     }
 }

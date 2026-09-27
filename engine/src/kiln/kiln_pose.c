@@ -7,7 +7,7 @@
 
 #include <math.h>
 
-void kiln_quat_nlerp(T3DQuat *out, const T3DQuat *a, const T3DQuat *b, float t)
+void fig_quat_nlerp(T3DQuat *out, const T3DQuat *a, const T3DQuat *b, float t)
 {
     /* Tiny3D's t3d_quat_nlerp (src/t3d/t3dmath.c), line for line: a negative
      * dot flips the weight on `a`, which is the short-path choice. */
@@ -28,7 +28,7 @@ void kiln_quat_nlerp(T3DQuat *out, const T3DQuat *a, const T3DQuat *b, float t)
     *out = r;
 }
 
-void kiln_quat_mul(T3DQuat *out, const T3DQuat *a, const T3DQuat *b)
+void fig_quat_mul(T3DQuat *out, const T3DQuat *a, const T3DQuat *b)
 {
     const float ax = a->v[0], ay = a->v[1], az = a->v[2], aw = a->v[3];
     const float bx = b->v[0], by = b->v[1], bz = b->v[2], bw = b->v[3];
@@ -38,7 +38,7 @@ void kiln_quat_mul(T3DQuat *out, const T3DQuat *a, const T3DQuat *b)
     out->v[3] = aw * bw - ax * bx - ay * by - az * bz;
 }
 
-void kiln_quat_axis_angle(T3DQuat *out, float ax, float ay, float az, float angle)
+void fig_quat_axis_angle(T3DQuat *out, float ax, float ay, float az, float angle)
 {
     const float s = fm_sinf(angle * 0.5f);
     out->v[0] = ax * s;
@@ -47,19 +47,19 @@ void kiln_quat_axis_angle(T3DQuat *out, float ax, float ay, float az, float angl
     out->v[3] = fm_cosf(angle * 0.5f);
 }
 
-void kiln_pose_blend_masked(T3DBone *out, const T3DBone *base, const T3DBone *over,
+void fig_pose_blend_masked(T3DBone *out, const T3DBone *base, const T3DBone *over,
                             int n, uint32_t mask, float w)
 {
     for (int i = 0; i < n; i++) {
-        const int in = i < KILN_POSE_MAX_BONES ? (int)((mask >> i) & 1u)
-                                               : mask == KILN_POSE_MASK_ALL;
+        const int in = i < FIG_POSE_MAX_BONES ? (int)((mask >> i) & 1u)
+                                               : mask == FIG_POSE_MASK_ALL;
         if (!in || w <= 0.0f) {
             if (out != base) out[i] = base[i];
             continue;
         }
         const T3DBone *b = &base[i], *o = &over[i];
         T3DQuat rot;
-        kiln_quat_nlerp(&rot, &b->rotation, &o->rotation, w);
+        fig_quat_nlerp(&rot, &b->rotation, &o->rotation, w);
         for (int k = 0; k < 3; k++) {
             const float p = b->position.v[k] + (o->position.v[k] - b->position.v[k]) * w;
             const float s = b->scale.v[k] + (o->scale.v[k] - b->scale.v[k]) * w;
@@ -72,13 +72,13 @@ void kiln_pose_blend_masked(T3DBone *out, const T3DBone *base, const T3DBone *ov
     }
 }
 
-uint32_t kiln_pose_subtree_mask(const uint16_t *depth, int n, int root)
+uint32_t fig_pose_subtree_mask(const uint16_t *depth, int n, int root)
 {
     if (root < 0 || root >= n) return 0;
     uint32_t mask = 0;
     for (int j = root; j < n; j++) {
         if (j > root && depth[j] <= depth[root]) break;
-        if (j < KILN_POSE_MAX_BONES) mask |= 1u << j;
+        if (j < FIG_POSE_MAX_BONES) mask |= 1u << j;
     }
     return mask;
 }

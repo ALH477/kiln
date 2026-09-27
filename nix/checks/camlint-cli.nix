@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
 # nix/checks/camlint-cli.nix — `camlint` (tools/camlint/camlint.c) reads a shot
-# file the way kiln_camlint reads a table.
+# file the way fig_camlint reads a table.
 #
 # A clean shot must pass, and one shot broken per hard-failure flag must fail
 # with THAT flag's code — so the CLI's JSON reading, its flag-to-code mapping and

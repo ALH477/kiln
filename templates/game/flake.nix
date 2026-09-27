@@ -9,7 +9,7 @@
 #
 # The ROM builds only on Linux (the N64 cross toolchain is Linux-only).
 {
-  description = "mygame — a game on the Kiln engine";
+  description = "mygame — a game on Figulina";
 
   inputs.kiln.url = "github:ALH477/kiln";
 

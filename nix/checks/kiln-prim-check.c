@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  *
- * kiln_prim, asserted on the host with the real kiln_prim.c.
+ * fig_prim, asserted on the host with the real kiln_prim.c.
  *
  * What a primitive builder gets wrong renders plausibly, which is why this
  * reads the vertices back instead of looking at a picture:
@@ -58,7 +58,7 @@ static int sext(unsigned v, int bits)
     return (v & sign) ? (int)v - (int)(sign << 1) : (int)v;
 }
 
-static void vert(const KilnPrim *p, int vi, fm_vec3_t *pos, fm_vec3_t *nrm, uint32_t *rgba)
+static void vert(const FigPrim *p, int vi, fm_vec3_t *pos, fm_vec3_t *nrm, uint32_t *rgba)
 {
     const T3DVertPacked *e = &p->verts[vi / 2];
     const int16_t *s = (vi & 1) ? e->posB : e->posA;
@@ -72,7 +72,7 @@ static void vert(const KilnPrim *p, int vi, fm_vec3_t *pos, fm_vec3_t *nrm, uint
 
 /* Winding + planarity for every quad of a prim. Returns faces seen per axis
  * sign in `axes` (bit 2*axis + (sign<0)). */
-static unsigned check_quads(const char *what, const KilnPrim *p)
+static unsigned check_quads(const char *what, const FigPrim *p)
 {
     unsigned axes = 0;
     for (int q = 0; q < p->quad_count; q++) {
@@ -156,8 +156,8 @@ typedef struct {
 
 static void fog_case(const FogCase *c)
 {
-    KilnScene s;
-    kiln_scene_init(&s);
+    FigScene s;
+    fig_scene_init(&s);
     s.fov_deg = 60.0f;
     s.near_z = c->cam_near;
     s.far_z = c->cam_far;
@@ -167,12 +167,12 @@ static void fog_case(const FogCase *c)
     s.ambient[0] = s.ambient[1] = s.ambient[2] = s.ambient[3] = 0xFF;
     s.light_count = 0;
     s.clear_color = RGBA32(0, 0, 0, 0xFF);
-    kiln_scene_set_fog(&s, RGBA32(0, 0, 0, 0xFF), c->fog_near, c->fog_far);
-    kiln_scene_update(&s);
+    fig_scene_set_fog(&s, RGBA32(0, 0, 0, 0xFF), c->fog_near, c->fog_far);
+    fig_scene_update(&s);
     for (int i = 0; i < 3; i++) fog_quad(i, FOG_NDCX[i], c->d[i]);
 
-    kiln_frame_begin();
-      kiln_scene_begin(&s);
+    fig_frame_begin();
+      fig_scene_begin(&s);
         if (!c->rdp_fog) rdpq_mode_fog(0);
         t3d_vert_load(g_fq, 0, 12);
         for (uint32_t i = 0; i < 3; i++) {
@@ -180,9 +180,9 @@ static void fog_case(const FogCase *c)
             t3d_tri_draw(i * 4, i * 4 + 2, i * 4 + 3);
         }
         t3d_tri_sync();
-      kiln_gui_begin();
-      kiln_gui_end();
-    kiln_frame_end();
+      fig_gui_begin();
+      fig_gui_end();
+    fig_frame_end();
 
     for (int i = 0; i < 3; i++) {
         const int x = (int)((FOG_NDCX[i] + 1.0f) * 160.0f);
@@ -196,12 +196,12 @@ static void fog_case(const FogCase *c)
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
-    kiln_host_set_hooks(&(KilnHostHooks){ .present = grab });
+    fig_engine_init(RESOLUTION_320x240);
+    fig_host_set_hooks(&(FigHostHooks){ .present = grab });
 
     /* ── a box off its origin, as a hinged door is built ── */
-    KilnPrim box;
-    CHECK(kiln_prim_box(&box, (fm_vec3_t){{ 10, 0, 0 }}, (fm_vec3_t){{ 10, 20, 2 }},
+    FigPrim box;
+    CHECK(fig_prim_box(&box, (fm_vec3_t){{ 10, 0, 0 }}, (fm_vec3_t){{ 10, 20, 2 }},
                         0xFF0000FF, 0x00FF00FF, 0x0000FFFF) == 0, "box alloc");
     CHECK(box.quad_count == 6 && box.vert_count == 24,
           "box is %u quads / %u verts, expected 6 / 24", box.quad_count, box.vert_count);
@@ -220,8 +220,8 @@ int main(void)
     }
 
     /* ── a 16x16 floor ── */
-    KilnPrim floor_;
-    CHECK(kiln_prim_floor(&floor_, 160.0f, 16, 0x909090FF, 0xA0A0A0FF) == 0, "floor alloc");
+    FigPrim floor_;
+    CHECK(fig_prim_floor(&floor_, 160.0f, 16, 0x909090FF, 0xA0A0A0FF) == 0, "floor alloc");
     CHECK(floor_.quad_count == 256, "floor has %u quads, expected 256", floor_.quad_count);
     CHECK(check_quads("floor", &floor_) == 1u << 2, "floor faces are not all +Y");
     {
@@ -232,9 +232,9 @@ int main(void)
     }
 
     /* ── a scene through the real frame bracket ── */
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x20, 0x30, 0x48, 0xFF), 150.0f, 400.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x20, 0x30, 0x48, 0xFF), 150.0f, 400.0f);
     CHECK(scene.light_count == 2, "stage uploaded %d lights, expected 2", scene.light_count);
     CHECK(scene.fog_enabled, "stage left fog off with a valid range");
     CHECK(scene.fog_color.r == scene.clear_color.r && scene.fog_color.g == scene.clear_color.g &&
@@ -242,32 +242,32 @@ int main(void)
           "fog colour differs from the clear colour; far geometry will end at an edge");
     scene.cam_pos = (fm_vec3_t){{ 0, 90, -200 }};
     scene.far_z = 600.0f;
-    kiln_scene_update(&scene);
+    fig_scene_update(&scene);
 
-    KilnTransform t;
-    kiln_transform_init(&t);
+    FigTransform t;
+    fig_transform_init(&t);
     t.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
     t.rot_angle = 0.7f;
     t.pos = (fm_vec3_t){{ 0, 20, 0 }};
 
-    kiln_frame_begin();
-      kiln_scene_begin(&scene);
-        KilnTransform id; kiln_transform_init(&id);
-        kiln_transform_push(&id); kiln_prim_draw(&floor_); kiln_transform_pop();
-        kiln_transform_push(&t);  kiln_prim_draw(&box);    kiln_transform_pop();
-        kiln_transform_free(&id);
-      kiln_gui_begin();
-      kiln_gui_end();
-    kiln_frame_end();
+    fig_frame_begin();
+      fig_scene_begin(&scene);
+        FigTransform id; fig_transform_init(&id);
+        fig_transform_push(&id); fig_prim_draw(&floor_); fig_transform_pop();
+        fig_transform_push(&t);  fig_prim_draw(&box);    fig_transform_pop();
+        fig_transform_free(&id);
+      fig_gui_begin();
+      fig_gui_end();
+    fig_frame_end();
 
-    const KilnHostT3DCounters *tc = kiln_host_t3d_counters();
+    const FigHostT3DCounters *tc = fig_host_t3d_counters();
     printf("  3D: vert_loads %u verts %u submitted %u drawn %u\n",
            tc->vert_loads, tc->verts, tc->tris_submitted, tc->tris_drawn);
     /* 256 quads at 17 per load is 16 loads (15 full + one of 1), plus the box. */
     CHECK(tc->vert_loads == 16 + 1, "expected 17 vertex loads, got %u", tc->vert_loads);
     CHECK(tc->tris_submitted == 512 + 12, "expected 524 triangles, got %u",
           tc->tris_submitted);
-    CHECK(kiln_host_counters()->shaded_px > 0, "the frame shaded no pixels");
+    CHECK(fig_host_counters()->shaded_px > 0, "the frame shaded no pixels");
 
     /* A floor under the stage's key light must come out well above ambient.
      * Ambient alone lands a 0x90 grey near 0x1C; lit from overhead it is
@@ -287,38 +287,38 @@ int main(void)
 
     /* ── nested transforms: the child applies inside its parent ── */
     {
-        KilnPrim marker;
-        CHECK(kiln_prim_box(&marker, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 12, 4, 12 }},
+        FigPrim marker;
+        CHECK(fig_prim_box(&marker, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 12, 4, 12 }},
                             0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) == 0, "marker alloc");
-        KilnScene top;
-        kiln_scene_init(&top);
-        kiln_prim_stage(&top, RGBA32(0, 0, 0, 0xFF), 0.0f, 0.0f);   /* no fog */
+        FigScene top;
+        fig_scene_init(&top);
+        fig_prim_stage(&top, RGBA32(0, 0, 0, 0xFF), 0.0f, 0.0f);   /* no fog */
         top.cam_pos = (fm_vec3_t){{ 0, 260, 60 }};
         top.cam_target = (fm_vec3_t){{ 0, 0, 0 }};
         top.far_z = 600.0f;
-        kiln_scene_update(&top);
+        fig_scene_update(&top);
 
-        KilnTransform outer, inner;
-        kiln_transform_init(&outer);
-        kiln_transform_init(&inner);
+        FigTransform outer, inner;
+        fig_transform_init(&outer);
+        fig_transform_init(&inner);
         outer.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
         outer.rot_angle = 3.14159265f;
         inner.pos = (fm_vec3_t){{ 70, 0, 0 }};
 
-        kiln_frame_begin();
-          kiln_scene_begin(&top);
-            kiln_transform_push(&outer);
-              kiln_transform_push(&inner);
-                kiln_prim_draw(&marker);
-              kiln_transform_pop();
-            kiln_transform_pop();
-          kiln_gui_begin();
-          kiln_gui_end();
-        kiln_frame_end();
+        fig_frame_begin();
+          fig_scene_begin(&top);
+            fig_transform_push(&outer);
+              fig_transform_push(&inner);
+                fig_prim_draw(&marker);
+              fig_transform_pop();
+            fig_transform_pop();
+          fig_gui_begin();
+          fig_gui_end();
+        fig_frame_end();
 
         int gx, gy, bx, by;
-        const int seen = kiln_scene_project(&top, (fm_vec3_t){{ -70, 4, 0 }}, 320, 240, &gx, &gy)
-                       & kiln_scene_project(&top, (fm_vec3_t){{  70, 4, 0 }}, 320, 240, &bx, &by);
+        const int seen = fig_scene_project(&top, (fm_vec3_t){{ -70, 4, 0 }}, 320, 240, &gx, &gy)
+                       & fig_scene_project(&top, (fm_vec3_t){{  70, 4, 0 }}, 320, 240, &bx, &by);
         CHECK(seen && gx >= 0 && gx < 320 && bx >= 0 && bx < 320 && gy >= 0 && gy < 240 &&
               by >= 0 && by < 240, "nesting probe points are off screen");
         if (seen && g_frame_w == 320 && gx >= 0 && gx < 320 && bx >= 0 && bx < 320 &&
@@ -331,9 +331,9 @@ int main(void)
             CHECK(lb < 10, "a box where child*parent puts it (lum %d): the matrix stack "
                   "multiplies nested pushes in the wrong order", lb);
         }
-        kiln_transform_free(&outer);
-        kiln_transform_free(&inner);
-        kiln_prim_free(&marker);
+        fig_transform_free(&outer);
+        fig_transform_free(&inner);
+        fig_prim_free(&marker);
     }
 
     /* ── fog: see fog_case above ── */
@@ -361,12 +361,12 @@ int main(void)
         fog_case(&z);
     }
 
-    kiln_transform_free(&t);
-    kiln_prim_free(&box);
-    kiln_prim_free(&floor_);
-    CHECK(box.verts == NULL, "kiln_prim_free left a dangling pointer");
+    fig_transform_free(&t);
+    fig_prim_free(&box);
+    fig_prim_free(&floor_);
+    CHECK(box.verts == NULL, "fig_prim_free left a dangling pointer");
 
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
-    printf("kiln_prim: winding, normals, extents, batching, the stage and nesting all hold\n");
+    printf("fig_prim: winding, normals, extents, batching, the stage and nesting all hold\n");
     return 0;
 }

@@ -7,9 +7,9 @@
  * Doom 3's sound shaders map a logical name (e.g. "player_step_default") to
  * one or more samples, volume, looping, and falloff. On N64 we keep a single
  * wav64 per shader, with base volume, falloff radius, and loop flag. Games
- * call `kiln_sound_play("player_step_default", world_pos, pitch)`; the layer
+ * call `fig_sound_play("player_step_default", world_pos, pitch)`; the layer
  * looks up the shader, computes distance-based volume and facing-based pan,
- * and triggers kiln_sfx_play_ex. Reusing the existing kiln_sfx channel range
+ * and triggers fig_sfx_play_ex. Reusing the existing fig_sfx channel range
  * means no extra mixer bookkeeping.
  *
  * ── Positional audio: distance + pan only ───────────────────────────────
@@ -20,13 +20,13 @@
  * it is good enough for footsteps, projectiles, and ambient sources.
  *
  * ── One listener update per frame ─────────────────────────────────────────
- * `kiln_sound_update_listener` is called once per frame with the camera/ear
+ * `fig_sound_update_listener` is called once per frame with the camera/ear
  * position and facing direction. It updates the volume/pan of any shader
  * channel that is still playing. One-shot sounds do not need update; looping
  * positional sounds (torches, machines) do.
  */
-#ifndef KILN_SOUND_H
-#define KILN_SOUND_H
+#ifndef FIG_SOUND_H
+#define FIG_SOUND_H
 
 #include <t3d/t3dmath.h>
 
@@ -34,12 +34,12 @@
 extern "C" {
 #endif
 
-#define KILN_SOUND_SHADER_MAX 64
+#define FIG_SOUND_SHADER_MAX 64
 /* The size of the shader table: one slot per registered shader, each tracking
  * the mixer channel its last play landed on. It is NOT a mixer channel count
- * (kiln_audio owns those), and at 8 it silently dropped the last four of fps's
+ * (fig_audio owns those), and at 8 it silently dropped the last four of fps's
  * twelve shaders — rocket, plasma, shotgun and NPC talk never played. */
-#define KILN_SOUND_CHANNELS   16
+#define FIG_SOUND_CHANNELS   16
 
 typedef struct {
     const char *name;       /**< logical name, e.g. "sfx/step_stone"          */
@@ -47,30 +47,30 @@ typedef struct {
     float base_vol;         /**< 0..1                                          */
     float falloff_radius;   /**< world units; 0 = no falloff (always full vol) */
     int   loop;             /**< non-zero if the sample should loop          */
-} KilnSoundShader;
+} FigSoundShader;
 
 /** Register all sound shaders at boot. `shaders` is a pointer to a static
  *  array; the table is copied into module state, so the array need not live
  *  forever. The wav64 files are loaded immediately and kept resident. */
-void kiln_sound_init(const KilnSoundShader *shaders, int count);
+void fig_sound_init(const FigSoundShader *shaders, int count);
 
 /** Update the listener position and facing for positional calculations.
- *  Call once per frame, before kiln_audio_update. */
-void kiln_sound_update_listener(fm_vec3_t pos, fm_vec3_t facing);
+ *  Call once per frame, before fig_audio_update. */
+void fig_sound_update_listener(fm_vec3_t pos, fm_vec3_t facing);
 
 /** Play a sound shader by name at a world position with an optional pitch
  *  shift. Returns the channel used or -1. */
-int kiln_sound_play(const char *name, fm_vec3_t world_pos, float pitch);
+int fig_sound_play(const char *name, fm_vec3_t world_pos, float pitch);
 
-/** Stop a looping sound started with kiln_sound_play. */
-void kiln_sound_stop(int channel);
+/** Stop a looping sound started with fig_sound_play. */
+void fig_sound_stop(int channel);
 
 /** Per-frame update: recompute vol/pan for active shader channels. Call
  *  once per frame after updating the listener. */
-void kiln_sound_update(void);
+void fig_sound_update(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_SOUND_H */
+#endif /* FIG_SOUND_H */

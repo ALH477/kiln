@@ -16,7 +16,7 @@
     "speed"
   ],
   "forge_waived": {
-    "info_npc": "'dialogue' is a STRING and the console has no keyboard. A .FRG epair slot is a u16 and kiln_dict_set_auto types \"3\" as an int, so a numeric stand-in would satisfy the validator and still hand the game nothing to read. Author info_npc in tools/mapmaker or by hand."
+    "info_npc": "'dialogue' is a STRING and the console has no keyboard. A .FRG epair slot is a u16 and fig_dict_set_auto types \"3\" as an int, so a numeric stand-in would satisfy the validator and still hand the game nothing to read. Author info_npc in tools/mapmaker or by hand."
   },
   "aabb_faces": [
     {

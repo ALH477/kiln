@@ -14,7 +14,7 @@ static float damp_t(float speed, float dt)
     return t < 1.0f ? t : 1.0f;
 }
 
-void kiln_camera_init(KilnCamera *cam)
+void fig_camera_init(FigCamera *cam)
 {
     cam->distance = 6.0f;
     cam->height = 3.0f;
@@ -27,9 +27,9 @@ void kiln_camera_init(KilnCamera *cam)
     cam->eye = (fm_vec3_t){ { 0, 0, 0 } };
     cam->look = (fm_vec3_t){ { 0, 0, 0 } };
 
-    cam->mode = KILN_CAM_NORMAL;
+    cam->mode = FIG_CAM_NORMAL;
     cam->collision_enabled = 0;
-    cam->target_actor = KILN_ACTOR_HANDLE_NONE;
+    cam->target_actor = FIG_ACTOR_HANDLE_NONE;
     cam->cutscene_eye  = (fm_vec3_t){ { 0, 0, 0 } };
     cam->cutscene_look = (fm_vec3_t){ { 0, 0, 0 } };
     cam->stack_depth = 0;
@@ -51,7 +51,7 @@ void kiln_camera_init(KilnCamera *cam)
 }
 
 /** Boom position for a given target position + heading: `distance` behind
- *  the heading (heading 0 == +Z, matching KilnActor's yaw), `height` up. */
+ *  the heading (heading 0 == +Z, matching FigActor's yaw), `height` up. */
 static fm_vec3_t boom_eye(fm_vec3_t target_pos, float yaw, float distance, float height)
 {
     return (fm_vec3_t){ {
@@ -61,7 +61,7 @@ static fm_vec3_t boom_eye(fm_vec3_t target_pos, float yaw, float distance, float
     } };
 }
 
-void kiln_camera_snap(KilnCamera *cam, fm_vec3_t target_pos, float target_yaw)
+void fig_camera_snap(FigCamera *cam, fm_vec3_t target_pos, float target_yaw)
 {
     cam->yaw = target_yaw;
     cam->eye = boom_eye(target_pos, target_yaw, cam->distance, cam->height);
@@ -75,7 +75,7 @@ void kiln_camera_snap(KilnCamera *cam, fm_vec3_t target_pos, float target_yaw)
  *  collision_enabled is set. */
 static fm_vec3_t collide_boom(fm_vec3_t look, fm_vec3_t desired_eye)
 {
-    KilnTrace tr = kiln_clip_ray(look, desired_eye);
+    FigTrace tr = fig_clip_ray(look, desired_eye);
     if (tr.fraction >= 1.0f) return desired_eye;
     /* endpos sits exactly on the wall plane; back off a small margin so
      * the camera doesn't z-fight / jitter against it. 0.5 world units. */
@@ -91,7 +91,7 @@ static fm_vec3_t collide_boom(fm_vec3_t look, fm_vec3_t desired_eye)
     } };
 }
 
-static void update_normal(KilnCamera *cam, fm_vec3_t target_pos, float target_yaw, float dt)
+static void update_normal(FigCamera *cam, fm_vec3_t target_pos, float target_yaw, float dt)
 {
     cam->yaw = fm_lerp_angle(cam->yaw, target_yaw, damp_t(cam->yaw_speed, dt));
 
@@ -106,12 +106,12 @@ static void update_normal(KilnCamera *cam, fm_vec3_t target_pos, float target_ya
     fm_vec3_lerp(&cam->look, &cam->look, &desired_look, t);
 }
 
-static void update_targeting(KilnCamera *cam, fm_vec3_t target_pos, float dt)
+static void update_targeting(FigCamera *cam, fm_vec3_t target_pos, float dt)
 {
     /* Sit the eye on the far side of the targeter from the locked actor,
      * so both are in frame. Look at the midpoint of the two. A shorter
      * boom than NORMAL keeps the framing tight. */
-    KilnActor *t = kiln_actor_resolve(cam->target_actor);
+    FigActor *t = fig_actor_resolve(cam->target_actor);
     if (!t) { update_normal(cam, target_pos, cam->yaw, dt); return; }
 
     fm_vec3_t tp = t->xform.pos;
@@ -141,7 +141,7 @@ static void update_targeting(KilnCamera *cam, fm_vec3_t target_pos, float dt)
     cam->yaw = fm_atan2f(to_target.v[0], to_target.v[2]);
 }
 
-static void update_cutscene(KilnCamera *cam, float dt)
+static void update_cutscene(FigCamera *cam, float dt)
 {
     (void)dt;
     fm_vec3_t desired_eye  = cam->cutscene_eye;
@@ -177,7 +177,7 @@ static void update_cutscene(KilnCamera *cam, float dt)
 /** BOARD framing for the current orbit/focus. Split out so update and snap
  *  agree by construction — a snap that recomputed the framing differently
  *  from update would pop on the very next frame. */
-static void board_frame(const KilnCamera *cam, fm_vec3_t target_pos,
+static void board_frame(const FigCamera *cam, fm_vec3_t target_pos,
                         fm_vec3_t *out_eye, fm_vec3_t *out_look)
 {
     float f = cam->board_focus;
@@ -199,7 +199,7 @@ static void board_frame(const KilnCamera *cam, fm_vec3_t target_pos,
     } };
 }
 
-static void update_board(KilnCamera *cam, fm_vec3_t target_pos, float dt)
+static void update_board(FigCamera *cam, fm_vec3_t target_pos, float dt)
 {
     cam->board_orbit += cam->board_spin * dt;
     cam->board_focus += (cam->board_focus_target - cam->board_focus) *
@@ -218,18 +218,18 @@ static void update_board(KilnCamera *cam, fm_vec3_t target_pos, float dt)
     cam->yaw = cam->board_orbit;
 }
 
-void kiln_camera_update(KilnCamera *cam, fm_vec3_t target_pos, float target_yaw, float dt)
+void fig_camera_update(FigCamera *cam, fm_vec3_t target_pos, float target_yaw, float dt)
 {
     switch (cam->mode) {
-    case KILN_CAM_TARGETING: update_targeting(cam, target_pos, dt); break;
-    case KILN_CAM_CUTSCENE:  update_cutscene(cam, dt); break;
-    case KILN_CAM_BOARD:     update_board(cam, target_pos, dt); break;
-    case KILN_CAM_NORMAL:
+    case FIG_CAM_TARGETING: update_targeting(cam, target_pos, dt); break;
+    case FIG_CAM_CUTSCENE:  update_cutscene(cam, dt); break;
+    case FIG_CAM_BOARD:     update_board(cam, target_pos, dt); break;
+    case FIG_CAM_NORMAL:
     default:                update_normal(cam, target_pos, target_yaw, dt); break;
     }
 }
 
-void kiln_camera_set_board(KilnCamera *cam, fm_vec3_t center, float radius,
+void fig_camera_set_board(FigCamera *cam, fm_vec3_t center, float radius,
                           float pitch_deg, float fov_deg)
 {
     if (radius < 0.1f) radius = 0.1f;
@@ -253,12 +253,12 @@ void kiln_camera_set_board(KilnCamera *cam, fm_vec3_t center, float radius,
     cam->board_cos_pitch = fm_cosf(p);
 }
 
-void kiln_camera_set_board_spin(KilnCamera *cam, float radians_per_sec)
+void fig_camera_set_board_spin(FigCamera *cam, float radians_per_sec)
 {
     cam->board_spin = radians_per_sec;
 }
 
-void kiln_camera_set_board_focus(KilnCamera *cam, float focus, float speed)
+void fig_camera_set_board_focus(FigCamera *cam, float focus, float speed)
 {
     if (focus < 0.0f) focus = 0.0f;
     if (focus > 1.0f) focus = 1.0f;
@@ -266,22 +266,22 @@ void kiln_camera_set_board_focus(KilnCamera *cam, float focus, float speed)
     if (speed > 0.0f) cam->board_focus_speed = speed;
 }
 
-void kiln_camera_snap_board(KilnCamera *cam, fm_vec3_t target_pos)
+void fig_camera_snap_board(FigCamera *cam, fm_vec3_t target_pos)
 {
     cam->board_focus = cam->board_focus_target;
     board_frame(cam, target_pos, &cam->eye, &cam->look);
     cam->yaw = cam->board_orbit;
 }
 
-void kiln_camera_apply(const KilnCamera *cam, KilnScene *scene)
+void fig_camera_apply(const FigCamera *cam, FigScene *scene)
 {
     scene->cam_pos = cam->eye;
     scene->cam_target = cam->look;
 }
 
-int kiln_camera_push(KilnCamera *cam, KilnCamMode mode)
+int fig_camera_push(FigCamera *cam, FigCamMode mode)
 {
-    if (cam->stack_depth >= KILN_CAM_STACK_DEPTH) return -1;
+    if (cam->stack_depth >= FIG_CAM_STACK_DEPTH) return -1;
     cam->stack[cam->stack_depth].mode = cam->mode;
     cam->stack[cam->stack_depth].target_actor = cam->target_actor;
     cam->stack[cam->stack_depth].eye = cam->eye;
@@ -290,11 +290,11 @@ int kiln_camera_push(KilnCamera *cam, KilnCamMode mode)
     cam->stack_depth++;
     cam->mode = mode;
     /* Mode-specific fields start clean; the caller sets them after the push. */
-    if (mode == KILN_CAM_TARGETING) cam->target_actor = KILN_ACTOR_HANDLE_NONE;
+    if (mode == FIG_CAM_TARGETING) cam->target_actor = FIG_ACTOR_HANDLE_NONE;
     return 0;
 }
 
-int kiln_camera_pop(KilnCamera *cam)
+int fig_camera_pop(FigCamera *cam)
 {
     if (cam->stack_depth <= 0) return -1;
     cam->stack_depth--;
@@ -308,18 +308,18 @@ int kiln_camera_pop(KilnCamera *cam)
     return 0;
 }
 
-void kiln_camera_set_target_actor(KilnCamera *cam, KilnActorHandle h)
+void fig_camera_set_target_actor(FigCamera *cam, FigActorHandle h)
 {
     cam->target_actor = h;
 }
 
-void kiln_camera_set_cutscene(KilnCamera *cam, fm_vec3_t eye, fm_vec3_t look)
+void fig_camera_set_cutscene(FigCamera *cam, fm_vec3_t eye, fm_vec3_t look)
 {
     cam->cutscene_eye = eye;
     cam->cutscene_look = look;
 }
 
-void kiln_camera_set_collision(KilnCamera *cam, int enabled)
+void fig_camera_set_collision(FigCamera *cam, int enabled)
 {
     cam->collision_enabled = enabled ? 1 : 0;
 }

@@ -30,7 +30,7 @@
 // placed at Y = -163, hanging a ship-length below the hull.)
 //
 // ── Attitude ───────────────────────────────────────────────────────────
-// KilnTransform is one axis-angle, which can hold yaw OR a bank but not both,
+// FigTransform is one axis-angle, which can hold yaw OR a bank but not both,
 // and the old demo computed pitch and roll and then dropped them. The ship
 // matrix is composed here as Ry(yaw) * Rx(pitch) * Rz(roll) and pushed
 // directly; the streaks are pushed INSIDE it, so they inherit the attitude.
@@ -81,15 +81,15 @@ static const char *const MODE_NAME[MODE_COUNT] = {
 
 /* ── Free-flight tape (the FLY jump ROM) ─────────────────────────────────
  * Raw stick counts, ±85 full tilt. S-turns with a climb and a boost. */
-static const KilnInputKey FLY_KEYS[] = {
+static const FigInputKey FLY_KEYS[] = {
     { .frame =   0, .sx =  55, .sy = -20 },
     { .frame = 150, .sx = -60, .sy =  25 },
-    { .frame = 300, .sx =  10, .sy = -45, .buttons = KILN_BTN_A },
+    { .frame = 300, .sx =  10, .sy = -45, .buttons = FIG_BTN_A },
     { .frame = 390, .sx =  65 },
     { .frame = 520, .sx = -35, .sy =  30 },
     { .frame = 640 },
 };
-static const KilnInputTape FLY_TAPE = { FLY_KEYS, 6, 0 };
+static const FigInputTape FLY_TAPE = { FLY_KEYS, 6, 0 };
 
 /* ── Tiny deterministic RNG for star placement ─────────────────────────── */
 static uint32_t g_seed = 0x1D2E3F41u;
@@ -161,7 +161,7 @@ static uint32_t star_colour(float k)
     if (pick < 0.45f)      { r = 190; g = 210; b = 255; }
     else if (pick < 0.85f) { r = 245; g = 245; b = 240; }
     else                   { r = 255; g = 200; b = 150; }
-    return kiln_prim_rgba((uint8_t)(r * k), (uint8_t)(g * k), (uint8_t)(b * k));
+    return fig_prim_rgba((uint8_t)(r * k), (uint8_t)(g * k), (uint8_t)(b * k));
 }
 
 #define SKY_N  160
@@ -196,7 +196,7 @@ static void build_stars(void)
     for (int i = 0; i < DUST_N; i++) {
         g_dust_base[i] = (fm_vec3_t){{ frand() * DUST_BOX, frand() * DUST_BOX, frand() * DUST_BOX }};
         const uint8_t k = (uint8_t)(90 + 70 * frand());
-        g_dust_rgba[i] = kiln_prim_rgba(k, (uint8_t)(k + 10), (uint8_t)(k + 30));
+        g_dust_rgba[i] = fig_prim_rgba(k, (uint8_t)(k + 10), (uint8_t)(k + 30));
     }
     g_dust[0] = malloc_uncached(sizeof(T3DVertPacked) * DUST_N * 2);
     g_dust[1] = malloc_uncached(sizeof(T3DVertPacked) * DUST_N * 2);
@@ -241,8 +241,8 @@ static void build_streaks(void)
     const int16_t W0 = 16, W1 = 2, L = (int16_t)STREAK_LEN_MODEL;
     for (int lv = 0; lv < STREAK_LEVELS; lv++) {
         const float k = 0.45f + 0.55f * (float)lv / (STREAK_LEVELS - 1);
-        const uint32_t hot = kiln_prim_rgba((uint8_t)(255 * k), (uint8_t)(190 * k), (uint8_t)(90 * k));
-        const uint32_t tail = kiln_prim_rgba((uint8_t)(90 * k), (uint8_t)(30 * k), (uint8_t)(12 * k));
+        const uint32_t hot = fig_prim_rgba((uint8_t)(255 * k), (uint8_t)(190 * k), (uint8_t)(90 * k));
+        const uint32_t tail = fig_prim_rgba((uint8_t)(90 * k), (uint8_t)(30 * k), (uint8_t)(12 * k));
         T3DVertPacked *v = malloc_uncached(sizeof(T3DVertPacked) * 4);
         /* Horizontal ribbon: front-left, back-left, back-right, front-right. */
         v[0] = (T3DVertPacked){ .posA = { -W0, 0, 0 }, .rgbaA = hot,  .normA = np,
@@ -389,48 +389,48 @@ static int deg(float rad) { return (int)(rad * 57.29578f); }
 
 static void draw_title(float title_t, int held)
 {
-    kiln_gui_panel(8, 128, SCREEN_W - 16, 104, PANEL, TEAL);
-    kiln_gui_text(16, 143, TEAL, "KILN  INTERCEPTOR");
-    kiln_gui_text(16, 158, INK,  "by ALH477  -  MIT licensed engine");
-    kiln_gui_text(16, 171, INK,  "not sponsored or endorsed by ModRetro");
-    kiln_gui_text(16, 186, DIM,  "an Ocarina of Time + idTech 4 engine");
-    kiln_gui_text(16, 199, DIM,  "your assets and code, processed like idTech");
+    fig_gui_panel(8, 128, SCREEN_W - 16, 104, PANEL, TEAL);
+    fig_gui_text(16, 143, TEAL, "KILN  INTERCEPTOR");
+    fig_gui_text(16, 158, INK,  "by ALH477  -  MIT licensed engine");
+    fig_gui_text(16, 171, INK,  "not sponsored or endorsed by ModRetro");
+    fig_gui_text(16, 186, DIM,  "an Ocarina of Time + idTech 4 engine");
+    fig_gui_text(16, 199, DIM,  "your assets and code, processed like idTech");
     if (((int)(title_t * 2.0f)) % 2 == 0)
-        kiln_gui_text(16, 220, AMBER, "press START");
+        fig_gui_text(16, 220, AMBER, "press START");
     if (!held)
-        kiln_gui_bar(112, 214, 192, 6, clampf(title_t / TITLE_SECONDS, 0, 1), TEAL, PANEL);
+        fig_gui_bar(112, 214, 192, 6, clampf(title_t / TITLE_SECONDS, 0, 1), TEAL, PANEL);
 }
 
 static void draw_hud(int mode, float time_in_mode, int showcase, const Ship *s, float fps,
                      int scripted)
 {
     /* Top left: what this is and which mode. */
-    kiln_gui_panel(8, 8, 150, 44, PANEL, TEAL);
-    kiln_gui_text(14, 21, TEAL, "KILN INTERCEPTOR");
-    kiln_gui_text(14, 34, INK, "%s", MODE_NAME[mode]);
-    kiln_gui_text(124, 34, DIM, "%2d", (int)(fps + 0.5f));
+    fig_gui_panel(8, 8, 150, 44, PANEL, TEAL);
+    fig_gui_text(14, 21, TEAL, "KILN INTERCEPTOR");
+    fig_gui_text(14, 34, INK, "%s", MODE_NAME[mode]);
+    fig_gui_text(124, 34, DIM, "%2d", (int)(fps + 0.5f));
     if (showcase)
-        kiln_gui_bar(14, 41, 138, 4, clampf(time_in_mode / MODE_SECONDS, 0, 1), TEAL, PANEL);
+        fig_gui_bar(14, 41, 138, 4, clampf(time_in_mode / MODE_SECONDS, 0, 1), TEAL, PANEL);
     else
-        kiln_gui_bar(14, 41, 138, 4, clampf(s->speed / 1100.0f, 0, 1), AMBER, PANEL);
+        fig_gui_bar(14, 41, 138, 4, clampf(s->speed / 1100.0f, 0, 1), AMBER, PANEL);
 
     /* Top right: attitude. */
     int hdg = deg(s->yaw) % 360;
     if (hdg < 0) hdg += 360;
-    kiln_gui_panel(SCREEN_W - 120, 8, 112, 44, PANEL, TEAL);
-    kiln_gui_text(SCREEN_W - 114, 21, INK, "SPD %4d", (int)s->speed);
-    kiln_gui_text(SCREEN_W - 114, 34, INK, "HDG %3d", hdg);
-    kiln_gui_text(SCREEN_W - 114, 46, INK, "PIT%+3d ROL%+3d", deg(s->pitch), deg(s->roll));
+    fig_gui_panel(SCREEN_W - 120, 8, 112, 44, PANEL, TEAL);
+    fig_gui_text(SCREEN_W - 114, 21, INK, "SPD %4d", (int)s->speed);
+    fig_gui_text(SCREEN_W - 114, 34, INK, "HDG %3d", hdg);
+    fig_gui_text(SCREEN_W - 114, 46, INK, "PIT%+3d ROL%+3d", deg(s->pitch), deg(s->roll));
 
     if (scripted) {
-        kiln_gui_panel(SCREEN_W - 58, 58, 50, 16, ROSE, INK);
-        kiln_gui_text(SCREEN_W - 49, 70, INK, "DEMO");
+        fig_gui_panel(SCREEN_W - 58, 58, 50, 16, ROSE, INK);
+        fig_gui_text(SCREEN_W - 49, 70, INK, "DEMO");
     }
 
     /* Bottom: credits and controls, both inside 300 px. */
-    kiln_gui_panel(8, SCREEN_H - 36, SCREEN_W - 16, 28, PANEL, ROSE);
-    kiln_gui_text(14, SCREEN_H - 24, INK, "ALH477 * MIT * not sponsored by ModRetro");
-    kiln_gui_text(14, SCREEN_H - 12, DIM, showcase
+    fig_gui_panel(8, SCREEN_H - 36, SCREEN_W - 16, 28, PANEL, ROSE);
+    fig_gui_text(14, SCREEN_H - 24, INK, "ALH477 * MIT * not sponsored by ModRetro");
+    fig_gui_text(14, SCREEN_H - 12, DIM, showcase
                   ? "stick or button: take the ship"
                   : "stick steer  A boost  B brake  idle: tour");
 }
@@ -438,34 +438,34 @@ static void draw_hud(int mode, float time_in_mode, int showcase, const Ship *s, 
 /* ── main ─────────────────────────────────────────────────────────────── */
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
-    kiln_input_init();
+    fig_input_init();
 
-    kiln_audio_init(KILN_AUDIO_DEFAULT);
-    const int sfx_blip = kiln_sfx_load("rom:/sfx/blip.wav64");
-    const int music = kiln_music_load("rom:/music/test.xm64");
+    fig_audio_init(FIG_AUDIO_DEFAULT);
+    const int sfx_blip = fig_sfx_load("rom:/sfx/blip.wav64");
+    const int music = fig_music_load("rom:/music/test.xm64");
 
     T3DModel *ship_model = t3d_model_load("rom:/models/interceptor.t3dm");
     T3DMat4FP *ship_mtx = malloc_uncached(sizeof(T3DMat4FP));
-    KilnTransform streak_xf[2], sky_xf;
+    FigTransform streak_xf[2], sky_xf;
     for (int e = 0; e < 2; e++) {
-        kiln_transform_init(&streak_xf[e]);
+        fig_transform_init(&streak_xf[e]);
         streak_xf[e].pos = ENGINE_MOUTH[e];
     }
-    kiln_transform_init(&sky_xf);
+    fig_transform_init(&sky_xf);
     build_stars();
     build_streaks();
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
+    FigScene scene;
+    fig_scene_init(&scene);
     /* Fog 1100..2500 reads as ~2200..5000 of depth on the console: Tiny3D's
      * ucode ramps fog over about [2*near, 2*far] (offset -2*near on clip z),
      * where plat/host ramps over [near, far]. So the sky shell at 2000 stays
      * clear and the CINEMATIC pull-away fades into the haze in Ares; host
      * renders fog the far stars more heavily than the ROM does. */
-    kiln_prim_stage(&scene, RGBA32(0x06, 0x08, 0x16, 0xFF), 1100.0f, 2500.0f);
+    fig_prim_stage(&scene, RGBA32(0x06, 0x08, 0x16, 0xFF), 1100.0f, 2500.0f);
     /* Both lights set here rather than inherited from the preset. A light
      * direction points TOWARD its source: Tiny3D's RSP lights a vertex by
      * +dot(normal, dir), so overhead is +y. Warm key high over the right
@@ -497,10 +497,10 @@ int main(void)
              : KILN_JUMP == JUMP_CIN ? MODE_CINEMATIC
              : KILN_JUMP == JUMP_FLY ? MODE_FREE
              : MODE_PARKED;
-        if (music >= 0) kiln_music_play(music);
+        if (music >= 0) fig_music_play(music);
     }
     if (KILN_JUMP == JUMP_FLY) {
-        kiln_input_play(1, &FLY_TAPE);
+        fig_input_play(1, &FLY_TAPE);
         pose_parked(&ship, 0.0f);
         ship.speed = 450.0f;
     }
@@ -510,8 +510,8 @@ int main(void)
     uint32_t last_ticks = get_ticks();
 
     for (;;) {
-        kiln_input_update();
-        const KilnInput *in = kiln_input_get(1);
+        fig_input_update();
+        const FigInput *in = fig_input_get(1);
         const int touched = in->buttons != 0 || in->stick_x * in->stick_x + in->stick_y * in->stick_y > 0.04f;
 
         if (++frames % 30 == 0) {
@@ -534,17 +534,17 @@ int main(void)
                 time_in_mode = 0.0f;
                 pulse = 1.0f;
                 cam.snap = 1;
-                if (sfx_blip >= 0) kiln_sfx_play(sfx_blip, -1, 1);
+                if (sfx_blip >= 0) fig_sfx_play(sfx_blip, -1, 1);
                 if (music >= 0) {
-                    kiln_music_play(music);
-                    kiln_music_set_volume(music, 0.7f);
+                    fig_music_play(music);
+                    fig_music_set_volume(music, 0.7f);
                 }
             }
         } else if (mode == MODE_FREE) {
             /* ── Free flight ─────────────────────────────────────────── */
             idle = touched ? 0 : idle + 1;
-            const float want = (in->buttons & KILN_BTN_A) ? 1100.0f
-                             : (in->buttons & KILN_BTN_B) ? 180.0f : 450.0f;
+            const float want = (in->buttons & FIG_BTN_A) ? 1100.0f
+                             : (in->buttons & FIG_BTN_B) ? 180.0f : 450.0f;
             ship.speed += (want - ship.speed) * clampf(2.0f * DT, 0, 1);
             ship.yaw -= in->stick_x * 1.3f * DT;
             ship.pitch = clampf(ship.pitch - in->stick_y * 1.0f * DT, -1.1f, 1.1f);
@@ -571,7 +571,7 @@ int main(void)
                 time_in_mode = 0.0f;
                 pulse = 1.0f;
                 cam.snap = 1;
-                if (sfx_blip >= 0) kiln_sfx_play(sfx_blip, -1, 1);
+                if (sfx_blip >= 0) fig_sfx_play(sfx_blip, -1, 1);
             }
         } else {
             /* ── Showcase ────────────────────────────────────────────── */
@@ -582,7 +582,7 @@ int main(void)
                 pulse = 1.0f;
                 cam.snap = 1;
                 cine_blip = 1;
-                if (sfx_blip >= 0) kiln_sfx_play(sfx_blip, -1, 1);
+                if (sfx_blip >= 0) fig_sfx_play(sfx_blip, -1, 1);
             }
             const float t = time_in_mode;
 
@@ -621,7 +621,7 @@ int main(void)
                 if (cine_blip && t > 1.0f) {
                     cine_blip = 0;
                     pulse = 0.6f;
-                    if (sfx_blip >= 0) kiln_sfx_play(sfx_blip, -1, 1);
+                    if (sfx_blip >= 0) fig_sfx_play(sfx_blip, -1, 1);
                 }
                 /* A tripod that creeps back and up, easing onto the ship. */
                 fm_vec3_t pos = {{ 380.0f + 10.0f * t, 110.0f + 12.0f * t, 560.0f + 30.0f * t }};
@@ -645,22 +645,22 @@ int main(void)
 
         scene.cam_pos = cam.pos;
         scene.cam_target = cam.target;
-        kiln_scene_update(&scene);
+        fig_scene_update(&scene);
 
         /* Stars: the dust buffer NOT drawn last frame is the one rewritten. */
         dust_flip ^= 1;
         fill_dust(g_dust[dust_flip], cam.pos);
 
         /* ── 3D ──────────────────────────────────────────────────────── */
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
+        fig_frame_begin();
+        fig_scene_begin(&scene);
 
         t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH | T3D_FLAG_NO_LIGHT);
         sky_xf.pos = cam.pos;
-        kiln_transform_push(&sky_xf);
+        fig_transform_push(&sky_xf);
         draw_tets(g_sky, SKY_N);
         draw_tets(g_dust[dust_flip], DUST_N);
-        kiln_transform_pop();
+        fig_transform_pop();
         draw_tets(g_far, FAR_N);
 
         t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
@@ -674,19 +674,19 @@ int main(void)
         for (int e = 0; e < 2; e++) {
             const float wob = 1.0f + 0.06f * fm_sinf((float)frames * 0.37f + (float)e * 2.1f);
             streak_xf[e].scale = (fm_vec3_t){{ 1.0f, 1.0f, ship.streak_len * wob / STREAK_LEN_MODEL }};
-            kiln_transform_push(&streak_xf[e]);
+            fig_transform_push(&streak_xf[e]);
             draw_streak(level);
-            kiln_transform_pop();
+            fig_transform_pop();
         }
         t3d_matrix_pop(1);
 
         /* ── 2D ──────────────────────────────────────────────────────── */
-        kiln_gui_begin();
+        fig_gui_begin();
         if (in_title) draw_title(title_t, KILN_JUMP == JUMP_TTL);
-        else draw_hud(mode, time_in_mode, mode != MODE_FREE, &ship, fps, kiln_input_scripted(1));
-        kiln_gui_end();
+        else draw_hud(mode, time_in_mode, mode != MODE_FREE, &ship, fps, fig_input_scripted(1));
+        fig_gui_end();
 
-        kiln_frame_end();
-        kiln_audio_update();
+        fig_frame_end();
+        fig_audio_update();
     }
 }

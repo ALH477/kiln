@@ -3,8 +3,8 @@
  * kiln_crater.h — destruction and reconstruction for static terrain, by
  * direct vertex mutation of a model's own resident buffer.
  *
- * ── A narrower sibling of kiln_vanim's kiln_deform_*, not a reuse of it ────
- * kiln_deform_* is built for continuous, whole-model deformation running
+ * ── A narrower sibling of fig_vanim's fig_deform_*, not a reuse of it ────
+ * fig_deform_* is built for continuous, whole-model deformation running
  * every frame forever (wind, waves): it copies the model's ENTIRE vertex
  * buffer into 2-3 uncached work buffers and redirects the model's draw
  * through a placeholder segment, so the RSP is never reading a buffer the
@@ -45,15 +45,15 @@
  * because the vertex count never gets large enough to need one.
  *
  * ── Collision is deliberately NOT here ────────────────────────────────────
- * kiln_crater_sample() is a pure query for a FUTURE kiln_room/kiln_clip
+ * fig_crater_sample() is a pure query for a FUTURE fig_room/fig_clip
  * integration (a room's on_load could sample it while building brush
- * mins/maxs) — this module never calls into kiln_clip or kiln_room itself,
+ * mins/maxs) — this module never calls into fig_clip or fig_room itself,
  * and no brush-mutation API is added to either. A terrain with no
  * collision today gets craters with no collision consequence; that is
  * correct, not a gap, until something actually walks on the terrain.
  */
-#ifndef KILN_CRATER_H
-#define KILN_CRATER_H
+#ifndef FIG_CRATER_H
+#define FIG_CRATER_H
 
 #include <stdint.h>
 
@@ -63,8 +63,8 @@
 extern "C" {
 #endif
 
-#ifndef KILN_CRATER_MAX_ACTIVE
-#define KILN_CRATER_MAX_ACTIVE 8
+#ifndef FIG_CRATER_MAX_ACTIVE
+#define FIG_CRATER_MAX_ACTIVE 8
 #endif
 
 /** One impact. `x`/`z` are world-space (the object's own local space, same
@@ -79,7 +79,7 @@ typedef struct {
     float depth_max;
     float age;
     uint8_t active;
-} KilnCraterSlot;
+} FigCraterSlot;
 
 /** One vertex the field is allowed to mutate: a live pointer into the
  *  model's own resident buffer (via t3d_vertbuffer_get_pos), plus the rest
@@ -91,60 +91,60 @@ typedef struct {
 typedef struct {
     int16_t *pos;          /* &T3DVertPacked.posA/posB[0..2], live         */
     int16_t x, y0, z;       /* rest pose, world units                       */
-} KilnCraterVert;
+} FigCraterVert;
 
 typedef struct {
     const T3DModel *model;      /* borrowed */
     const T3DObject *object;    /* resolved once at init; borrowed         */
-    KilnCraterVert *verts;       /* owned; vert_count entries                */
+    FigCraterVert *verts;       /* owned; vert_count entries                */
     int vert_count;
 
-    KilnCraterSlot slots[KILN_CRATER_MAX_ACTIVE];
+    FigCraterSlot slots[FIG_CRATER_MAX_ACTIVE];
 
     int touched_last_update;    /* profiling: verts actually rewritten     */
-} KilnCraterField;
+} FigCraterField;
 
 /** Resolve `object_name` inside `model` (via t3d_model_get_object) and
  *  snapshot every vertex position across that object's parts. `model` must
  *  outlive the field. Returns 0 on success, -1 if the object was not found
  *  or has no vertices, -1 if the snapshot allocation failed (both leave the
- *  field zeroed / vert_count == 0, so kiln_crater_update becomes a no-op
+ *  field zeroed / vert_count == 0, so fig_crater_update becomes a no-op
  *  rather than a crash — a missing object is a boot-time fact worth a
  *  debugf, not a reason to take the whole scene down). */
-int kiln_crater_init(KilnCraterField *cf, const T3DModel *model,
+int fig_crater_init(FigCraterField *cf, const T3DModel *model,
                     const char *object_name);
 
 /** Frees the vertex snapshot. Does not touch `model` (caller-owned) and
  *  does not restore vertex positions — call this only when the object
  *  itself is going away (e.g. its model is being unloaded). */
-void kiln_crater_destroy(KilnCraterField *cf);
+void fig_crater_destroy(FigCraterField *cf);
 
-/** Land an impact at local (x, z). If all KILN_CRATER_MAX_ACTIVE slots are
+/** Land an impact at local (x, z). If all FIG_CRATER_MAX_ACTIVE slots are
  *  already active, evicts the OLDEST (highest age) slot — a storm actively
  *  tearing up the ground reads better than silently dropping new strikes,
  *  and 8 concurrent craters is already generous for how fast they land
  *  (see the caller's own strike-gap timing). A no-op if vert_count == 0. */
-void kiln_crater_impact(KilnCraterField *cf, float x, float z,
+void fig_crater_impact(FigCraterField *cf, float x, float z,
                        float radius, float depth_max);
 
 /** Recompute every active crater's current depth and rewrite the affected
- *  vertices' Y in place (see KilnCraterVert's comment on why this writes
+ *  vertices' Y in place (see FigCraterVert's comment on why this writes
  *  absolute positions, not deltas). Zero cost when no crater is active —
  *  a single flag check, no vertex walk. Overlapping craters at one vertex
  *  combine by MAX, not sum, so two nearby strikes don't dig an unrealistic
  *  pit. Call once per frame, before the model's own draw call. */
-void kiln_crater_update(KilnCraterField *cf, float dt);
+void fig_crater_update(FigCraterField *cf, float dt);
 
 /** Pure query: current total sink (world units, >= 0) at local (x, z), by
- *  the same falloff kiln_crater_update uses — recomputed from the slot
+ *  the same falloff fig_crater_update uses — recomputed from the slot
  *  table, not read back from a vertex (so it works for any (x,z), not just
  *  ones that happen to sit on a vertex). 0 if no crater reaches this point.
  *  Not called anywhere in this module's own callers yet; exists for a
- *  future kiln_room/kiln_clip integration. */
-float kiln_crater_sample(const KilnCraterField *cf, float x, float z);
+ *  future fig_room/fig_clip integration. */
+float fig_crater_sample(const FigCraterField *cf, float x, float z);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_CRATER_H */
+#endif /* FIG_CRATER_H */

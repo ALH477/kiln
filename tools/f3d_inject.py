@@ -100,7 +100,7 @@ def combiner(rgb, alpha):
 
 # ── Presets ────────────────────────────────────────────────────────────────
 # `shade` reproduces libdragon's RDPQ_COMBINER_SHADE exactly — the combiner
-# kiln_scene_begin() already sets and that examples/engine already renders with.
+# fig_scene_begin() already sets and that examples/engine already renders with.
 # Matching it means an untextured model looks identical whether it went through
 # --ignore-materials (which leaves the scene's combiner alone) or through here.
 PRESETS = {

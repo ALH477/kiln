@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT
  *
- * kiln_widget.h — composite screen furniture layered on kiln_gui.
+ * kiln_widget.h — composite screen furniture layered on fig_gui.
  *
- * kiln_gui gives you rect/panel/text/bar. That is the right primitive set
+ * fig_gui gives you rect/panel/text/bar. That is the right primitive set
  * for a HUD, and the wrong granularity for a game that also has a title
  * screen, a character-select grid, a dice roll, a per-player status strip
  * and a results table — each of which is a dozen gui calls in a fixed
@@ -17,7 +17,7 @@
  *
  * The one place state is unavoidable is a menu cursor — "which row is
  * selected" has to survive to the next frame or the player cannot move it.
- * That state is CALLER-OWNED: KilnMenu is a plain struct the caller keeps
+ * That state is CALLER-OWNED: FigMenu is a plain struct the caller keeps
  * (in its scene state, on the stack, wherever), passed in on every draw.
  * The widget layer never allocates one and never owns one. This is the
  * standard immediate-mode answer and it is not a retained tree: there is
@@ -25,22 +25,22 @@
  * menu simply stops passing it.
  *
  * ── Input is passed in, not polled ─────────────────────────────────────
- * kiln_widget_button takes `selected` and `pressed` rather than reading
- * kiln_input itself. The engine already has exactly one poll-per-frame
- * point (kiln_input_update); a widget that polled again would be a second
+ * fig_widget_button takes `selected` and `pressed` rather than reading
+ * fig_input itself. The engine already has exactly one poll-per-frame
+ * point (fig_input_update); a widget that polled again would be a second
  * source of truth for the same buttons, and a widget that polled a fixed
  * port could not be driven by a menu that four players share. Screens
  * read input once and tell the widgets what happened.
  *
  * ── Layout units ───────────────────────────────────────────────────────
- * Positions are screen pixels, top-left origin, same as kiln_gui.
- * KILN_WIDGET_CHAR_W / LINE_H are the built-in debug mono font's advance
+ * Positions are screen pixels, top-left origin, same as fig_gui.
+ * FIG_WIDGET_CHAR_W / LINE_H are the built-in debug mono font's advance
  * and line pitch; they are what the layout maths uses to size text against
  * its panel. Swap the font via rdpq and these become wrong — they are
  * approximations for one specific built-in font, not a metrics API.
  */
-#ifndef KILN_WIDGET_H
-#define KILN_WIDGET_H
+#ifndef FIG_WIDGET_H
+#define FIG_WIDGET_H
 
 #include <libdragon.h>
 
@@ -51,13 +51,13 @@ extern "C" {
 #endif
 
 /** Advance width and line pitch of the built-in debug mono font, in pixels. */
-#define KILN_WIDGET_CHAR_W 8
-#define KILN_WIDGET_LINE_H 12
+#define FIG_WIDGET_CHAR_W 8
+#define FIG_WIDGET_LINE_H 12
 
 /** Colour set shared by every widget below. One struct rather than a
  *  colour argument per call, because a screen wants all its furniture to
  *  agree and threading five colours through eight calls does not scale.
- *  kiln_widget_style_default() fills in the engine's house palette. */
+ *  fig_widget_style_default() fills in the engine's house palette. */
 typedef struct {
     color_t bg;       /**< panel fill                                   */
     color_t border;   /**< panel border                                 */
@@ -94,15 +94,15 @@ typedef struct {
     float pop;      /**< px a selected row grows by, with an overshoot on
                       *  the way in.                                      */
     float rate;     /**< wobble cycles per second.                        */
-} KilnWidgetStyle;
+} FigWidgetStyle;
 
 /** The engine's default palette: dark violet panels, green accent, and no
  *  funk at all — straight rectangles that hold still. */
-KilnWidgetStyle kiln_widget_style_default(void);
+FigWidgetStyle fig_widget_style_default(void);
 
 /** The party-game preset: leaning panels, a slow sway, per-item crookedness
  *  and a selection that overshoots. Same palette as the default. */
-KilnWidgetStyle kiln_widget_style_funky(void);
+FigWidgetStyle fig_widget_style_funky(void);
 
 /** Advance the widget layer's animation clock. Call once per frame, before
  *  drawing, whatever screen is up.
@@ -113,24 +113,24 @@ KilnWidgetStyle kiln_widget_style_funky(void);
  *  have nowhere else to keep it: they are called fresh every frame and
  *  retain nothing between calls, which is exactly the property that makes
  *  the ONE piece of genuinely temporal state need a home here. */
-void kiln_widget_tick(float dt);
+void fig_widget_tick(float dt);
 
 /** The clock's current value in seconds. Exposed so a game can phase its own
  *  flourishes against the same beat the widgets are using. */
-float kiln_widget_time(void);
+float fig_widget_time(void);
 
 /** A parallelogram: `lean` px of horizontal offset from bottom edge to top.
- *  Drawn as a stack of short bands, because kiln_gui has only axis-aligned
+ *  Drawn as a stack of short bands, because fig_gui has only axis-aligned
  *  rects — see the .c for why the band height is a feature and not a
  *  limitation. Pass lean 0 for a plain panel. */
-void kiln_widget_panel_skew(int x, int y, int w, int h, float lean,
+void fig_widget_panel_skew(int x, int y, int w, int h, float lean,
                            color_t fill, color_t border);
 
 /** Deterministic per-item offset in [-1, 1], hashed from `seed`. The same
  *  seed always gives the same number, which is what makes jitter read as
  *  placement rather than as noise. Exposed because a game laying out its own
  *  screens wants its decorations crooked in the same style. */
-float kiln_widget_jitter(uint32_t seed);
+float fig_widget_jitter(uint32_t seed);
 
 /* ── Menu ──────────────────────────────────────────────────────────────
  * A vertical list with a cursor and optional scrolling. Caller-owned
@@ -142,33 +142,33 @@ typedef struct {
     int     scroll;        /**< index of the first visible row           */
     uint8_t visible_rows;  /**< rows drawn at once; 0 means "all"        */
     uint8_t wrap;          /**< 1: moving off an end wraps to the other  */
-} KilnMenu;
+} FigMenu;
 
 /** Reset a menu to row 0. `visible_rows` of 0 draws every row (no scroll). */
-void kiln_menu_init(KilnMenu *m, int count, int visible_rows);
+void fig_menu_init(FigMenu *m, int count, int visible_rows);
 
 /** Change the row count, clamping the cursor and scroll to stay valid.
  *  Use when a list's contents change (e.g. a board list filtered by mode). */
-void kiln_menu_set_count(KilnMenu *m, int count);
+void fig_menu_set_count(FigMenu *m, int count);
 
 /** Move the cursor by `delta` rows, honouring `wrap`, and scroll the
  *  visible window to keep the cursor on screen. Returns the new cursor. */
-int kiln_menu_move(KilnMenu *m, int delta);
+int fig_menu_move(FigMenu *m, int delta);
 
 /** Draw the menu's rows inside a panel at (x,y) of width `w`. `labels` is
  *  an array of `m->count` strings; a NULL entry draws as a blank spacer
  *  row (useful for separating groups). `enabled`, if non-NULL, is an array
  *  of `m->count` flags — a 0 entry draws dim and is skipped by
- *  kiln_menu_move. Returns the panel's total height in pixels so the caller
+ *  fig_menu_move. Returns the panel's total height in pixels so the caller
  *  can lay something out beneath it. */
-int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
+int fig_menu_draw(const FigMenu *m, int x, int y, int w,
                   const char *const *labels, const uint8_t *enabled,
-                  const KilnWidgetStyle *st);
+                  const FigWidgetStyle *st);
 
-/** Like kiln_menu_move but skips rows whose `enabled` entry is 0. Pass the
- *  same array given to kiln_menu_draw. Returns the new cursor; if every row
+/** Like fig_menu_move but skips rows whose `enabled` entry is 0. Pass the
+ *  same array given to fig_menu_draw. Returns the new cursor; if every row
  *  is disabled the cursor does not move. */
-int kiln_menu_move_enabled(KilnMenu *m, int delta, const uint8_t *enabled,
+int fig_menu_move_enabled(FigMenu *m, int delta, const uint8_t *enabled,
                           int count);
 
 /* ── Button ────────────────────────────────────────────────────────────*/
@@ -177,9 +177,9 @@ int kiln_menu_move_enabled(KilnMenu *m, int delta, const uint8_t *enabled,
  *  `pressed` is the caller's edge-triggered confirm for this frame.
  *  Returns 1 exactly when the button is both selected and pressed — i.e.
  *  "this button was activated" — so call sites read as
- *  `if (kiln_widget_button(...)) do_the_thing();`. */
-int kiln_widget_button(int x, int y, int w, int h, const char *label,
-                      int selected, int pressed, const KilnWidgetStyle *st);
+ *  `if (fig_widget_button(...)) do_the_thing();`. */
+int fig_widget_button(int x, int y, int w, int h, const char *label,
+                      int selected, int pressed, const FigWidgetStyle *st);
 
 /* ── Dice ──────────────────────────────────────────────────────────────*/
 
@@ -188,10 +188,10 @@ int kiln_widget_button(int x, int y, int w, int h, const char *label,
  *  pips are shuffled from `anim_t` (seconds since the roll started) rather
  *  than showing `face`, so the caller can run a spin-up before revealing
  *  the real result — pass the true face throughout and flip `rolling` to 0
- *  at the reveal. Faces above 6 (kiln_dice supports up to 16) draw the
+ *  at the reveal. Faces above 6 (fig_dice supports up to 16) draw the
  *  number instead of pips. */
-void kiln_widget_dice(int x, int y, int size, int face, int rolling,
-                     float anim_t, const KilnWidgetStyle *st);
+void fig_widget_dice(int x, int y, int size, int face, int rolling,
+                     float anim_t, const FigWidgetStyle *st);
 
 /* ── Per-player HUD strip ──────────────────────────────────────────────*/
 
@@ -205,12 +205,12 @@ typedef struct {
     color_t     tint;    /**< player colour, drawn as a swatch          */
     uint8_t     active;  /**< 1 draws the accent highlight              */
     uint8_t     ready;   /**< 1 draws the charge bar in `accent`        */
-} KilnPlayerSlot;
+} FigPlayerSlot;
 
 /** A compact one-row-per-player strip: colour swatch, name, score, and a
  *  charge bar. Sized to fit `count` rows; returns its total height. */
-int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
-                         int count, const KilnWidgetStyle *st);
+int fig_widget_hud_strip(int x, int y, int w, const FigPlayerSlot *slots,
+                         int count, const FigWidgetStyle *st);
 
 /* ── Results panel ─────────────────────────────────────────────────────*/
 
@@ -218,9 +218,9 @@ int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
  *  indices, first place first — the caller sorts, because only the game
  *  knows its tiebreak rules. `title` is drawn as a header. Returns the
  *  panel's total height. */
-int kiln_widget_results(int x, int y, int w, const char *title,
-                       const KilnPlayerSlot *slots, const int *order,
-                       int count, const KilnWidgetStyle *st);
+int fig_widget_results(int x, int y, int w, const char *title,
+                       const FigPlayerSlot *slots, const int *order,
+                       int count, const FigWidgetStyle *st);
 
 /* ── Banner ────────────────────────────────────────────────────────────*/
 
@@ -228,11 +228,11 @@ int kiln_widget_results(int x, int y, int w, const char *title,
  *  EVENT!", "DANK WINS". `fade` in [0,1] scales the alpha of everything
  *  drawn, so a caller can run its own in/out envelope without a second
  *  entry point. */
-void kiln_widget_banner(int x, int y, int w, int h, const char *text,
-                       float fade, const KilnWidgetStyle *st);
+void fig_widget_banner(int x, int y, int w, int h, const char *text,
+                       float fade, const FigWidgetStyle *st);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_WIDGET_H */
+#endif /* FIG_WIDGET_H */

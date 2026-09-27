@@ -10,7 +10,7 @@
 #include <malloc.h>
 #include <stdio.h>
 
-void kiln_engine_init(resolution_t res)
+void fig_engine_init(resolution_t res)
 {
     /* Three buffers, not two. The 3D pass hands work to the RSP and RDP and
      * then wants to keep the CPU busy; with only two buffers display_get()
@@ -18,15 +18,15 @@ void kiln_engine_init(resolution_t res)
     display_init(res, DEPTH_16_BPP, 3, GAMMA_NONE, FILTERS_RESAMPLE);
     rdpq_init();
     t3d_init((T3DInitParams){});
-    kiln_gui_init();
+    fig_gui_init();
 
     /* Install the panic handler after GUI init so the module is fully wired,
      * even though the panic path uses the text console rather than the GUI.
-     * This is automatic for every ROM that calls kiln_engine_init(). */
-    kiln_panic_install();
+     * This is automatic for every ROM that calls fig_engine_init(). */
+    fig_panic_install();
 }
 
-int kiln_dfs_exists(const char *dfs_path)
+int fig_dfs_exists(const char *dfs_path)
 {
     if (!dfs_path) return 0;
     /* stdio rather than dfs_rom_addr: dfs_open wants a path without the
@@ -39,15 +39,15 @@ int kiln_dfs_exists(const char *dfs_path)
     return 1;
 }
 
-void kiln_engine_close(void)
+void fig_engine_close(void)
 {
-    kiln_gui_close();
+    fig_gui_close();
     t3d_destroy();
     rdpq_close();
     display_close();
 }
 
-void kiln_scene_init(KilnScene *s)
+void fig_scene_init(FigScene *s)
 {
     s->viewport = t3d_viewport_create();
 
@@ -76,7 +76,7 @@ void kiln_scene_init(KilnScene *s)
      * light_count without filling them gets no light rather than the
      * uninitialised RSP slots the previous single-light upload would
      * have handed it. */
-    for (int i = 0; i < KILN_SCENE_MAX_LIGHTS - 1; i++) {
+    for (int i = 0; i < FIG_SCENE_MAX_LIGHTS - 1; i++) {
         s->lights[i].color[0] = s->lights[i].color[1] = 0;
         s->lights[i].color[2] = 0;
         s->lights[i].color[3] = 0xFF;
@@ -91,7 +91,7 @@ void kiln_scene_init(KilnScene *s)
     s->clear_color = RGBA32(10, 10, 24, 0xFF);
 }
 
-void kiln_scene_set_fog(KilnScene *s, color_t color, float near_, float far_)
+void fig_scene_set_fog(FigScene *s, color_t color, float near_, float far_)
 {
     s->fog_enabled = 1;
     s->fog_color = color;
@@ -99,27 +99,32 @@ void kiln_scene_set_fog(KilnScene *s, color_t color, float near_, float far_)
     s->fog_far = far_;
 }
 
-void kiln_scene_disable_fog(KilnScene *s) { s->fog_enabled = 0; }
+void fig_scene_disable_fog(FigScene *s) { s->fog_enabled = 0; }
 
-void kiln_scene_update(KilnScene *s)
+void fig_scene_update(FigScene *s)
 {
     t3d_viewport_set_projection(&s->viewport, T3D_DEG_TO_RAD(s->fov_deg),
                                 s->near_z, s->far_z);
     t3d_viewport_look_at(&s->viewport, &s->cam_pos, &s->cam_target, &s->cam_up);
 }
 
-void kiln_frame_begin(void)
+void fig_frame_begin(void)
 {
     rdpq_attach(display_get(), display_get_zbuf());
     t3d_frame_start();
 }
 
-void kiln_frame_end(void)
+void fig_frame_end(void)
 {
     rdpq_detach_show();
 }
 
-void kiln_scene_begin(KilnScene *s)
+const T3DFrustum *fig_scene_frustum(const FigScene *s)
+{
+    return s ? &s->viewport.viewFrustum : NULL;
+}
+
+void fig_scene_begin(FigScene *s)
 {
     t3d_viewport_attach(&s->viewport);
 
@@ -137,7 +142,7 @@ void kiln_scene_begin(KilnScene *s)
      * stale count should get a dim scene, not a corrupt one. */
     int n = s->light_count;
     if (n < 0) n = 0;
-    if (n > KILN_SCENE_MAX_LIGHTS) n = KILN_SCENE_MAX_LIGHTS;
+    if (n > FIG_SCENE_MAX_LIGHTS) n = FIG_SCENE_MAX_LIGHTS;
 
     if (n > 0) t3d_light_set_directional(0, s->light_color, &s->light_dir);
     for (int i = 1; i < n; i++) {
@@ -162,7 +167,7 @@ void kiln_scene_begin(KilnScene *s)
      * every fog range anyone tuned was inert.
      *
      * It has to be re-armed HERE, every frame, because t3d_frame_start()
-     * ends with an explicit rdpq_mode_fog(0) (t3d.c) — and kiln_frame_begin
+     * ends with an explicit rdpq_mode_fog(0) (t3d.c) — and fig_frame_begin
      * calls that immediately before this. rdpq_set_mode_standard() in the
      * 2D pass clears it too, for the same reason and with the same fix.
      *
@@ -186,14 +191,14 @@ void kiln_scene_begin(KilnScene *s)
     t3d_state_set_drawflags(T3D_FLAG_SHADED | T3D_FLAG_DEPTH);
 }
 
-int kiln_scene_project(const KilnScene *s, fm_vec3_t world,
+int fig_scene_project(const FigScene *s, fm_vec3_t world,
                       int screen_w, int screen_h, int *sx, int *sy)
 {
     /* View basis from the camera fields. Recomputed per call rather than
      * cached on the scene: a caller projecting a handful of points per
      * frame pays three normalises, and a cache would need invalidating on
      * every camera field write, which is exactly the kind of hidden
-     * coupling this engine's explicit kiln_scene_update bracket avoids. */
+     * coupling this engine's explicit fig_scene_update bracket avoids. */
     fm_vec3_t fwd = {{ s->cam_target.v[0] - s->cam_pos.v[0],
                        s->cam_target.v[1] - s->cam_pos.v[1],
                        s->cam_target.v[2] - s->cam_pos.v[2] }};
@@ -239,9 +244,9 @@ int kiln_scene_project(const KilnScene *s, fm_vec3_t world,
     return in_front;
 }
 
-float kiln_scene_depth(const KilnScene *s, fm_vec3_t world)
+float fig_scene_depth(const FigScene *s, fm_vec3_t world)
 {
-    /* Same `fwd` as kiln_scene_project derives above, and kept adjacent to it
+    /* Same `fwd` as fig_scene_project derives above, and kept adjacent to it
      * on purpose: these two are the only places the camera's forward axis is
      * computed, and a divergence between them would make a clipped segment
      * disagree with the projection of its own endpoints. */
@@ -256,7 +261,7 @@ float kiln_scene_depth(const KilnScene *s, fm_vec3_t world)
     return d.v[0] * fwd.v[0] + d.v[1] * fwd.v[1] + d.v[2] * fwd.v[2];
 }
 
-void kiln_transform_init(KilnTransform *t)
+void fig_transform_init(FigTransform *t)
 {
     t->pos = (fm_vec3_t){ { 0, 0, 0 } };
     t->scale = (fm_vec3_t){ { 1, 1, 1 } };
@@ -269,7 +274,7 @@ void kiln_transform_init(KilnTransform *t)
     assertf(t->mtx, "kiln: out of memory allocating a transform matrix");
 }
 
-void kiln_transform_free(KilnTransform *t)
+void fig_transform_free(FigTransform *t)
 {
     if (t->mtx) {
         free_uncached(t->mtx);
@@ -277,7 +282,7 @@ void kiln_transform_free(KilnTransform *t)
     }
 }
 
-void kiln_transform_push(KilnTransform *t)
+void fig_transform_push(FigTransform *t)
 {
     fm_mat4_t m;
     fm_mat4_identity(&m);
@@ -294,7 +299,7 @@ void kiln_transform_push(KilnTransform *t)
     t3d_matrix_push(t->mtx);
 }
 
-void kiln_transform_pop(void)
+void fig_transform_pop(void)
 {
     t3d_matrix_pop(1);
 }

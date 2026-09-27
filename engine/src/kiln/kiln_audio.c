@@ -23,14 +23,14 @@ static struct {
 } g_audio;
 
 /* SFX table: wav64 files loaded at boot, kept resident. */
-static wav64_t g_sfx[KILN_AUDIO_MAX_SFX];
+static wav64_t g_sfx[FIG_AUDIO_MAX_SFX];
 static int g_sfx_count;
 
 /* Per-SFX-channel priority (for voice stealing). 0 = not playing or no priority. */
 static int g_ch_priority[MIXER_MAX_CHANNELS];
 
 /* The encoded rate of whatever each SFX channel last started playing, so a
- * pitch can be a ratio (kiln_sfx_set_pitch) rather than an absolute Hz. */
+ * pitch can be a ratio (fig_sfx_set_pitch) rather than an absolute Hz. */
 static float g_ch_base_freq[MIXER_MAX_CHANNELS];
 
 /* 1 when the last SFX started on this channel was stereo (so ch+1 is its
@@ -66,22 +66,26 @@ static struct {
     int is_xm;        /* 1 = XM64, 0 = YM64, -1 = empty slot */
     int first_ch;     /* first mixer channel assigned to this track */
     int num_ch;       /* channels this track occupies */
-} g_music[KILN_AUDIO_MAX_MUSIC];
+} g_music[FIG_AUDIO_MAX_MUSIC];
 static int g_music_count;
 
-/* Output tap: see kiln_audio_set_tap. */
-static KilnAudioTap g_tap;
+/* Output tap: see fig_audio_set_tap. */
+static FigAudioTap g_tap;
 static void *g_tap_ctx;
+
+/* Output insert: see fig_audio_set_insert. */
+static FigAudioInsert g_insert;
+static void *g_insert_ctx;
 
 /* ── Public API ─────────────────────────────────────────────────────── */
 
-void kiln_audio_init(KilnAudioConfig cfg)
+void fig_audio_init(FigAudioConfig cfg)
 {
     int total = cfg.sfx_channels + cfg.music_channels;
     assertf(total <= MIXER_MAX_CHANNELS,
-            "kiln_audio: %d SFX + %d music = %d channels, exceeds MIXER_MAX_CHANNELS (%d)",
+            "fig_audio: %d SFX + %d music = %d channels, exceeds MIXER_MAX_CHANNELS (%d)",
             cfg.sfx_channels, cfg.music_channels, total, MIXER_MAX_CHANNELS);
-    assertf(total > 0, "kiln_audio: need at least 1 channel");
+    assertf(total > 0, "fig_audio: need at least 1 channel");
 
     audio_init(cfg.sample_rate, cfg.latency);
     mixer_init(total);
@@ -95,11 +99,11 @@ void kiln_audio_init(KilnAudioConfig cfg)
     g_music_count = 0;
 
     memset(g_ch_priority, 0, sizeof(g_ch_priority));
-    for (int i = 0; i < KILN_AUDIO_MAX_MUSIC; i++)
+    for (int i = 0; i < FIG_AUDIO_MAX_MUSIC; i++)
         g_music[i].is_xm = -1;
 }
 
-void kiln_audio_update(void)
+void fig_audio_update(void)
 {
     if (!g_audio.initialised) return;
 
@@ -135,18 +139,27 @@ void kiln_audio_update(void)
         rspq_highpri_begin();
         mixer_poll(buf, frames);
         rspq_highpri_end();
+        /* Insert before tap: the insert rewrites the buffer, and the tap is
+         * documented as showing what the speaker actually gets. */
+        if (g_insert) g_insert(buf, frames, g_insert_ctx);
         if (g_tap) g_tap(buf, frames, g_tap_ctx);
         audio_write_end();
     }
 }
 
-void kiln_audio_set_tap(KilnAudioTap tap, void *ctx)
+void fig_audio_set_tap(FigAudioTap tap, void *ctx)
 {
     g_tap = tap;
     g_tap_ctx = ctx;
 }
 
-void kiln_audio_close(void)
+void fig_audio_set_insert(FigAudioInsert fn, void *ctx)
+{
+    g_insert = fn;
+    g_insert_ctx = ctx;
+}
+
+void fig_audio_close(void)
 {
     if (!g_audio.initialised) return;
 
@@ -170,19 +183,19 @@ void kiln_audio_close(void)
 
 /* ── SFX ────────────────────────────────────────────────────────────── */
 
-int kiln_sfx_load(const char *dfs_path)
+int fig_sfx_load(const char *dfs_path)
 {
-    if (!dfs_path || g_sfx_count >= KILN_AUDIO_MAX_SFX) return -1;
+    if (!dfs_path || g_sfx_count >= FIG_AUDIO_MAX_SFX) return -1;
     wav64_open(&g_sfx[g_sfx_count], dfs_path);
     return g_sfx_count++;
 }
 
-int kiln_sfx_play(int sfx_handle, int channel, int priority)
+int fig_sfx_play(int sfx_handle, int channel, int priority)
 {
-    return kiln_sfx_play_ex(sfx_handle, channel, priority, 1.0f, 0.5f);
+    return fig_sfx_play_ex(sfx_handle, channel, priority, 1.0f, 0.5f);
 }
 
-int kiln_sfx_play_ex(int sfx_handle, int channel, int priority,
+int fig_sfx_play_ex(int sfx_handle, int channel, int priority,
                     float vol, float pan)
 {
     if (sfx_handle < 0 || sfx_handle >= g_sfx_count) return -1;
@@ -254,13 +267,13 @@ int kiln_sfx_play_ex(int sfx_handle, int channel, int priority,
     return channel;
 }
 
-int kiln_sfx_playing(int channel)
+int fig_sfx_playing(int channel)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return 0;
     return mixer_ch_playing(channel);
 }
 
-void kiln_sfx_stop(int channel)
+void fig_sfx_stop(int channel)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
     channel = owner_of(channel);
@@ -268,7 +281,7 @@ void kiln_sfx_stop(int channel)
     g_ch_priority[channel] = 0;
 }
 
-void kiln_sfx_set_vol_pan(int channel, float vol, float pan)
+void fig_sfx_set_vol_pan(int channel, float vol, float pan)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
     float lvol = vol * (1.0f - pan);
@@ -276,13 +289,13 @@ void kiln_sfx_set_vol_pan(int channel, float vol, float pan)
     mixer_ch_set_vol(owner_of(channel), lvol, rvol);
 }
 
-void kiln_sfx_set_freq(int channel, float freq)
+void fig_sfx_set_freq(int channel, float freq)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
     mixer_ch_set_freq(owner_of(channel), freq);
 }
 
-void kiln_sfx_set_pitch(int channel, float ratio)
+void fig_sfx_set_pitch(int channel, float ratio)
 {
     if (channel < 0 || channel >= g_audio.sfx_channels) return;
     channel = owner_of(channel);
@@ -292,9 +305,9 @@ void kiln_sfx_set_pitch(int channel, float ratio)
 
 /* ── Music ──────────────────────────────────────────────────────────── */
 
-int kiln_music_load(const char *dfs_path)
+int fig_music_load(const char *dfs_path)
 {
-    if (!dfs_path || g_music_count >= KILN_AUDIO_MAX_MUSIC) return -1;
+    if (!dfs_path || g_music_count >= FIG_AUDIO_MAX_MUSIC) return -1;
 
     int idx = g_music_count;
     /* Detect XM vs YM by extension. */
@@ -318,7 +331,7 @@ int kiln_music_load(const char *dfs_path)
     return g_music_count++;
 }
 
-void kiln_music_play(int music_handle)
+void fig_music_play(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
     if (g_music[music_handle].is_xm < 0) return;
@@ -347,7 +360,7 @@ void kiln_music_play(int music_handle)
     }
 }
 
-void kiln_music_stop(int music_handle)
+void fig_music_stop(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
     if (g_music[music_handle].is_xm < 0) return;
@@ -360,7 +373,7 @@ void kiln_music_stop(int music_handle)
     g_music[music_handle].first_ch = -1;
 }
 
-void kiln_music_set_volume(int music_handle, float vol)
+void fig_music_set_volume(int music_handle, float vol)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
     if (g_music[music_handle].is_xm < 0) return;
@@ -379,7 +392,7 @@ void kiln_music_set_volume(int music_handle, float vol)
     }
 }
 
-void kiln_music_set_loop(int music_handle, int loop)
+void fig_music_set_loop(int music_handle, int loop)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
     if (g_music[music_handle].is_xm == 1) {
@@ -388,7 +401,7 @@ void kiln_music_set_loop(int music_handle, int loop)
     /* YM64 loops by default; no per-track loop toggle in the API. */
 }
 
-int kiln_music_playing(int music_handle)
+int fig_music_playing(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     if (g_music[music_handle].is_xm < 0) return 0;
@@ -406,20 +419,20 @@ int kiln_music_playing(int music_handle)
     return mixer_ch_playing(first);
 }
 
-int kiln_music_num_channels(int music_handle)
+int fig_music_num_channels(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return 0;
     return g_music[music_handle].num_ch;
 }
 
-int kiln_music_first_channel(int music_handle)
+int fig_music_first_channel(int music_handle)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return -1;
     if (g_music[music_handle].is_xm < 0) return -1;
     return g_music[music_handle].first_ch;
 }
 
-void kiln_music_tell(int music_handle, int *pattern, int *row, float *secs)
+void fig_music_tell(int music_handle, int *pattern, int *row, float *secs)
 {
     if (pattern) *pattern = -1;
     if (row) *row = -1;
@@ -429,7 +442,7 @@ void kiln_music_tell(int music_handle, int *pattern, int *row, float *secs)
     xm64player_tell(&g_music[music_handle].xm, pattern, row, secs);
 }
 
-void kiln_music_seek(int music_handle, int pattern, int row)
+void fig_music_seek(int music_handle, int pattern, int row)
 {
     if (music_handle < 0 || music_handle >= g_music_count) return;
     if (g_music[music_handle].is_xm != 1) return;
@@ -438,29 +451,29 @@ void kiln_music_seek(int music_handle, int pattern, int row)
 
 /* ── Room-based audio routing ──────────────────────────────────────── */
 
-#define KILN_AUDIO_MAX_ROOMS 64
-#define KILN_AUDIO_XFADE_FRAMES 16000  /* ~0.5s at 32000 Hz */
+#define FIG_AUDIO_MAX_ROOMS 64
+#define FIG_AUDIO_XFADE_FRAMES 16000  /* ~0.5s at 32000 Hz */
 
 static struct {
     int music_handle;   /* -1 = no music for this room */
-} g_room_music[KILN_AUDIO_MAX_ROOMS];
+} g_room_music[FIG_AUDIO_MAX_ROOMS];
 
 static int g_room_active = -1;
 static int g_room_prev_music = -1;
 static int g_room_xfade_pos = -1;  /* -1 = no crossfade in progress */
 
-void kiln_audio_set_room_music(uint8_t room_id, int music_handle)
+void fig_audio_set_room_music(uint8_t room_id, int music_handle)
 {
-    if (room_id >= KILN_AUDIO_MAX_ROOMS) return;
+    if (room_id >= FIG_AUDIO_MAX_ROOMS) return;
     g_room_music[room_id].music_handle = music_handle;
 }
 
-void kiln_audio_update_rooms(void *room_sys)
+void fig_audio_update_rooms(void *room_sys)
 {
-    KilnRoomSystem *sys = (KilnRoomSystem *)room_sys;
+    FigRoomSystem *sys = (FigRoomSystem *)room_sys;
     if (!sys || !g_audio.initialised) return;
 
-    KilnRoom *current = kiln_room_current(sys);
+    FigRoom *current = fig_room_current(sys);
     int new_room = current ? current->id : -1;
 
     if (new_room != g_room_active) {
@@ -477,8 +490,8 @@ void kiln_audio_update_rooms(void *room_sys)
             g_room_xfade_pos = 0;
         } else if (new_music >= 0) {
             /* No previous track: just start the new one. */
-            kiln_music_play(new_music);
-            kiln_music_set_volume(new_music, 0.0f);
+            fig_music_play(new_music);
+            fig_music_set_volume(new_music, 0.0f);
             g_room_xfade_pos = 0;
             g_room_prev_music = new_music;
         }
@@ -486,24 +499,24 @@ void kiln_audio_update_rooms(void *room_sys)
 
     /* Drive the crossfade. */
     if (g_room_xfade_pos >= 0) {
-        float frac = (float)g_room_xfade_pos / (float)KILN_AUDIO_XFADE_FRAMES;
+        float frac = (float)g_room_xfade_pos / (float)FIG_AUDIO_XFADE_FRAMES;
 
         /* First half: fade out old. Second half: fade in new. */
-        if (g_room_xfade_pos < KILN_AUDIO_XFADE_FRAMES / 2) {
+        if (g_room_xfade_pos < FIG_AUDIO_XFADE_FRAMES / 2) {
             /* Fade out */
             if (g_room_prev_music >= 0) {
                 float vol = 1.0f - 2.0f * frac;
-                kiln_music_set_volume(g_room_prev_music, vol);
+                fig_music_set_volume(g_room_prev_music, vol);
             }
         } else {
             /* Switch over at the midpoint. */
             if (g_room_prev_music >= 0 && frac < 0.55f) {
-                kiln_music_stop(g_room_prev_music);
+                fig_music_stop(g_room_prev_music);
                 int new_music = (g_room_active >= 0)
                     ? g_room_music[g_room_active].music_handle : -1;
                 if (new_music >= 0) {
-                    kiln_music_play(new_music);
-                    kiln_music_set_volume(new_music, 0.0f);
+                    fig_music_play(new_music);
+                    fig_music_set_volume(new_music, 0.0f);
                 }
                 g_room_prev_music = new_music;
             }
@@ -511,16 +524,16 @@ void kiln_audio_update_rooms(void *room_sys)
             /* Fade in */
             if (g_room_prev_music >= 0) {
                 float vol = 2.0f * (frac - 0.5f);
-                kiln_music_set_volume(g_room_prev_music, vol);
+                fig_music_set_volume(g_room_prev_music, vol);
             }
         }
 
         g_room_xfade_pos += audio_get_buffer_length();
-        if (g_room_xfade_pos >= KILN_AUDIO_XFADE_FRAMES) {
+        if (g_room_xfade_pos >= FIG_AUDIO_XFADE_FRAMES) {
             g_room_xfade_pos = -1;
             /* Ensure final volume is exactly 1.0 */
             if (g_room_prev_music >= 0)
-                kiln_music_set_volume(g_room_prev_music, 1.0f);
+                fig_music_set_volume(g_room_prev_music, 1.0f);
         }
     }
 }

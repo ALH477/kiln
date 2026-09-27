@@ -232,7 +232,7 @@ FLAG_ROWS = 6
 def build_flag():
     """A banner in the Blender XZ plane, hoist edge on x = 0, bottom on z = 0.
 
-    Built as a grid because it is deformed on the CPU every frame (kiln_deform):
+    Built as a grid because it is deformed on the CPU every frame (fig_deform):
     the wave is a function of each vertex's x, so the columns ARE the
     resolution of the ripple. Faces wind +X then +Z, so the front faces Blender
     -Y, which is engine +Z. Per-face colours split vertices along the band

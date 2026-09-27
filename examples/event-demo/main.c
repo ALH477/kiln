@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// kiln_event: a switch, a door, and the half second between them.
+// fig_event: a switch, a door, and the half second between them.
 //
 // Stand at the pedestal and press A. The switch posts DOOR_OPEN to the door
 // with a 500 ms delay; the door swings open on its hinge when the event lands,
@@ -9,9 +9,9 @@
 // you. Every event is a deferred call through one flat queue — id Tech 4's
 // idEvent on this hardware, not a per-actor thread.
 //
-//   kiln_event   -> post with delay, process before actor update, chained posts
-//   kiln_clip    -> the closed door is a brush; opening removes it
-//   kiln_prim    -> a door slab built with its hinge at the origin, so rotating
+//   fig_event   -> post with delay, process before actor update, chained posts
+//   fig_clip    -> the closed door is a brush; opening removes it
+//   fig_prim    -> a door slab built with its hinge at the origin, so rotating
 //                   the transform swings it instead of spinning it in place
 //
 //   stick walk   A press the switch (stand at the pedestal)
@@ -52,7 +52,7 @@ static const fm_vec3_t P_MAXS = {{  7,  10,  7 }};
 static const fm_vec3_t SWITCH_AT = {{ -56, 0, -6 }};
 
 // ── The queue, mirrored for the HUD ─────────────────────────────────────
-// kiln_event exposes a count, not its slots — correctly, since a caller that
+// fig_event exposes a count, not its slots — correctly, since a caller that
 // could read the pool could come to depend on its layout. The demo keeps its
 // own note of what it posted so the countdown can be drawn.
 typedef struct { const char *label; float left, total; } Pending;
@@ -71,7 +71,7 @@ static void note_post(const char *label, int delay_ms)
 // ── World ───────────────────────────────────────────────────────────────
 // A wall across z = WALL_Z with a doorway, plus the door itself as the last
 // brush — present while the door is shut, dropped from the count when open.
-static KilnBrush g_world[] = {
+static FigBrush g_world[] = {
     { .mins = {{ -120, 0, WALL_Z }},        .maxs = {{ -DOOR_HALF_W, 44, WALL_Z + 8 }} },
     { .mins = {{  DOOR_HALF_W, 0, WALL_Z }}, .maxs = {{ 120, 44, WALL_Z + 8 }} },
     { .mins = {{ -DOOR_HALF_W, 36, WALL_Z }}, .maxs = {{ DOOR_HALF_W, 44, WALL_Z + 8 }} },
@@ -82,35 +82,35 @@ static KilnBrush g_world[] = {
 #define WALL_BRUSHES 5
 static int g_door_blocks = 1;
 
-static KilnPrim g_wall[WALL_BRUSHES], g_floor, g_floor_far, g_door, g_body, g_nose, g_shadow;
-static KilnPrim g_pedestal, g_button_up, g_button_down, g_chest, g_chest_lid;
+static FigPrim g_wall[WALL_BRUSHES], g_floor, g_floor_far, g_door, g_body, g_nose, g_shadow;
+static FigPrim g_pedestal, g_button_up, g_button_down, g_chest, g_chest_lid;
 static int g_door_open_sfx = -1, g_click_sfx = -1;
 static fm_vec3_t g_player = {{ 0, 11, -60 }};
 
 // ── Switch ──────────────────────────────────────────────────────────────
-typedef struct { KilnActorHandle door; float pressed_t; } SwitchState;
+typedef struct { FigActorHandle door; float pressed_t; } SwitchState;
 
-static void switch_update(KilnActor *self, float dt)
+static void switch_update(FigActor *self, float dt)
 {
     SwitchState *s = (SwitchState *)self->state;
     if (s->pressed_t > 0) s->pressed_t -= dt;
-    if (!kiln_input_pressed(1, KILN_BTN_A)) return;
+    if (!fig_input_pressed(1, FIG_BTN_A)) return;
 
     /* Only from the pedestal. The old demo accepted A from anywhere. */
     const float dx = g_player.v[0] - self->xform.pos.v[0], dz = g_player.v[2] - self->xform.pos.v[2];
     if (dx * dx + dz * dz > SWITCH_RANGE * SWITCH_RANGE) return;
 
     s->pressed_t = 0.4f;
-    kiln_sfx_play(g_click_sfx, -1, 1);
+    fig_sfx_play(g_click_sfx, -1, 1);
     int32_t args[1] = { 1 };
-    if (kiln_event_post(s->door, EV_DOOR_OPEN, 500, args, 1, 1) == 0) note_post("DOOR_OPEN", 500);
+    if (fig_event_post(s->door, EV_DOOR_OPEN, 500, args, 1, 1) == 0) note_post("DOOR_OPEN", 500);
 }
 
-static void switch_draw(KilnActor *self)
+static void switch_draw(FigActor *self)
 {
     const SwitchState *s = (const SwitchState *)self->state;
-    kiln_prim_draw(&g_pedestal);
-    kiln_prim_draw(s->pressed_t > 0 ? &g_button_down : &g_button_up);
+    fig_prim_draw(&g_pedestal);
+    fig_prim_draw(s->pressed_t > 0 ? &g_button_down : &g_button_up);
 }
 
 // ── Door ────────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ static int player_in_doorway(void)
            g_player.v[2] + P_MAXS.v[2] > WALL_Z - 30 && g_player.v[2] + P_MINS.v[2] < WALL_Z + 30;
 }
 
-static void door_event(KilnActor *self, uint16_t event_id, const int32_t *args, uint8_t argc)
+static void door_event(FigActor *self, uint16_t event_id, const int32_t *args, uint8_t argc)
 {
     (void)args; (void)argc;
     DoorState *s = (DoorState *)self->state;
@@ -130,26 +130,26 @@ static void door_event(KilnActor *self, uint16_t event_id, const int32_t *args, 
         s->open = 1;
         s->target = -1.5708f;
         g_door_blocks = 0;
-        kiln_sfx_play(g_door_open_sfx, -1, 1);
+        fig_sfx_play(g_door_open_sfx, -1, 1);
         /* Chain: the door schedules its own close. */
-        if (!s->hold_open && kiln_event_post(kiln_actor_handle_of(self), EV_DOOR_CLOSE, 4000, NULL, 0, 0) == 0)
+        if (!s->hold_open && fig_event_post(fig_actor_handle_of(self), EV_DOOR_CLOSE, 4000, NULL, 0, 0) == 0)
             note_post("DOOR_CLOSE", 4000);
     } else if (event_id == EV_DOOR_CLOSE && s->open) {
         if (player_in_doorway()) {
             /* Somebody is in the way: ask again shortly rather than closing
              * the collision brush on top of them. */
-            if (kiln_event_post(kiln_actor_handle_of(self), EV_DOOR_CLOSE, 700, NULL, 0, 0) == 0)
+            if (fig_event_post(fig_actor_handle_of(self), EV_DOOR_CLOSE, 700, NULL, 0, 0) == 0)
                 note_post("CLOSE (retry)", 700);
             return;
         }
         s->open = 0;
         s->target = 0.0f;
         g_door_blocks = 1;
-        kiln_sfx_play(g_click_sfx, -1, 1);
+        fig_sfx_play(g_click_sfx, -1, 1);
     }
 }
 
-static void door_update(KilnActor *self, float dt)
+static void door_update(FigActor *self, float dt)
 {
     DoorState *s = (DoorState *)self->state;
     float t = 5.0f * dt;
@@ -159,23 +159,23 @@ static void door_update(KilnActor *self, float dt)
     self->xform.rot_angle = s->cur;
 }
 
-static void door_draw(KilnActor *self) { (void)self; kiln_prim_draw(&g_door); }
+static void door_draw(FigActor *self) { (void)self; fig_prim_draw(&g_door); }
 
-static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
-    [PROFILE_SWITCH] = { .name = "switch", .category = KILN_ACTOR_CAT_PROP,
+static const FigActorProfile PROFILES[PROFILE_COUNT] = {
+    [PROFILE_SWITCH] = { .name = "switch", .category = FIG_ACTOR_CAT_PROP,
                          .state_size = sizeof(SwitchState), .update = switch_update, .draw = switch_draw },
-    [PROFILE_DOOR]   = { .name = "door", .category = KILN_ACTOR_CAT_DOOR,
+    [PROFILE_DOOR]   = { .name = "door", .category = FIG_ACTOR_CAT_DOOR,
                          .state_size = sizeof(DoorState), .event = door_event,
                          .update = door_update, .draw = door_draw },
 };
-static KilnActor g_pool[ACTOR_POOL_CAP];
+static FigActor g_pool[ACTOR_POOL_CAP];
 
 // ── Tape ────────────────────────────────────────────────────────────────
 // Camera looks down +Z: stick up is +Z, stick right is -X.
-static const KilnInputKey ATTRACT_KEYS[] = {
+static const FigInputKey ATTRACT_KEYS[] = {
     { .frame =   0, .sx =  64, .sy =  60 },   // to the pedestal
     { .frame =  52 },
-    { .frame =  64, .buttons = KILN_BTN_A },
+    { .frame =  64, .buttons = FIG_BTN_A },
     { .frame =  70 },
     { .frame = 110, .sx = -64, .sy =  62 },   // to the doorway
     { .frame = 162, .sy =  85 },              // through it
@@ -187,14 +187,14 @@ static const KilnInputKey ATTRACT_KEYS[] = {
     { .frame = 470 },
     { .frame = 560 },
 };
-static const KilnInputTape ATTRACT = { ATTRACT_KEYS, 13, 0 };
+static const FigInputTape ATTRACT = { ATTRACT_KEYS, 13, 0 };
 
-static fm_vec3_t centre(const KilnBrush *b)
+static fm_vec3_t centre(const FigBrush *b)
 {
     return (fm_vec3_t){{ (b->mins.v[0] + b->maxs.v[0]) * 0.5f, (b->mins.v[1] + b->maxs.v[1]) * 0.5f,
                          (b->mins.v[2] + b->maxs.v[2]) * 0.5f }};
 }
-static fm_vec3_t half(const KilnBrush *b)
+static fm_vec3_t half(const FigBrush *b)
 {
     return (fm_vec3_t){{ (b->maxs.v[0] - b->mins.v[0]) * 0.5f, (b->maxs.v[1] - b->mins.v[1]) * 0.5f,
                          (b->maxs.v[2] - b->mins.v[2]) * 0.5f }};
@@ -202,78 +202,78 @@ static fm_vec3_t half(const KilnBrush *b)
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     joypad_init();
     /* Mount the ROM's DragonFS before anything opens rom:/. The host resolves
      * rom:/ paths without it, so host renders never noticed; on console the
-     * first kiln_sfx_load asserted "File not found". */
+     * first fig_sfx_load asserted "File not found". */
     dfs_init(DFS_DEFAULT_LOCATION);
-    kiln_input_init();
-    kiln_audio_init(KILN_AUDIO_DEFAULT);
-    g_door_open_sfx = kiln_sfx_load("rom:/sfx/door_open.wav64");
-    g_click_sfx = kiln_sfx_load("rom:/sfx/blip.wav64");
+    fig_input_init();
+    fig_audio_init(FIG_AUDIO_DEFAULT);
+    g_door_open_sfx = fig_sfx_load("rom:/sfx/door_open.wav64");
+    g_click_sfx = fig_sfx_load("rom:/sfx/blip.wav64");
 
     for (int i = 0; i < WALL_BRUSHES; i++)
-        kiln_prim_box(&g_wall[i], centre(&g_world[i]), half(&g_world[i]),
-                      kiln_prim_rgba(0xD8, 0xC8, 0xA8), kiln_prim_rgba(0x9C, 0x84, 0x68),
-                      kiln_prim_rgba(0x40, 0x34, 0x28));
-    kiln_prim_floor(&g_floor, 120.0f, 12, kiln_prim_rgba(0x78, 0x70, 0x60), kiln_prim_rgba(0x6A, 0x62, 0x54));
-    kiln_prim_floor(&g_floor_far, 120.0f, 8, kiln_prim_rgba(0x48, 0x70, 0x50), kiln_prim_rgba(0x40, 0x64, 0x48));
+        fig_prim_box(&g_wall[i], centre(&g_world[i]), half(&g_world[i]),
+                      fig_prim_rgba(0xD8, 0xC8, 0xA8), fig_prim_rgba(0x9C, 0x84, 0x68),
+                      fig_prim_rgba(0x40, 0x34, 0x28));
+    fig_prim_floor(&g_floor, 120.0f, 12, fig_prim_rgba(0x78, 0x70, 0x60), fig_prim_rgba(0x6A, 0x62, 0x54));
+    fig_prim_floor(&g_floor_far, 120.0f, 8, fig_prim_rgba(0x48, 0x70, 0x50), fig_prim_rgba(0x40, 0x64, 0x48));
     /* The door slab with its hinge on the origin: centre offset by its own
      * half-width, so rotating about Y swings it from the -X jamb. */
-    kiln_prim_box(&g_door, (fm_vec3_t){{ DOOR_HALF_W, 18, 0 }}, (fm_vec3_t){{ DOOR_HALF_W, 18, 2 }},
-                  kiln_prim_rgba(0xB0, 0x70, 0x38), kiln_prim_rgba(0x88, 0x50, 0x28), kiln_prim_rgba(0x50, 0x30, 0x18));
-    kiln_prim_box(&g_body, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 7, 10, 7 }},
-                  kiln_prim_rgba(0xFF, 0xE0, 0x50), kiln_prim_rgba(0xE0, 0xA0, 0x18), kiln_prim_rgba(0x60, 0x40, 0x00));
-    kiln_prim_box(&g_nose, (fm_vec3_t){{ 0, 3, 9 }}, (fm_vec3_t){{ 3, 3, 3 }},
+    fig_prim_box(&g_door, (fm_vec3_t){{ DOOR_HALF_W, 18, 0 }}, (fm_vec3_t){{ DOOR_HALF_W, 18, 2 }},
+                  fig_prim_rgba(0xB0, 0x70, 0x38), fig_prim_rgba(0x88, 0x50, 0x28), fig_prim_rgba(0x50, 0x30, 0x18));
+    fig_prim_box(&g_body, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 7, 10, 7 }},
+                  fig_prim_rgba(0xFF, 0xE0, 0x50), fig_prim_rgba(0xE0, 0xA0, 0x18), fig_prim_rgba(0x60, 0x40, 0x00));
+    fig_prim_box(&g_nose, (fm_vec3_t){{ 0, 3, 9 }}, (fm_vec3_t){{ 3, 3, 3 }},
                   0xFFFFFFFF, 0xE0E0E8FF, 0x808080FF);
-    kiln_prim_floor(&g_shadow, 10.0f, 1, kiln_prim_rgba(0x20, 0x1C, 0x18), kiln_prim_rgba(0x20, 0x1C, 0x18));
-    kiln_prim_box(&g_pedestal, (fm_vec3_t){{ 0, 8, 0 }}, (fm_vec3_t){{ 8, 8, 8 }},
-                  kiln_prim_rgba(0xC0, 0xC4, 0xD0), kiln_prim_rgba(0x80, 0x84, 0x94), kiln_prim_rgba(0x40, 0x40, 0x48));
-    kiln_prim_box(&g_button_up, (fm_vec3_t){{ 0, 19, 0 }}, (fm_vec3_t){{ 4, 3, 4 }},
-                  kiln_prim_rgba(0xFF, 0x40, 0x60), kiln_prim_rgba(0xC0, 0x20, 0x40), kiln_prim_rgba(0x60, 0x10, 0x20));
-    kiln_prim_box(&g_button_down, (fm_vec3_t){{ 0, 17, 0 }}, (fm_vec3_t){{ 4, 1, 4 }},
-                  kiln_prim_rgba(0x60, 0xFF, 0x90), kiln_prim_rgba(0x30, 0xC0, 0x60), kiln_prim_rgba(0x10, 0x60, 0x30));
-    kiln_prim_box(&g_chest, (fm_vec3_t){{ 0, 7, 110 }}, (fm_vec3_t){{ 12, 7, 8 }},
-                  kiln_prim_rgba(0xA0, 0x60, 0x30), kiln_prim_rgba(0x80, 0x48, 0x20), kiln_prim_rgba(0x40, 0x24, 0x10));
-    kiln_prim_box(&g_chest_lid, (fm_vec3_t){{ 0, 16, 110 }}, (fm_vec3_t){{ 13, 2, 9 }},
-                  kiln_prim_rgba(0xFF, 0xD0, 0x40), kiln_prim_rgba(0xD0, 0xA0, 0x20), kiln_prim_rgba(0x80, 0x60, 0x10));
+    fig_prim_floor(&g_shadow, 10.0f, 1, fig_prim_rgba(0x20, 0x1C, 0x18), fig_prim_rgba(0x20, 0x1C, 0x18));
+    fig_prim_box(&g_pedestal, (fm_vec3_t){{ 0, 8, 0 }}, (fm_vec3_t){{ 8, 8, 8 }},
+                  fig_prim_rgba(0xC0, 0xC4, 0xD0), fig_prim_rgba(0x80, 0x84, 0x94), fig_prim_rgba(0x40, 0x40, 0x48));
+    fig_prim_box(&g_button_up, (fm_vec3_t){{ 0, 19, 0 }}, (fm_vec3_t){{ 4, 3, 4 }},
+                  fig_prim_rgba(0xFF, 0x40, 0x60), fig_prim_rgba(0xC0, 0x20, 0x40), fig_prim_rgba(0x60, 0x10, 0x20));
+    fig_prim_box(&g_button_down, (fm_vec3_t){{ 0, 17, 0 }}, (fm_vec3_t){{ 4, 1, 4 }},
+                  fig_prim_rgba(0x60, 0xFF, 0x90), fig_prim_rgba(0x30, 0xC0, 0x60), fig_prim_rgba(0x10, 0x60, 0x30));
+    fig_prim_box(&g_chest, (fm_vec3_t){{ 0, 7, 110 }}, (fm_vec3_t){{ 12, 7, 8 }},
+                  fig_prim_rgba(0xA0, 0x60, 0x30), fig_prim_rgba(0x80, 0x48, 0x20), fig_prim_rgba(0x40, 0x24, 0x10));
+    fig_prim_box(&g_chest_lid, (fm_vec3_t){{ 0, 16, 110 }}, (fm_vec3_t){{ 13, 2, 9 }},
+                  fig_prim_rgba(0xFF, 0xD0, 0x40), fig_prim_rgba(0xD0, 0xA0, 0x20), fig_prim_rgba(0x80, 0x60, 0x10));
 
-    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    kiln_event_init();
+    fig_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    fig_event_init();
 
     /* Door first so the switch can hold its handle. */
-    KilnActorHandle door_h = kiln_actor_spawn(PROFILE_DOOR,
+    FigActorHandle door_h = fig_actor_spawn(PROFILE_DOOR,
         (fm_vec3_t){{ -DOOR_HALF_W, 0, WALL_Z + 4 }}, 0.0f, NULL);
-    KilnActorHandle sw_h = kiln_actor_spawn(PROFILE_SWITCH, SWITCH_AT, 0.0f, NULL);
-    KilnActor *sw = kiln_actor_resolve(sw_h);
+    FigActorHandle sw_h = fig_actor_spawn(PROFILE_SWITCH, SWITCH_AT, 0.0f, NULL);
+    FigActor *sw = fig_actor_resolve(sw_h);
     if (sw) ((SwitchState *)sw->state)->door = door_h;
 
     if (KILN_JUMP == JUMP_OPEN) {
-        KilnActor *d = kiln_actor_resolve(door_h);
+        FigActor *d = fig_actor_resolve(door_h);
         if (d) ((DoorState *)d->state)->hold_open = 1;
-        kiln_event_post(door_h, EV_DOOR_OPEN, 0, NULL, 0, 1);
+        fig_event_post(door_h, EV_DOOR_OPEN, 0, NULL, 0, 1);
         g_player = (fm_vec3_t){{ 0, 11, 0 }};
     } else if (KILN_JUMP == JUMP_QUEUED) {
-        kiln_event_post(door_h, EV_DOOR_OPEN, 60000, NULL, 0, 1);
+        fig_event_post(door_h, EV_DOOR_OPEN, 60000, NULL, 0, 1);
         note_post("DOOR_OPEN", 60000);
         g_player = (fm_vec3_t){{ -40, 11, -20 }};
     } else {
-        kiln_input_set_attract(1, &ATTRACT, 120);
+        fig_input_set_attract(1, &ATTRACT, 120);
     }
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x40, 0x5C, 0x7C, 0xFF), 260.0f, 520.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x40, 0x5C, 0x7C, 0xFF), 260.0f, 520.0f);
     scene.fov_deg = 60.0f;
     scene.near_z = 12.0f;
     scene.far_z = 520.0f;
 
-    KilnTransform xf_floor, xf_far, xf_body, xf_shadow;
-    kiln_transform_init(&xf_floor);
-    kiln_transform_init(&xf_far);
-    kiln_transform_init(&xf_body);
-    kiln_transform_init(&xf_shadow);
+    FigTransform xf_floor, xf_far, xf_body, xf_shadow;
+    fig_transform_init(&xf_floor);
+    fig_transform_init(&xf_far);
+    fig_transform_init(&xf_body);
+    fig_transform_init(&xf_shadow);
     xf_floor.pos = (fm_vec3_t){{ 0, 0, -40 }};
     xf_far.pos = (fm_vec3_t){{ 0, 0, 160 }};
     xf_body.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
@@ -285,25 +285,25 @@ int main(void)
     uint32_t last_ticks = get_ticks();
 
     for (;;) {
-        kiln_input_update();
-        const KilnInput *in = kiln_input_get(1);
+        fig_input_update();
+        const FigInput *in = fig_input_get(1);
         const float dt = 1.0f / 60.0f;
 
-        kiln_clip_set_world(g_world, g_door_blocks ? WALL_BRUSHES + 1 : WALL_BRUSHES);
+        fig_clip_set_world(g_world, g_door_blocks ? WALL_BRUSHES + 1 : WALL_BRUSHES);
         const fm_vec3_t disp = {{ -in->stick_x * WALK_SPEED * dt, 0, in->stick_y * WALK_SPEED * dt }};
-        g_player = kiln_clip_slide(g_player, disp, P_MINS, P_MAXS, 4);
+        g_player = fig_clip_slide(g_player, disp, P_MINS, P_MAXS, 4);
         if (disp.v[0] * disp.v[0] + disp.v[2] * disp.v[2] > 1e-4f) yaw = fm_atan2f(disp.v[0], disp.v[2]);
 
-        /* Events land before the actors update, per kiln_event's contract. */
-        kiln_event_process(dt);
-        kiln_actor_update_all(dt);
+        /* Events land before the actors update, per fig_event's contract. */
+        fig_event_process(dt);
+        fig_actor_update_all(dt);
         for (int i = 0; i < 4; i++) if (g_pending[i].left > 0) g_pending[i].left -= dt;
 
         cam_t.v[0] += (g_player.v[0] * 0.6f - cam_t.v[0]) * 0.06f;
         cam_t.v[2] += (g_player.v[2] - cam_t.v[2]) * 0.06f;
         scene.cam_target = (fm_vec3_t){{ cam_t.v[0], 12, cam_t.v[2] + 30 }};
         scene.cam_pos = (fm_vec3_t){{ cam_t.v[0] * 0.8f, 120, cam_t.v[2] - 110 }};
-        kiln_scene_update(&scene);
+        fig_scene_update(&scene);
 
         if (++frames % 30 == 0) {
             uint32_t now = get_ticks();
@@ -312,22 +312,22 @@ int main(void)
         }
 
         /* ── 3D ───────────────────────────────────────────────────── */
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
-        kiln_transform_push(&xf_floor); kiln_prim_draw(&g_floor); kiln_transform_pop();
-        kiln_transform_push(&xf_far);   kiln_prim_draw(&g_floor_far); kiln_transform_pop();
-        for (int i = 0; i < WALL_BRUSHES; i++) kiln_prim_draw(&g_wall[i]);
-        kiln_prim_draw(&g_chest);
-        kiln_prim_draw(&g_chest_lid);
-        kiln_actor_draw_all();
+        fig_frame_begin();
+        fig_scene_begin(&scene);
+        fig_transform_push(&xf_floor); fig_prim_draw(&g_floor); fig_transform_pop();
+        fig_transform_push(&xf_far);   fig_prim_draw(&g_floor_far); fig_transform_pop();
+        for (int i = 0; i < WALL_BRUSHES; i++) fig_prim_draw(&g_wall[i]);
+        fig_prim_draw(&g_chest);
+        fig_prim_draw(&g_chest_lid);
+        fig_actor_draw_all();
         xf_shadow.pos = (fm_vec3_t){{ g_player.v[0], 0.4f, g_player.v[2] }};
-        kiln_transform_push(&xf_shadow); kiln_prim_draw(&g_shadow); kiln_transform_pop();
+        fig_transform_push(&xf_shadow); fig_prim_draw(&g_shadow); fig_transform_pop();
         xf_body.pos = g_player;
         xf_body.rot_angle = yaw;
-        kiln_transform_push(&xf_body); kiln_prim_draw(&g_body); kiln_prim_draw(&g_nose); kiln_transform_pop();
+        fig_transform_push(&xf_body); fig_prim_draw(&g_body); fig_prim_draw(&g_nose); fig_transform_pop();
 
         /* ── 2D ───────────────────────────────────────────────────── */
-        kiln_gui_begin();
+        fig_gui_begin();
 
         /* The wire: while an OPEN is on its way, a line from switch to door. */
         int open_pending = 0;
@@ -336,50 +336,50 @@ int main(void)
         const float sdx = g_player.v[0] - SWITCH_AT.v[0], sdz = g_player.v[2] - SWITCH_AT.v[2];
         const int near_switch = sdx * sdx + sdz * sdz <= SWITCH_RANGE * SWITCH_RANGE;
         if (open_pending || near_switch) {
-            kiln_dd_begin(&scene, SCREEN_W, SCREEN_H);
+            fig_dd_begin(&scene, SCREEN_W, SCREEN_H);
             if (open_pending)
-                kiln_dd_line((fm_vec3_t){{ SWITCH_AT.v[0], 22, SWITCH_AT.v[2] }},
+                fig_dd_line((fm_vec3_t){{ SWITCH_AT.v[0], 22, SWITCH_AT.v[2] }},
                              (fm_vec3_t){{ 0, 30, WALL_Z }}, RGBA32(0xFF, 0xE0, 0x40, 0xFF));
             if (near_switch && !open_pending)
-                kiln_dd_text((fm_vec3_t){{ SWITCH_AT.v[0], 34, SWITCH_AT.v[2] }},
+                fig_dd_text((fm_vec3_t){{ SWITCH_AT.v[0], 34, SWITCH_AT.v[2] }},
                              RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "A");
-            kiln_dd_end();
+            fig_dd_end();
         }
 
         const color_t ink = RGBA32(0xE8, 0xE8, 0xF0, 0xFF);
         const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
-        KilnActor *door = kiln_actor_resolve(door_h);
+        FigActor *door = fig_actor_resolve(door_h);
         const DoorState *ds = door ? (const DoorState *)door->state : NULL;
-        kiln_gui_panel(8, 8, 160, 90, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
-        kiln_gui_text(14, 21, teal, "KILN EVENT");
-        kiln_gui_text(14, 34, ink, "door %s  queued %u",
+        fig_gui_panel(8, 8, 160, 90, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
+        fig_gui_text(14, 21, teal, "KILN EVENT");
+        fig_gui_text(14, 34, ink, "door %s  queued %u",
                       !ds ? "-" : ds->open ? (ds->cur < -1.4f ? "open" : "opening")
                                           : (ds->cur < -0.1f ? "closing" : "shut"),
-                      kiln_event_count());
+                      fig_event_count());
         int row = 0;
         for (int i = 0; i < 4 && row < 3; i++) {
             const Pending *p = &g_pending[i];
             if (p->left <= 0) continue;
             const int y = 46 + row * 14;
-            kiln_gui_text(14, y + 2, ink, "%-13s %4.1f", p->label, p->left);
-            kiln_gui_rect(14, y + 5, 140, 3, RGBA32(0x30, 0x34, 0x44, 0xFF));
-            kiln_gui_rect(14, y + 5, (int)(140 * (p->left / p->total)), 3, RGBA32(0xFF, 0xC0, 0x40, 0xFF));
+            fig_gui_text(14, y + 2, ink, "%-13s %4.1f", p->label, p->left);
+            fig_gui_rect(14, y + 5, 140, 3, RGBA32(0x30, 0x34, 0x44, 0xFF));
+            fig_gui_rect(14, y + 5, (int)(140 * (p->left / p->total)), 3, RGBA32(0xFF, 0xC0, 0x40, 0xFF));
             row++;
         }
-        if (row == 0) kiln_gui_text(14, 48, RGBA32(0x90, 0x98, 0xB0, 0xFF), "no events pending");
-        kiln_gui_text(14, 92, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
+        if (row == 0) fig_gui_text(14, 48, RGBA32(0x90, 0x98, 0xB0, 0xFF), "no events pending");
+        fig_gui_text(14, 92, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
 
-        if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
+        if (fig_input_scripted(1)) {
+            fig_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
                            RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+            fig_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
-        kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16,
+        fig_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16,
                        RGBA32(0x0C, 0x10, 0x1C, 0xFF), RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(14, SCREEN_H - 12, ink, "stick walk   A switch (stand at the pedestal)");
+        fig_gui_text(14, SCREEN_H - 12, ink, "stick walk   A switch (stand at the pedestal)");
 
-        kiln_gui_end();
-        kiln_frame_end();
-        kiln_audio_update();
+        fig_gui_end();
+        fig_frame_end();
+        fig_audio_update();
     }
 }

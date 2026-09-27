@@ -3,15 +3,15 @@
  * forge_ent.c — M5: entity placement.
  *
  * An entity here is exactly what a Quake `.map` point entity is and what
- * `kiln_map.c` parses into an `KilnRoomSpawn`: a classname, an origin, an angle,
- * and a handful of key/value epairs that `kiln_dict_set_auto` types on the way in
+ * `kiln_map.c` parses into an `FigRoomSpawn`: a classname, an origin, an angle,
+ * and a handful of key/value epairs that `fig_dict_set_auto` types on the way in
  * ("0 0 0" is a vec3, "5.5" a float, "5" an int, else a string).
  *
  * ── Why the classnames are a fixed table ───────────────────────────────
  *
  * Because there is no keyboard. A free-text field on an N64 means an on-screen
  * alphabet and a lot of D-pad, for a value that must match a
- * `kiln_map_register_classname` call in the consuming game anyway — so a name
+ * `fig_map_register_classname` call in the consuming game anyway — so a name
  * typed here that the game does not know is a spawn that silently never
  * appears. A list the game also publishes is both easier to use and impossible
  * to misspell. The same argument tools/mapmaker/src/entity.js makes with its
@@ -37,7 +37,7 @@
  * is still a wire format — see forge_io.c.
  *
  * What is still NOT authorable, honestly: info_npc's `dialogue` is a STRING.
- * A slot is a u16, and kiln_dict_set_auto types "3" as an int, so writing a
+ * A slot is a u16, and fig_dict_set_auto types "3" as an int, so writing a
  * number under that key would satisfy the validator and hand the game nothing
  * to read — a worse failure than the warning, because it looks fixed. It stays
  * in the schema's forge_waived, with that as the reason.
@@ -48,7 +48,7 @@
 
 /* Mirrors tools/mapmaker/src/entity.js's KNOWN_CLASSNAMES (ENTITY_PALETTE) and
  * the `info_*` vocabulary the engine's own examples register via
- * kiln_map_register_classname — examples/fps/main.c registers the widest set.
+ * fig_map_register_classname — examples/fps/main.c registers the widest set.
  * Kept short deliberately: a picker is only better than typing while it is
  * short enough to cycle. */
 /* Both tables are GENERATED into forge_vocab.gen.h from
@@ -93,15 +93,15 @@ static int nearest(const Forge *f, fm_vec3_t at, float max_dist)
     return best;
 }
 
-void forge_ent_update(Forge *f, const KilnInput *in)
+void forge_ent_update(Forge *f, const FigInput *in)
 {
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
 
     /* Aim the same way GEO does, so the two modes agree about where you are
      * pointing. The entity goes in the AIR cell in front of the surface — an
      * entity inside a wall is the placement mistake this makes impossible. */
     fm_vec3_t fwd = forge_cam_forward(f);
-    kiln_voxel_raycast(&f->world, &f->fly_pos, &fwd, 64.0f * B, &f->aim);
+    fig_voxel_raycast(&f->world, &f->fly_pos, &fwd, 64.0f * B, &f->aim);
 
     fm_vec3_t at = { { 0, 0, 0 } };
     if (f->aim.hit) {
@@ -112,7 +112,7 @@ void forge_ent_update(Forge *f, const KilnInput *in)
 
     f->ent_hover = f->aim.hit ? nearest(f, at, B) : -1;
 
-    if ((in->edges & KILN_BTN_A) && f->aim.hit) {
+    if ((in->edges & FIG_BTN_A) && f->aim.hit) {
         if (f->ent_hover >= 0) {
             /* Something is already there: move it rather than stacking a second
              * entity on the same cell, which is invisible and then confusing. */
@@ -140,7 +140,7 @@ void forge_ent_update(Forge *f, const KilnInput *in)
         }
     }
 
-    if ((in->edges & KILN_BTN_B) && f->ent_hover >= 0) {
+    if ((in->edges & FIG_BTN_B) && f->ent_hover >= 0) {
         /* Swap-with-last removal: order is not meaningful (the .map emitter
          * writes them in array order and nothing reads that order back), and a
          * memmove of 64 structs per delete is work for no property. */
@@ -149,8 +149,8 @@ void forge_ent_update(Forge *f, const KilnInput *in)
         f->ent_hover = -1;
     }
 
-    if (in->edges & KILN_BTN_DR) f->ent_class = (f->ent_class + 1) % FORGE_CLASSNAMES;
-    if (in->edges & KILN_BTN_DL)
+    if (in->edges & FIG_BTN_DR) f->ent_class = (f->ent_class + 1) % FORGE_CLASSNAMES;
+    if (in->edges & FIG_BTN_DL)
         f->ent_class = (f->ent_class + FORGE_CLASSNAMES - 1) % FORGE_CLASSNAMES;
 
     /* Edit the selected entity's epairs. D-pad up/down picks the key, R/Z step
@@ -165,26 +165,26 @@ void forge_ent_update(Forge *f, const KilnInput *in)
      * buttons and vertical movement has nowhere else to go. */
     if (f->ent_sel >= 0 && f->ent_sel < f->ent_count) {
         ForgeEnt *e = &f->ents[f->ent_sel];
-        if (in->edges & KILN_BTN_DU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
-        if (in->edges & KILN_BTN_DD)
+        if (in->edges & FIG_BTN_DU) f->ent_field = (f->ent_field + 1) % FORGE_EPAIRS;
+        if (in->edges & FIG_BTN_DD)
             f->ent_field = (f->ent_field + FORGE_EPAIRS - 1) % FORGE_EPAIRS;
-        if (in->edges & KILN_BTN_R) e->epair[f->ent_field]++;
-        if (in->edges & KILN_BTN_Z && e->epair[f->ent_field] > 0)
+        if (in->edges & FIG_BTN_R) e->epair[f->ent_field]++;
+        if (in->edges & FIG_BTN_Z && e->epair[f->ent_field] > 0)
             e->epair[f->ent_field]--;
     }
 }
 
 void forge_ent_draw3d(Forge *f)
 {
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
-    kiln_dd_begin(&f->scene, FORGE_SCREEN_W, FORGE_SCREEN_H);
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
+    fig_dd_begin(&f->scene, FORGE_SCREEN_W, FORGE_SCREEN_H);
 
     for (int i = 0; i < f->ent_count; i++) {
         /* An axis gizmo, not a box: an entity is a point WITH A FACING, and the
          * facing is half of what "did I place this right" means for a spawn.
          * Engine axes — red +X, green +Y up, blue +Z — because the bug class
          * here is a +Z-up convention meeting a +Y-up runtime. */
-        kiln_dd_axes(f->ents[i].pos, B * 0.6f);
+        fig_dd_axes(f->ents[i].pos, B * 0.6f);
 
         /* The angle, drawn as a line so it is legible without reading a number
          * off the HUD one entity at a time. */
@@ -192,7 +192,7 @@ void forge_ent_draw3d(Forge *f)
         fm_vec3_t tip = {{ f->ents[i].pos.v[0] + fm_sinf(rad) * B,
                            f->ents[i].pos.v[1],
                            f->ents[i].pos.v[2] + fm_cosf(rad) * B }};
-        kiln_dd_line(f->ents[i].pos, tip,
+        fig_dd_line(f->ents[i].pos, tip,
                     i == f->ent_sel ? RGBA32(255, 240, 80, 255)
                                     : RGBA32(120, 200, 255, 255));
 
@@ -201,13 +201,13 @@ void forge_ent_draw3d(Forge *f)
          * already names it — the panel is where a name belongs, the world is
          * where a POSITION belongs. Same reasoning as thinning CAM's key labels
          * down to the selected one. */
-        kiln_dd_text(f->ents[i].pos,
+        fig_dd_text(f->ents[i].pos,
                     i == f->ent_sel ? RGBA32(255, 240, 80, 255)
                                     : RGBA32(160, 200, 230, 255),
                     "e%d", i);
     }
 
-    kiln_dd_end();
+    fig_dd_end();
 }
 
 void forge_ent_draw(Forge *f)
@@ -215,14 +215,14 @@ void forge_ent_draw(Forge *f)
     color_t hot = RGBA32(255, 210, 70, 255);
     color_t dim = RGBA32(150, 150, 150, 255);
 
-    kiln_gui_text(6, 72, hot, "place %s", forge_ent_classname(f->ent_class));
-    kiln_gui_text(6, 82, f->ent_full ? RGBA32(255, 80, 70, 255) : dim,
+    fig_gui_text(6, 72, hot, "place %s", forge_ent_classname(f->ent_class));
+    fig_gui_text(6, 82, f->ent_full ? RGBA32(255, 80, 70, 255) : dim,
                  "ents %d/%d%s", f->ent_count, FORGE_MAX_ENTS,
                  f->ent_full ? " FULL" : "");
 
     if (f->ent_sel >= 0 && f->ent_sel < f->ent_count) {
         const ForgeEnt *e = &f->ents[f->ent_sel];
-        kiln_gui_text(6, 92, dim, "sel %s ang %d",
+        fig_gui_text(6, 92, dim, "sel %s ang %d",
                      forge_ent_classname(e->classname), e->angle);
         /* The keys shown are the SELECTED entity's, not the placement
          * class's — editing acts on what is selected, and a panel naming the
@@ -230,7 +230,7 @@ void forge_ent_draw(Forge *f)
          * change. A required key is marked, because "which of these does the
          * validator actually want" is otherwise only knowable off-console. */
         for (int i = 0; i < FORGE_EPAIRS; i++)
-            kiln_gui_text(6, 102 + i * 10, i == f->ent_field ? hot : dim,
+            fig_gui_text(6, 102 + i * 10, i == f->ent_field ? hot : dim,
                          "%c %s%s %d", i == f->ent_field ? '>' : ' ',
                          forge_ent_epair_key(e->classname, i),
                          forge_ent_epair_required(e->classname, i) ? "*" : "",
@@ -243,7 +243,7 @@ void forge_ent_draw(Forge *f)
  * One point entity per placement, in the dialect kiln_map.c:223 parses (key <=
  * 63 chars, value <= 255). Epairs whose value is zero are OMITTED rather than
  * written as "0": a spawn arg the author never touched should not become a
- * value the game reads, because kiln_dict_get_int's default and an explicit 0
+ * value the game reads, because fig_dict_get_int's default and an explicit 0
  * are different intentions and only one of them was expressed.
  *
  * REQUIRED epairs are the exception and are always written, 0 included. The

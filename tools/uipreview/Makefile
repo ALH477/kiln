@@ -35,7 +35,7 @@ ZLIB_LIBS   ?= $(shell pkg-config --libs zlib 2>/dev/null || echo -lz)
 CFLAGS  = -std=gnu2x -O1 -g -Wall -Wextra -ffp-contract=off \
           -I$(PLAT)/include -I$(HOST_MATH)/include -I$(HOST_VADPCM)/include \
           -I$(ENGINE) $(ZLIB_CFLAGS)
-LDLIBS  = $(HOST_MATH)/lib/libkilnmath.a $(HOST_VADPCM)/lib/libvadpcm.a \
+LDLIBS  = $(HOST_MATH)/lib/libfigulinamath.a $(HOST_VADPCM)/lib/libvadpcm.a \
           $(ZLIB_LIBS) -lm
 # ── Globbed, not listed ────────────────────────────────────────────────
 # This used to name host_gfx.c and host_png.c, and plat/host/src's own

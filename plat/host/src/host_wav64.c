@@ -4,7 +4,7 @@
  *
  * host_audio.c's header used to end "VADPCM decoding and an output device are
  * not here", and that was the right call while the host tier was only a gate:
- * a check exercises kiln_audio's channel arithmetic — the 32-channel budget,
+ * a check exercises fig_audio's channel arithmetic — the 32-channel budget,
  * the SFX/music partition, priority stealing, room crossfades — and none of
  * that needs a sample. A launcher does.
  *
@@ -98,7 +98,7 @@ static uint8_t *slurp(const char *path, int *out_size)
 {
     /* <= 0, not < 0: dfs_open reserves handle 0 and returns DFS_ENOFILE for a
      * miss, so a `< 0` test would let 0 through and hand it to dfs_size — the
-     * same off-by-one kiln_cache's handle packing already cost this project
+     * same off-by-one fig_cache's handle packing already cost this project
      * once. */
     const int fd = dfs_open(path);
     if (fd <= 0) return NULL;
@@ -347,7 +347,7 @@ static int decode_raw(const uint8_t *f, int size, int nch, int nbits,
     return 0;
 }
 
-KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn)
+FigHostWave *fig_host_wave_load(const char *path, char *err, size_t errn)
 {
     err[0] = '\0';
 
@@ -375,7 +375,7 @@ KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn)
      *
      * This matters more than the usual defensive-parsing argument: a .wav64
      * on a flashcart's SD card has been through a filesystem this project
-     * does not control, and kiln_store's own history is of a backend that
+     * does not control, and fig_store's own history is of a backend that
      * read zeroes back and parsed them as valid. */
     if (channels < 1 || channels > 2 || len <= 0 || len > 100 * 1000 * 1000) {
         free(f);
@@ -383,7 +383,7 @@ KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn)
         return NULL;
     }
 
-    KilnHostWave *w = calloc(1, sizeof *w);
+    FigHostWave *w = calloc(1, sizeof *w);
     int16_t *pcm = calloc((size_t)len * channels, sizeof(int16_t));
     if (!w || !pcm) {
         free(w); free(pcm); free(f);
@@ -416,7 +416,7 @@ KilnHostWave *kiln_host_wave_load(const char *path, char *err, size_t errn)
     return w;
 }
 
-void kiln_host_wave_free(KilnHostWave *w)
+void fig_host_wave_free(FigHostWave *w)
 {
     if (!w) return;
     free(w->pcm);

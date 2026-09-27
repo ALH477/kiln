@@ -2,7 +2,7 @@
 
 #include "kiln_board.h"
 
-void kiln_board_init(KilnBoard *b, const KilnBoardNode *nodes, uint16_t node_count,
+void fig_board_init(FigBoard *b, const FigBoardNode *nodes, uint16_t node_count,
                     int16_t start_node)
 {
     b->nodes = nodes;
@@ -28,17 +28,17 @@ void kiln_board_init(KilnBoard *b, const KilnBoardNode *nodes, uint16_t node_cou
     b->aabb_max = hi;
 }
 
-int16_t kiln_board_step(const KilnBoard *b, int16_t cur, uint8_t branch)
+int16_t fig_board_step(const FigBoard *b, int16_t cur, uint8_t branch)
 {
     if (cur < 0 || cur >= (int16_t)b->node_count) return b->start_node;
-    const KilnBoardNode *n = &b->nodes[cur];
+    const FigBoardNode *n = &b->nodes[cur];
     if (branch >= n->next_count) return cur;
     int16_t nxt = n->next[branch];
     if (nxt < 0 || nxt >= (int16_t)b->node_count) return cur;
     return nxt;
 }
 
-const fm_vec3_t *kiln_board_pos(const KilnBoard *b, int16_t idx)
+const fm_vec3_t *fig_board_pos(const FigBoard *b, int16_t idx)
 {
     if (idx < 0 || idx >= (int16_t)b->node_count) idx = b->start_node;
     return &b->nodes[idx].pos;

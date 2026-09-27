@@ -52,9 +52,9 @@ map's texture set is known.
 ── What is skipped ─────────────────────────────────────────────────────────
 Point entities (lights, spawn points, item pickups — anything without a
 brush list) are parsed but NOT turned into geometry or actors; they are only
-reported in inspect_map()'s summary. A game wanting them as KilnActor spawns
+reported in inspect_map()'s summary. A game wanting them as FigActor spawns
 reads the reported classname/origin list and writes its own room spawn table
-(kiln_room.h's KilnRoomSpawn) by hand — this importer's job stops at geometry.
+(kiln_room.h's FigRoomSpawn) by hand — this importer's job stops at geometry.
 """
 
 import math

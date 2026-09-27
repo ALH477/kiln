@@ -1,6 +1,6 @@
 # AGENTS.md — Kiln
 
-You are in the **engine** repo (libkiln + Nix + `./dev`). Games are siblings, not submodules: `~/Documents/PetaByte-Madness`, `~/Documents/ganja-goblin`.
+You are in the **engine** repo (libfigulina + Nix + `./dev`). Games are siblings, not submodules: `~/Documents/PetaByte-Madness`, `~/Documents/ganja-goblin`.
 
 ## Do this
 

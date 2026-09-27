@@ -78,7 +78,7 @@ static inline float cine_smooth(float a, float b, float t)
     return u * u * (3.0f - 2.0f * u);
 }
 
-/* Yaw for kiln_transform (rotation about +Y) that turns a model whose face is
+/* Yaw for fig_transform (rotation about +Y) that turns a model whose face is
  * at `fwd` (CINE_FWD_*) toward direction (dx, dz).
  *
  * libdragon's fm_mat4_from_axis_angle about +Y maps -Z to (sin a, 0, -cos a)
@@ -125,7 +125,7 @@ static inline float cine_cr(float p0, float p1, float p2, float p3, float f)
 }
 
 /* One actor's pose at time t. `walk` is 0 standing .. 1 walking, and drives
- * the kiln_skel blend. */
+ * the fig_skel blend. */
 typedef struct {
     fm_vec3_t pos;
     float     yaw;
@@ -289,7 +289,7 @@ static inline CinePose cine_alien(int which, float t, fm_vec3_t goblin)
 }
 
 /* ── Acting ────────────────────────────────────────────────────────────── */
-// One-shot clips played over the walk on kiln_skel's overlay slot, as windows
+// One-shot clips played over the walk on fig_skel's overlay slot, as windows
 // of t, so a jump ROM that lands inside one is mid-gesture. `upper` masks the
 // clip to the torso's subtree: a wave does not stop the legs.
 typedef struct {

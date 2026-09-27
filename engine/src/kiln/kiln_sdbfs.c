@@ -25,27 +25,27 @@ typedef struct {
     uint64_t            pos;
 } SdbFile;
 
-static KilnAsset *g_db;
+static FigAsset *g_db;
 static char       g_prefix[16];
 static int        g_mounted;
-static SdbFile    g_files[KILN_SDBFS_MAX_OPEN];
+static SdbFile    g_files[FIG_SDBFS_MAX_OPEN];
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
 static SdbFile *slot_of(void *file)
 {
     /* Handles are biased by one so that slot 0 is not the NULL that `open`
-     * uses for failure. The same off-by-one kiln_cache's handle packing was
+     * uses for failure. The same off-by-one fig_cache's handle packing was
      * bitten by once; not reintroduced here. */
     uintptr_t i = (uintptr_t)file;
-    if (i == 0 || i > KILN_SDBFS_MAX_OPEN) return NULL;
+    if (i == 0 || i > FIG_SDBFS_MAX_OPEN) return NULL;
     SdbFile *f = &g_files[i - 1];
     return f->used ? f : NULL;
 }
 
 static int lookup(const char *name, streamdb_emb_doc_t *out)
 {
-    streamdb_emb_t *r = kiln_asset_reader(g_db);
+    streamdb_emb_t *r = fig_asset_reader(g_db);
     if (!r || !name) return -1;
     return streamdb_emb_find(r, name, strlen(name), out) == STREAMDB_EMB_OK
                ? 0 : -1;
@@ -70,7 +70,7 @@ static void *sdbfs_open(char *name, int flags)
     streamdb_emb_doc_t doc;
     if (lookup(name, &doc) != 0) { errno = ENOENT; return NULL; }
 
-    for (int i = 0; i < KILN_SDBFS_MAX_OPEN; i++) {
+    for (int i = 0; i < FIG_SDBFS_MAX_OPEN; i++) {
         if (g_files[i].used) continue;
         g_files[i].used = 1;
         g_files[i].doc  = doc;
@@ -95,7 +95,7 @@ static int sdbfs_read(void *file, uint8_t *ptr, int len)
     if (!f) { errno = EBADF; return -1; }
     if (len <= 0) return 0;
 
-    streamdb_emb_t *r = kiln_asset_reader(g_db);
+    streamdb_emb_t *r = fig_asset_reader(g_db);
     if (!r) { errno = ENODEV; return -1; }
 
     size_t n = (size_t)len;
@@ -185,7 +185,7 @@ static int sdbfs_ioctl(void *file, unsigned long cmd, void *argp)
     SdbFile *f = slot_of(file);
     if (!f || !argp) { errno = EBADF; return -1; }
 
-    streamdb_emb_t *r = kiln_asset_reader(g_db);
+    streamdb_emb_t *r = fig_asset_reader(g_db);
     if (!r) { errno = ENODEV; return -1; }
 
     uint32_t base = 0;
@@ -236,10 +236,10 @@ static filesystem_t sdb_fs = {
 
 /* ── Public ──────────────────────────────────────────────────────────── */
 
-int kiln_sdbfs_mount(const char *prefix, KilnAsset *db)
+int fig_sdbfs_mount(const char *prefix, FigAsset *db)
 {
     if (g_mounted || !prefix || !db) return -1;
-    if (!kiln_asset_reader(db)) return -1;
+    if (!fig_asset_reader(db)) return -1;
 
     size_t n = strlen(prefix);
     if (n < 3 || n >= sizeof g_prefix) return -1;
@@ -258,7 +258,7 @@ int kiln_sdbfs_mount(const char *prefix, KilnAsset *db)
     return 0;
 }
 
-void kiln_sdbfs_unmount(void)
+void fig_sdbfs_unmount(void)
 {
     if (!g_mounted) return;
     detach_filesystem(g_prefix);
@@ -268,9 +268,9 @@ void kiln_sdbfs_unmount(void)
     g_mounted = 0;
 }
 
-int kiln_sdbfs_key_is_dma(const char *key, size_t key_len)
+int fig_sdbfs_key_is_dma(const char *key, size_t key_len)
 {
-    streamdb_emb_t *r = kiln_asset_reader(g_db);
+    streamdb_emb_t *r = fig_asset_reader(g_db);
     if (!r || !key || !key_len) return 0;
 
     streamdb_emb_doc_t doc;

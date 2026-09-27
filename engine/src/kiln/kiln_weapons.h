@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  *
- * kiln_weapons.h — multi-weapon system. An array of KilnWeapon instances
+ * kiln_weapons.h — multi-weapon system. An array of FigWeapon instances
  * with switching, wrapping the single-weapon kiln_weapon.h state machine.
  *
  * ── Doom weapon wheel ──────────────────────────────────────────────────
@@ -14,19 +14,19 @@
  * Each weapon definition specifies its type: HITSCAN (pistol, shotgun)
  * or PROJECTILE (rocket launcher, plasma rifle). The game's fire
  * function checks the type and either does a ray-cast (hitscan) or
- * spawns a projectile via kiln_projectile_spawn. The weapon system
+ * spawns a projectile via fig_projectile_spawn. The weapon system
  * itself doesn't do the ray-cast or spawn — it only manages ammo,
  * cooldown, and switching. The game reads the active weapon's
  * definition and does the appropriate fire action.
  *
  * ── Ammo per weapon ────────────────────────────────────────────────────
- * Each weapon has its own KilnWeapon state (magazine, reserve ammo,
+ * Each weapon has its own FigWeapon state (magazine, reserve ammo,
  * cooldown timer). Switching weapons does NOT reset the previous
  * weapon's state — you come back to the same magazine you left. This
  * matches Doom and HL, not modern shooters that auto-reload on switch.
  */
-#ifndef KILN_WEAPONS_H
-#define KILN_WEAPONS_H
+#ifndef FIG_WEAPONS_H
+#define FIG_WEAPONS_H
 
 #include <stdint.h>
 #include "kiln_weapon.h"
@@ -35,24 +35,24 @@
 extern "C" {
 #endif
 
-#define KILN_WEAPON_SLOTS 4
+#define FIG_WEAPON_SLOTS 4
 
 typedef enum {
-    KILN_WTYPE_HITSCAN = 0,
-    KILN_WTYPE_PROJECTILE,
-} KilnWeaponType;
+    FIG_WTYPE_HITSCAN = 0,
+    FIG_WTYPE_PROJECTILE,
+} FigWeaponType;
 
 typedef enum {
-    KILN_PROJ_NONE = 0,
-    KILN_PROJ_ROCKET_W,
-    KILN_PROJ_PLASMA_W,
-    KILN_PROJ_GRENADE_W,
-} KilnWeaponProj;
+    FIG_PROJ_NONE = 0,
+    FIG_PROJ_ROCKET_W,
+    FIG_PROJ_PLASMA_W,
+    FIG_PROJ_GRENADE_W,
+} FigWeaponProj;
 
 typedef struct {
     char name[16];
-    uint8_t type;           // KilnWeaponType
-    uint8_t proj_type;      // KilnWeaponProj (for PROJECTILE type)
+    uint8_t type;           // FigWeaponType
+    uint8_t proj_type;      // FigWeaponProj (for PROJECTILE type)
     int magazine_size;
     float fire_cooldown;
     float reload_time;
@@ -60,53 +60,53 @@ typedef struct {
     float splash_radius;
     const char *sfx_name;
     uint32_t cube_color;    // for HUD weapon indicator
-} KilnWeaponDef;
+} FigWeaponDef;
 
 typedef struct {
-    KilnWeaponDef defs[KILN_WEAPON_SLOTS];
-    KilnWeapon    state[KILN_WEAPON_SLOTS];
+    FigWeaponDef defs[FIG_WEAPON_SLOTS];
+    FigWeapon    state[FIG_WEAPON_SLOTS];
     int active_slot;
     int slot_count;
     float switch_timer;
-} KilnWeaponSet;
+} FigWeaponSet;
 
 /** Initialise the weapon set with `count` weapon definitions.
- *  Each weapon's KilnWeapon state is initialised with the def's
+ *  Each weapon's FigWeapon state is initialised with the def's
  *  magazine_size, fire_cooldown, and reload_time. */
-void kiln_weapons_init(KilnWeaponSet *ws, const KilnWeaponDef *defs, int count);
+void fig_weapons_init(FigWeaponSet *ws, const FigWeaponDef *defs, int count);
 
 /** Switch to slot (0-based). Returns 1 on success, 0 if slot invalid
  *  or already active. Starts the switch timer. */
-int kiln_weapons_switch(KilnWeaponSet *ws, int slot);
+int fig_weapons_switch(FigWeaponSet *ws, int slot);
 
 /** Cycle to the next/previous weapon slot. */
-int kiln_weapons_next(KilnWeaponSet *ws);
-int kiln_weapons_prev(KilnWeaponSet *ws);
+int fig_weapons_next(FigWeaponSet *ws);
+int fig_weapons_prev(FigWeaponSet *ws);
 
 /** Attempt to fire the active weapon. Returns 1 if fired (decrements
  *  magazine, starts cooldown). Returns 0 if cooldown, reloading,
  *  switching, or empty. */
-int kiln_weapons_fire(KilnWeaponSet *ws);
+int fig_weapons_fire(FigWeaponSet *ws);
 
 /** Reload the active weapon. Returns 1 on success. */
-int kiln_weapons_reload(KilnWeaponSet *ws);
+int fig_weapons_reload(FigWeaponSet *ws);
 
 /** Advance all weapon states by `dt`. Also decrements the switch
  *  timer. */
-void kiln_weapons_update(KilnWeaponSet *ws, float dt);
+void fig_weapons_update(FigWeaponSet *ws, float dt);
 
 /** Get the active weapon's definition (or NULL if no weapons). */
-const KilnWeaponDef *kiln_weapons_active_def(const KilnWeaponSet *ws);
+const FigWeaponDef *fig_weapons_active_def(const FigWeaponSet *ws);
 
 /** Get the active weapon's mutable state. */
-KilnWeapon *kiln_weapons_active_state(KilnWeaponSet *ws);
+FigWeapon *fig_weapons_active_state(FigWeaponSet *ws);
 
 /** Returns 1 if the weapon can fire right now (IDLE, not switching,
  *  magazine > 0). */
-int kiln_weapons_can_fire(const KilnWeaponSet *ws);
+int fig_weapons_can_fire(const FigWeaponSet *ws);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_WEAPONS_H */
+#endif /* FIG_WEAPONS_H */

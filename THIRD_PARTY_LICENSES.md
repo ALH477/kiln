@@ -1,6 +1,6 @@
 # Third-party and differently-licensed components
 
-The Kiln engine itself (this repository, minus the exception below) is
+The Figulina itself (this repository, minus the exception below) is
 MIT-licensed — see `LICENSE`. This file lists everything that isn't, and
 why each one doesn't change that.
 
@@ -79,7 +79,7 @@ encoder. `nix/host-math.nix`'s header makes the general form of this argument.
 
 MPL-2.0 is file-level copyleft. It attaches to those two files and their
 modifications (there are none — they are compiled as they stand), not to
-`libkiln` or to anything else linked alongside. A binary distribution of a
+`libfigulina` or to anything else linked alongside. A binary distribution of a
 host or WebAssembly build must say the codec is in it and where the source
 is: <https://github.com/depp/vadpcm>, or the copy inside the libdragon
 revision pinned in `flake.lock`.

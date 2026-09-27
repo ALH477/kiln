@@ -5,8 +5,8 @@
  *
  * ── One global queue, not per-actor ──────────────────────────────────────
  * Doom 3 keeps a per-class event queue and a global event scheduler. On N64
- * we keep one flat pool of KILN_EVENT_MAX slots (256 events × ~28 B ≈ 7 KB)
- * and a single kiln_event_process per frame. Per-actor queues would mean
+ * we keep one flat pool of FIG_EVENT_MAX slots (256 events × ~28 B ≈ 7 KB)
+ * and a single fig_event_process per frame. Per-actor queues would mean
  * per-actor malloc, which the engine deliberately never does (see
  * kiln_actor.h's flat-pool rationale).
  *
@@ -31,41 +31,41 @@
  * normal way a queued event becomes irrelevant (a killed actor's pending
  * "play idle anim" event should not log a warning that spoils real bugs).
  */
-#ifndef KILN_EVENT_H
-#define KILN_EVENT_H
+#ifndef FIG_EVENT_H
+#define FIG_EVENT_H
 
 #include <stdint.h>
 #include "kiln_actor.h"
 
-#define KILN_EVENT_MAX     256
-#define KILN_EVENT_ARG_MAX  4
+#define FIG_EVENT_MAX     256
+#define FIG_EVENT_ARG_MAX  4
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Initialise the event pool. Call once at boot, after kiln_actor_system_init. */
-void kiln_event_init(void);
+/** Initialise the event pool. Call once at boot, after fig_actor_system_init. */
+void fig_event_init(void);
 
 /** Queue an event for `target` to be dispatched `delay_ms` later. Up to
- *  KILN_EVENT_ARG_MAX int32_t of opaque payload pass through to the actor's
- *  KilnActorEventFn. `priority` is only consulted when the pool is full.
+ *  FIG_EVENT_ARG_MAX int32_t of opaque payload pass through to the actor's
+ *  FigActorEventFn. `priority` is only consulted when the pool is full.
  *  Returns 0 on success, -1 if the event was dropped (pool full of higher-
  *  priority events). */
-int kiln_event_post(KilnActorHandle target, uint16_t event_id, int delay_ms,
+int fig_event_post(FigActorHandle target, uint16_t event_id, int delay_ms,
                    const int32_t *args, uint8_t argc, uint8_t priority);
 
 /** Advance the queue by `dt` seconds and dispatch any due events to their
  *  target actor's profile event callback. Call once per frame, BEFORE
- *  kiln_actor_update_all — events should land before the actor's own update
+ *  fig_actor_update_all — events should land before the actor's own update
  *  so the actor's state machine sees the event this frame. */
-void kiln_event_process(float dt);
+void fig_event_process(float dt);
 
 /** Number of events currently queued. Diagnostic. */
-uint16_t kiln_event_count(void);
+uint16_t fig_event_count(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_EVENT_H */
+#endif /* FIG_EVENT_H */

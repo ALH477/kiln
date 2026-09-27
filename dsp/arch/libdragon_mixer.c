@@ -221,6 +221,60 @@ void FAUST_SYM(_set_gain)(FAUSTFLOAT gain)
     FAUST_SYM(_gain) = gain;
 }
 
+/* Process a buffer IN PLACE — the effect path, as opposed to _render's voice
+ * path below.
+ *
+ * ── Why this exists separately ─────────────────────────────────────────
+ * _render feeds Faust a hardcoded pair of zeros, because a voice generates and
+ * has nothing to be fed. An EFFECT has inputs, and there is nowhere in
+ * libdragon's mixer to insert one: the mixer sums its channels into an output
+ * buffer and hands that to the AI, with no per-channel send and no insert
+ * point. So the only place an effect can sit is across the whole mix, after
+ * mixer_poll and before the buffer leaves — which is exactly where
+ * fig_audio's insert hook runs, and this is the function it calls.
+ *
+ * That has a consequence worth stating rather than discovering: this processes
+ * EVERYTHING that is sounding, not one voice. A caller that wants it on one
+ * piece of music has to install it while that music is the only thing playing,
+ * and uninstall it afterwards.
+ *
+ * A DSP with no inputs is a voice, and running it here would REPLACE the mix
+ * with it rather than process it. That is silently destructive, so it is
+ * refused: the buffer is left exactly as it arrived.
+ */
+void FAUST_SYM(_process)(int16_t *buf, int nframes)
+{
+    const int nins = FAUST_NUM_INPUTS(&FAUST_SYM(_dsp));
+    if (nins < 1) return;   /* a voice, not an effect — see above */
+
+    FAUSTFLOAT frame_in[2];
+    FAUSTFLOAT frame_out[8];
+    const int nouts = FAUST_NUM_OUTPUTS(&FAUST_SYM(_dsp));
+    const FAUSTFLOAT g = FAUST_SYM(_gain);
+
+    for (int i = 0; i < nframes; i++) {
+        /* 1/32768 rather than 1/32767: the division is exact in binary, and
+         * the half-LSB of headroom it costs is worth more than the symmetry. */
+        const FAUSTFLOAT il = (FAUSTFLOAT)buf[2 * i + 0] * (1.0f / 32768.0f);
+        const FAUSTFLOAT ir = (FAUSTFLOAT)buf[2 * i + 1] * (1.0f / 32768.0f);
+        frame_in[0] = il;
+        /* A mono effect on a stereo mix gets the two summed rather than the
+         * left channel alone, or everything panned right would vanish. */
+        frame_in[1] = (nins > 1) ? ir : (il + ir) * 0.5f;
+
+        FAUST_FRAME(&FAUST_SYM(_dsp), frame_in, frame_out);
+
+        FAUSTFLOAT l = frame_out[0] * g;
+        FAUSTFLOAT r = ((nouts > 1) ? frame_out[1] : frame_out[0]) * g;
+
+        if (l > 1.0f) l = 1.0f; else if (l < -1.0f) l = -1.0f;
+        if (r > 1.0f) r = 1.0f; else if (r < -1.0f) r = -1.0f;
+
+        buf[2 * i + 0] = (int16_t)(l * 32767.0f);
+        buf[2 * i + 1] = (int16_t)(r * 32767.0f);
+    }
+}
+
 /* Render `nframes` stereo sample pairs into a libdragon mixer buffer.
  *
  * libdragon's mixer wants interleaved signed 16-bit stereo; Faust hands us

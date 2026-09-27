@@ -267,7 +267,7 @@ def import_godot_scene(path: str, project_root: str, name: str, out_dir: str,
 
     Returns the same shape as import_quake_map, plus `skipped` (nodes whose
     resource couldn't be imported) and `other_nodes` (non-mesh nodes, for a
-    game to turn into KilnActor spawns / lights / rooms by hand)."""
+    game to turn into FigActor spawns / lights / rooms by hand)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     scene_path = Path(path)

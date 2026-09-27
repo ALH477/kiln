@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: MIT
  *
- * host_panic.c — kiln_panic's two entry points, on the host.
+ * host_panic.c — fig_panic's two entry points, on the host.
  *
  * This is the one place plat/host implements a kiln_* function rather than a
- * libdragon or Tiny3D one, and the reason is that kiln_panic is not engine
+ * libdragon or Tiny3D one, and the reason is that fig_panic is not engine
  * logic in the first place: it is a CPU exception handler. The console version
  * reads VR4300 register state out of libdragon's exception_t, walks the stack
  * by hand (deliberately NOT via backtrace_foreach, whose own walk faults on
@@ -30,10 +30,10 @@
  * than the console gives you. */
 #if defined(__has_include)
 #  if __has_include(<execinfo.h>)
-#    define KILN_HAVE_EXECINFO 1
+#    define FIG_HAVE_EXECINFO 1
 #  endif
 #endif
-#ifdef KILN_HAVE_EXECINFO
+#ifdef FIG_HAVE_EXECINFO
 #  include <execinfo.h>
 #endif
 
@@ -85,7 +85,7 @@ static void handler(int sig, siginfo_t *info, void *ctx)
         write_all("\n");
     }
 
-#ifdef KILN_HAVE_EXECINFO
+#ifdef FIG_HAVE_EXECINFO
     /* backtrace_symbols_fd is the async-signal-safe half of the pair;
      * backtrace_symbols() allocates and must not be called here. */
     void *frames[MAX_FRAMES];
@@ -103,7 +103,7 @@ static void handler(int sig, siginfo_t *info, void *ctx)
     _exit(70);
 }
 
-void kiln_panic_install(void)
+void fig_panic_install(void)
 {
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
@@ -115,7 +115,7 @@ void kiln_panic_install(void)
         sigaction(sigs[i], &sa, NULL);
 }
 
-void kiln_panic_message(const char *fmt, ...)
+void fig_panic_message(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);

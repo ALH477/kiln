@@ -210,7 +210,7 @@ def build_flame(front_y=None, bottom_z=None):
 def build_plate():
     """A thin bar under the kiln. The splash fades it up late, with the
     publisher line drawn over it in the 2D pass — text stays 2D because a
-    3D "Kiln Engine - MIT Licensed" would need a font mesh for one screen."""
+    3D "Figulina - MIT Licensed" would need a font mesh for one screen."""
     parts = {"verts": [], "faces": [], "colors": []}
     verts, quads = m.box(0.0, 0.0, SCALE * -0.14, SCALE * 1.55, SCALE * 0.30,
                         SCALE * 0.05)

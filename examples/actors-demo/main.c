@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: MIT
 //
-// kiln_actor: one flat, caller-owned pool, four categories, handles that go
+// fig_actor: one flat, caller-owned pool, four categories, handles that go
 // stale safely.
 //
 //   PLAYER  you, on the stick
 //   ENEMY   three drones orbiting the arena at different radii and speeds
 //   PROP    four glowing pylons that are spawned once and just sit in the list
 //   ITEM    gems that spawn at your feet, rise, spin, and despawn THEMSELVES
-//           after three seconds — from inside kiln_actor_update_all, which is
+//           after three seconds — from inside fig_actor_update_all, which is
 //           what the pool's captured next-pointer walk makes safe
 //
-// The HUD counts each category with kiln_actor_count and gauges the whole pool
+// The HUD counts each category with fig_actor_count and gauges the whole pool
 // against its 32 slots; the gauge goes red when the pool is nearly full, and a
 // refused spawn is counted rather than silently dropped.
 //
 //   stick walk      idle 2 s: the demo walks a circle
 //
 // Jump ROM: .#actors-demo-full spawns gems ten times as fast, so the pool fills,
-// the gauge goes red and kiln_actor_spawn starts refusing.
+// the gauge goes red and fig_actor_spawn starts refusing.
 
 #include <libdragon.h>
 #include <kiln/kiln_engine.h>
@@ -38,21 +38,21 @@ enum { JUMP_NONE, JUMP_FULL };
 
 enum { PROFILE_PLAYER, PROFILE_ENEMY, PROFILE_PROP, PROFILE_ITEM, PROFILE_COUNT };
 
-static KilnPrim g_body, g_nose, g_drone, g_fin_a, g_fin_b, g_pylon_base, g_pylon, g_lamp;
-static KilnPrim g_gem, g_gem_cap, g_shadow;
-static KilnTransform g_shadow_xf;
+static FigPrim g_body, g_nose, g_drone, g_fin_a, g_fin_b, g_pylon_base, g_pylon, g_lamp;
+static FigPrim g_gem, g_gem_cap, g_shadow;
+static FigTransform g_shadow_xf;
 static uint32_t g_refused;
 
 // ── Player ──────────────────────────────────────────────────────────────
-static void player_init(KilnActor *self, const KilnDict *args)
+static void player_init(FigActor *self, const FigDict *args)
 {
     (void)args;
     self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 }
 
-static void player_update(KilnActor *self, float dt)
+static void player_update(FigActor *self, float dt)
 {
-    const KilnInput *in = kiln_input_get(1);
+    const FigInput *in = fig_input_get(1);
     /* Camera looks down +Z: stick up is +Z, stick right is -X. */
     const float dx = -in->stick_x * 90.0f * dt, dz = in->stick_y * 90.0f * dt;
     fm_vec3_t *p = &self->xform.pos;
@@ -64,12 +64,12 @@ static void player_update(KilnActor *self, float dt)
     if (dx * dx + dz * dz > 1e-4f) self->xform.rot_angle = fm_atan2f(dx, dz);
 }
 
-static void player_draw(KilnActor *self) { (void)self; kiln_prim_draw(&g_body); kiln_prim_draw(&g_nose); }
+static void player_draw(FigActor *self) { (void)self; fig_prim_draw(&g_body); fig_prim_draw(&g_nose); }
 
 // ── Enemy: a drone on its own orbit ─────────────────────────────────────
 typedef struct { float angle, radius, speed; } EnemyState;
 
-static void enemy_init(KilnActor *self, const KilnDict *args)
+static void enemy_init(FigActor *self, const FigDict *args)
 {
     (void)args;
     EnemyState *s = (EnemyState *)self->state;
@@ -77,7 +77,7 @@ static void enemy_init(KilnActor *self, const KilnDict *args)
     self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 }
 
-static void enemy_update(KilnActor *self, float dt)
+static void enemy_update(FigActor *self, float dt)
 {
     EnemyState *s = (EnemyState *)self->state;
     s->angle += s->speed * dt;
@@ -87,34 +87,34 @@ static void enemy_update(KilnActor *self, float dt)
     self->xform.rot_angle = s->angle * 4.0f;      /* the fins spin */
 }
 
-static void enemy_draw(KilnActor *self)
+static void enemy_draw(FigActor *self)
 {
     (void)self;
-    kiln_prim_draw(&g_drone);
-    kiln_prim_draw(&g_fin_a);
-    kiln_prim_draw(&g_fin_b);
+    fig_prim_draw(&g_drone);
+    fig_prim_draw(&g_fin_a);
+    fig_prim_draw(&g_fin_b);
 }
 
 // ── Prop: a pylon ───────────────────────────────────────────────────────
-static void prop_draw(KilnActor *self)
+static void prop_draw(FigActor *self)
 {
     (void)self;
-    kiln_prim_draw(&g_pylon_base);
-    kiln_prim_draw(&g_pylon);
-    kiln_prim_draw(&g_lamp);
+    fig_prim_draw(&g_pylon_base);
+    fig_prim_draw(&g_pylon);
+    fig_prim_draw(&g_lamp);
 }
 
 // ── Item: a gem that removes itself ─────────────────────────────────────
 typedef struct { float age; } ItemState;
 
-static void item_init(KilnActor *self, const KilnDict *args)
+static void item_init(FigActor *self, const FigDict *args)
 {
     (void)args;
     ((ItemState *)self->state)->age = 0.0f;
     self->xform.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 }
 
-static void item_update(KilnActor *self, float dt)
+static void item_update(FigActor *self, float dt)
 {
     ItemState *s = (ItemState *)self->state;
     s->age += dt;
@@ -122,27 +122,27 @@ static void item_update(KilnActor *self, float dt)
     self->xform.rot_angle += dt * 3.0f;
     /* Safe from inside update_all: the walk captured the next actor before
      * calling this (see kiln_actor.c). */
-    if (s->age > 3.0f) kiln_actor_despawn(kiln_actor_handle_of(self));
+    if (s->age > 3.0f) fig_actor_despawn(fig_actor_handle_of(self));
 }
 
-static void item_draw(KilnActor *self) { (void)self; kiln_prim_draw(&g_gem); kiln_prim_draw(&g_gem_cap); }
+static void item_draw(FigActor *self) { (void)self; fig_prim_draw(&g_gem); fig_prim_draw(&g_gem_cap); }
 
-static const KilnActorProfile PROFILES[PROFILE_COUNT] = {
-    [PROFILE_PLAYER] = { .name = "player", .category = KILN_ACTOR_CAT_PLAYER,
+static const FigActorProfile PROFILES[PROFILE_COUNT] = {
+    [PROFILE_PLAYER] = { .name = "player", .category = FIG_ACTOR_CAT_PLAYER,
                          .init = player_init, .update = player_update, .draw = player_draw },
-    [PROFILE_ENEMY]  = { .name = "enemy", .category = KILN_ACTOR_CAT_ENEMY,
+    [PROFILE_ENEMY]  = { .name = "enemy", .category = FIG_ACTOR_CAT_ENEMY,
                          .state_size = sizeof(EnemyState),
                          .init = enemy_init, .update = enemy_update, .draw = enemy_draw },
-    [PROFILE_PROP]   = { .name = "prop", .category = KILN_ACTOR_CAT_PROP, .draw = prop_draw },
-    [PROFILE_ITEM]   = { .name = "item", .category = KILN_ACTOR_CAT_ITEM,
+    [PROFILE_PROP]   = { .name = "prop", .category = FIG_ACTOR_CAT_PROP, .draw = prop_draw },
+    [PROFILE_ITEM]   = { .name = "item", .category = FIG_ACTOR_CAT_ITEM,
                          .state_size = sizeof(ItemState),
                          .init = item_init, .update = item_update, .draw = item_draw },
 };
 
-static KilnActor g_pool[ACTOR_POOL_CAP];
+static FigActor g_pool[ACTOR_POOL_CAP];
 
 // ── Tape: a slow circle ─────────────────────────────────────────────────
-static const KilnInputKey CIRCLE_KEYS[] = {
+static const FigInputKey CIRCLE_KEYS[] = {
     { .frame =   0, .sx =   0, .sy =  80 },
     { .frame =  30, .sx = -56, .sy =  56 },
     { .frame =  60, .sx = -80, .sy =   0 },
@@ -153,52 +153,52 @@ static const KilnInputKey CIRCLE_KEYS[] = {
     { .frame = 210, .sx =  56, .sy =  56 },
     { .frame = 240 },
 };
-static const KilnInputTape CIRCLE = { CIRCLE_KEYS, 9, 0 };
+static const FigInputTape CIRCLE = { CIRCLE_KEYS, 9, 0 };
 
 static void chip(int x, int y, color_t c, const char *label, unsigned n)
 {
-    kiln_gui_rect(x, y - 6, 6, 6, c);
-    kiln_gui_text(x + 10, y, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "%s %2u", label, n);
+    fig_gui_rect(x, y - 6, 6, 6, c);
+    fig_gui_text(x + 10, y, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "%s %2u", label, n);
 }
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     joypad_init();
-    kiln_input_init();
+    fig_input_init();
 
     const fm_vec3_t O = {{ 0, 0, 0 }};
-    kiln_prim_box(&g_body, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 7, 9, 7 }},
-                  kiln_prim_rgba(0xFF, 0xE0, 0x50), kiln_prim_rgba(0xE0, 0xA0, 0x18), kiln_prim_rgba(0x60, 0x40, 0x00));
-    kiln_prim_box(&g_nose, (fm_vec3_t){{ 0, 3, 9 }}, (fm_vec3_t){{ 3, 3, 3 }}, 0xFFFFFFFF, 0xE0E0E8FF, 0x808080FF);
-    kiln_prim_box(&g_drone, O, (fm_vec3_t){{ 6, 4, 6 }},
-                  kiln_prim_rgba(0xFF, 0x70, 0x90), kiln_prim_rgba(0xD0, 0x40, 0x60), kiln_prim_rgba(0x50, 0x10, 0x20));
-    kiln_prim_box(&g_fin_a, O, (fm_vec3_t){{ 14, 1, 3 }},
-                  kiln_prim_rgba(0xF0, 0xF0, 0xFF), kiln_prim_rgba(0xA0, 0xA8, 0xC0), kiln_prim_rgba(0x60, 0x60, 0x70));
-    kiln_prim_box(&g_fin_b, O, (fm_vec3_t){{ 3, 1, 14 }},
-                  kiln_prim_rgba(0xF0, 0xF0, 0xFF), kiln_prim_rgba(0xA0, 0xA8, 0xC0), kiln_prim_rgba(0x60, 0x60, 0x70));
-    kiln_prim_box(&g_pylon_base, (fm_vec3_t){{ 0, 3, 0 }}, (fm_vec3_t){{ 9, 3, 9 }},
-                  kiln_prim_rgba(0x90, 0x98, 0xA8), kiln_prim_rgba(0x58, 0x60, 0x70), kiln_prim_rgba(0x30, 0x30, 0x38));
-    kiln_prim_box(&g_pylon, (fm_vec3_t){{ 0, 22, 0 }}, (fm_vec3_t){{ 4, 16, 4 }},
-                  kiln_prim_rgba(0x70, 0x78, 0x88), kiln_prim_rgba(0x48, 0x50, 0x60), kiln_prim_rgba(0x30, 0x30, 0x38));
-    kiln_prim_box(&g_lamp, (fm_vec3_t){{ 0, 42, 0 }}, (fm_vec3_t){{ 5, 4, 5 }},
-                  kiln_prim_rgba(0x80, 0xFF, 0xF0), kiln_prim_rgba(0x00, 0xF5, 0xD4), kiln_prim_rgba(0x00, 0x80, 0x70));
-    kiln_prim_box(&g_gem, O, (fm_vec3_t){{ 4, 4, 4 }},
-                  kiln_prim_rgba(0xC0, 0x90, 0xFF), kiln_prim_rgba(0x8B, 0x5C, 0xF6), kiln_prim_rgba(0x40, 0x20, 0x80));
-    kiln_prim_box(&g_gem_cap, (fm_vec3_t){{ 0, 6, 0 }}, (fm_vec3_t){{ 2, 2, 2 }},
-                  0xFFFFFFFF, kiln_prim_rgba(0xE0, 0xD0, 0xFF), kiln_prim_rgba(0x80, 0x60, 0xC0));
-    kiln_prim_floor(&g_shadow, 9.0f, 1, kiln_prim_rgba(0x10, 0x12, 0x1C), kiln_prim_rgba(0x10, 0x12, 0x1C));
-    KilnPrim floor_prim;
-    kiln_prim_floor(&floor_prim, 130.0f, 13, kiln_prim_rgba(0x34, 0x3A, 0x52), kiln_prim_rgba(0x2A, 0x30, 0x46));
-    kiln_transform_init(&g_shadow_xf);
-    KilnTransform floor_xf;
-    kiln_transform_init(&floor_xf);
+    fig_prim_box(&g_body, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 7, 9, 7 }},
+                  fig_prim_rgba(0xFF, 0xE0, 0x50), fig_prim_rgba(0xE0, 0xA0, 0x18), fig_prim_rgba(0x60, 0x40, 0x00));
+    fig_prim_box(&g_nose, (fm_vec3_t){{ 0, 3, 9 }}, (fm_vec3_t){{ 3, 3, 3 }}, 0xFFFFFFFF, 0xE0E0E8FF, 0x808080FF);
+    fig_prim_box(&g_drone, O, (fm_vec3_t){{ 6, 4, 6 }},
+                  fig_prim_rgba(0xFF, 0x70, 0x90), fig_prim_rgba(0xD0, 0x40, 0x60), fig_prim_rgba(0x50, 0x10, 0x20));
+    fig_prim_box(&g_fin_a, O, (fm_vec3_t){{ 14, 1, 3 }},
+                  fig_prim_rgba(0xF0, 0xF0, 0xFF), fig_prim_rgba(0xA0, 0xA8, 0xC0), fig_prim_rgba(0x60, 0x60, 0x70));
+    fig_prim_box(&g_fin_b, O, (fm_vec3_t){{ 3, 1, 14 }},
+                  fig_prim_rgba(0xF0, 0xF0, 0xFF), fig_prim_rgba(0xA0, 0xA8, 0xC0), fig_prim_rgba(0x60, 0x60, 0x70));
+    fig_prim_box(&g_pylon_base, (fm_vec3_t){{ 0, 3, 0 }}, (fm_vec3_t){{ 9, 3, 9 }},
+                  fig_prim_rgba(0x90, 0x98, 0xA8), fig_prim_rgba(0x58, 0x60, 0x70), fig_prim_rgba(0x30, 0x30, 0x38));
+    fig_prim_box(&g_pylon, (fm_vec3_t){{ 0, 22, 0 }}, (fm_vec3_t){{ 4, 16, 4 }},
+                  fig_prim_rgba(0x70, 0x78, 0x88), fig_prim_rgba(0x48, 0x50, 0x60), fig_prim_rgba(0x30, 0x30, 0x38));
+    fig_prim_box(&g_lamp, (fm_vec3_t){{ 0, 42, 0 }}, (fm_vec3_t){{ 5, 4, 5 }},
+                  fig_prim_rgba(0x80, 0xFF, 0xF0), fig_prim_rgba(0x00, 0xF5, 0xD4), fig_prim_rgba(0x00, 0x80, 0x70));
+    fig_prim_box(&g_gem, O, (fm_vec3_t){{ 4, 4, 4 }},
+                  fig_prim_rgba(0xC0, 0x90, 0xFF), fig_prim_rgba(0x8B, 0x5C, 0xF6), fig_prim_rgba(0x40, 0x20, 0x80));
+    fig_prim_box(&g_gem_cap, (fm_vec3_t){{ 0, 6, 0 }}, (fm_vec3_t){{ 2, 2, 2 }},
+                  0xFFFFFFFF, fig_prim_rgba(0xE0, 0xD0, 0xFF), fig_prim_rgba(0x80, 0x60, 0xC0));
+    fig_prim_floor(&g_shadow, 9.0f, 1, fig_prim_rgba(0x10, 0x12, 0x1C), fig_prim_rgba(0x10, 0x12, 0x1C));
+    FigPrim floor_prim;
+    fig_prim_floor(&floor_prim, 130.0f, 13, fig_prim_rgba(0x34, 0x3A, 0x52), fig_prim_rgba(0x2A, 0x30, 0x46));
+    fig_transform_init(&g_shadow_xf);
+    FigTransform floor_xf;
+    fig_transform_init(&floor_xf);
 
-    kiln_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
-    KilnActorHandle player_h = kiln_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 9, -40 }}, 0.0f, NULL);
+    fig_actor_system_init(PROFILES, PROFILE_COUNT, g_pool, ACTOR_POOL_CAP);
+    FigActorHandle player_h = fig_actor_spawn(PROFILE_PLAYER, (fm_vec3_t){{ 0, 9, -40 }}, 0.0f, NULL);
 
     for (int i = 0; i < 3; i++) {
-        KilnActor *a = kiln_actor_resolve(kiln_actor_spawn(PROFILE_ENEMY, O, 0.0f, NULL));
+        FigActor *a = fig_actor_resolve(fig_actor_spawn(PROFILE_ENEMY, O, 0.0f, NULL));
         if (!a) continue;
         EnemyState *s = (EnemyState *)a->state;
         s->radius = 34.0f + i * 22.0f;
@@ -206,43 +206,43 @@ int main(void)
         s->angle = i * 2.1f;
     }
     static const fm_vec3_t PROP_AT[4] = { {{ 90, 0, 90 }}, {{ -90, 0, 90 }}, {{ 90, 0, -90 }}, {{ -90, 0, -90 }} };
-    for (int i = 0; i < 4; i++) kiln_actor_spawn(PROFILE_PROP, PROP_AT[i], 0.0f, NULL);
+    for (int i = 0; i < 4; i++) fig_actor_spawn(PROFILE_PROP, PROP_AT[i], 0.0f, NULL);
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x16, 0x18, 0x2A, 0xFF), 200.0f, 420.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x16, 0x18, 0x2A, 0xFF), 200.0f, 420.0f);
     scene.fov_deg = 60.0f;
     scene.near_z = 10.0f;
     scene.far_z = 420.0f;
 
     const int spawn_every = KILN_JUMP == JUMP_FULL ? 5 : 50;
-    kiln_input_set_attract(1, &CIRCLE, 120);
+    fig_input_set_attract(1, &CIRCLE, 120);
 
     uint32_t item_timer = 0, frames = 0;
     float fps = 60.0f;
     uint32_t last_ticks = get_ticks();
 
     for (;;) {
-        kiln_input_update();
+        fig_input_update();
         const float dt = 1.0f / 60.0f;
-        KilnActor *player = kiln_actor_resolve(player_h);
+        FigActor *player = fig_actor_resolve(player_h);
 
         /* A gem at the player's feet every `spawn_every` frames. When the pool
-         * is full kiln_actor_spawn returns no handle, and that is counted. */
+         * is full fig_actor_spawn returns no handle, and that is counted. */
         if (++item_timer >= (uint32_t)spawn_every && player) {
             item_timer = 0;
             fm_vec3_t p = player->xform.pos;
             p.v[1] = 6.0f;
-            if (kiln_actor_spawn(PROFILE_ITEM, p, 0.0f, NULL) == KILN_ACTOR_HANDLE_NONE) g_refused++;
+            if (fig_actor_spawn(PROFILE_ITEM, p, 0.0f, NULL) == FIG_ACTOR_HANDLE_NONE) g_refused++;
         }
-        kiln_actor_update_all(dt);
+        fig_actor_update_all(dt);
 
         if (player) {
             const fm_vec3_t pp = player->xform.pos;
             scene.cam_target = (fm_vec3_t){{ pp.v[0] * 0.7f, 10, pp.v[2] * 0.7f + 20 }};
             scene.cam_pos = (fm_vec3_t){{ pp.v[0] * 0.5f, 110, pp.v[2] * 0.5f - 140 }};
         }
-        kiln_scene_update(&scene);
+        fig_scene_update(&scene);
 
         if (++frames % 30 == 0) {
             uint32_t now = get_ticks();
@@ -250,43 +250,43 @@ int main(void)
             last_ticks = now;
         }
 
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
-        kiln_transform_push(&floor_xf); kiln_prim_draw(&floor_prim); kiln_transform_pop();
-        for (uint8_t c = KILN_ACTOR_CAT_PLAYER; c <= KILN_ACTOR_CAT_ENEMY; c++) {
-            for (KilnActor *a = kiln_actor_first(c); a; a = kiln_actor_next(a)) {
+        fig_frame_begin();
+        fig_scene_begin(&scene);
+        fig_transform_push(&floor_xf); fig_prim_draw(&floor_prim); fig_transform_pop();
+        for (uint8_t c = FIG_ACTOR_CAT_PLAYER; c <= FIG_ACTOR_CAT_ENEMY; c++) {
+            for (FigActor *a = fig_actor_first(c); a; a = fig_actor_next(a)) {
                 g_shadow_xf.pos = (fm_vec3_t){{ a->xform.pos.v[0], 0.4f, a->xform.pos.v[2] }};
-                kiln_transform_push(&g_shadow_xf); kiln_prim_draw(&g_shadow); kiln_transform_pop();
+                fig_transform_push(&g_shadow_xf); fig_prim_draw(&g_shadow); fig_transform_pop();
             }
         }
-        kiln_actor_draw_all();
+        fig_actor_draw_all();
 
-        kiln_gui_begin();
+        fig_gui_begin();
         const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
-        const unsigned total = kiln_actor_count(KILN_ACTOR_CATEGORY_COUNT);
-        kiln_gui_panel(8, 8, 132, 96, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
-        kiln_gui_text(14, 21, teal, "KILN ACTORS");
-        chip(14, 35, RGBA32(0xFF, 0xD0, 0x40, 0xFF), "player", kiln_actor_count(KILN_ACTOR_CAT_PLAYER));
-        chip(14, 47, RGBA32(0xFF, 0x60, 0x80, 0xFF), "enemy ", kiln_actor_count(KILN_ACTOR_CAT_ENEMY));
-        chip(14, 59, teal, "prop  ", kiln_actor_count(KILN_ACTOR_CAT_PROP));
-        chip(14, 71, RGBA32(0x8B, 0x5C, 0xF6, 0xFF), "item  ", kiln_actor_count(KILN_ACTOR_CAT_ITEM));
+        const unsigned total = fig_actor_count(FIG_ACTOR_CATEGORY_COUNT);
+        fig_gui_panel(8, 8, 132, 96, RGBA32(0x0C, 0x10, 0x1C, 0xFF), teal);
+        fig_gui_text(14, 21, teal, "KILN ACTORS");
+        chip(14, 35, RGBA32(0xFF, 0xD0, 0x40, 0xFF), "player", fig_actor_count(FIG_ACTOR_CAT_PLAYER));
+        chip(14, 47, RGBA32(0xFF, 0x60, 0x80, 0xFF), "enemy ", fig_actor_count(FIG_ACTOR_CAT_ENEMY));
+        chip(14, 59, teal, "prop  ", fig_actor_count(FIG_ACTOR_CAT_PROP));
+        chip(14, 71, RGBA32(0x8B, 0x5C, 0xF6, 0xFF), "item  ", fig_actor_count(FIG_ACTOR_CAT_ITEM));
         /* The pool gauge: red once it is nearly out of slots. */
         const int full = total * 10 >= ACTOR_POOL_CAP * 9;
-        kiln_gui_text(14, 86, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "pool %2u/%d", total, ACTOR_POOL_CAP);
-        kiln_gui_rect(80, 80, 52, 6, RGBA32(0x30, 0x34, 0x44, 0xFF));
-        kiln_gui_rect(80, 80, (int)(52 * total / ACTOR_POOL_CAP), 6,
+        fig_gui_text(14, 86, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "pool %2u/%d", total, ACTOR_POOL_CAP);
+        fig_gui_rect(80, 80, 52, 6, RGBA32(0x30, 0x34, 0x44, 0xFF));
+        fig_gui_rect(80, 80, (int)(52 * total / ACTOR_POOL_CAP), 6,
                       full ? RGBA32(0xFF, 0x40, 0x40, 0xFF) : teal);
-        if (g_refused) kiln_gui_text(14, 98, RGBA32(0xFF, 0x60, 0x60, 0xFF), "refused %u", (unsigned)g_refused);
-        else kiln_gui_text(14, 98, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
+        if (g_refused) fig_gui_text(14, 98, RGBA32(0xFF, 0x60, 0x60, 0xFF), "refused %u", (unsigned)g_refused);
+        else fig_gui_text(14, 98, RGBA32(0x90, 0x98, 0xB0, 0xFF), "%4.1f fps", fps);
 
-        if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        if (fig_input_scripted(1)) {
+            fig_gui_panel(SCREEN_W - 58, 8, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            fig_gui_text(SCREEN_W - 49, 20, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
-        kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, RGBA32(0x0C, 0x10, 0x1C, 0xFF),
+        fig_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, RGBA32(0x0C, 0x10, 0x1C, 0xFF),
                        RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(14, SCREEN_H - 12, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "stick walk   gems despawn themselves after 3 s");
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_text(14, SCREEN_H - 12, RGBA32(0xE8, 0xE8, 0xF0, 0xFF), "stick walk   gems despawn themselves after 3 s");
+        fig_gui_end();
+        fig_frame_end();
     }
 }

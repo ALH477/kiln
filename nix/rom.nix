@@ -40,7 +40,7 @@
   # the rate from their source WAV, which is the ROM author's responsibility).
 , audioRate ? null
   # Build the ROM with the on-screen retro debug console wired in (sets
-  # KILN_DEBUG=1, which the example's main.c gates `kiln_console_*` calls on).
+  # KILN_DEBUG=1, which the example's main.c gates `fig_console_*` calls on).
   # See engine/src/kiln/kiln_console.h and examples/debug-demo. Off by default
   # so non-debug ROMs stay byte-identical.
 , debugConsole ? false

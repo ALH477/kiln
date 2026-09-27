@@ -25,7 +25,7 @@ static bool g_installed;
 
 /* ── Message buffer ─────────────────────────────────────────────────────── */
 
-void kiln_panic_message(const char *fmt, ...)
+void fig_panic_message(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -184,11 +184,11 @@ static void panic_dump(exception_t *ex)
     }
 
     /* Print the last log lines from the console ring buffer, oldest first. */
-    int n = kiln_console_tail_lines();
+    int n = fig_console_tail_lines();
     if (n > 0) {
         printf("\nrecent log:\n");
         for (int i = 0; i < n; i++)
-            printf("  %s\n", kiln_console_tail_line(i));
+            printf("  %s\n", fig_console_tail_line(i));
     }
 
     printf("\nhalting.\n");
@@ -237,7 +237,7 @@ static void panic_handler(exception_t *ex)
     while (1) { }
 }
 
-void kiln_panic_install(void)
+void fig_panic_install(void)
 {
     if (g_installed) return;
     g_installed = true;

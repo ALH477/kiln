@@ -18,8 +18,8 @@
  * ── Assets are the GAME's, not the engine's ────────────────────────────
  * The engine ships no files. The kiln model and the jingle are built at
  * the flake level (tools/blender/kiln_logo.py, dsp/kiln_jingle.dsp) and a
- * ROM adds them to its own `assets` list; kiln_splash_init takes what it
- * needs as handles. That keeps libkiln a library — a ROM that does not
+ * ROM adds them to its own `assets` list; fig_splash_init takes what it
+ * needs as handles. That keeps libfigulina a library — a ROM that does not
  * want the splash pays nothing, and one that does is not forced to accept
  * an asset layout it did not choose.
  *
@@ -31,7 +31,7 @@
  * ── The flame moves separately from the body ───────────────────────────
  * kiln_logo.py exports three named objects — "kiln" (the furnace body,
  * the piece that spins to rest), "flame" (a small cluster of licks at the
- * doorway) and "plate" (the accent bar under both). kiln_splash_draw3d
+ * doorway) and "plate" (the accent bar under both). fig_splash_draw3d
  * looks the first two up by name and gives the flame its own transform, so
  * it can flicker in place independently of the body's settle instead of
  * being baked into the mesh — the RSP has no per-object vertex animation
@@ -41,7 +41,7 @@
  * always has; the lookup missing is not an error.
  *
  * The same flicker phase that flexes the flame's scale also warms the
- * publisher line's colour in the 2D pass (see kiln_splash_draw2d) — the
+ * publisher line's colour in the 2D pass (see fig_splash_draw2d) — the
  * closest this engine's 2D pass can come to "light from the fire hits the
  * text" when the 2D pass has no lighting at all.
  *
@@ -59,21 +59,21 @@
  *   3.80  done
  *
  * ── Usage ──────────────────────────────────────────────────────────────
- *   kiln_splash_init(model, jingle_sfx, "Kiln Engine - MIT Licensed");
+ *   fig_splash_init(model, jingle_sfx, "Figulina - MIT Licensed");
  *   ... each frame, before the game's own update:
- *   if (!kiln_splash_done()) {
- *       kiln_splash_update(dt, &input);
- *       kiln_splash_apply(&scene);        // owns the camera while it runs
- *       ... kiln_scene_update / begin ...
- *       kiln_splash_draw3d();
- *       kiln_gui_begin(); kiln_splash_draw2d(w, h); kiln_gui_end();
+ *   if (!fig_splash_done()) {
+ *       fig_splash_update(dt, &input);
+ *       fig_splash_apply(&scene);        // owns the camera while it runs
+ *       ... fig_scene_update / begin ...
+ *       fig_splash_draw3d();
+ *       fig_gui_begin(); fig_splash_draw2d(w, h); fig_gui_end();
  *   }
  *
  * Any button skips it. A boot animation that cannot be skipped is the
  * thing everyone remembers hating.
  */
-#ifndef KILN_SPLASH_H
-#define KILN_SPLASH_H
+#ifndef FIG_SPLASH_H
+#define FIG_SPLASH_H
 
 #include <t3d/t3dmodel.h>
 
@@ -84,22 +84,22 @@
  *  drawn instead) and `jingle_sfx` may be -1 (silent). `line` is the
  *  publisher text; NULL draws none. Nothing is copied — both the model and
  *  the string must outlive the splash. */
-void kiln_splash_init(T3DModel *model, int jingle_sfx, const char *line);
+void fig_splash_init(T3DModel *model, int jingle_sfx, const char *line);
 
 /** Advance. Reads `in` only to decide whether the player skipped; pass
  *  NULL to make it unskippable (don't). */
-void kiln_splash_update(float dt, const KilnInput *in);
+void fig_splash_update(float dt, const FigInput *in);
 
 /** 1 once the splash has finished or been skipped. */
-int kiln_splash_done(void);
+int fig_splash_done(void);
 
-/** Write the splash's camera into `scene`. Call before kiln_scene_update. */
-void kiln_splash_apply(KilnScene *scene);
+/** Write the splash's camera into `scene`. Call before fig_scene_update. */
+void fig_splash_apply(FigScene *scene);
 
 /** Draw the logo. Call inside the 3D pass. */
-void kiln_splash_draw3d(void);
+void fig_splash_draw3d(void);
 
 /** Draw the publisher line and the fades. Call inside the GUI pass. */
-void kiln_splash_draw2d(int screen_w, int screen_h);
+void fig_splash_draw2d(int screen_w, int screen_h);
 
-#endif /* KILN_SPLASH_H */
+#endif /* FIG_SPLASH_H */

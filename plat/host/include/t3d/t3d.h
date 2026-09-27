@@ -11,15 +11,15 @@
  * byte, while everything only passed through is the host's own business.
  *
  *   copied verbatim    T3DVertPacked, the draw flags, the vertex-FX enum.
- *                      kiln_voxmesh and kiln_map pack vertices into these by
+ *                      fig_voxmesh and fig_map pack vertices into these by
  *                      hand — offsets, widths and the two-vertices-per-struct
  *                      interleave are load-bearing, and a 32-byte struct that
  *                      merely had the right fields would compile and mean
  *                      something else.
  *   host's own         T3DViewport, T3DMat4FP. The engine never reads a member
  *                      of either (verified: no member access anywhere in
- *                      engine/src/kiln, and kiln_scene_project computes its
- *                      own view basis from KilnScene's camera fields rather
+ *                      engine/src/kiln, and fig_scene_project computes its
+ *                      own view basis from FigScene's camera fields rather
  *                      than from the viewport). They are storage, so they hold
  *                      what this backend needs.
  *
@@ -32,8 +32,8 @@
  * pointed the wrong way — which CLAUDE.md records as having cost this project
  * a full pass of camera retuning once already.
  */
-#ifndef KILN_HOST_T3D_H
-#define KILN_HOST_T3D_H
+#ifndef FIG_HOST_T3D_H
+#define FIG_HOST_T3D_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -63,16 +63,42 @@ enum T3DDrawFlags {
     T3D_FLAG_NO_LIGHT   = 1 << 16,
 };
 
-enum T3DSegment { T3D_SEGMENT_1 = 1, T3D_SEGMENT_2, T3D_SEGMENT_3, T3D_SEGMENT_4 };
+/* All seven, verbatim from Tiny3D. SKELETON is the one a skinned draw names:
+ * t3d_model_draw_skinned hands the RSP a segmented placeholder instead of a
+ * matrix pointer when a skeleton is double-buffered. */
+enum T3DSegment {
+    T3D_SEGMENT_1 = 1, T3D_SEGMENT_2 = 2, T3D_SEGMENT_3 = 3, T3D_SEGMENT_4 = 4,
+    T3D_SEGMENT_5 = 5, T3D_SEGMENT_6 = 6, T3D_SEGMENT_SKELETON = 7,
+};
 
-/* Tagged, because kiln_vanim casts to `enum T3DVertexFX` and an
+/* Verbatim from Tiny3D (t3d.h:663). The result is a segmented address, never
+ * dereferenced on this target — the host's skinned path reads bufferCount and
+ * takes the direct pointer instead. Reproduced rather than stubbed so a
+ * caller comparing it against t3d_segment_address gets the console's answer. */
+static inline void *t3d_segment_placeholder(uint8_t segmentId) {
+    /* Through uintptr_t, which upstream does not need: on the VR4300 a pointer
+     * IS 32 bits, so Tiny3D's `(void *)(uint32_t)` is exact. Here a pointer is
+     * 64, and the direct cast is a -Wint-to-pointer-cast error under this
+     * tree's -Werror. The VALUE is identical either way — it is a segmented
+     * address, never dereferenced on either target. */
+    return (void *)(uintptr_t)(uint32_t)(segmentId << (8 * 3 + 2));
+}
+
+/* Tagged, because fig_vanim casts to `enum T3DVertexFX` and an
  * anonymous enum leaves that spelling incomplete. */
+/* CELSHADE_ALPHA = 3 and OUTLINE = 4, which is what Tiny3D actually says
+ * (t3d.h:17-23). This enum claimed to be verbatim and was not: OUTLINE was 3,
+ * so a host build passing T3D_VERTEX_FX_OUTLINE would have selected the
+ * console's CELSHADE_ALPHA. Latent — host_t3d.c asserts NONE is the only value
+ * anything passes — but a copied definition that is wrong is worse than one
+ * that is absent, because it reads as checked. */
 typedef enum T3DVertexFX { T3D_VERTEX_FX_NONE = 0, T3D_VERTEX_FX_SPHERICAL_UV = 1,
-               T3D_VERTEX_FX_CELSHADE_COLOR = 2, T3D_VERTEX_FX_OUTLINE = 3 } T3DVertexFX;
+               T3D_VERTEX_FX_CELSHADE_COLOR = 2, T3D_VERTEX_FX_CELSHADE_ALPHA = 3,
+               T3D_VERTEX_FX_OUTLINE = 4 } T3DVertexFX;
 
 /* ── the RSP vertex cache, which is the interesting constraint ─────────
  * 70 entries. Exceeding it silently corrupts geometry on console — the DMA
- * simply wraps — so the host asserts instead. kiln_voxmesh batches 68 for
+ * simply wraps — so the host asserts instead. fig_voxmesh batches 68 for
  * exactly this reason (68 and not 70 because a quad is four vertices and no
  * quad may straddle a load), and this is what proves that arithmetic. */
 #define T3D_VERTEX_CACHE 70
@@ -90,6 +116,12 @@ typedef struct {
     /* Retained because a projection is not recoverable from the matrix
      * without a decompose, and the rasteriser wants the near/far plane. */
     float     fov, near_z, far_z;
+    /* Recomputed inside t3d_viewport_look_at, which is where Tiny3D does it
+     * (t3d.c:624-629) — set_projection only marks the combined matrix dirty
+     * there. Populating it anywhere else would hand out a frustum describing
+     * the PREVIOUS camera, and a stale frustum culls geometry that is on
+     * screen: the one failure this whole mechanism must not have. */
+    T3DFrustum viewFrustum;
 } T3DViewport;
 
 typedef struct { int matrixStackSize; } T3DInitParams;
@@ -146,8 +178,8 @@ typedef struct {
      * them. A non-zero value means a texture was uploaded, coordinates were
      * emitted, and none of it reached the screen. */
     uint32_t texels_discarded;
-} KilnHostT3DCounters;
+} FigHostT3DCounters;
 
-const KilnHostT3DCounters *kiln_host_t3d_counters(void);
+const FigHostT3DCounters *fig_host_t3d_counters(void);
 
-#endif /* KILN_HOST_T3D_H */
+#endif /* FIG_HOST_T3D_H */

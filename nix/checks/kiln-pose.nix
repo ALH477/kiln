@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 #
-# nix/checks/kiln-pose.nix — kiln_pose, asserted on the host.
+# nix/checks/kiln-pose.nix — fig_pose, asserted on the host.
 #
-# kiln_skel's overlay slot (an attack over a run) is a MASKED blend, and
+# fig_skel's overlay slot (an attack over a run) is a MASKED blend, and
 # Tiny3D's t3d_skeleton_blend blends every bone, so that arithmetic is the
 # engine's own. The host cannot run a skeleton at all — plat/host aborts on
 # every t3d_skeleton_* call — but it can run this, over the console's own
@@ -16,7 +16,7 @@
 pkgs.runCommand "check-kiln-pose"
 {
   nativeBuildInputs = [ pkgs.gcc ];
-  meta.description = "kiln_pose's masked bone blend, subtree masks and quaternion ops, on the host";
+  meta.description = "fig_pose's masked bone blend, subtree masks and quaternion ops, on the host";
 }
   ''
     set -euo pipefail
@@ -28,7 +28,7 @@ pkgs.runCommand "check-kiln-pose"
         -o kilnpose_check \
         ${./kiln-pose-check.c} \
         ${engineSrc}/src/kiln/kiln_pose.c \
-        ${hostMath}/lib/libkilnmath.a -lm
+        ${hostMath}/lib/libfigulinamath.a -lm
 
     ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
     UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \

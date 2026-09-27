@@ -6,9 +6,9 @@
  * be compiled natively at all, and for the stub surface they run against.
  *
  * ── What is being bought ───────────────────────────────────────────────
- * Before this existed, exactly one engine module (kiln_asset) had any test, and
+ * Before this existed, exactly one engine module (fig_asset) had any test, and
  * everything else was verified by building a ROM and looking at it. That is a
- * bad deal for pure arithmetic: kiln_clip's slab traces and SlideMove iteration
+ * bad deal for pure arithmetic: fig_clip's slab traces and SlideMove iteration
  * are the code PetaByte Madness' whole first-person section rests on, and their
  * failure modes on console are "the player is stuck on nothing" and "the player
  * walked through a wall" — both of which look like level-design mistakes and
@@ -28,6 +28,7 @@
 #include "kiln_clip.h"
 #include "kiln_dict.h"
 #include "kiln_cache.h"
+#include "kiln_cull.h"
 #include "kiln_lod.h"
 #include "kiln_radio.h"
 #include "kiln_rng.h"
@@ -58,7 +59,7 @@ static fm_vec3_t V(float x, float y, float z)
 #define NEAR(a, b, eps) (fabsf((a) - (b)) <= (eps))
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_clip
+ * fig_clip
  *
  * One room: a floor slab and four walls, sized so a 16-unit player box has
  * real space to move in. Numbers are round so an expected fraction can be
@@ -70,7 +71,7 @@ static fm_vec3_t V(float x, float y, float z)
 #define SURF_FLOOR   1
 #define SURF_WALL    2
 
-static const KilnBrush ROOM[] = {
+static const FigBrush ROOM[] = {
     /* floor: top face at y=0                                             */
     { {{ -WALL_X, -32.0f, -WALL_Z }}, {{ WALL_X, FLOOR_TOP, WALL_Z }}, SURF_FLOOR, 0, {0, 0} },
     /* +X wall                                                            */
@@ -89,28 +90,28 @@ static const fm_vec3_t BOX_MAXS = {{  8.0f,  16.0f,  8.0f }};
 
 static void test_clip(void)
 {
-    puts("── kiln_clip ──");
+    puts("── fig_clip ──");
 
     /* An empty world must never block. A trace that reports a hit against no
      * brushes freezes a player in an unloaded room, which reads as a hang. */
-    kiln_clip_set_world(NULL, 0);
-    KilnTrace t = kiln_clip_box(V(0, 20, 0), V(500, 20, 500), BOX_MINS, BOX_MAXS);
+    fig_clip_set_world(NULL, 0);
+    FigTrace t = fig_clip_box(V(0, 20, 0), V(500, 20, 500), BOX_MINS, BOX_MAXS);
     ok(t.fraction == 1.0f, "empty world: fraction is exactly 1 (%.6f)", t.fraction);
 
-    kiln_clip_set_world(ROOM, ROOM_N);
-    kiln_clip_set_broadphase(0);
+    fig_clip_set_world(ROOM, ROOM_N);
+    fig_clip_set_broadphase(0);
 
-    /* Clean move through open space. Exactly 1, not 0.999: kiln_player
+    /* Clean move through open space. Exactly 1, not 0.999: fig_player
      * integrates against this every frame and a fraction that is merely close
      * to 1 bleeds position away on every step. */
-    t = kiln_clip_box(V(0, 20, 0), V(50, 20, 0), BOX_MINS, BOX_MAXS);
+    t = fig_clip_box(V(0, 20, 0), V(50, 20, 0), BOX_MINS, BOX_MAXS);
     ok(t.fraction == 1.0f, "open move: fraction is exactly 1 (%.6f)", t.fraction);
     ok(NEAR(t.endpos.v[0], 50.0f, 1e-4f),
        "open move: endpos is the requested end (%.3f)", t.endpos.v[0]);
 
     /* Into the +X wall. The box's +X extent is 8, so its centre stops at
      * WALL_X - 8 = 92, give or take the module's 1e-3 contact epsilon. */
-    t = kiln_clip_box(V(0, 20, 0), V(200, 20, 0), BOX_MINS, BOX_MAXS);
+    t = fig_clip_box(V(0, 20, 0), V(200, 20, 0), BOX_MINS, BOX_MAXS);
     ok(t.fraction < 1.0f, "into +X wall: blocked (fraction %.4f)", t.fraction);
     ok(t.endpos.v[0] <= WALL_X - 8.0f + 1e-2f,
        "into +X wall: box stops outside it (x=%.3f, wall at %.0f)",
@@ -123,21 +124,21 @@ static void test_clip(void)
        "into +X wall: hitsurface is the wall's (%u)", t.hitsurface);
 
     /* Downward onto the floor, and the surface id must come from the FLOOR
-     * brush — kiln_player keys its footstep SFX off exactly this, so a trace
+     * brush — fig_player keys its footstep SFX off exactly this, so a trace
      * that reported the wrong brush's surface would play stone on metal. */
-    t = kiln_clip_box(V(0, 40, 0), V(0, 0, 0), BOX_MINS, BOX_MAXS);
+    t = fig_clip_box(V(0, 40, 0), V(0, 0, 0), BOX_MINS, BOX_MAXS);
     ok(t.fraction < 1.0f, "down onto floor: blocked (fraction %.4f)", t.fraction);
     ok(NEAR(t.normal.v[1], 1.0f, 1e-3f),
        "down onto floor: normal is up (%.2f)", t.normal.v[1]);
     ok(t.hitsurface == SURF_FLOOR,
        "down onto floor: hitsurface is the floor's (%u)", t.hitsurface);
 
-    /* kiln_clip_ground: standing ON the floor must find it; well above it
+    /* fig_clip_ground: standing ON the floor must find it; well above it
      * must not. The probe is documented as 2 units, so 40 units up is
      * comfortably outside it. */
-    t = kiln_clip_ground(V(0, 16.0f, 0), BOX_MINS, BOX_MAXS);
+    t = fig_clip_ground(V(0, 16.0f, 0), BOX_MINS, BOX_MAXS);
     ok(t.fraction < 1.0f, "ground: found while standing on the floor");
-    t = kiln_clip_ground(V(0, 60.0f, 0), BOX_MINS, BOX_MAXS);
+    t = fig_clip_ground(V(0, 60.0f, 0), BOX_MINS, BOX_MAXS);
     ok(t.fraction == 1.0f, "ground: not found 44 units above the floor");
 
     /* ── SlideMove ──────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ static void test_clip(void)
      * component of the move the wall did not block". A single trace would
      * stop the player dead on any diagonal approach; that is the difference
      * between OoT-feeling movement and getting caught on every corner. */
-    fm_vec3_t p = kiln_clip_slide(V(0, 20, 0), V(200, 0, 40),
+    fm_vec3_t p = fig_clip_slide(V(0, 20, 0), V(200, 0, 40),
                                  BOX_MINS, BOX_MAXS, 4);
     ok(p.v[0] <= WALL_X - 8.0f + 1e-2f,
        "slide: does not end up inside the wall (x=%.3f)", p.v[0]);
@@ -156,7 +157,7 @@ static void test_clip(void)
     /* Into a corner, where both axes are blocked. The requirement is that it
      * terminates outside both walls — the iteration cap must not leave the
      * mover embedded in geometry after giving up. */
-    p = kiln_clip_slide(V(80, 20, 80), V(200, 0, 200), BOX_MINS, BOX_MAXS, 4);
+    p = fig_clip_slide(V(80, 20, 80), V(200, 0, 200), BOX_MINS, BOX_MAXS, 4);
     ok(p.v[0] <= WALL_X - 8.0f + 1e-2f && p.v[2] <= WALL_Z - 8.0f + 1e-2f,
        "slide into a corner: ends outside both walls (%.3f, %.3f)",
        p.v[0], p.v[2]);
@@ -164,7 +165,7 @@ static void test_clip(void)
     /* A blocked slide must not move the mover BACKWARDS. A sign error in the
      * clip step produces exactly that, and on console it reads as the player
      * being shoved away from walls. */
-    p = kiln_clip_slide(V(0, 20, 0), V(200, 0, 0), BOX_MINS, BOX_MAXS, 4);
+    p = fig_clip_slide(V(0, 20, 0), V(200, 0, 0), BOX_MINS, BOX_MAXS, 4);
     ok(p.v[0] >= 0.0f, "slide: a blocked move never goes backwards (%.3f)", p.v[0]);
 
     /* ── Resting contact ────────────────────────────────────────────────
@@ -175,18 +176,18 @@ static void test_clip(void)
      * It did not. On an axis the move does not travel, touching counted as
      * overlapping, so the brush reported a hit at fraction 0 with a zero
      * normal — and a zero normal clips nothing off the move, so every
-     * SlideMove iteration retried the same blocked trace. kiln_fpscam lands
+     * SlideMove iteration retried the same blocked trace. fig_fpscam lands
      * on the floor with a vertical slide and then moves horizontally with a
      * flat one, so the fps player could look around and never take a step. */
-    fm_vec3_t rest = kiln_clip_slide(V(0, 40, 0), V(0, -40, 0), BOX_MINS, BOX_MAXS, 2);
+    fm_vec3_t rest = fig_clip_slide(V(0, 40, 0), V(0, -40, 0), BOX_MINS, BOX_MAXS, 2);
     ok(NEAR(rest.v[1], FLOOR_TOP + 16.0f, 1e-2f), "landing: box rests on the floor (y=%.4f)", rest.v[1]);
-    p = kiln_clip_slide(rest, V(30, 0, 20), BOX_MINS, BOX_MAXS, 4);
+    p = fig_clip_slide(rest, V(30, 0, 20), BOX_MINS, BOX_MAXS, 4);
     ok(NEAR(p.v[0], 30.0f, 1e-2f) && NEAR(p.v[2], 20.0f, 1e-2f),
        "resting on the floor: a flat move goes the whole way (%.3f, %.3f of 30, 20)", p.v[0], p.v[2]);
-    p = kiln_clip_slide(V(0, FLOOR_TOP + 16.0f, 0), V(0, 0, -25), BOX_MINS, BOX_MAXS, 4);
+    p = fig_clip_slide(V(0, FLOOR_TOP + 16.0f, 0), V(0, 0, -25), BOX_MINS, BOX_MAXS, 4);
     ok(NEAR(p.v[2], -25.0f, 1e-2f),
        "exactly on the floor: a flat move goes the whole way (z=%.3f of -25)", p.v[2]);
-    p = kiln_clip_slide(V(WALL_X - 8.0f, 20, 0), V(0, 0, 30), BOX_MINS, BOX_MAXS, 4);
+    p = fig_clip_slide(V(WALL_X - 8.0f, 20, 0), V(0, 0, 30), BOX_MINS, BOX_MAXS, 4);
     ok(NEAR(p.v[2], 30.0f, 1e-2f) && p.v[0] <= WALL_X - 8.0f + 1e-2f,
        "flush against a wall: a move along it goes the whole way (z=%.3f of 30, x=%.3f)", p.v[2], p.v[0]);
 
@@ -194,7 +195,7 @@ static void test_clip(void)
      * The grid is an optimisation, so its only correctness requirement is
      * that it changes nothing. This is the check that makes turning it on
      * safe: same world, same traces, same answers, fewer brushes examined.
-     * kiln_clip.h says kiln_clip_ray always uses the flat walk, so the brush
+     * kiln_clip.h says fig_clip_ray always uses the flat walk, so the brush
      * count is compared for the box path only. */
     struct { fm_vec3_t a, b; } moves[] = {
         { V(0, 20, 0),    V(200, 20, 0) },
@@ -208,15 +209,15 @@ static void test_clip(void)
     int agree = 1;
     uint16_t flat_total = 0, grid_total = 0;
     for (int i = 0; i < nmoves; i++) {
-        kiln_clip_set_broadphase(0);
-        kiln_clip_set_world(ROOM, ROOM_N);
-        KilnTrace a = kiln_clip_box(moves[i].a, moves[i].b, BOX_MINS, BOX_MAXS);
-        flat_total += kiln_clip_last_trace_brushes();
+        fig_clip_set_broadphase(0);
+        fig_clip_set_world(ROOM, ROOM_N);
+        FigTrace a = fig_clip_box(moves[i].a, moves[i].b, BOX_MINS, BOX_MAXS);
+        flat_total += fig_clip_last_trace_brushes();
 
-        kiln_clip_set_broadphase(1);
-        kiln_clip_set_world(ROOM, ROOM_N);
-        KilnTrace b = kiln_clip_box(moves[i].a, moves[i].b, BOX_MINS, BOX_MAXS);
-        grid_total += kiln_clip_last_trace_brushes();
+        fig_clip_set_broadphase(1);
+        fig_clip_set_world(ROOM, ROOM_N);
+        FigTrace b = fig_clip_box(moves[i].a, moves[i].b, BOX_MINS, BOX_MAXS);
+        grid_total += fig_clip_last_trace_brushes();
 
         if (!NEAR(a.fraction, b.fraction, 1e-4f) ||
             a.hitsurface != b.hitsurface ||
@@ -234,13 +235,13 @@ static void test_clip(void)
        "broadphase examines no more brushes than the flat walk (%u vs %u)",
        grid_total, flat_total);
 
-    kiln_clip_set_broadphase(0);
-    kiln_clip_set_world(ROOM, ROOM_N);
+    fig_clip_set_broadphase(0);
+    fig_clip_set_world(ROOM, ROOM_N);
 
     /* A ray is the box trace with zero extents, so it reaches 8 units
      * further before contact than the box does. Worth stating because the
      * camera boom depends on it. */
-    KilnTrace r = kiln_clip_ray(V(0, 20, 0), V(200, 20, 0));
+    FigTrace r = fig_clip_ray(V(0, 20, 0), V(200, 20, 0));
     ok(r.fraction < 1.0f, "ray: blocked by the wall (fraction %.4f)", r.fraction);
     ok(r.endpos.v[0] > t.endpos.v[0] || r.endpos.v[0] >= WALL_X - 1e-2f,
        "ray: reaches the wall face itself, not a box's standoff (x=%.3f)",
@@ -248,86 +249,86 @@ static void test_clip(void)
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_dict
+ * fig_dict
  * ──────────────────────────────────────────────────────────────────────── */
 static void test_dict(void)
 {
-    puts("── kiln_dict ──");
+    puts("── fig_dict ──");
 
-    KilnDict d;
-    kiln_dict_init(&d);
-    ok(!kiln_dict_has_int(&d, "hp"), "a fresh dict has nothing in it");
-    ok(kiln_dict_get_int(&d, "hp", -7) == -7,
+    FigDict d;
+    fig_dict_init(&d);
+    ok(!fig_dict_has_int(&d, "hp"), "a fresh dict has nothing in it");
+    ok(fig_dict_get_int(&d, "hp", -7) == -7,
        "a missing key returns the caller's default");
 
-    kiln_dict_set_int(&d, "hp", 42);
-    kiln_dict_set_float(&d, "speed", 2.5f);
-    kiln_dict_set_vec3(&d, "origin", V(1, 2, 3));
-    kiln_dict_set_str(&d, "name", "imp");
+    fig_dict_set_int(&d, "hp", 42);
+    fig_dict_set_float(&d, "speed", 2.5f);
+    fig_dict_set_vec3(&d, "origin", V(1, 2, 3));
+    fig_dict_set_str(&d, "name", "imp");
 
-    ok(kiln_dict_get_int(&d, "hp", 0) == 42, "int round-trips");
-    ok(NEAR(kiln_dict_get_float(&d, "speed", 0.0f), 2.5f, 1e-6f),
+    ok(fig_dict_get_int(&d, "hp", 0) == 42, "int round-trips");
+    ok(NEAR(fig_dict_get_float(&d, "speed", 0.0f), 2.5f, 1e-6f),
        "float round-trips");
-    fm_vec3_t got = kiln_dict_get_vec3(&d, "origin", V(0, 0, 0));
+    fm_vec3_t got = fig_dict_get_vec3(&d, "origin", V(0, 0, 0));
     ok(got.v[0] == 1.0f && got.v[1] == 2.0f && got.v[2] == 3.0f,
        "vec3 round-trips (%.0f %.0f %.0f)", got.v[0], got.v[1], got.v[2]);
-    ok(strcmp(kiln_dict_get_str(&d, "name", ""), "imp") == 0,
+    ok(strcmp(fig_dict_get_str(&d, "name", ""), "imp") == 0,
        "string round-trips");
 
     /* Overwriting the same key must not append. The dict is 16 slots and
      * spawn args are authored content — a set that appended would silently
      * exhaust the dict on any key written twice. */
-    kiln_dict_set_int(&d, "hp", 99);
-    ok(kiln_dict_get_int(&d, "hp", 0) == 99, "overwrite replaces the value");
+    fig_dict_set_int(&d, "hp", 99);
+    ok(fig_dict_get_int(&d, "hp", 0) == 99, "overwrite replaces the value");
     ok(d.count == 4, "overwrite does not append a second slot (count %u)",
        d.count);
 
     /* The typed getters must refuse a type mismatch rather than reinterpret
      * the union. Reading an int out of a float slot would return whatever the
      * float's bit pattern happens to be, which is a plausible-looking number. */
-    ok(kiln_dict_get_int(&d, "speed", -1) == -1,
+    ok(fig_dict_get_int(&d, "speed", -1) == -1,
        "reading an int from a float key returns the default");
-    ok(!kiln_dict_has_vec3(&d, "hp"), "has_vec3 is false for an int key");
-    ok(kiln_dict_has_int(&d, "hp") && kiln_dict_has_float(&d, "speed") &&
-       kiln_dict_has_vec3(&d, "origin") && kiln_dict_has_str(&d, "name"),
+    ok(!fig_dict_has_vec3(&d, "hp"), "has_vec3 is false for an int key");
+    ok(fig_dict_has_int(&d, "hp") && fig_dict_has_float(&d, "speed") &&
+       fig_dict_has_vec3(&d, "origin") && fig_dict_has_str(&d, "name"),
        "each typed check is true for its own key");
 
     /* Key interning: two dicts must agree about a key without either having
      * seen the other, since the key table is module-global. */
-    KilnDict e;
-    kiln_dict_init(&e);
-    kiln_dict_set_int(&e, "hp", 5);
-    ok(kiln_dict_get_int(&e, "hp", 0) == 5 && kiln_dict_get_int(&d, "hp", 0) == 99,
+    FigDict e;
+    fig_dict_init(&e);
+    fig_dict_set_int(&e, "hp", 5);
+    ok(fig_dict_get_int(&e, "hp", 0) == 5 && fig_dict_get_int(&d, "hp", 0) == 99,
        "two dicts sharing an interned key keep separate values");
 
     /* set_auto is the mapping from .map text to typed args. This is where a
      * regression is silent: "0 0 0" landing as a STRING makes every
      * origin-derived spawn sit at the world origin, and the map still loads. */
-    puts("── kiln_dict: set_auto (the .map text mapping) ──");
-    KilnDict a;
-    kiln_dict_init(&a);
-    kiln_dict_set_auto(&a, "origin",  "10 20 30");
-    kiln_dict_set_auto(&a, "health",  "100");
-    kiln_dict_set_auto(&a, "scale",   "1.5");
-    kiln_dict_set_auto(&a, "target",  "door_a");
-    kiln_dict_set_auto(&a, "negative", "-5");
-    kiln_dict_set_auto(&a, "negfloat", "-0.25");
+    puts("── fig_dict: set_auto (the .map text mapping) ──");
+    FigDict a;
+    fig_dict_init(&a);
+    fig_dict_set_auto(&a, "origin",  "10 20 30");
+    fig_dict_set_auto(&a, "health",  "100");
+    fig_dict_set_auto(&a, "scale",   "1.5");
+    fig_dict_set_auto(&a, "target",  "door_a");
+    fig_dict_set_auto(&a, "negative", "-5");
+    fig_dict_set_auto(&a, "negfloat", "-0.25");
 
-    ok(kiln_dict_has_vec3(&a, "origin"), "\"10 20 30\" -> vec3");
-    got = kiln_dict_get_vec3(&a, "origin", V(0, 0, 0));
+    ok(fig_dict_has_vec3(&a, "origin"), "\"10 20 30\" -> vec3");
+    got = fig_dict_get_vec3(&a, "origin", V(0, 0, 0));
     ok(got.v[0] == 10.0f && got.v[1] == 20.0f && got.v[2] == 30.0f,
        "the vec3's components are in order (%.0f %.0f %.0f)",
        got.v[0], got.v[1], got.v[2]);
-    ok(kiln_dict_has_int(&a, "health"), "\"100\" -> int");
-    ok(kiln_dict_has_float(&a, "scale"), "\"1.5\" -> float");
-    ok(kiln_dict_has_str(&a, "target"), "\"door_a\" -> string");
-    ok(kiln_dict_get_int(&a, "negative", 0) == -5, "\"-5\" -> int -5");
-    ok(NEAR(kiln_dict_get_float(&a, "negfloat", 0.0f), -0.25f, 1e-6f),
+    ok(fig_dict_has_int(&a, "health"), "\"100\" -> int");
+    ok(fig_dict_has_float(&a, "scale"), "\"1.5\" -> float");
+    ok(fig_dict_has_str(&a, "target"), "\"door_a\" -> string");
+    ok(fig_dict_get_int(&a, "negative", 0) == -5, "\"-5\" -> int -5");
+    ok(NEAR(fig_dict_get_float(&a, "negfloat", 0.0f), -0.25f, 1e-6f),
        "\"-0.25\" -> float -0.25");
 
-    ok(kiln_dict_parse_int("7") == 7, "parse_int");
-    ok(NEAR(kiln_dict_parse_float("7.5"), 7.5f, 1e-6f), "parse_float");
-    got = kiln_dict_parse_vec3("-1 0.5 2");
+    ok(fig_dict_parse_int("7") == 7, "parse_int");
+    ok(NEAR(fig_dict_parse_float("7.5"), 7.5f, 1e-6f), "parse_float");
+    got = fig_dict_parse_vec3("-1 0.5 2");
     ok(NEAR(got.v[0], -1.0f, 1e-6f) && NEAR(got.v[1], 0.5f, 1e-6f) &&
        NEAR(got.v[2], 2.0f, 1e-6f),
        "parse_vec3 handles mixed signs and decimals (%.2f %.2f %.2f)",
@@ -335,7 +336,7 @@ static void test_dict(void)
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_cache
+ * fig_cache
  * ──────────────────────────────────────────────────────────────────────── */
 static int g_loads, g_releases;
 
@@ -365,36 +366,36 @@ static void *fail_load(const char *key, void *ctx)
 
 static void test_cache(void)
 {
-    puts("── kiln_cache ──");
+    puts("── fig_cache ──");
 
-    KilnCache c;
-    kiln_cache_init(&c);
-    ok(kiln_cache_count(&c) == 0, "a fresh cache is empty");
+    FigCache c;
+    fig_cache_init(&c);
+    ok(fig_cache_count(&c) == 0, "a fresh cache is empty");
 
-    KilnCacheHandle h1 = kiln_cache_acquire(&c, "tiles/0_0/lod0.geom",
+    FigCacheHandle h1 = fig_cache_acquire(&c, "tiles/0_0/lod0.geom",
                                           fake_load, fake_release, NULL);
-    ok(h1 != KILN_CACHE_HANDLE_INVALID, "acquire returns a handle");
+    ok(h1 != FIG_CACHE_HANDLE_INVALID, "acquire returns a handle");
     ok(g_loads == 1, "acquire loaded once (%d)", g_loads);
-    ok(strcmp((char *)kiln_cache_resolve(&c, h1), "tiles/0_0/lod0.geom") == 0,
+    ok(strcmp((char *)fig_cache_resolve(&c, h1), "tiles/0_0/lod0.geom") == 0,
        "resolve returns the loaded resource");
 
     /* The whole point of the module: a second acquire of the same key must
      * NOT load again. openworld streaming calls this per tile per frame. */
-    KilnCacheHandle h2 = kiln_cache_acquire(&c, "tiles/0_0/lod0.geom",
+    FigCacheHandle h2 = fig_cache_acquire(&c, "tiles/0_0/lod0.geom",
                                           fake_load, fake_release, NULL);
     ok(g_loads == 1, "re-acquiring a cached key does not load again (%d)", g_loads);
     ok(h2 == h1, "the same key yields the same handle");
-    ok(kiln_cache_refcount(&c, h1) == 2, "refcount is 2 (%u)",
-       kiln_cache_refcount(&c, h1));
-    ok(kiln_cache_count(&c) == 1, "still one entry (%u)", kiln_cache_count(&c));
+    ok(fig_cache_refcount(&c, h1) == 2, "refcount is 2 (%u)",
+       fig_cache_refcount(&c, h1));
+    ok(fig_cache_count(&c) == 1, "still one entry (%u)", fig_cache_count(&c));
 
-    ok(kiln_cache_release(&c, h1, fake_release, NULL) == 0,
+    ok(fig_cache_release(&c, h1, fake_release, NULL) == 0,
        "the first release does not free (references remain)");
     ok(g_releases == 0, "release_fn not called yet (%d)", g_releases);
-    ok(kiln_cache_release(&c, h2, fake_release, NULL) == 1,
+    ok(fig_cache_release(&c, h2, fake_release, NULL) == 1,
        "the last release frees");
     ok(g_releases == 1, "release_fn called exactly once (%d)", g_releases);
-    ok(kiln_cache_count(&c) == 0, "the slot is free again");
+    ok(fig_cache_count(&c) == 0, "the slot is free again");
 
     /* ── The reason handles carry a generation ───────────────────────────
      * A stale handle must resolve to NULL, not to whatever now occupies the
@@ -402,54 +403,206 @@ static void test_cache(void)
      * into the same slot makes an old handle silently address the new tile's
      * geometry — which draws the wrong mesh at the right place, one of the
      * least diagnosable bugs available on this hardware. */
-    KilnCacheHandle reused = kiln_cache_acquire(&c, "tiles/9_9/lod2.geom",
+    FigCacheHandle reused = fig_cache_acquire(&c, "tiles/9_9/lod2.geom",
                                               fake_load, fake_release, NULL);
-    ok(reused != KILN_CACHE_HANDLE_INVALID, "a new key takes the freed slot");
-    ok(kiln_cache_resolve(&c, h1) == NULL,
+    ok(reused != FIG_CACHE_HANDLE_INVALID, "a new key takes the freed slot");
+    ok(fig_cache_resolve(&c, h1) == NULL,
        "the STALE handle resolves to NULL, not to the slot's new occupant");
     ok(reused != h1, "the new handle differs from the stale one (generation)");
-    ok(kiln_cache_refcount(&c, h1) == 0, "a stale handle reports refcount 0");
-    ok(kiln_cache_release(&c, h1, fake_release, NULL) == -1,
+    ok(fig_cache_refcount(&c, h1) == 0, "a stale handle reports refcount 0");
+    ok(fig_cache_release(&c, h1, fake_release, NULL) == -1,
        "releasing a stale handle is refused, not applied to the new resource");
-    ok(kiln_cache_refcount(&c, reused) == 1,
+    ok(fig_cache_refcount(&c, reused) == 1,
        "the live entry's refcount is untouched by the stale release (%u)",
-       kiln_cache_refcount(&c, reused));
+       fig_cache_refcount(&c, reused));
 
-    ok(kiln_cache_resolve(&c, KILN_CACHE_HANDLE_INVALID) == NULL,
+    ok(fig_cache_resolve(&c, FIG_CACHE_HANDLE_INVALID) == NULL,
        "the invalid handle resolves to NULL");
 
-    /* A load that FAILS must not occupy a slot. kiln_cache_acquire is
+    /* A load that FAILS must not occupy a slot. fig_cache_acquire is
      * documented to return INVALID when load_fn returns NULL; if it kept the
      * slot anyway, a level whose assets are missing would fill the cache with
      * nothing and then refuse every asset that is present — a missing file
      * turning into a cache-exhaustion bug several tiles later. */
-    const uint16_t before = kiln_cache_count(&c);
-    KilnCacheHandle bad = kiln_cache_acquire(&c, "missing", fail_load,
+    const uint16_t before = fig_cache_count(&c);
+    FigCacheHandle bad = fig_cache_acquire(&c, "missing", fail_load,
                                            fake_release, NULL);
-    ok(bad == KILN_CACHE_HANDLE_INVALID, "a failed load returns INVALID");
-    ok(kiln_cache_count(&c) == before,
+    ok(bad == FIG_CACHE_HANDLE_INVALID, "a failed load returns INVALID");
+    ok(fig_cache_count(&c) == before,
        "a failed load leaves no slot behind (%u -> %u)",
-       before, kiln_cache_count(&c));
+       before, fig_cache_count(&c));
 
-    kiln_cache_release(&c, reused, fake_release, NULL);
-    ok(kiln_cache_count(&c) == 0, "cache drains to empty (%u)",
-       kiln_cache_count(&c));
+    fig_cache_release(&c, reused, fake_release, NULL);
+    ok(fig_cache_count(&c) == 0, "cache drains to empty (%u)",
+       fig_cache_count(&c));
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_lod
+ * fig_cull — the arithmetic half of per-object culling
+ *
+ * The tier parser and the AABB-to-world-sphere transform. The plane test
+ * itself is Tiny3D's (t3d_frustum_vs_sphere) and is deliberately not
+ * reimplemented here; what is asserted is the transform feeding it, because a
+ * wrong one culls geometry the player was looking at and that is the one
+ * failure this whole mechanism must not have.
+ * ──────────────────────────────────────────────────────────────────────── */
+static void test_cull(void)
+{
+    puts("── fig_cull ──");
+
+    /* `.001` is Blender's suffix for a name collision. Reading it as tier 1
+     * would drop real geometry out of the frame, and the symptom would be a
+     * hole in a model rather than an error, so it is pinned in both
+     * directions. */
+    struct { const char *name; uint8_t want; } names[] = {
+        { "torso",        0 }, { "torso.lod1",  1 },
+        { "torso.lod2",   2 }, { "torso.lod10", 10 },
+        { "torso.001",    0 }, { "lod1",        0 },
+        { "torso.lodX",   0 }, { "torso.lod",   0 },
+        { "torso.lod2x",  0 }, { ".lod1",       0 },
+        { "a.b.lod3",     3 }, { "",            0 },
+        { NULL,           0 },
+    };
+    int wrong = 0;
+    for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) {
+        const uint8_t got = fig_cull_tier_of(names[i].name);
+        if (got != names[i].want) {
+            wrong++;
+            printf("      %-12s -> %u, wanted %u\n",
+                   names[i].name ? names[i].name : "(null)",
+                   got, names[i].want);
+        }
+    }
+    ok(wrong == 0, "tier_of reads .lodN and nothing else (%d wrong)", wrong);
+
+    /* A 2x2x2 box centred on its own origin. */
+    const int16_t lo[3] = { -100, -100, -100 };
+    const int16_t hi[3] = {  100,  100,  100 };
+    const float origin[3] = { 0.0f, 0.0f, 0.0f };
+    const float half_diag = 100.0f * 1.7320508f;   /* sqrt(3) * 100 */
+
+    float c[3], r;
+    fig_cull_sphere_of(lo, hi, origin, 1.0f, 0.0f, c, &r);
+    ok(NEAR(c[0], 0.0f, 0.01f) && NEAR(c[1], 0.0f, 0.01f)
+       && NEAR(c[2], 0.0f, 0.01f), "a centred box stays centred");
+    ok(NEAR(r, half_diag, 0.5f),
+       "and its radius is the half-diagonal (%.2f vs %.2f)", r, half_diag);
+
+    fig_cull_sphere_of(lo, hi, origin, 2.0f, 0.0f, c, &r);
+    ok(NEAR(r, half_diag * 2.0f, 1.0f),
+       "a uniform scale multiplies the radius (%.2f)", r);
+
+    const float away[3] = { 500.0f, -20.0f, 300.0f };
+    fig_cull_sphere_of(lo, hi, away, 1.0f, 0.0f, c, &r);
+    ok(NEAR(c[0], 500.0f, 0.01f) && NEAR(c[1], -20.0f, 0.01f)
+       && NEAR(c[2], 300.0f, 0.01f), "position translates the centre");
+
+    /* ── The yaw convention ────────────────────────────────────────────
+     * The engine's yaw is 0 at +Z with forward (sin yaw, 0, cos yaw) — what
+     * fig_fpscam documents and what pm_demo.c places its props with. So a box
+     * sitting at model +Z must swing to +X at a quarter turn. Getting this
+     * backwards would mirror every off-centre object's bound through the
+     * model origin, which culls things in front of the camera. */
+    const int16_t flo[3] = { -10, -10, 190 };
+    const int16_t fhi[3] = {  10,  10, 210 };   /* centred at (0,0,200) */
+    fig_cull_sphere_of(flo, fhi, origin, 1.0f, 1.57079633f, c, &r);
+    ok(NEAR(c[0], 200.0f, 0.5f) && NEAR(c[2], 0.0f, 0.5f),
+       "a quarter turn takes model +Z to world +X (%.1f, %.1f, %.1f)",
+       c[0], c[1], c[2]);
+
+    /* The property the whole approach rests on: a sphere does not care which
+     * way the box is turned, so the radius must not move with yaw. */
+    float r0, rq;
+    fig_cull_sphere_of(flo, fhi, origin, 1.0f, 0.0f, c, &r0);
+    fig_cull_sphere_of(flo, fhi, origin, 1.0f, 2.3f, c, &rq);
+    ok(NEAR(r0, rq, 0.001f), "the radius is invariant under yaw (%.4f/%.4f)",
+       r0, rq);
+
+    /* ── Conservative, which is the direction it must be wrong in ──────
+     * Every corner of the placed box must lie inside the sphere. If one does
+     * not, the bound is too small and the frustum test can reject an object
+     * that is partly on screen. Checked over a spread of yaws, including ones
+     * that are not multiples of a quarter turn. */
+    const int16_t alo[3] = { -40, -70, 120 };
+    const int16_t ahi[3] = {  90,  30, 260 };   /* deliberately off-centre */
+    const float scale = 1.7f;
+    int outside = 0;
+    float worst = 0.0f;
+    for (int k = 0; k < 16; k++) {
+        const float yaw = (float)k * 0.3926991f;   /* 16 steps over 2pi */
+        fig_cull_sphere_of(alo, ahi, away, scale, yaw, c, &r);
+        const float cs = cosf(yaw), sn = sinf(yaw);
+        for (int corner = 0; corner < 8; corner++) {
+            const float mx = (corner & 1) ? (float)ahi[0] : (float)alo[0];
+            const float my = (corner & 2) ? (float)ahi[1] : (float)alo[1];
+            const float mz = (corner & 4) ? (float)ahi[2] : (float)alo[2];
+            const float sx = mx * scale, sy = my * scale, sz = mz * scale;
+            const float wx = away[0] + (sx * cs + sz * sn);
+            const float wy = away[1] + sy;
+            const float wz = away[2] + (sz * cs - sx * sn);
+            const float dx = wx - c[0], dy = wy - c[1], dz = wz - c[2];
+            const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (d > r + 0.05f) outside++;
+            if (d / r > worst) worst = d / r;
+        }
+    }
+    ok(outside == 0,
+       "the sphere contains every corner at every yaw (%d outside, tightest "
+       "fit %.3f of the radius)", outside, worst);
+
+    /* ── Distance to the SURFACE, which is what a detail tier is chosen on ──
+     * For a small prop this is barely different from the distance to its
+     * origin. For a large one it is the whole answer: an eye inside the
+     * object's own bounds must read zero, or the thing filling the screen
+     * gets picked for a low-detail tier. */
+    const int16_t big_lo[3] = { -10000, -200, -10000 };
+    const int16_t big_hi[3] = {  10000,  200,  10000 };
+    const float inside_eye[3] = { 3400.0f, 900.0f, 0.0f };
+    ok(fig_cull_surface_dist_sq(big_lo, big_hi, origin, 1.0f, 0.0f,
+                                 inside_eye) == 0.0f,
+       "an eye inside a large object's bounds is zero away from its surface");
+
+    /* Outside it, the distance is to the sphere's shell, not its middle. */
+    const int16_t unit_lo[3] = { -100, -100, -100 };
+    const int16_t unit_hi[3] = {  100,  100,  100 };
+    const float far_eye[3] = { 1000.0f, 0.0f, 0.0f };
+    const float want = 1000.0f - half_diag;
+    const float got = sqrtf(fig_cull_surface_dist_sq(unit_lo, unit_hi, origin,
+                                                      1.0f, 0.0f, far_eye));
+    ok(NEAR(got, want, 0.5f),
+       "and outside it, the distance is to the shell (%.1f vs %.1f)",
+       got, want);
+
+    /* Monotonic: backing away never brings a nearer answer, which is what
+     * stops a tier flickering as the camera moves. */
+    float prev = -1.0f;
+    int backwards = 0;
+    for (int step = 0; step < 40; step++) {
+        const float eye[3] = { 200.0f + (float)step * 150.0f, 0.0f, 0.0f };
+        const float d = fig_cull_surface_dist_sq(unit_lo, unit_hi, origin,
+                                                  1.0f, 0.0f, eye);
+        if (d < prev) backwards++;
+        prev = d;
+    }
+    ok(backwards == 0,
+       "and it never decreases as the eye backs away (%d reversals)",
+       backwards);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * fig_lod
  * ──────────────────────────────────────────────────────────────────────── */
 static void test_lod(void)
 {
-    puts("── kiln_lod ──");
+    puts("── fig_lod ──");
 
-    KilnLODConfig cfg;
+    FigLODConfig cfg;
     const float tile = 256.0f;
-    kiln_lod_init_defaults(&cfg, tile);
+    fig_lod_init_defaults(&cfg, tile);
     ok(cfg.threshold_count > 0, "defaults declare thresholds (%u)",
        cfg.threshold_count);
 
-    /* Thresholds must be strictly increasing, or kiln_lod_select's scan
+    /* Thresholds must be strictly increasing, or fig_lod_select's scan
      * returns a level that is not the nearest match and a distant tile can
      * come out at a HIGHER detail than a near one. */
     int increasing = 1;
@@ -457,7 +610,7 @@ static void test_lod(void)
         if (!(cfg.thresholds_sq[i] > cfg.thresholds_sq[i - 1])) increasing = 0;
     ok(increasing, "default thresholds are strictly increasing");
 
-    ok(kiln_lod_select(&cfg, 0.0f) == 0, "at the camera: LOD 0");
+    ok(fig_lod_select(&cfg, 0.0f) == 0, "at the camera: LOD 0");
 
     /* Monotonic: detail may only ever get coarser with distance. Stated as a
      * sweep rather than at three points, because an off-by-one in the scan
@@ -465,75 +618,75 @@ static void test_lod(void)
     int monotonic = 1;
     uint8_t prev = 0;
     for (float d = 0.0f; d < tile * 40.0f; d += tile * 0.25f) {
-        uint8_t lod = kiln_lod_select(&cfg, d * d);
+        uint8_t lod = fig_lod_select(&cfg, d * d);
         if (lod < prev) monotonic = 0;
         prev = lod;
     }
     ok(monotonic, "LOD never gets FINER as distance grows");
 
-    ok(kiln_lod_visible(&cfg, 0.0f), "the camera's own tile is visible");
-    ok(!kiln_lod_visible(&cfg, cfg.thresholds_sq[cfg.threshold_count - 1] * 4.0f),
+    ok(fig_lod_visible(&cfg, 0.0f), "the camera's own tile is visible");
+    ok(!fig_lod_visible(&cfg, cfg.thresholds_sq[cfg.threshold_count - 1] * 4.0f),
        "beyond the last threshold: not visible");
-    ok(kiln_lod_visible(&cfg, cfg.thresholds_sq[cfg.threshold_count - 1]),
+    ok(fig_lod_visible(&cfg, cfg.thresholds_sq[cfg.threshold_count - 1]),
        "exactly at the last threshold: still visible (inclusive bound)");
 
     /* The selector callback must agree with the direct call — it is the form
-     * kiln_tile_update actually uses, so a divergence means the shipping path
+     * fig_tile_update actually uses, so a divergence means the shipping path
      * is the untested one. */
     int cb_agrees = 1;
     for (float d = 0.0f; d < tile * 20.0f; d += tile * 0.5f)
-        if (kiln_lod_selector_cb(0, 0, d * d, &cfg) != kiln_lod_select(&cfg, d * d))
+        if (fig_lod_selector_cb(0, 0, d * d, &cfg) != fig_lod_select(&cfg, d * d))
             cb_agrees = 0;
-    ok(cb_agrees, "kiln_lod_selector_cb agrees with kiln_lod_select");
+    ok(cb_agrees, "fig_lod_selector_cb agrees with fig_lod_select");
 
     /* An empty config must treat everything as visible at full detail rather
      * than culling the world — a zeroed struct is a plausible caller state. */
-    KilnLODConfig zero;
+    FigLODConfig zero;
     memset(&zero, 0, sizeof zero);
-    ok(kiln_lod_visible(&zero, 1e9f),
+    ok(fig_lod_visible(&zero, 1e9f),
        "a zeroed config draws everything rather than nothing");
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_rng
+ * fig_rng
  * ──────────────────────────────────────────────────────────────────────── */
 static void test_rng(void)
 {
-    puts("── kiln_rng ──");
+    puts("── fig_rng ──");
 
-    KilnRng a, b;
-    kiln_rng_seed(&a, 12345);
-    kiln_rng_seed(&b, 12345);
+    FigRng a, b;
+    fig_rng_seed(&a, 12345);
+    fig_rng_seed(&b, 12345);
     int same = 1;
     for (int i = 0; i < 256; i++)
-        if (kiln_rng_u32(&a) != kiln_rng_u32(&b)) same = 0;
+        if (fig_rng_u32(&a) != fig_rng_u32(&b)) same = 0;
     ok(same, "the same seed gives the same sequence (256 draws)");
 
     /* A zero seed is documented as remapped to 1 rather than left stuck.
      * xorshift with state 0 returns 0 forever, which as a dice roll is a
      * loaded die and as a scatter is every prop at the same place. */
-    KilnRng z;
-    kiln_rng_seed(&z, 0);
-    uint32_t first = kiln_rng_u32(&z);
+    FigRng z;
+    fig_rng_seed(&z, 0);
+    uint32_t first = fig_rng_u32(&z);
     int varies = 0;
-    for (int i = 0; i < 16; i++) if (kiln_rng_u32(&z) != first) varies = 1;
+    for (int i = 0; i < 16; i++) if (fig_rng_u32(&z) != first) varies = 1;
     ok(varies, "a zero seed still produces a varying sequence");
 
-    kiln_rng_seed(&a, 999);
+    fig_rng_seed(&a, 999);
     int in_unit = 1, in_range = 1;
     int hist[6] = { 0 };
     for (int i = 0; i < 20000; i++) {
-        float f = kiln_rng_f32(&a);
+        float f = fig_rng_f32(&a);
         if (!(f >= 0.0f && f < 1.0f)) in_unit = 0;
-        int r = kiln_rng_range(&a, 0, 6);
+        int r = fig_rng_range(&a, 0, 6);
         if (r < 0 || r > 5) in_range = 0; else hist[r]++;
     }
-    ok(in_unit, "kiln_rng_f32 stays in [0, 1)");
-    ok(in_range, "kiln_rng_range(0, 6) stays in [0, 5]");
+    ok(in_unit, "fig_rng_f32 stays in [0, 1)");
+    ok(in_range, "fig_rng_range(0, 6) stays in [0, 5]");
 
     /* Every face must actually come up. A modulo or shift mistake that made
      * one face unreachable would be invisible in play and fatal to a board
-     * game — kiln_dice sits directly on this. */
+     * game — fig_dice sits directly on this. */
     int all_faces = 1;
     for (int i = 0; i < 6; i++) if (hist[i] == 0) all_faces = 0;
     ok(all_faces, "every one of six faces occurs (%d %d %d %d %d %d)",
@@ -547,29 +700,29 @@ static void test_rng(void)
     ok(balanced, "the six faces are within 20%% of uniform");
 
     /* A degenerate range must not read or write out of bounds or loop. */
-    kiln_rng_seed(&a, 7);
-    ok(kiln_rng_range(&a, 3, 4) == 3, "a one-wide range returns its only value");
+    fig_rng_seed(&a, 7);
+    ok(fig_rng_range(&a, 3, 4) == 3, "a one-wide range returns its only value");
 }
 
 static void test_radio(void)
 {
-    puts("── kiln_radio ──");
-    ok(kiln_radio_mix_seed(0, 0) != 0, "a zero pair still yields a non-zero seed");
-    ok(kiln_radio_mix_seed(1, 2) != kiln_radio_mix_seed(2, 1), "order of mix inputs matters");
-    ok(kiln_radio_pick(1, 0) == 0 && kiln_radio_pick(99, 1) == 0, "n<=1 returns 0");
-    ok(kiln_radio_pick(42, 4) == kiln_radio_pick(42, 4), "the same seed picks the same track");
+    puts("── fig_radio ──");
+    ok(fig_radio_mix_seed(0, 0) != 0, "a zero pair still yields a non-zero seed");
+    ok(fig_radio_mix_seed(1, 2) != fig_radio_mix_seed(2, 1), "order of mix inputs matters");
+    ok(fig_radio_pick(1, 0) == 0 && fig_radio_pick(99, 1) == 0, "n<=1 returns 0");
+    ok(fig_radio_pick(42, 4) == fig_radio_pick(42, 4), "the same seed picks the same track");
     int in = 1;
     for (uint64_t s = 1; s < 200; s++) {
-        int i = kiln_radio_pick(s, 4);
+        int i = fig_radio_pick(s, 4);
         if (i < 0 || i > 3) in = 0;
     }
     ok(in, "pick stays in [0, n)");
     int seen[4] = { 0 };
-    for (uint64_t s = 1; s < 80; s++) seen[kiln_radio_pick(s, 4)] = 1;
+    for (uint64_t s = 1; s < 80; s++) seen[fig_radio_pick(s, 4)] = 1;
     ok(seen[0] && seen[1] && seen[2] && seen[3], "four tracks all come up across seeds");
 }
 
-static float tet_edge2(const KilnTet *t, int i, int j)
+static float tet_edge2(const FigTet *t, int i, int j)
 {
     float dx = t->v[i].v[0] - t->v[j].v[0];
     float dy = t->v[i].v[1] - t->v[j].v[1];
@@ -579,9 +732,9 @@ static float tet_edge2(const KilnTet *t, int i, int j)
 
 static void test_sierp(void)
 {
-    puts("── kiln_sierp ──");
-    KilnTet r;
-    kiln_sierp_regular(&r, 10.0f);
+    puts("── fig_sierp ──");
+    FigTet r;
+    fig_sierp_regular(&r, 10.0f);
     float e01 = tet_edge2(&r, 0, 1);
     int eq = 1;
     int E[6][2] = { {0,1},{0,2},{0,3},{1,2},{1,3},{2,3} };
@@ -593,123 +746,123 @@ static void test_sierp(void)
     float r2 = r.v[0].v[0]*r.v[0].v[0] + r.v[0].v[1]*r.v[0].v[1] + r.v[0].v[2]*r.v[0].v[2];
     ok(fabsf(r2 - 100.0f) < 1e-3f, "regular tet: circumradius 10 (r2=%.3f)", r2);
 
-    KilnTet buf[64];
-    ok(kiln_sierp_leaves(buf, 64, &r, 0) == 1, "depth 0 is the root");
-    ok(kiln_sierp_leaves(buf, 64, &r, 1) == 4, "depth 1 is 4 tets");
-    ok(kiln_sierp_leaves(buf, 64, &r, 2) == 16, "depth 2 is 16 tets");
-    ok(kiln_sierp_leaves(buf, 64, &r, 3) == 64, "depth 3 is 64 tets");
-    ok(kiln_sierp_leaves(buf, 10, &r, 3) == 4, "cap 10 stops at depth 1 (4 leaves)");
+    FigTet buf[64];
+    ok(fig_sierp_leaves(buf, 64, &r, 0) == 1, "depth 0 is the root");
+    ok(fig_sierp_leaves(buf, 64, &r, 1) == 4, "depth 1 is 4 tets");
+    ok(fig_sierp_leaves(buf, 64, &r, 2) == 16, "depth 2 is 16 tets");
+    ok(fig_sierp_leaves(buf, 64, &r, 3) == 64, "depth 3 is 64 tets");
+    ok(fig_sierp_leaves(buf, 10, &r, 3) == 4, "cap 10 stops at depth 1 (4 leaves)");
 
-    KilnTet a[4], b[4], m[4], n4[4];
-    kiln_sierp_leaves(a, 4, &r, 1);
-    kiln_sierp_negate(&r, &r);
-    kiln_sierp_leaves(b, 4, &r, 1);
-    kiln_sierp_morph(m, a, b, 4, 0.0f);
+    FigTet a[4], b[4], m[4], n4[4];
+    fig_sierp_leaves(a, 4, &r, 1);
+    fig_sierp_negate(&r, &r);
+    fig_sierp_leaves(b, 4, &r, 1);
+    fig_sierp_morph(m, a, b, 4, 0.0f);
     int same = memcmp(m, a, sizeof m) == 0;
     ok(same, "morph t=0 copies a");
-    kiln_sierp_morph(m, a, b, 4, 1.0f);
+    fig_sierp_morph(m, a, b, 4, 1.0f);
     ok(memcmp(m, b, sizeof m) == 0, "morph t=1 copies b");
-    kiln_sierp_negate(&r, &r);
-    kiln_sierp_leaves(n4, 4, &r, 1);
+    fig_sierp_negate(&r, &r);
+    fig_sierp_leaves(n4, 4, &r, 1);
     ok(memcmp(n4, a, sizeof a) == 0, "negate twice restores the tree");
-    ok(kiln_sierp_smooth(0.0f) == 0.0f && kiln_sierp_smooth(1.0f) == 1.0f,
+    ok(fig_sierp_smooth(0.0f) == 0.0f && fig_sierp_smooth(1.0f) == 1.0f,
        "smoothstep endpoints");
-    ok(fabsf(kiln_sierp_smooth(0.5f) - 0.5f) < 1e-6f, "smoothstep midpoint");
+    ok(fabsf(fig_sierp_smooth(0.5f) - 0.5f) < 1e-6f, "smoothstep midpoint");
 }
 
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_stream
+ * fig_stream
  *
  * The room/tile streaming pacer's admission policy. Its failure modes are
- * exactly kiln_tile's and kiln_room's own: a wrong priority compare loads
+ * exactly fig_tile's and fig_room's own: a wrong priority compare loads
  * the WRONG tile first under pressure, which reads as "that asset popped in
  * late" — a frame-pacing bug indistinguishable from a content mistake in
  * any capture. The eviction rule is deliberately identical to
- * kiln_event_post's, so it is asserted the same way.
+ * fig_event_post's, so it is asserted the same way.
  * ──────────────────────────────────────────────────────────────────────── */
 static void test_stream(void)
 {
-    puts("── kiln_stream ──");
+    puts("── fig_stream ──");
 
     /* ── Priority ordering + admit-count budget ──────────────────────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 2, .max_bytes_per_frame = 1000 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
+        FigStreamBudget budget = { .max_admits_per_frame = 2, .max_bytes_per_frame = 1000 };
+        FigStream s;
+        fig_stream_init(&s, budget);
 
-        KilnStreamHandle ha = kiln_stream_request(&s, "a", KILN_STREAM_NORMAL, 10.0f, 100, (void *)1);
-        KilnStreamHandle hb = kiln_stream_request(&s, "b", KILN_STREAM_NORMAL, 5.0f, 100, (void *)2);
-        KilnStreamHandle hc = kiln_stream_request(&s, "c", KILN_STREAM_NORMAL, 20.0f, 100, (void *)3);
+        FigStreamHandle ha = fig_stream_request(&s, "a", FIG_STREAM_NORMAL, 10.0f, 100, (void *)1);
+        FigStreamHandle hb = fig_stream_request(&s, "b", FIG_STREAM_NORMAL, 5.0f, 100, (void *)2);
+        FigStreamHandle hc = fig_stream_request(&s, "c", FIG_STREAM_NORMAL, 20.0f, 100, (void *)3);
         ok(ha && hb && hc, "three distinct requests each get a handle");
-        ok(kiln_stream_pending_count(&s) == 3, "all three are outstanding (%u)",
-           kiln_stream_pending_count(&s));
+        ok(fig_stream_pending_count(&s) == 3, "all three are outstanding (%u)",
+           fig_stream_pending_count(&s));
 
-        kiln_stream_frame_begin(&s);
-        ok(kiln_stream_admits_this_frame(&s) == 2,
-           "admits stop at max_admits_per_frame (%u)", kiln_stream_admits_this_frame(&s));
-        ok(kiln_stream_bytes_admitted_this_frame(&s) == 200,
-           "byte total matches the two admitted (%u)", kiln_stream_bytes_admitted_this_frame(&s));
+        fig_stream_frame_begin(&s);
+        ok(fig_stream_admits_this_frame(&s) == 2,
+           "admits stop at max_admits_per_frame (%u)", fig_stream_admits_this_frame(&s));
+        ok(fig_stream_bytes_admitted_this_frame(&s) == 200,
+           "byte total matches the two admitted (%u)", fig_stream_bytes_admitted_this_frame(&s));
 
         int saw_a = 0, saw_b = 0, saw_c = 0;
-        for (KilnStreamSlot *sl = kiln_stream_first_admitted(&s); sl;
-             sl = kiln_stream_next_admitted(&s, sl)) {
+        for (FigStreamSlot *sl = fig_stream_first_admitted(&s); sl;
+             sl = fig_stream_next_admitted(&s, sl)) {
             if (!strcmp(sl->key, "a")) saw_a = 1;
             if (!strcmp(sl->key, "b")) saw_b = 1;
             if (!strcmp(sl->key, "c")) saw_c = 1;
         }
         ok(saw_a && saw_b, "the two closer requests (rank 10, 5) were admitted");
         ok(!saw_c, "the farthest request (rank 20) was NOT admitted — deferred, not dropped");
-        ok(kiln_stream_dropped_total(&s) == 0,
+        ok(fig_stream_dropped_total(&s) == 0,
            "deferring under budget is not the same as dropping (%u)",
-           kiln_stream_dropped_total(&s));
+           fig_stream_dropped_total(&s));
     }
 
     /* ── Byte budget stops admission even with admits to spare ───────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 250 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
-        kiln_stream_request(&s, "x", KILN_STREAM_NORMAL, 1.0f, 100, (void *)1);
-        kiln_stream_request(&s, "y", KILN_STREAM_NORMAL, 2.0f, 100, (void *)2);
-        kiln_stream_request(&s, "z", KILN_STREAM_NORMAL, 3.0f, 100, (void *)3);
+        FigStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 250 };
+        FigStream s;
+        fig_stream_init(&s, budget);
+        fig_stream_request(&s, "x", FIG_STREAM_NORMAL, 1.0f, 100, (void *)1);
+        fig_stream_request(&s, "y", FIG_STREAM_NORMAL, 2.0f, 100, (void *)2);
+        fig_stream_request(&s, "z", FIG_STREAM_NORMAL, 3.0f, 100, (void *)3);
 
-        kiln_stream_frame_begin(&s);
-        ok(kiln_stream_admits_this_frame(&s) == 2,
+        fig_stream_frame_begin(&s);
+        ok(fig_stream_admits_this_frame(&s) == 2,
            "the byte budget (250) admits x+y (200) but not a third 100 (%u admitted)",
-           kiln_stream_admits_this_frame(&s));
-        ok(kiln_stream_bytes_admitted_this_frame(&s) == 200,
+           fig_stream_admits_this_frame(&s));
+        ok(fig_stream_bytes_admitted_this_frame(&s) == 200,
            "bytes admitted never exceeds the budget (%u)",
-           kiln_stream_bytes_admitted_this_frame(&s));
+           fig_stream_bytes_admitted_this_frame(&s));
     }
 
     /* ── A single oversized request must not starve forever ──────────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 100 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
-        kiln_stream_request(&s, "huge", KILN_STREAM_NORMAL, 0.0f, 5000, (void *)1);
+        FigStreamBudget budget = { .max_admits_per_frame = 10, .max_bytes_per_frame = 100 };
+        FigStream s;
+        fig_stream_init(&s, budget);
+        fig_stream_request(&s, "huge", FIG_STREAM_NORMAL, 0.0f, 5000, (void *)1);
 
-        kiln_stream_frame_begin(&s);
-        ok(kiln_stream_admits_this_frame(&s) == 1,
+        fig_stream_frame_begin(&s);
+        ok(fig_stream_admits_this_frame(&s) == 1,
            "a request bigger than the whole per-frame budget is still forced "
            "through when nothing else is competing (%u admits)",
-           kiln_stream_admits_this_frame(&s));
-        ok(kiln_stream_bytes_admitted_this_frame(&s) == 5000,
+           fig_stream_admits_this_frame(&s));
+        ok(fig_stream_bytes_admitted_this_frame(&s) == 5000,
            "the forced admission's real cost is reported, not clamped (%u)",
-           kiln_stream_bytes_admitted_this_frame(&s));
+           fig_stream_bytes_admitted_this_frame(&s));
     }
 
     /* ── Urgency beats rank, even a very close one ───────────────────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
-        kiln_stream_request(&s, "close-but-normal", KILN_STREAM_NORMAL, 1.0f, 10, (void *)1);
-        kiln_stream_request(&s, "far-but-urgent",   KILN_STREAM_URGENT, 100.0f, 10, (void *)2);
+        FigStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        FigStream s;
+        fig_stream_init(&s, budget);
+        fig_stream_request(&s, "close-but-normal", FIG_STREAM_NORMAL, 1.0f, 10, (void *)1);
+        fig_stream_request(&s, "far-but-urgent",   FIG_STREAM_URGENT, 100.0f, 10, (void *)2);
 
-        kiln_stream_frame_begin(&s);
-        KilnStreamSlot *only = kiln_stream_first_admitted(&s);
+        fig_stream_frame_begin(&s);
+        FigStreamSlot *only = fig_stream_first_admitted(&s);
         ok(only && strcmp(only->key, "far-but-urgent") == 0,
            "URGENT wins over a merely-closer NORMAL request (got '%s')",
            only ? only->key : "(none)");
@@ -717,122 +870,122 @@ static void test_stream(void)
 
     /* ── Idempotent re-request: refresh, not duplicate ───────────────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
+        FigStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        FigStream s;
+        fig_stream_init(&s, budget);
         void *tag = (void *)0x1234;
-        KilnStreamHandle h1 = kiln_stream_request(&s, "tile", KILN_STREAM_NORMAL, 50.0f, 10, tag);
-        ok(kiln_stream_pending_count(&s) == 1, "one outstanding request");
+        FigStreamHandle h1 = fig_stream_request(&s, "tile", FIG_STREAM_NORMAL, 50.0f, 10, tag);
+        ok(fig_stream_pending_count(&s) == 1, "one outstanding request");
 
-        KilnStreamHandle h2 = kiln_stream_request(&s, "tile", KILN_STREAM_URGENT, 5.0f, 10, tag);
+        FigStreamHandle h2 = fig_stream_request(&s, "tile", FIG_STREAM_URGENT, 5.0f, 10, tag);
         ok(h1 == h2, "re-requesting the same key+tag returns the SAME handle");
-        ok(kiln_stream_pending_count(&s) == 1,
-           "and does not consume a second slot (%u)", kiln_stream_pending_count(&s));
+        ok(fig_stream_pending_count(&s) == 1,
+           "and does not consume a second slot (%u)", fig_stream_pending_count(&s));
 
-        kiln_stream_request(&s, "other", KILN_STREAM_NORMAL, 1.0f, 10, (void *)0x5678);
-        kiln_stream_frame_begin(&s);
-        KilnStreamSlot *only = kiln_stream_first_admitted(&s);
+        fig_stream_request(&s, "other", FIG_STREAM_NORMAL, 1.0f, 10, (void *)0x5678);
+        fig_stream_frame_begin(&s);
+        FigStreamSlot *only = fig_stream_first_admitted(&s);
         ok(only && strcmp(only->key, "tile") == 0,
            "the refreshed URGENT priority is what admission actually sees, "
            "not the stale NORMAL it was first requested at");
     }
 
-    /* ── Pool-full eviction, the same rule as kiln_event_post ────────── */
+    /* ── Pool-full eviction, the same rule as fig_event_post ────────── */
     {
-        KilnStream s;
-        kiln_stream_init(&s, (KilnStreamBudget){ 0, 0 });
+        FigStream s;
+        fig_stream_init(&s, (FigStreamBudget){ 0, 0 });
 
-        char keybuf[KILN_STREAM_MAX_PENDING][16];
+        char keybuf[FIG_STREAM_MAX_PENDING][16];
         int fill_ok = 1;
-        for (int i = 0; i < KILN_STREAM_MAX_PENDING; i++) {
+        for (int i = 0; i < FIG_STREAM_MAX_PENDING; i++) {
             snprintf(keybuf[i], sizeof keybuf[i], "fill%d", i);
             /* Larger i = larger rank = LESS urgent = more expendable. */
-            KilnStreamHandle h = kiln_stream_request(&s, keybuf[i], KILN_STREAM_NORMAL,
+            FigStreamHandle h = fig_stream_request(&s, keybuf[i], FIG_STREAM_NORMAL,
                                                     (float)i, 1, (void *)(intptr_t)(i + 1));
-            if (h == KILN_STREAM_HANDLE_INVALID) fill_ok = 0;
+            if (h == FIG_STREAM_HANDLE_INVALID) fill_ok = 0;
         }
         ok(fill_ok, "the pool is not full while filling it for the first time");
-        ok(kiln_stream_pending_count(&s) == KILN_STREAM_MAX_PENDING,
-           "the pool is exactly full (%u)", kiln_stream_pending_count(&s));
-        ok(kiln_stream_high_water(&s) == KILN_STREAM_MAX_PENDING,
+        ok(fig_stream_pending_count(&s) == FIG_STREAM_MAX_PENDING,
+           "the pool is exactly full (%u)", fig_stream_pending_count(&s));
+        ok(fig_stream_high_water(&s) == FIG_STREAM_MAX_PENDING,
            "high_water tracks the fullest the pool has ever been (%u)",
-           kiln_stream_high_water(&s));
+           fig_stream_high_water(&s));
 
         /* A HIGHER-priority newcomer (smaller rank) must evict the single
          * worst occupant (fill(MAX-1), the largest rank) and succeed. */
-        KilnStreamHandle evictor = kiln_stream_request(&s, "evictor", KILN_STREAM_NORMAL,
+        FigStreamHandle evictor = fig_stream_request(&s, "evictor", FIG_STREAM_NORMAL,
                                                        -1.0f, 1, (void *)999);
-        ok(evictor != KILN_STREAM_HANDLE_INVALID,
+        ok(evictor != FIG_STREAM_HANDLE_INVALID,
            "a higher-priority request evicts the worst PENDING occupant");
-        ok(kiln_stream_dropped_total(&s) == 0,
-           "an eviction is not counted as a drop (%u)", kiln_stream_dropped_total(&s));
+        ok(fig_stream_dropped_total(&s) == 0,
+           "an eviction is not counted as a drop (%u)", fig_stream_dropped_total(&s));
 
         /* A LOWER-priority newcomer than everything now resident must be
          * refused outright, and reported as a genuine drop. */
-        uint32_t dropped_before = kiln_stream_dropped_total(&s);
-        KilnStreamHandle refused = kiln_stream_request(&s, "too-low-priority", KILN_STREAM_NORMAL,
+        uint32_t dropped_before = fig_stream_dropped_total(&s);
+        FigStreamHandle refused = fig_stream_request(&s, "too-low-priority", FIG_STREAM_NORMAL,
                                                        99999.0f, 1, (void *)888);
-        ok(refused == KILN_STREAM_HANDLE_INVALID,
+        ok(refused == FIG_STREAM_HANDLE_INVALID,
            "a lower-priority request than everything resident is refused");
-        ok(kiln_stream_dropped_total(&s) == dropped_before + 1,
+        ok(fig_stream_dropped_total(&s) == dropped_before + 1,
            "and IS counted as a drop, unlike the successful eviction above (%u -> %u)",
-           dropped_before, kiln_stream_dropped_total(&s));
+           dropped_before, fig_stream_dropped_total(&s));
     }
 
     /* ── ADMITTED slots are never eviction victims ───────────────────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
+        FigStreamBudget budget = { .max_admits_per_frame = 1, .max_bytes_per_frame = 100000 };
+        FigStream s;
+        fig_stream_init(&s, budget);
 
         /* "bait" is deliberately the WORST-priority item this pool will
          * ever hold (PREFETCH, the lowest urgency tier, an enormous rank) —
          * exactly what a search that (incorrectly) considered ADMITTED
          * slots as eviction candidates would pick as "globally worst". */
-        KilnStreamHandle h_bait = kiln_stream_request(&s, "bait", KILN_STREAM_PREFETCH,
+        FigStreamHandle h_bait = fig_stream_request(&s, "bait", FIG_STREAM_PREFETCH,
                                                       1e9f, 1, (void *)1);
-        kiln_stream_frame_begin(&s);  /* only request so far: admitted regardless of priority */
-        ok(kiln_stream_admits_this_frame(&s) == 1, "bait is admitted (nothing else competing yet)");
+        fig_stream_frame_begin(&s);  /* only request so far: admitted regardless of priority */
+        ok(fig_stream_admits_this_frame(&s) == 1, "bait is admitted (nothing else competing yet)");
 
-        for (int i = 0; i < KILN_STREAM_MAX_PENDING - 1; i++) {
+        for (int i = 0; i < FIG_STREAM_MAX_PENDING - 1; i++) {
             char key[16];
             snprintf(key, sizeof key, "fill%d", i);
-            kiln_stream_request(&s, key, KILN_STREAM_NORMAL, (float)i, 1, (void *)(intptr_t)(i + 2));
+            fig_stream_request(&s, key, FIG_STREAM_NORMAL, (float)i, 1, (void *)(intptr_t)(i + 2));
         }
-        ok(kiln_stream_pending_count(&s) == KILN_STREAM_MAX_PENDING, "pool is exactly full");
+        ok(fig_stream_pending_count(&s) == FIG_STREAM_MAX_PENDING, "pool is exactly full");
 
         /* Better than the worst PENDING fill, but this must NOT be
          * satisfied by evicting "bait" even though bait looks like the
          * worse target by priority alone. */
-        KilnStreamHandle newcomer = kiln_stream_request(&s, "newcomer", KILN_STREAM_NORMAL,
+        FigStreamHandle newcomer = fig_stream_request(&s, "newcomer", FIG_STREAM_NORMAL,
                                                         -1.0f, 1, (void *)9999);
-        ok(newcomer != KILN_STREAM_HANDLE_INVALID,
+        ok(newcomer != FIG_STREAM_HANDLE_INVALID,
            "a request better than the worst PENDING fill still finds room");
-        ok(kiln_stream_cancel(&s, h_bait) == 0,
+        ok(fig_stream_cancel(&s, h_bait) == 0,
            "the ADMITTED 'bait' slot survived — eviction only ever considers PENDING slots");
     }
 
     /* ── cancel(): distinct outcomes for live vs. stale handles ──────── */
     {
-        KilnStreamBudget budget = { .max_admits_per_frame = 5, .max_bytes_per_frame = 100000 };
-        KilnStream s;
-        kiln_stream_init(&s, budget);
+        FigStreamBudget budget = { .max_admits_per_frame = 5, .max_bytes_per_frame = 100000 };
+        FigStream s;
+        fig_stream_init(&s, budget);
 
-        KilnStreamHandle h = kiln_stream_request(&s, "cancel-me", KILN_STREAM_NORMAL, 1.0f, 1, NULL);
-        ok(kiln_stream_cancel(&s, h) == 0, "cancelling a live PENDING handle succeeds");
-        ok(kiln_stream_cancel(&s, h) == -1,
+        FigStreamHandle h = fig_stream_request(&s, "cancel-me", FIG_STREAM_NORMAL, 1.0f, 1, NULL);
+        ok(fig_stream_cancel(&s, h) == 0, "cancelling a live PENDING handle succeeds");
+        ok(fig_stream_cancel(&s, h) == -1,
            "cancelling the SAME handle again is refused — it is already gone");
 
-        KilnStreamHandle h2 = kiln_stream_request(&s, "complete-me", KILN_STREAM_NORMAL, 1.0f, 1, NULL);
-        kiln_stream_frame_begin(&s);
-        kiln_stream_complete(&s, h2);
-        ok(kiln_stream_cancel(&s, h2) == -1,
+        FigStreamHandle h2 = fig_stream_request(&s, "complete-me", FIG_STREAM_NORMAL, 1.0f, 1, NULL);
+        fig_stream_frame_begin(&s);
+        fig_stream_complete(&s, h2);
+        ok(fig_stream_cancel(&s, h2) == -1,
            "cancelling an already-completed handle is refused, not applied "
            "to whatever now occupies the slot");
     }
 }
 
-/* ── kiln_voxel ─────────────────────────────────────────────────────────
+/* ── fig_voxel ─────────────────────────────────────────────────────────
  *
  * The two reductions are the whole reason this module exists, and both have
  * failure modes that render plausibly: a greedy box overlapping its neighbour
@@ -844,20 +997,20 @@ static void test_stream(void)
  */
 
 /* The world is ~100 KB; static rather than on the stack. */
-static KilnVoxelWorld g_w;
+static FigVoxelWorld g_w;
 
 /* Reference face test, deliberately written the slow obvious way: a face is
  * exposed iff the block is solid and its neighbour along the normal is air.
  * The greedy mesher must agree with this everywhere, and having two
  * independent statements of the same fact is the point. */
-static int face_exposed_ref(const KilnVoxelWorld *w, int x, int y, int z, int dir)
+static int face_exposed_ref(const FigVoxelWorld *w, int x, int y, int z, int dir)
 {
-    if (kiln_voxel_get(w, x, y, z) == KILN_VOXEL_AIR) return 0;
+    if (fig_voxel_get(w, x, y, z) == FIG_VOXEL_AIR) return 0;
     int axes[3], sign;
-    kiln_voxel_dir_axes((uint8_t)dir, axes, &sign);
+    fig_voxel_dir_axes((uint8_t)dir, axes, &sign);
     int p[3] = { x, y, z };
     p[axes[2]] += sign;
-    return kiln_voxel_get(w, p[0], p[1], p[2]) == KILN_VOXEL_AIR;
+    return fig_voxel_get(w, p[0], p[1], p[2]) == FIG_VOXEL_AIR;
 }
 
 static void test_voxel(void)
@@ -865,69 +1018,69 @@ static void test_voxel(void)
     puts("\nkiln_voxel");
 
     /* ── Chunk residency ───────────────────────────────────────────────*/
-    kiln_voxel_clear(&g_w);
-    ok(kiln_voxel_chunk_count(&g_w) == 0, "a cleared world has no chunks");
-    ok(kiln_voxel_get(&g_w, 0, 0, 0) == KILN_VOXEL_AIR, "an empty world is air");
-    ok(kiln_voxel_get(&g_w, -1, 0, 0) == KILN_VOXEL_AIR,
+    fig_voxel_clear(&g_w);
+    ok(fig_voxel_chunk_count(&g_w) == 0, "a cleared world has no chunks");
+    ok(fig_voxel_get(&g_w, 0, 0, 0) == FIG_VOXEL_AIR, "an empty world is air");
+    ok(fig_voxel_get(&g_w, -1, 0, 0) == FIG_VOXEL_AIR,
        "out of bounds reads as air, so neighbour probes need no guard");
 
-    kiln_voxel_set(&g_w, 5, 5, 5, 1);
-    ok(kiln_voxel_get(&g_w, 5, 5, 5) == 1, "a set block reads back");
-    ok(kiln_voxel_chunk_count(&g_w) == 1, "one block allocates exactly one chunk");
+    fig_voxel_set(&g_w, 5, 5, 5, 1);
+    ok(fig_voxel_get(&g_w, 5, 5, 5) == 1, "a set block reads back");
+    ok(fig_voxel_chunk_count(&g_w) == 1, "one block allocates exactly one chunk");
 
     /* Clearing air where no chunk exists must not allocate: a break aimed at
      * the sky costing a chunk slot would spend the scarce resource on nothing. */
-    kiln_voxel_set(&g_w, 200, 40, 200, KILN_VOXEL_AIR);
-    ok(kiln_voxel_chunk_count(&g_w) == 1,
+    fig_voxel_set(&g_w, 200, 40, 200, FIG_VOXEL_AIR);
+    ok(fig_voxel_chunk_count(&g_w) == 1,
        "clearing air in an absent chunk allocates nothing");
 
-    kiln_voxel_set(&g_w, 5, 5, 5, KILN_VOXEL_AIR);
-    ok(kiln_voxel_chunk_count(&g_w) == 0,
+    fig_voxel_set(&g_w, 5, 5, 5, FIG_VOXEL_AIR);
+    ok(fig_voxel_chunk_count(&g_w) == 0,
        "emptying a chunk releases its slot");
 
     /* Slot exhaustion must be REPORTED. A silently dropped edit in an editor is
      * the worst possible failure: the block simply does not appear and the user
      * assumes they mis-aimed. */
-    kiln_voxel_clear(&g_w);
+    fig_voxel_clear(&g_w);
     int refused = 0;
-    for (int i = 0; i < KILN_VOXEL_MAX_CHUNKS + 4; i++) {
+    for (int i = 0; i < FIG_VOXEL_MAX_CHUNKS + 4; i++) {
         /* Walk the chunk grid in 2D. The first version of this walked +X only
          * and ran off the end of a 16-chunk-wide grid at i == 16, where
-         * kiln_voxel_set correctly no-ops on an out-of-bounds coordinate — so
+         * fig_voxel_set correctly no-ops on an out-of-bounds coordinate — so
          * the test measured the grid width and called it the residency cap. */
-        int cx = i % KILN_VOXEL_GRID_X, cz = i / KILN_VOXEL_GRID_X;
-        int st = kiln_voxel_set(&g_w, cx * KILN_VOXEL_CHUNK, 0,
-                                     cz * KILN_VOXEL_CHUNK, 1);
-        if (st == KILN_VOXEL_EFULL) refused++;
+        int cx = i % FIG_VOXEL_GRID_X, cz = i / FIG_VOXEL_GRID_X;
+        int st = fig_voxel_set(&g_w, cx * FIG_VOXEL_CHUNK, 0,
+                                     cz * FIG_VOXEL_CHUNK, 1);
+        if (st == FIG_VOXEL_EFULL) refused++;
     }
-    ok(kiln_voxel_chunk_count(&g_w) == KILN_VOXEL_MAX_CHUNKS,
-       "residency stops at KILN_VOXEL_MAX_CHUNKS");
+    ok(fig_voxel_chunk_count(&g_w) == FIG_VOXEL_MAX_CHUNKS,
+       "residency stops at FIG_VOXEL_MAX_CHUNKS");
     ok(refused == 4, "the 4 edits past the cap each returned EFULL");
 
-    ok(kiln_voxel_set(&g_w, 0, 0, 0, KILN_VOXEL_TYPE_MAX + 1) == KILN_VOXEL_ETYPE,
+    ok(fig_voxel_set(&g_w, 0, 0, 0, FIG_VOXEL_TYPE_MAX + 1) == FIG_VOXEL_ETYPE,
        "a block type past the 16-entry CI4 palette is refused");
 
     /* ── Fill ──────────────────────────────────────────────────────────*/
-    kiln_voxel_clear(&g_w);
-    int n = kiln_voxel_fill(&g_w, 4, 4, 4, 6, 6, 6, 2);
+    fig_voxel_clear(&g_w);
+    int n = fig_voxel_fill(&g_w, 4, 4, 4, 6, 6, 6, 2);
     ok(n == 27, "an inclusive 3x3x3 fill changes 27 blocks");
-    ok(kiln_voxel_solid_count(&g_w) == 27, "and the solid count agrees");
-    ok(kiln_voxel_fill(&g_w, 4, 4, 4, 6, 6, 6, 2) == 0,
+    ok(fig_voxel_solid_count(&g_w) == 27, "and the solid count agrees");
+    ok(fig_voxel_fill(&g_w, 4, 4, 4, 6, 6, 6, 2) == 0,
        "re-filling with the same type changes nothing");
 
     /* Corners in any order: a drag selection has no reason to run +X+Y+Z. */
-    kiln_voxel_clear(&g_w);
-    ok(kiln_voxel_fill(&g_w, 6, 6, 6, 4, 4, 4, 2) == 27,
+    fig_voxel_clear(&g_w);
+    ok(fig_voxel_fill(&g_w, 6, 6, 6, 4, 4, 4, 2) == 27,
        "reversed fill corners are normalised, not rejected");
 
     /* ── Reduction 1: boxes exactly tile the solid set ─────────────────*/
-    kiln_voxel_clear(&g_w);
-    kiln_voxel_fill(&g_w, 2, 0, 2, 9, 0, 9, 1);      /* a floor slab      */
-    kiln_voxel_fill(&g_w, 2, 1, 2, 2, 3, 9, 2);      /* a wall, other type */
-    kiln_voxel_set(&g_w, 7, 2, 7, 3);                /* a lone block      */
+    fig_voxel_clear(&g_w);
+    fig_voxel_fill(&g_w, 2, 0, 2, 9, 0, 9, 1);      /* a floor slab      */
+    fig_voxel_fill(&g_w, 2, 1, 2, 2, 3, 9, 2);      /* a wall, other type */
+    fig_voxel_set(&g_w, 7, 2, 7, 3);                /* a lone block      */
 
-    static KilnBrush boxes[512];
-    int nb = kiln_voxel_boxes(&g_w, boxes, 512, NULL);
+    static FigBrush boxes[512];
+    int nb = fig_voxel_boxes(&g_w, boxes, 512, NULL);
     ok(nb > 0, "boxes were produced (%d)", nb);
 
     /* Every solid block is covered exactly once, and no air block is covered
@@ -937,16 +1090,16 @@ static void test_voxel(void)
     for (int z = 0; z < 16; z++)
     for (int y = 0; y < 8; y++)
     for (int x = 0; x < 16; x++) {
-        float cx = (float)x * KILN_VOXEL_BLOCK_UNITS + KILN_VOXEL_BLOCK_UNITS * 0.5f;
-        float cy = (float)y * KILN_VOXEL_BLOCK_UNITS + KILN_VOXEL_BLOCK_UNITS * 0.5f;
-        float cz = (float)z * KILN_VOXEL_BLOCK_UNITS + KILN_VOXEL_BLOCK_UNITS * 0.5f;
+        float cx = (float)x * FIG_VOXEL_BLOCK_UNITS + FIG_VOXEL_BLOCK_UNITS * 0.5f;
+        float cy = (float)y * FIG_VOXEL_BLOCK_UNITS + FIG_VOXEL_BLOCK_UNITS * 0.5f;
+        float cz = (float)z * FIG_VOXEL_BLOCK_UNITS + FIG_VOXEL_BLOCK_UNITS * 0.5f;
         int cover = 0;
         for (int i = 0; i < nb; i++)
             if (cx > boxes[i].mins.v[0] && cx < boxes[i].maxs.v[0] &&
                 cy > boxes[i].mins.v[1] && cy < boxes[i].maxs.v[1] &&
                 cz > boxes[i].mins.v[2] && cz < boxes[i].maxs.v[2]) cover++;
-        uint8_t b = kiln_voxel_get(&g_w, x, y, z);
-        if (b != KILN_VOXEL_AIR) {
+        uint8_t b = fig_voxel_get(&g_w, x, y, z);
+        if (b != FIG_VOXEL_AIR) {
             if (cover == 0) under++;
             else if (cover > 1) over++;
         } else if (cover > 0) phantom++;
@@ -959,35 +1112,35 @@ static void test_voxel(void)
      * and the footstep sound is decided by whichever won. */
     int mixed = 0;
     for (int i = 0; i < nb; i++) {
-        int bx = (int)(boxes[i].mins.v[0] / KILN_VOXEL_BLOCK_UNITS);
-        int by = (int)(boxes[i].mins.v[1] / KILN_VOXEL_BLOCK_UNITS);
-        int bz = (int)(boxes[i].mins.v[2] / KILN_VOXEL_BLOCK_UNITS);
-        uint8_t t = kiln_voxel_get(&g_w, bx, by, bz);
+        int bx = (int)(boxes[i].mins.v[0] / FIG_VOXEL_BLOCK_UNITS);
+        int by = (int)(boxes[i].mins.v[1] / FIG_VOXEL_BLOCK_UNITS);
+        int bz = (int)(boxes[i].mins.v[2] / FIG_VOXEL_BLOCK_UNITS);
+        uint8_t t = fig_voxel_get(&g_w, bx, by, bz);
         if (boxes[i].surface != t) mixed++;
     }
     ok(mixed == 0, "each box's surface id is its blocks' own type");
 
     /* Determinism: a `.map` export that reorders between runs makes every save
      * look like a change and destroys the diff as a review tool. */
-    static KilnBrush boxes2[512];
-    int nb2 = kiln_voxel_boxes(&g_w, boxes2, 512, NULL);
-    ok(nb2 == nb && memcmp(boxes, boxes2, (size_t)nb * sizeof(KilnBrush)) == 0,
+    static FigBrush boxes2[512];
+    int nb2 = fig_voxel_boxes(&g_w, boxes2, 512, NULL);
+    ok(nb2 == nb && memcmp(boxes, boxes2, (size_t)nb * sizeof(FigBrush)) == 0,
        "the same world yields byte-identical boxes (diffable export)");
 
     /* The cap contract: report what was needed, write nothing. A caller must be
      * able to size a buffer in one retry rather than by guessing. */
-    int tight = kiln_voxel_boxes(&g_w, boxes2, 1, NULL);
+    int tight = fig_voxel_boxes(&g_w, boxes2, 1, NULL);
     ok(tight == -nb, "an undersized cap returns -(count needed), got %d", tight);
 
     /* ── Reduction 2: quads match the reference face test ──────────────*/
-    kiln_voxel_clear(&g_w);
-    kiln_voxel_fill(&g_w, 1, 1, 1, 5, 4, 5, 1);       /* a solid block     */
-    kiln_voxel_fill(&g_w, 2, 2, 2, 4, 3, 4, KILN_VOXEL_AIR); /* hollowed out */
+    fig_voxel_clear(&g_w);
+    fig_voxel_fill(&g_w, 1, 1, 1, 5, 4, 5, 1);       /* a solid block     */
+    fig_voxel_fill(&g_w, 2, 2, 2, 4, 3, 4, FIG_VOXEL_AIR); /* hollowed out */
 
-    static KilnVoxelQuad quads[4096];
-    int slot = kiln_voxel_slot_first(&g_w);
+    static FigVoxelQuad quads[4096];
+    int slot = fig_voxel_slot_first(&g_w);
     ok(slot >= 0, "the world has a chunk to mesh");
-    int nq = kiln_voxel_quads(&g_w, slot, quads, 4096);
+    int nq = fig_voxel_quads(&g_w, slot, quads, 4096);
     ok(nq > 0, "quads were produced (%d)", nq);
 
     /* Total quad AREA must equal the number of exposed faces. Comparing areas
@@ -998,10 +1151,10 @@ static void test_voxel(void)
     for (int i = 0; i < nq; i++) area += (long)quads[i].w * quads[i].h;
 
     long ref = 0;
-    for (int z = 0; z < KILN_VOXEL_CHUNK; z++)
-    for (int y = 0; y < KILN_VOXEL_CHUNK; y++)
-    for (int x = 0; x < KILN_VOXEL_CHUNK; x++)
-        for (int d = 0; d < KILN_VOXEL_DIRS; d++)
+    for (int z = 0; z < FIG_VOXEL_CHUNK; z++)
+    for (int y = 0; y < FIG_VOXEL_CHUNK; y++)
+    for (int x = 0; x < FIG_VOXEL_CHUNK; x++)
+        for (int d = 0; d < FIG_VOXEL_DIRS; d++)
             if (face_exposed_ref(&g_w, x, y, z, d)) ref++;
 
     ok(area == ref, "merged quad area == exposed faces (%ld vs %ld)", area, ref);
@@ -1011,7 +1164,7 @@ static void test_voxel(void)
     int spurious = 0;
     for (int i = 0; i < nq; i++) {
         int axes[3], sign;
-        kiln_voxel_dir_axes(quads[i].dir, axes, &sign);
+        fig_voxel_dir_axes(quads[i].dir, axes, &sign);
         for (int v = 0; v < quads[i].h; v++)
         for (int u = 0; u < quads[i].w; u++) {
             int p[3] = { quads[i].x, quads[i].y, quads[i].z };
@@ -1026,42 +1179,42 @@ static void test_voxel(void)
      * means the faces on the seam are NOT exposed — meshing a chunk against its
      * own array instead of the world gets this wrong, and the result reads as
      * "the level is made of boxes", which would be true. */
-    kiln_voxel_clear(&g_w);
-    kiln_voxel_fill(&g_w, KILN_VOXEL_CHUNK - 2, 0, 0, KILN_VOXEL_CHUNK + 1, 0, 0, 1);
+    fig_voxel_clear(&g_w);
+    fig_voxel_fill(&g_w, FIG_VOXEL_CHUNK - 2, 0, 0, FIG_VOXEL_CHUNK + 1, 0, 0, 1);
     long seam_area = 0;
-    for (int s = kiln_voxel_slot_first(&g_w); s >= 0; s = kiln_voxel_slot_next(&g_w, s)) {
-        int c = kiln_voxel_quads(&g_w, s, quads, 4096);
+    for (int s = fig_voxel_slot_first(&g_w); s >= 0; s = fig_voxel_slot_next(&g_w, s)) {
+        int c = fig_voxel_quads(&g_w, s, quads, 4096);
         for (int i = 0; i < c; i++)
-            if (quads[i].dir == KILN_VOXEL_XP || quads[i].dir == KILN_VOXEL_XN)
+            if (quads[i].dir == FIG_VOXEL_XP || quads[i].dir == FIG_VOXEL_XN)
                 seam_area += (long)quads[i].w * quads[i].h;
     }
     ok(seam_area == 2, "a 4-long bar across a chunk seam has 2 X faces, not 4");
 
     /* Editing next to a seam must dirty the neighbour too, or its mesh keeps a
      * face where air now is. */
-    kiln_voxel_clear(&g_w);
-    kiln_voxel_set(&g_w, KILN_VOXEL_CHUNK, 0, 0, 1);       /* chunk 1 */
-    kiln_voxel_set(&g_w, KILN_VOXEL_CHUNK - 1, 0, 0, 1);   /* chunk 0, on the seam */
+    fig_voxel_clear(&g_w);
+    fig_voxel_set(&g_w, FIG_VOXEL_CHUNK, 0, 0, 1);       /* chunk 1 */
+    fig_voxel_set(&g_w, FIG_VOXEL_CHUNK - 1, 0, 0, 1);   /* chunk 0, on the seam */
     int both_dirty = 1;
-    for (int s = kiln_voxel_slot_first(&g_w); s >= 0; s = kiln_voxel_slot_next(&g_w, s))
+    for (int s = fig_voxel_slot_first(&g_w); s >= 0; s = fig_voxel_slot_next(&g_w, s))
         if (!g_w.chunks[s].dirty) both_dirty = 0;
     ok(both_dirty, "an edit on a seam marks the neighbouring chunk dirty");
 
     /* ── Raycast ───────────────────────────────────────────────────────*/
-    kiln_voxel_clear(&g_w);
-    kiln_voxel_set(&g_w, 10, 2, 2, 1);
+    fig_voxel_clear(&g_w);
+    fig_voxel_set(&g_w, 10, 2, 2, 1);
 
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
-    KilnVoxelHit h;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
+    FigVoxelHit h;
     fm_vec3_t o = {{ 2.5f * B, 2.5f * B, 2.5f * B }};
     fm_vec3_t d = {{ 1.0f, 0.0f, 0.0f }};
-    ok(kiln_voxel_raycast(&g_w, &o, &d, 100.0f * B, &h) == 1, "the ray hits");
+    ok(fig_voxel_raycast(&g_w, &o, &d, 100.0f * B, &h) == 1, "the ray hits");
     ok(h.x == 10 && h.y == 2 && h.z == 2, "and hits the right block");
     ok(h.nx == -1 && h.ny == 0 && h.nz == 0,
        "the normal faces back along the ray");
     ok(h.px == 9 && h.py == 2 && h.pz == 2,
        "the place-here cell is in FRONT of the face, not inside the wall");
-    ok(h.dir == KILN_VOXEL_XN, "the face direction is -X");
+    ok(h.dir == FIG_VOXEL_XN, "the face direction is -X");
 
     /* The distance must be the real one: 7.5 blocks from x=2.5 to the x=10
      * boundary. A fraction that is 0.999 instead of 1 is exactly what a
@@ -1070,25 +1223,25 @@ static void test_voxel(void)
        "the hit distance is 7.5 blocks (%f)", (double)h.dist / B);
 
     /* Range must be respected, or the reticle grabs blocks across the map. */
-    ok(kiln_voxel_raycast(&g_w, &o, &d, 3.0f * B, &h) == 0,
+    ok(fig_voxel_raycast(&g_w, &o, &d, 3.0f * B, &h) == 0,
        "a ray shorter than the gap does not hit");
 
     /* An unnormalised direction must behave identically — callers pass a
      * camera forward vector and will not always normalise it. */
     fm_vec3_t d2 = {{ 17.0f, 0.0f, 0.0f }};
-    KilnVoxelHit h2;
+    FigVoxelHit h2;
     /* Compared against the KNOWN 7.5 blocks, not against `h` — the range test
      * just above missed, and a miss still zeroes the out struct (deliberately),
      * so `h.dist` is 0 by this point. Comparing two results where one has been
      * invalidated is a test that passes for the wrong reason just as easily. */
-    ok(kiln_voxel_raycast(&g_w, &o, &d2, 100.0f * B, &h2) == 1 &&
+    ok(fig_voxel_raycast(&g_w, &o, &d2, 100.0f * B, &h2) == 1 &&
        h2.x == 10 && fabsf(h2.dist - 7.5f * B) < 0.01f,
        "an unnormalised direction gives the same hit and distance");
 
     /* Firing from inside a solid block reports it rather than skipping it:
      * otherwise a block placed on top of the camera is unbreakable. */
     fm_vec3_t inside = {{ 10.5f * B, 2.5f * B, 2.5f * B }};
-    ok(kiln_voxel_raycast(&g_w, &inside, &d, 100.0f * B, &h) == 1 && h.dist == 0.0f,
+    ok(fig_voxel_raycast(&g_w, &inside, &d, 100.0f * B, &h) == 1 && h.dist == 0.0f,
        "a ray starting inside a block reports it at distance 0");
 
     /* Fired from OUTSIDE the grid, looking in. This is the normal case for an
@@ -1098,7 +1251,7 @@ static void test_voxel(void)
      * the symptom is a reticle that reports nothing while a room fills the
      * screen. */
     fm_vec3_t outside = {{ -6.0f * B, 2.5f * B, 2.5f * B }};
-    ok(kiln_voxel_raycast(&g_w, &outside, &d, 100.0f * B, &h) == 1 &&
+    ok(fig_voxel_raycast(&g_w, &outside, &d, 100.0f * B, &h) == 1 &&
        h.x == 10 && h.y == 2 && h.z == 2,
        "a ray fired from outside the grid still hits a block inside it");
 
@@ -1106,65 +1259,65 @@ static void test_voxel(void)
      * test is per-axis and only the stepped axis is checked. */
     fm_vec3_t diag_o = {{ -4.0f * B, -3.0f * B, 2.5f * B }};
     fm_vec3_t diag_d = {{ 14.0f, 5.0f, 0.0f }};
-    ok(kiln_voxel_raycast(&g_w, &diag_o, &diag_d, 400.0f * B, &h) == 1,
+    ok(fig_voxel_raycast(&g_w, &diag_o, &diag_d, 400.0f * B, &h) == 1,
        "a ray approaching from outside on two axes still enters the grid");
 
     /* A ray heading AWAY from the grid must give up rather than walk the guard
      * loop to its limit. */
     fm_vec3_t away = {{ -6.0f * B, 2.5f * B, 2.5f * B }};
     fm_vec3_t away_d = {{ -1.0f, 0.0f, 0.0f }};
-    ok(kiln_voxel_raycast(&g_w, &away, &away_d, 1000.0f * B, &h) == 0,
+    ok(fig_voxel_raycast(&g_w, &away, &away_d, 1000.0f * B, &h) == 0,
        "a ray pointing away from the grid misses");
 
     /* A ray into empty space must terminate, not walk the guard loop. */
-    kiln_voxel_clear(&g_w);
-    ok(kiln_voxel_raycast(&g_w, &o, &d, 1000.0f * B, &h) == 0,
+    fig_voxel_clear(&g_w);
+    ok(fig_voxel_raycast(&g_w, &o, &d, 1000.0f * B, &h) == 0,
        "a ray through an empty world misses");
 
     /* Exactly axis-parallel components are the classic DDA divide-by-zero. */
     fm_vec3_t dz = {{ 0.0f, 0.0f, 1.0f }};
-    kiln_voxel_set(&g_w, 2, 2, 9, 4);
-    ok(kiln_voxel_raycast(&g_w, &o, &dz, 100.0f * B, &h) == 1 && h.z == 9,
+    fig_voxel_set(&g_w, 2, 2, 9, 4);
+    ok(fig_voxel_raycast(&g_w, &o, &dz, 100.0f * B, &h) == 1 && h.z == 9,
        "an axis-parallel ray does not divide by zero");
 
     /* ── Bounds ────────────────────────────────────────────────────────*/
-    kiln_voxel_clear(&g_w);
+    fig_voxel_clear(&g_w);
     int mins[3], maxs[3];
-    ok(kiln_voxel_bounds(&g_w, mins, maxs) == 0, "an empty world has no bounds");
-    kiln_voxel_set(&g_w, 3, 4, 5, 1);
-    kiln_voxel_set(&g_w, 20, 6, 7, 1);
-    ok(kiln_voxel_bounds(&g_w, mins, maxs) == 1 &&
+    ok(fig_voxel_bounds(&g_w, mins, maxs) == 0, "an empty world has no bounds");
+    fig_voxel_set(&g_w, 3, 4, 5, 1);
+    fig_voxel_set(&g_w, 20, 6, 7, 1);
+    ok(fig_voxel_bounds(&g_w, mins, maxs) == 1 &&
        mins[0] == 3 && mins[1] == 4 && mins[2] == 5 &&
        maxs[0] == 20 && maxs[1] == 6 && maxs[2] == 7,
        "bounds are the inclusive AABB over solid blocks");
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * kiln_physics
+ * fig_physics
  *
  * Stacking, which is the thing its header promised and nothing had exercised:
  * physics-demo's pyramid sank into the floor within a second the first time a
  * crate was actually spawned on top of another. Body-body correction split a
  * vertical contact by mass and pushed the lower crate into the floor brush,
- * where kiln_clip — which ignores a brush a trace starts inside — let it fall.
+ * where fig_clip — which ignores a brush a trace starts inside — let it fall.
  * The second half is the mirror image: a sleeping crate whose support is
  * removed must fall, not hang.
  * ──────────────────────────────────────────────────────────────────────── */
 static void test_physics(void)
 {
     puts("\nkiln_physics");
-    kiln_clip_set_broadphase(0);
-    kiln_clip_set_world(ROOM, ROOM_N);
+    fig_clip_set_broadphase(0);
+    fig_clip_set_world(ROOM, ROOM_N);
 
-    static KilnPhysicsBody bodies[4];
-    KilnPhysicsWorld w;
-    kiln_physics_init(&w, bodies, 4);
+    static FigPhysicsBody bodies[4];
+    FigPhysicsWorld w;
+    fig_physics_init(&w, bodies, 4);
     const fm_vec3_t h = V(10, 10, 10);
-    KilnPhysicsBody *lo  = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 10.2f, 0), h, 5.0f);
-    KilnPhysicsBody *mid = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 30.5f, 0), h, 5.0f);
-    KilnPhysicsBody *hi  = kiln_physics_spawn(&w, KILN_PHYS_DYNAMIC, V(0, FLOOR_TOP + 50.8f, 0), h, 5.0f);
+    FigPhysicsBody *lo  = fig_physics_spawn(&w, FIG_PHYS_DYNAMIC, V(0, FLOOR_TOP + 10.2f, 0), h, 5.0f);
+    FigPhysicsBody *mid = fig_physics_spawn(&w, FIG_PHYS_DYNAMIC, V(0, FLOOR_TOP + 30.5f, 0), h, 5.0f);
+    FigPhysicsBody *hi  = fig_physics_spawn(&w, FIG_PHYS_DYNAMIC, V(0, FLOOR_TOP + 50.8f, 0), h, 5.0f);
 
-    for (int f = 0; f < 300; f++) kiln_physics_step(&w, 1.0f / 60.0f);
+    for (int f = 0; f < 300; f++) fig_physics_step(&w, 1.0f / 60.0f);
 
     ok(lo->pos.v[1] - 10.0f >= FLOOR_TOP - 0.05f,
        "a crate under a three-high stack stays on the floor (bottom %.2f, floor %.2f)",
@@ -1177,7 +1330,7 @@ static void test_physics(void)
     /* Take the bottom crate away, as a punt would. */
     lo->pos.v[0] = 60.0f;
     lo->sleeping = 0;
-    for (int f = 0; f < 180; f++) kiln_physics_step(&w, 1.0f / 60.0f);
+    for (int f = 0; f < 180; f++) fig_physics_step(&w, 1.0f / 60.0f);
 
     ok(NEAR(mid->pos.v[1], FLOOR_TOP + 10.0f, 0.3f),
        "a sleeping crate falls when the crate under it is removed (y %.2f)", mid->pos.v[1]);
@@ -1191,6 +1344,7 @@ int main(void)
     test_physics();
     test_dict();
     test_cache();
+    test_cull();
     test_lod();
     test_rng();
     test_radio();

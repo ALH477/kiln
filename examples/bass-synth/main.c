@@ -21,7 +21,7 @@
 //                   as the pads; any button skips. After it, an attract tape
 //                   plays a bassline on port 1 when every pad is idle.
 //   6. Patch        Start opens a paged editor (one page per player plus a
-//                   global page); closing it SAVES through kiln_store — SD
+//                   global page); closing it SAVES through fig_store — SD
 //                   card, else the 32 KB save chip — and the HUD says which
 //                   backend took it and whether it worked. Loaded at boot.
 //   7. Visual       a fixed arc of 24 bars, 6 per player in the player's
@@ -30,10 +30,10 @@
 //                   live envelopes, clamped. It is a model of the tables (the
 //                   RSP does not hand back per-channel samples); the scope
 //                   under the status line is the real mixed output, from
-//                   kiln_audio's tap.
+//                   fig_audio's tap.
 //
 // ── What was broken ─────────────────────────────────────────────────────
-//   * SILENT. note_on never started a channel: there was no kiln_sfx_play
+//   * SILENT. note_on never started a channel: there was no fig_sfx_play
 //     anywhere, so every frequency and volume write went to idle channels.
 //   * It would have asserted the moment it did sound: a note's body plays at
 //     freq x 256 Hz, libdragon's mixer asserts above a channel's limit, and
@@ -102,9 +102,9 @@ static const char *const SCALE_NAME[SCALE_COUNT] = { "CHROM", "MAJP5", "MINP5", 
 
 // Z is not here: it is sustain.
 static const uint32_t NOTE_BUTTONS[NOTE_KEYS] = {
-    KILN_BTN_DU, KILN_BTN_DL, KILN_BTN_DD, KILN_BTN_DR,
-    KILN_BTN_CL, KILN_BTN_CD, KILN_BTN_CR, KILN_BTN_CU,
-    KILN_BTN_L,  KILN_BTN_B,  KILN_BTN_A,  KILN_BTN_R,
+    FIG_BTN_DU, FIG_BTN_DL, FIG_BTN_DD, FIG_BTN_DR,
+    FIG_BTN_CL, FIG_BTN_CD, FIG_BTN_CR, FIG_BTN_CU,
+    FIG_BTN_L,  FIG_BTN_B,  FIG_BTN_A,  FIG_BTN_R,
 };
 
 // ── Engines ───────────────────────────────────────────────────────────────
@@ -271,10 +271,10 @@ static void note_on(int player, int midi)
     // START THE CHANNELS. The old code never did, and was silent. Volume 0:
     // the envelope brings it up on this frame's update, before the mix.
     const int body_wt = n->bright >= 0.5f ? eng->wt_body_bright : eng->wt_body_dark;
-    kiln_sfx_play_ex(body_wt, n->body_ch, 2, 0.0f, PLAYER_PAN[player]);
-    kiln_sfx_play_ex(eng->wt_sub, n->sub_ch, 2, 0.0f, PLAYER_PAN[player]);
-    kiln_sfx_set_freq(n->body_ch, n->glide);
-    kiln_sfx_set_freq(n->sub_ch, n->glide * 0.5f);
+    fig_sfx_play_ex(body_wt, n->body_ch, 2, 0.0f, PLAYER_PAN[player]);
+    fig_sfx_play_ex(eng->wt_sub, n->sub_ch, 2, 0.0f, PLAYER_PAN[player]);
+    fig_sfx_set_freq(n->body_ch, n->glide);
+    fig_sfx_set_freq(n->sub_ch, n->glide * 0.5f);
     pl->last_note = (int8_t)midi;
 }
 
@@ -340,8 +340,8 @@ static void update_voices(float dt_ms)
         case ENV_RELEASE:
             n->env_level -= dt_ms / eng->release_ms;
             if (n->env_level <= 0.0f) {
-                kiln_sfx_stop(n->body_ch);
-                kiln_sfx_stop(n->sub_ch);
+                fig_sfx_stop(n->body_ch);
+                fig_sfx_stop(n->sub_ch);
                 memset(n, 0, sizeof *n);
                 continue;
             }
@@ -362,8 +362,8 @@ static void update_voices(float dt_ms)
         const float vib_depth = (pl->stick_mag2 > 0.01f ? pl->stick_mag2 : 0.0f) * 0.015f
                               + clampf(pl->cstick_y, 0.0f, 1.0f) * 0.04f;
         const float rate = n->glide * bend_ratio(clampf(pl->cstick_x, -1.0f, 1.0f)) * (1.0f + lfo * vib_depth);
-        kiln_sfx_set_freq(n->body_ch, clampf(rate, 1.0f, CH_MAX_FREQ));
-        kiln_sfx_set_freq(n->sub_ch,  clampf(rate * 0.5f, 1.0f, CH_MAX_FREQ));
+        fig_sfx_set_freq(n->body_ch, clampf(rate, 1.0f, CH_MAX_FREQ));
+        fig_sfx_set_freq(n->sub_ch,  clampf(rate * 0.5f, 1.0f, CH_MAX_FREQ));
 
         const float level = n->env_level * pl->volume * g_master_gain;
         const float drive = 1.0f + (pl->stick_y > 0.0f ? pl->stick_y : 0.0f) * 1.2f;
@@ -371,8 +371,8 @@ static void update_voices(float dt_ms)
         body = body / (1.0f + body);   // soft clip, no libm
         sub  = sub  / (1.0f + sub);
         const float pan = clampf(PLAYER_PAN[n->player] + (pl->stick_y > 0.0f ? pl->stick_y * 0.2f : 0.0f), 0.0f, 1.0f);
-        kiln_sfx_set_vol_pan(n->body_ch, body, pan);
-        kiln_sfx_set_vol_pan(n->sub_ch, sub, pan);
+        fig_sfx_set_vol_pan(n->body_ch, body, pan);
+        fig_sfx_set_vol_pan(n->sub_ch, sub, pan);
     }
 }
 
@@ -380,7 +380,7 @@ static void update_voices(float dt_ms)
 static void handle_play_input(void)
 {
     for (int p = 0; p < NPLAYERS; p++) {
-        const KilnInput *in = kiln_input_get(p + 1);
+        const FigInput *in = fig_input_get(p + 1);
         BassPlayer *pl = &g_players[p];
         pl->stick_x = in->stick_x;
         pl->stick_y = in->stick_y;
@@ -388,7 +388,7 @@ static void handle_play_input(void)
         pl->cstick_x = in->cstick_x;
         pl->cstick_y = in->cstick_y;
 
-        const uint8_t z = (in->buttons & KILN_BTN_Z) ? 1 : 0;
+        const uint8_t z = (in->buttons & FIG_BTN_Z) ? 1 : 0;
         if (!z && pl->z_held) release_sustained(p);
         pl->z_held = z;
 
@@ -443,12 +443,12 @@ static void intro_step(float t_ms)
 }
 
 // ── Attract: a bassline on port 1 (chromatic, octave 0: DU is E1) ────────
-#define B_E  KILN_BTN_DU   // E1
-#define B_G  KILN_BTN_DR   // G1
-#define B_A  KILN_BTN_CD   // A1
-#define B_B  KILN_BTN_CU   // B1
-#define B_D  KILN_BTN_A    // D2
-static const KilnInputKey BASSLINE_KEYS[] = {
+#define B_E  FIG_BTN_DU   // E1
+#define B_G  FIG_BTN_DR   // G1
+#define B_A  FIG_BTN_CD   // A1
+#define B_B  FIG_BTN_CU   // B1
+#define B_D  FIG_BTN_A    // D2
+static const FigInputKey BASSLINE_KEYS[] = {
     { .frame =   0, .buttons = B_E }, { .frame =  12 },
     { .frame =  15, .buttons = B_E }, { .frame =  22 },
     { .frame =  30, .buttons = B_G }, { .frame =  42 },
@@ -466,21 +466,21 @@ static const KilnInputKey BASSLINE_KEYS[] = {
     { .frame = 225, .buttons = B_A }, { .frame = 237 },
     { .frame = 240 },
 };
-static const KilnInputTape BASSLINE = { BASSLINE_KEYS, sizeof BASSLINE_KEYS / sizeof BASSLINE_KEYS[0], 0 };
+static const FigInputTape BASSLINE = { BASSLINE_KEYS, sizeof BASSLINE_KEYS / sizeof BASSLINE_KEYS[0], 0 };
 
 // Jump ROM .#bass-synth-patch: in the editor, turn P1's engine one step, close
 // (which SAVES), reopen — then hold, so the menu footer shows the backend and
 // the save result with no pad attached.
-static const KilnInputKey PATCH_KEYS[] = {
+static const FigInputKey PATCH_KEYS[] = {
     { .frame =  0 },
-    { .frame = 30, .buttons = KILN_BTN_DR },    { .frame = 34 },
-    { .frame = 60, .buttons = KILN_BTN_START }, { .frame = 64 },
-    { .frame = 90, .buttons = KILN_BTN_START }, { .frame = 94 },
+    { .frame = 30, .buttons = FIG_BTN_DR },    { .frame = 34 },
+    { .frame = 60, .buttons = FIG_BTN_START }, { .frame = 64 },
+    { .frame = 90, .buttons = FIG_BTN_START }, { .frame = 94 },
     { .frame = 95 },
 };
-static const KilnInputTape PATCH_TAPE = { PATCH_KEYS, sizeof PATCH_KEYS / sizeof PATCH_KEYS[0], KILN_INPUT_NO_LOOP };
+static const FigInputTape PATCH_TAPE = { PATCH_KEYS, sizeof PATCH_KEYS / sizeof PATCH_KEYS[0], FIG_INPUT_NO_LOOP };
 
-// ── Patch: kiln_store ─────────────────────────────────────────────────────
+// ── Patch: fig_store ─────────────────────────────────────────────────────
 #define PATCH_NAME    "BASSPAT"
 #define PATCH_VERSION 2
 
@@ -495,7 +495,7 @@ typedef struct __attribute__((packed)) {
     uint8_t lfo_x2;                        // Hz x 2
 } PatchState;
 
-static int      g_store_status = KILN_STORE_ENOENT;
+static int      g_store_status = FIG_STORE_ENOENT;
 static uint32_t g_store_shown_frame;       // frame the last save/load landed
 static const char *g_store_what = "load";
 
@@ -513,7 +513,7 @@ static void save_patch(uint32_t frame)
     }
     ps.master_pct = (uint8_t)(g_master_gain * 100.0f + 0.5f);
     ps.lfo_x2 = (uint8_t)(g_lfo_rate_hz * 2.0f + 0.5f);
-    g_store_status = kiln_store_write(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps);
+    g_store_status = fig_store_write(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps);
     g_store_what = "save";
     g_store_shown_frame = frame;
 }
@@ -522,9 +522,9 @@ static void load_patch(void)
 {
     PatchState ps;
     uint32_t len = 0;
-    g_store_status = kiln_store_read(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps, &len);
+    g_store_status = fig_store_read(PATCH_NAME, PATCH_VERSION, &ps, sizeof ps, &len);
     g_store_what = "load";
-    if (g_store_status != KILN_STORE_OK || len != sizeof ps) return;
+    if (g_store_status != FIG_STORE_OK || len != sizeof ps) return;
     for (int i = 0; i < NPLAYERS; i++) {
         g_players[i].engine = (int8_t)(ps.engine[i] % BASS_ENGINE_COUNT);
         g_players[i].octave = (int8_t)clampf(ps.octave[i], OCTAVE_MIN, OCTAVE_MAX);
@@ -565,21 +565,21 @@ static void menu_apply(int dir)
 
 static void handle_menu_input(uint32_t frame)
 {
-    const KilnInput *in = kiln_input_get(1);
+    const FigInput *in = fig_input_get(1);
     const int rows = g_menu_page == PAGE_GLOBAL ? GLOBAL_ROWS : PLAYER_ROWS;
-    if (in->edges & KILN_BTN_DU) g_menu_row = (g_menu_row + rows - 1) % rows;
-    if (in->edges & KILN_BTN_DD) g_menu_row = (g_menu_row + 1) % rows;
-    if (in->edges & KILN_BTN_DR) menu_apply(+1);
-    if (in->edges & KILN_BTN_DL) menu_apply(-1);
+    if (in->edges & FIG_BTN_DU) g_menu_row = (g_menu_row + rows - 1) % rows;
+    if (in->edges & FIG_BTN_DD) g_menu_row = (g_menu_row + 1) % rows;
+    if (in->edges & FIG_BTN_DR) menu_apply(+1);
+    if (in->edges & FIG_BTN_DL) menu_apply(-1);
     int page = 0;
-    if (in->edges & (KILN_BTN_R | KILN_BTN_CR)) page = 1;
-    if (in->edges & (KILN_BTN_L | KILN_BTN_CL)) page = -1;
+    if (in->edges & (FIG_BTN_R | FIG_BTN_CR)) page = 1;
+    if (in->edges & (FIG_BTN_L | FIG_BTN_CL)) page = -1;
     if (page) {
         g_menu_page = (g_menu_page + page + NPLAYERS + 1) % (NPLAYERS + 1);
         const int new_rows = g_menu_page == PAGE_GLOBAL ? GLOBAL_ROWS : PLAYER_ROWS;
         if (g_menu_row >= new_rows) g_menu_row = new_rows - 1;
     }
-    if (in->edges & KILN_BTN_START) {
+    if (in->edges & FIG_BTN_START) {
         g_menu_open = 0;
         save_patch(frame);   // on CLOSE, after the edits — it used to be on open
     }
@@ -614,31 +614,31 @@ static const char *env_name(EnvState e)
 // "sram ok", "rom readonly" — the backend that took the patch and what it said.
 static void store_line(char *buf, int cap)
 {
-    snprintf(buf, (size_t)cap, "%s %s %s", g_store_what, kiln_store_kind_name(),
-             kiln_store_status_name(g_store_status));
+    snprintf(buf, (size_t)cap, "%s %s %s", g_store_what, fig_store_kind_name(),
+             fig_store_status_name(g_store_status));
 }
 
 static void draw_status(int active)
 {
-    kiln_gui_panel(4, 4, SCREEN_W - 8, 18, PANEL, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+    fig_gui_panel(4, 4, SCREEN_W - 8, 18, PANEL, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
     // 50 characters at most: the strip is 312 px of a 6 px font.
-    kiln_gui_text(10, 16, INK, "BASS  notes %d/%d  mst %3d%%  lfo %4.1f", active, BASS_NOTES,
+    fig_gui_text(10, 16, INK, "BASS  notes %d/%d  mst %3d%%  lfo %4.1f", active, BASS_NOTES,
                   (int)(g_master_gain * 100.0f + 0.5f), (double)g_lfo_rate_hz);
-    kiln_gui_text(SCREEN_W - 64, 16, kiln_store_writable() ? TEAL : BAD, "save %s", kiln_store_kind_name());
+    fig_gui_text(SCREEN_W - 64, 16, fig_store_writable() ? TEAL : BAD, "save %s", fig_store_kind_name());
 }
 
 static void draw_scope(void)
 {
     const int y = 26;
-    kiln_gui_panel(4, y, SCREEN_W - 8, 26, PANEL, RGBA32(0x3A, 0x40, 0x5C, 0xFF));
-    kiln_gui_text(10, y + 11, DIM, "mix");
-    kiln_gui_bar(10, y + 15, 24, 5, g_scope_peak / 32768.0f, RGBA32(0xFF, 0xD9, 0x4C, 0xFF), WELL);
+    fig_gui_panel(4, y, SCREEN_W - 8, 26, PANEL, RGBA32(0x3A, 0x40, 0x5C, 0xFF));
+    fig_gui_text(10, y + 11, DIM, "mix");
+    fig_gui_bar(10, y + 15, 24, 5, g_scope_peak / 32768.0f, RGBA32(0xFF, 0xD9, 0x4C, 0xFF), WELL);
     const int mid = y + 13;
     for (int i = 1; i < SCOPE_N; i++) {
         const int x0 = 42 + (i - 1) * 268 / SCOPE_N, x1 = 42 + i * 268 / SCOPE_N;
         const int y0 = mid - (int)clampf(g_scope[i - 1] / 1200.0f, -9, 9);
         const int y1 = mid - (int)clampf(g_scope[i] / 1200.0f, -9, 9);
-        kiln_gui_line(x0, y0, x1, y1, 1, TEAL);
+        fig_gui_line(x0, y0, x1, y1, 1, TEAL);
     }
 }
 
@@ -658,22 +658,22 @@ static void draw_players(void)
             if (newest < 0 || g_notes[i].age_ms < g_notes[newest].age_ms) newest = i;
         }
 
-        kiln_gui_panel(x, y, col_w, 74, PANEL, pc);
-        kiln_gui_text(x + 4, y + 12, pc, "P%d %s", p + 1, ENGINE_NAME[pl->engine]);
-        kiln_gui_text(x + 4, y + 24, DIM, "oct%+d v%d", pl->octave, (int)(pl->volume * 100.0f + 0.5f));
-        kiln_gui_text(x + 4, y + 36, DIM, "%s %s", pl->legato ? "leg" : "rtr", SCALE_NAME[pl->scale]);
-        kiln_gui_text(x + 4, y + 48, INK, "%-3s %s", pl->last_note >= 0 ? note_name(pl->last_note, nb, sizeof nb) : "--",
+        fig_gui_panel(x, y, col_w, 74, PANEL, pc);
+        fig_gui_text(x + 4, y + 12, pc, "P%d %s", p + 1, ENGINE_NAME[pl->engine]);
+        fig_gui_text(x + 4, y + 24, DIM, "oct%+d v%d", pl->octave, (int)(pl->volume * 100.0f + 0.5f));
+        fig_gui_text(x + 4, y + 36, DIM, "%s %s", pl->legato ? "leg" : "rtr", SCALE_NAME[pl->scale]);
+        fig_gui_text(x + 4, y + 48, INK, "%-3s %s", pl->last_note >= 0 ? note_name(pl->last_note, nb, sizeof nb) : "--",
                       newest >= 0 ? env_name(g_notes[newest].env) : "---");
-        kiln_gui_bar(x + 4, y + 54, col_w - 22, 5, newest >= 0 ? g_notes[newest].env_level : 0.0f, pc, WELL);
+        fig_gui_bar(x + 4, y + 54, col_w - 22, 5, newest >= 0 ? g_notes[newest].env_level : 0.0f, pc, WELL);
 
         // Stick, as a dot in a box.
         const int bx = x + col_w - 16, by = y + 4;
-        kiln_gui_rect(bx, by, 12, 12, WELL);
-        kiln_gui_rect(bx + 5 + (int)(pl->stick_x * 4.0f), by + 5 - (int)(pl->stick_y * 4.0f), 2, 2, TEAL);
+        fig_gui_rect(bx, by, 12, 12, WELL);
+        fig_gui_rect(bx + 5 + (int)(pl->stick_x * 4.0f), by + 5 - (int)(pl->stick_y * 4.0f), 2, 2, TEAL);
         // Voices in use by this player.
-        for (int v = 0; v < voices && v < 6; v++) kiln_gui_rect(bx + 1 + v * 2, by + 16, 1, 4, pc);
+        for (int v = 0; v < voices && v < 6; v++) fig_gui_rect(bx + 1 + v * 2, by + 16, 1, 4, pc);
 
-        kiln_gui_text(x + 4, y + 70, DIM, "b%+.1f m%d", (double)pl->cstick_x, (int)(clampf(pl->cstick_y, 0, 1) * 100.0f));
+        fig_gui_text(x + 4, y + 70, DIM, "b%+.1f m%d", (double)pl->cstick_x, (int)(clampf(pl->cstick_y, 0, 1) * 100.0f));
     }
 }
 
@@ -684,16 +684,16 @@ static void draw_menu(uint32_t frame)
     const color_t accent = page_player ? rgb(PLAYER_RGB[g_menu_page]) : RGBA32(0xFF, 0xDC, 0x64, 0xFF);
     const int rows = page_player ? PLAYER_ROWS : GLOBAL_ROWS;
 
-    kiln_gui_panel(x, y, w, 30 + rows * 13 + 16, PANEL, accent);
-    if (page_player) kiln_gui_text(x + 6, y + 12, accent, "PATCH  P%d  %d/5", g_menu_page + 1, g_menu_page + 1);
-    else kiln_gui_text(x + 6, y + 12, accent, "PATCH  GLOBAL  5/5");
-    kiln_gui_text(x + 132, y + 12, DIM, "L/R page");
-    kiln_gui_text(x + 6, y + 24, DIM, "up/dn row  left/rt value");
+    fig_gui_panel(x, y, w, 30 + rows * 13 + 16, PANEL, accent);
+    if (page_player) fig_gui_text(x + 6, y + 12, accent, "PATCH  P%d  %d/5", g_menu_page + 1, g_menu_page + 1);
+    else fig_gui_text(x + 6, y + 12, accent, "PATCH  GLOBAL  5/5");
+    fig_gui_text(x + 132, y + 12, DIM, "L/R page");
+    fig_gui_text(x + 6, y + 24, DIM, "up/dn row  left/rt value");
 
     for (int r = 0; r < rows; r++) {
         const int ry = y + 30 + r * 13;
         const int sel = r == g_menu_row;
-        if (sel) kiln_gui_rect(x + 3, ry, w - 6, 12, RGBA32(0x28, 0x3C, 0x50, 0xFF));
+        if (sel) fig_gui_rect(x + 3, ry, w - 6, 12, RGBA32(0x28, 0x3C, 0x50, 0xFF));
         char label[24], value[24];
         if (page_player) {
             const BassPlayer *pl = &g_players[g_menu_page];
@@ -712,15 +712,15 @@ static void draw_menu(uint32_t frame)
             if (r == ROW_MASTER) snprintf(value, sizeof value, "%d%%", (int)(g_master_gain * 100.0f + 0.5f));
             else snprintf(value, sizeof value, "%.1f Hz", (double)g_lfo_rate_hz);
         }
-        kiln_gui_text(x + 10, ry + 10, sel ? INK : DIM, "%s", label);
-        kiln_gui_text(x + 150, ry + 10, sel ? accent : INK, "%s", value);
+        fig_gui_text(x + 10, ry + 10, sel ? INK : DIM, "%s", label);
+        fig_gui_text(x + 150, ry + 10, sel ? accent : INK, "%s", value);
     }
 
     char line[48];
     store_line(line, sizeof line);
     const int fy = y + 30 + rows * 13 + 10;
-    const int ok = g_store_status == KILN_STORE_OK || (g_store_status == KILN_STORE_ENOENT && !strcmp(g_store_what, "load"));
-    kiln_gui_text(x + 6, fy, kiln_store_writable() && ok ? TEAL : BAD, "Start: save+close  %s", line);
+    const int ok = g_store_status == FIG_STORE_OK || (g_store_status == FIG_STORE_ENOENT && !strcmp(g_store_what, "load"));
+    fig_gui_text(x + 6, fy, fig_store_writable() && ok ? TEAL : BAD, "Start: save+close  %s", line);
     (void)frame;
 }
 
@@ -749,28 +749,28 @@ static void load_wavetables(void)
     for (int e = 0; e < BASS_ENGINE_COUNT; e++) {
         char path[64];
         snprintf(path, sizeof path, "rom:/sfx/bass_%s_body_bright.wav64", E[e]);
-        g_engine[e].wt_body_bright = kiln_sfx_load(path);
+        g_engine[e].wt_body_bright = fig_sfx_load(path);
         snprintf(path, sizeof path, "rom:/sfx/bass_%s_body_dark.wav64", E[e]);
-        g_engine[e].wt_body_dark = kiln_sfx_load(path);
+        g_engine[e].wt_body_dark = fig_sfx_load(path);
         snprintf(path, sizeof path, "rom:/sfx/bass_%s_sub.wav64", E[e]);
-        g_engine[e].wt_sub = kiln_sfx_load(path);
+        g_engine[e].wt_sub = fig_sfx_load(path);
     }
 }
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     // Mount the ROM's DragonFS before anything opens rom:/.
     dfs_init(DFS_DEFAULT_LOCATION);
     joypad_init();
-    kiln_input_init();
+    fig_input_init();
 
-    kiln_audio_init((KilnAudioConfig){
+    fig_audio_init((FigAudioConfig){
         .sample_rate = SAMPLE_RATE, .latency = 0.16f, .sfx_channels = BASS_CHANS, .music_channels = 0,
     });
     // A body plays at note Hz x 256; the default limit (32 kHz) is about B1.
     for (int ch = 0; ch < BASS_CHANS; ch++) mixer_ch_set_limits(ch, 16, CH_MAX_FREQ, 0);
-    kiln_audio_set_tap(scope_tap, NULL);
+    fig_audio_set_tap(scope_tap, NULL);
 
     build_midi_table();
     load_wavetables();
@@ -780,36 +780,36 @@ int main(void)
             .portamento_ms = 120, .volume = 1.0f, .last_note = -1, .held_button = -1,
         };
     }
-    kiln_store_init(KILN_STORE_CART_SD);
+    fig_store_init(FIG_STORE_CART_SD);
     load_patch();   // defaults stand when there is no patch yet
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x14, 0x10, 0x24, 0xFF), 150.0f, 320.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x14, 0x10, 0x24, 0xFF), 150.0f, 320.0f);
     scene.fov_deg = 60.0f;
     scene.near_z = 10.0f;
     scene.far_z = 320.0f;
 
-    KilnPrim floor_prim, bar_lit[NPLAYERS], bar_dim[NPLAYERS], pad[NPLAYERS];
-    kiln_prim_floor(&floor_prim, 180.0f, 16, kiln_prim_rgba(0x40, 0x3C, 0x5C), kiln_prim_rgba(0x34, 0x30, 0x4E));
+    FigPrim floor_prim, bar_lit[NPLAYERS], bar_dim[NPLAYERS], pad[NPLAYERS];
+    fig_prim_floor(&floor_prim, 180.0f, 16, fig_prim_rgba(0x40, 0x3C, 0x5C), fig_prim_rgba(0x34, 0x30, 0x4E));
     for (int p = 0; p < NPLAYERS; p++) {
         const uint32_t c = PLAYER_RGB[p];
-        kiln_prim_box(&bar_lit[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
-                      kiln_prim_shade(c, 1.25f), c, kiln_prim_shade(c, 0.5f));
-        kiln_prim_box(&bar_dim[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
-                      kiln_prim_shade(c, 0.5f), kiln_prim_shade(c, 0.3f), kiln_prim_shade(c, 0.2f));
-        kiln_prim_box(&pad[p], (fm_vec3_t){{ 0, 1, 0 }}, (fm_vec3_t){{ 22, 1, 7 }},
-                      kiln_prim_shade(c, 0.35f), kiln_prim_shade(c, 0.25f), kiln_prim_rgba(0x10, 0x10, 0x18));
+        fig_prim_box(&bar_lit[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
+                      fig_prim_shade(c, 1.25f), c, fig_prim_shade(c, 0.5f));
+        fig_prim_box(&bar_dim[p], (fm_vec3_t){{ 0, 10, 0 }}, (fm_vec3_t){{ 3, 10, 3 }},
+                      fig_prim_shade(c, 0.5f), fig_prim_shade(c, 0.3f), fig_prim_shade(c, 0.2f));
+        fig_prim_box(&pad[p], (fm_vec3_t){{ 0, 1, 0 }}, (fm_vec3_t){{ 22, 1, 7 }},
+                      fig_prim_shade(c, 0.35f), fig_prim_shade(c, 0.25f), fig_prim_rgba(0x10, 0x10, 0x18));
     }
 
     // The arc: 24 bars on a fixed 110-degree sweep in front of a fixed
     // camera, player 1 on the left. Fixed so that nothing ever scales or
     // swings out of the frustum, which is what the old cubes did.
     enum { ARC = NPLAYERS * ARC_BARS };
-    KilnTransform floor_xf, bar_xf[ARC], pad_xf[NPLAYERS];
-    kiln_transform_init(&floor_xf);
+    FigTransform floor_xf, bar_xf[ARC], pad_xf[NPLAYERS];
+    fig_transform_init(&floor_xf);
     for (int i = 0; i < ARC; i++) {
-        kiln_transform_init(&bar_xf[i]);
+        fig_transform_init(&bar_xf[i]);
         const int p = i / ARC_BARS, k = i % ARC_BARS;
         const float a = (-55.0f + 110.0f * ((float)p * (ARC_BARS + 1) + k) / (NPLAYERS * (ARC_BARS + 1) - 2)) * 0.0174533f;
         bar_xf[i].pos = (fm_vec3_t){{ -fm_sinf(a) * 80.0f, 0, fm_cosf(a) * 80.0f - 20.0f }};
@@ -817,7 +817,7 @@ int main(void)
         bar_xf[i].rot_angle = a;
     }
     for (int p = 0; p < NPLAYERS; p++) {
-        kiln_transform_init(&pad_xf[p]);
+        fig_transform_init(&pad_xf[p]);
         const float a = (-55.0f + 110.0f * ((float)p * (ARC_BARS + 1) + 2.5f) / (NPLAYERS * (ARC_BARS + 1) - 2)) * 0.0174533f;
         pad_xf[p].pos = (fm_vec3_t){{ -fm_sinf(a) * 80.0f, 0, fm_cosf(a) * 80.0f - 20.0f }};
         pad_xf[p].rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
@@ -825,12 +825,12 @@ int main(void)
     }
     scene.cam_pos = (fm_vec3_t){{ 0, 70, -95 }};
     scene.cam_target = (fm_vec3_t){{ 0, 6, 40 }};
-    kiln_scene_update(&scene);
+    fig_scene_update(&scene);
 
     if (KILN_JUMP == JUMP_PATCH) {
         g_intro_active = 0;
         g_menu_open = 1;
-        kiln_input_play(1, &PATCH_TAPE);
+        fig_input_play(1, &PATCH_TAPE);
     }
 
     uint32_t last_ticks = get_ticks(), frame = 0;
@@ -842,18 +842,18 @@ int main(void)
         last_ticks = ticks;
         frame++;
 
-        kiln_input_update();
+        fig_input_update();
 
         if (g_intro_active) {
             intro_ms += dt_ms;
             int skip = 0;
-            for (int p = 1; p <= NPLAYERS; p++) skip |= kiln_input_get(p)->edges != 0;
+            for (int p = 1; p <= NPLAYERS; p++) skip |= fig_input_get(p)->edges != 0;
             if (skip || intro_ms >= INTRO_TOTAL_MS) {
                 release_all();
                 g_intro_active = 0;
                 // Armed only now: armed at boot, it would count the intro as
                 // idle and its first press would skip the intro.
-                kiln_input_set_attract(1, &BASSLINE, 240);
+                fig_input_set_attract(1, &BASSLINE, 240);
             } else {
                 intro_step(intro_ms);
             }
@@ -861,7 +861,7 @@ int main(void)
             handle_menu_input(frame);
         } else {
             handle_play_input();
-            if (kiln_input_get(1)->edges & KILN_BTN_START) {
+            if (fig_input_get(1)->edges & FIG_BTN_START) {
                 release_all();
                 g_menu_open = 1;
             }
@@ -873,51 +873,51 @@ int main(void)
         for (int i = 0; i < BASS_NOTES; i++) active += g_notes[i].active;
 
         // ── 3D ──────────────────────────────────────────────────────────
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
-        kiln_transform_push(&floor_xf); kiln_prim_draw(&floor_prim); kiln_transform_pop();
+        fig_frame_begin();
+        fig_scene_begin(&scene);
+        fig_transform_push(&floor_xf); fig_prim_draw(&floor_prim); fig_transform_pop();
         for (int p = 0; p < NPLAYERS; p++) {
-            kiln_transform_push(&pad_xf[p]); kiln_prim_draw(&pad[p]); kiln_transform_pop();
+            fig_transform_push(&pad_xf[p]); fig_prim_draw(&pad[p]); fig_transform_pop();
         }
         for (int i = 0; i < ARC; i++) {
             const int p = i / ARC_BARS, k = i % ARC_BARS;
             const float lvl = bar_level(p, k);
             bar_xf[i].scale = (fm_vec3_t){{ 1.0f, 0.15f + 2.2f * lvl, 1.0f }};
-            kiln_transform_push(&bar_xf[i]);
-            kiln_prim_draw(lvl > 0.02f ? &bar_lit[p] : &bar_dim[p]);
-            kiln_transform_pop();
+            fig_transform_push(&bar_xf[i]);
+            fig_prim_draw(lvl > 0.02f ? &bar_lit[p] : &bar_dim[p]);
+            fig_transform_pop();
         }
 
         // ── 2D ──────────────────────────────────────────────────────────
-        kiln_gui_begin();
+        fig_gui_begin();
         draw_status(active);
         if (!g_intro_active && !g_menu_open) draw_scope();
         if (g_intro_active) {
-            kiln_gui_panel(40, 30, 240, 44, PANEL, TEAL);
-            kiln_gui_text(48, 44, TEAL, "KILN BASS SYNTH");
-            kiln_gui_text(48, 56, INK, "4 pads, 4 engines, 12 notes each");
-            kiln_gui_text(48, 68, DIM, "intro %d.%ds  any button skips", (int)(intro_ms / 1000.0f),
+            fig_gui_panel(40, 30, 240, 44, PANEL, TEAL);
+            fig_gui_text(48, 44, TEAL, "KILN BASS SYNTH");
+            fig_gui_text(48, 56, INK, "4 pads, 4 engines, 12 notes each");
+            fig_gui_text(48, 68, DIM, "intro %d.%ds  any button skips", (int)(intro_ms / 1000.0f),
                           (int)(intro_ms / 100.0f) % 10);
-            kiln_gui_bar(40, 76, 240, 4, intro_ms / INTRO_TOTAL_MS, TEAL, WELL);
+            fig_gui_bar(40, 76, 240, 4, intro_ms / INTRO_TOTAL_MS, TEAL, WELL);
         }
         // A save or load result, shown for three seconds after it lands.
         if (!g_menu_open && frame - g_store_shown_frame < 180 && g_store_shown_frame) {
             char line[48];
             store_line(line, sizeof line);
-            kiln_gui_panel(80, 56, 160, 16, PANEL, g_store_status == KILN_STORE_OK ? TEAL : BAD);
-            kiln_gui_text(86, 68, g_store_status == KILN_STORE_OK ? TEAL : BAD, "%s", line);
+            fig_gui_panel(80, 56, 160, 16, PANEL, g_store_status == FIG_STORE_OK ? TEAL : BAD);
+            fig_gui_text(86, 68, g_store_status == FIG_STORE_OK ? TEAL : BAD, "%s", line);
         }
-        if (kiln_input_scripted(1) && !g_menu_open) {
-            kiln_gui_panel(SCREEN_W - 58, 56, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, 68, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+        if (fig_input_scripted(1) && !g_menu_open) {
+            fig_gui_panel(SCREEN_W - 58, 56, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF), RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
+            fig_gui_text(SCREEN_W - 49, 68, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
         // The editor covers the player columns rather than sliding under them:
         // it is 6 rows plus the save line, and the columns start at y 162.
         if (g_menu_open) draw_menu(frame);
         else draw_players();
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_end();
+        fig_frame_end();
 
-        kiln_audio_update();
+        fig_audio_update();
     }
 }

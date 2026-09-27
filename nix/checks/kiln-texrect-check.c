@@ -56,7 +56,7 @@ int main(void)
     rdpq_set_mode_standard();
 
     CHECK(rdpq_sprite_upload(TILE0, sp, NULL) == 16, "upload did not report 16 bytes");
-    CHECK(kiln_host_tmem_used() == 16, "TMEM holds %d bytes, expected 16", kiln_host_tmem_used());
+    CHECK(fig_host_tmem_used() == 16, "TMEM holds %d bytes, expected 16", fig_host_tmem_used());
 
     /* ── scale ── */
     rdpq_mode_combiner(RDPQ_COMBINER_TEX);

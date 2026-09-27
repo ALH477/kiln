@@ -5,16 +5,16 @@
 // on screen:
 //
 //   models/{interceptor,torus,sphere,cone,cube}.t3dm
-//                       -> kiln_asset_model, loaded out of the pak on demand
+//                       -> fig_asset_model, loaded out of the pak on demand
 //                          and shown on a lit turntable
-//   sprites/logo.sprite -> kiln_asset_sprite, bouncing in the 2D pass
+//   sprites/logo.sprite -> fig_asset_sprite, bouncing in the 2D pass
 //   sfx/blip.wav64      -> loose DFS, because wav64_open has no buffer form: a
 //                          blip on every bounce, measured back off the mixer's
 //                          own output as a VU bar
 //
-// The HUD reads the pak rather than restating it: kiln_asset_count for how many
-// documents it holds, kiln_asset_find_suffix for how many are models, and
-// kiln_asset_exists / kiln_asset_size for each key — so a key that fell out of
+// The HUD reads the pak rather than restating it: fig_asset_count for how many
+// documents it holds, fig_asset_find_suffix for how many are models, and
+// fig_asset_exists / fig_asset_size for each key — so a key that fell out of
 // the build is a red line, not a blank turntable. (A StreamDB index entry
 // carries no key string, so the key NAMES come from the table below; whether
 // each one is really in the pak comes from the pak.)
@@ -67,16 +67,16 @@ static const PakEntry PAK[] = {
 
 // ── Tapes ───────────────────────────────────────────────────────────────
 // Five seconds a model, with two kicks of the logo in between.
-static const KilnInputKey ATTRACT_KEYS[] = {
+static const FigInputKey ATTRACT_KEYS[] = {
     { .frame =   0 },
-    { .frame =  50, .buttons = KILN_BTN_A },
+    { .frame =  50, .buttons = FIG_BTN_A },
     { .frame =  56 },
-    { .frame = 190, .buttons = KILN_BTN_A },
+    { .frame = 190, .buttons = FIG_BTN_A },
     { .frame = 196 },
-    { .frame = 294, .buttons = KILN_BTN_DR },
+    { .frame = 294, .buttons = FIG_BTN_DR },
     { .frame = 300 },
 };
-static const KilnInputTape ATTRACT = { ATTRACT_KEYS, 7, 0 };
+static const FigInputTape ATTRACT = { ATTRACT_KEYS, 7, 0 };
 
 // ── The model on the turntable ──────────────────────────────────────────
 static T3DModel *g_model;
@@ -91,7 +91,7 @@ static int count_cb(const streamdb_emb_doc_t *doc, void *user)
     return 0;
 }
 
-static void show_model(const KilnAsset *db, int idx)
+static void show_model(const FigAsset *db, int idx)
 {
     if (g_model) {
         t3d_model_free(g_model);
@@ -100,7 +100,7 @@ static void show_model(const KilnAsset *db, int idx)
     g_index = idx;
     const char *key = PAK[idx].key;
     const uint64_t t0 = get_ticks_us();
-    g_model = kiln_asset_model(db, key, strlen(key));
+    g_model = fig_asset_model(db, key, strlen(key));
     g_load_us = (uint32_t)(get_ticks_us() - t0);
     if (!g_model) return;   /* the HUD shows it red; nothing to draw */
 
@@ -177,66 +177,66 @@ static void logo_step(Logo *l, float size, wav64_t *blip)
 int main(void)
 {
     debug_init_isviewer();
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     dfs_init(DFS_DEFAULT_LOCATION);
     joypad_init();
-    kiln_input_init();
+    fig_input_init();
 
     audio_init(SAMPLE_RATE, 4);
     mixer_init(1);
     wav64_t blip;
     wav64_open(&blip, "rom:/sfx/blip.wav64");
 
-    const size_t need = kiln_asset_probe_size(PAK_PATH);
+    const size_t need = fig_asset_probe_size(PAK_PATH);
     assertf(need > 0, "assets-demo: %s not found / probe failed", PAK_PATH);
     void *arena = malloc(need);
     assertf(arena, "assets-demo: arena malloc %zu failed", need);
-    KilnAsset *db = kiln_asset_open(PAK_PATH, arena, need);
-    assertf(db, "assets-demo: kiln_asset_open failed");
+    FigAsset *db = fig_asset_open(PAK_PATH, arena, need);
+    assertf(db, "assets-demo: fig_asset_open failed");
 
     /* What the pak itself says it holds. */
-    const uint32_t doc_count = kiln_asset_count(db);
+    const uint32_t doc_count = fig_asset_count(db);
     int t3dm_count = 0;
-    kiln_asset_find_suffix(db, ".t3dm", 5, count_cb, &t3dm_count);
+    fig_asset_find_suffix(db, ".t3dm", 5, count_cb, &t3dm_count);
     int present[PAK_KEYS];
     uint32_t bytes[PAK_KEYS];
     for (int i = 0; i < PAK_KEYS; i++) {
         const size_t n = strlen(PAK[i].key);
-        present[i] = kiln_asset_exists(db, PAK[i].key, n);
-        bytes[i] = (uint32_t)kiln_asset_size(db, PAK[i].key, n);
+        present[i] = fig_asset_exists(db, PAK[i].key, n);
+        bytes[i] = (uint32_t)fig_asset_size(db, PAK[i].key, n);
     }
 
-    sprite_t *logo = kiln_asset_sprite(db, PAK[PAK_MODELS].key, strlen(PAK[PAK_MODELS].key));
+    sprite_t *logo = fig_asset_sprite(db, PAK[PAK_MODELS].key, strlen(PAK[PAK_MODELS].key));
     show_model(db, 0);
 
     // ── stage ───────────────────────────────────────────────────────────
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x58, 0x64, 0x88, 0xFF), 260.0f, 520.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x58, 0x64, 0x88, 0xFF), 260.0f, 520.0f);
     scene.fov_deg = 58.0f;
     scene.near_z = 6.0f;
     scene.far_z = 600.0f;
 
-    KilnPrim floor, plinth, table;
-    kiln_prim_floor(&floor, 260.0f, 12, kiln_prim_rgba(0x8C, 0x92, 0xA8), kiln_prim_rgba(0x6C, 0x72, 0x88));
-    kiln_prim_box(&plinth, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 40, TABLE_TOP / 2 - 2, 40 }},
-                  kiln_prim_rgba(0x50, 0x54, 0x64), kiln_prim_rgba(0x3C, 0x40, 0x4C),
-                  kiln_prim_rgba(0x20, 0x20, 0x28));
-    kiln_prim_box(&table, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 46, 2, 46 }},
-                  kiln_prim_rgba(0xE8, 0xA0, 0x48), kiln_prim_rgba(0xB0, 0x70, 0x30),
-                  kiln_prim_rgba(0x60, 0x40, 0x20));
+    FigPrim floor, plinth, table;
+    fig_prim_floor(&floor, 260.0f, 12, fig_prim_rgba(0x8C, 0x92, 0xA8), fig_prim_rgba(0x6C, 0x72, 0x88));
+    fig_prim_box(&plinth, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 40, TABLE_TOP / 2 - 2, 40 }},
+                  fig_prim_rgba(0x50, 0x54, 0x64), fig_prim_rgba(0x3C, 0x40, 0x4C),
+                  fig_prim_rgba(0x20, 0x20, 0x28));
+    fig_prim_box(&table, (fm_vec3_t){{ 0, 0, 0 }}, (fm_vec3_t){{ 46, 2, 46 }},
+                  fig_prim_rgba(0xE8, 0xA0, 0x48), fig_prim_rgba(0xB0, 0x70, 0x30),
+                  fig_prim_rgba(0x60, 0x40, 0x20));
 
-    KilnTransform xf_floor, xf_plinth, xf_table, xf_model;
-    kiln_transform_init(&xf_floor);
-    kiln_transform_init(&xf_plinth);
-    kiln_transform_init(&xf_table);
-    kiln_transform_init(&xf_model);
+    FigTransform xf_floor, xf_plinth, xf_table, xf_model;
+    fig_transform_init(&xf_floor);
+    fig_transform_init(&xf_plinth);
+    fig_transform_init(&xf_table);
+    fig_transform_init(&xf_model);
     xf_plinth.pos = (fm_vec3_t){{ 0, TABLE_TOP / 2 - 2, 0 }};
     xf_table.pos = (fm_vec3_t){{ 0, TABLE_TOP - 2, 0 }};
     xf_table.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
     xf_model.rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
 
-    if (KILN_JUMP == JUMP_NONE) kiln_input_set_attract(1, &ATTRACT, 180);
+    if (KILN_JUMP == JUMP_NONE) fig_input_set_attract(1, &ATTRACT, 180);
 
     const float logo_size = (logo ? logo->width : 32) * LOGO_SCALE;
     Logo lg = { .x = BOX_X + 20, .y = BOX_Y + 4, .vx = 1.8f };
@@ -244,16 +244,16 @@ int main(void)
     int kick_dir = 1;
 
     for (;;) {
-        kiln_input_update();
-        const KilnInput *in = kiln_input_get(1);
+        fig_input_update();
+        const FigInput *in = fig_input_get(1);
         const float dt = 1.0f / 60.0f;
         t += dt;
 
         if (KILN_JUMP == JUMP_NONE) {
-            if (in->edges & KILN_BTN_DR) show_model(db, (g_index + 1) % PAK_MODELS);
-            if (in->edges & KILN_BTN_DL) show_model(db, (g_index + PAK_MODELS - 1) % PAK_MODELS);
+            if (in->edges & FIG_BTN_DR) show_model(db, (g_index + 1) % PAK_MODELS);
+            if (in->edges & FIG_BTN_DL) show_model(db, (g_index + PAK_MODELS - 1) % PAK_MODELS);
         }
-        if (in->edges & KILN_BTN_A) { logo_kick(&lg, kick_dir); kick_dir = -kick_dir; }
+        if (in->edges & FIG_BTN_A) { logo_kick(&lg, kick_dir); kick_dir = -kick_dir; }
 
         /* Left alone, the logo is kicked again after a second at rest. */
         if (lg.rest > 60) { logo_kick(&lg, kick_dir); kick_dir = -kick_dir; }
@@ -273,30 +273,30 @@ int main(void)
          * 132 units filled half the frame and hid behind the key list. */
         scene.cam_target = (fm_vec3_t){{ 44, TABLE_TOP + MODEL_RADIUS + 30, 0 }};
         scene.cam_pos = (fm_vec3_t){{ 52 + 10 * fm_sinf(t * 0.35f), 100, -170 }};
-        kiln_scene_update(&scene);
+        fig_scene_update(&scene);
 
         // ── 3D ──────────────────────────────────────────────────────────
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
+        fig_frame_begin();
+        fig_scene_begin(&scene);
 
-        kiln_transform_push(&xf_floor);  kiln_prim_draw(&floor);  kiln_transform_pop();
-        kiln_transform_push(&xf_plinth); kiln_prim_draw(&plinth); kiln_transform_pop();
-        kiln_transform_push(&xf_table);  kiln_prim_draw(&table);  kiln_transform_pop();
+        fig_transform_push(&xf_floor);  fig_prim_draw(&floor);  fig_transform_pop();
+        fig_transform_push(&xf_plinth); fig_prim_draw(&plinth); fig_transform_pop();
+        fig_transform_push(&xf_table);  fig_prim_draw(&table);  fig_transform_pop();
         if (g_model) {
-            kiln_transform_push(&xf_model);
+            fig_transform_push(&xf_model);
             t3d_model_draw(g_model);
-            kiln_transform_pop();
+            fig_transform_pop();
         }
 
         // ── 2D ──────────────────────────────────────────────────────────
-        kiln_gui_begin();
+        fig_gui_begin();
         const color_t ink = RGBA32(0xE8, 0xE8, 0xF0, 0xFF);
         const color_t teal = RGBA32(0x00, 0xF5, 0xD4, 0xFF);
         const color_t dim = RGBA32(0x98, 0xA0, 0xB8, 0xFF);
         const color_t red = RGBA32(0xFF, 0x50, 0x50, 0xFF);
         const color_t navy = RGBA32(0x0C, 0x10, 0x1C, 0xFF);
 
-        kiln_gui_panel(BOX_X, BOX_Y, BOX_W, BOX_H, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        fig_gui_panel(BOX_X, BOX_Y, BOX_W, BOX_H, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
         if (logo) {
             const float sq = lg.squash > 0.0f ? lg.squash * 0.3f : 0.0f;
             const float sx = LOGO_SCALE * (1.0f + sq), sy = LOGO_SCALE * (1.0f - sq);
@@ -305,43 +305,43 @@ int main(void)
             rdpq_sprite_blit(logo, lg.x + (logo_size - w) / 2, lg.y + (logo_size - h),
                              &(rdpq_blitparms_t){ .scale_x = sx, .scale_y = sy });
         } else {
-            kiln_gui_text(BOX_X + 8, BOX_Y + 44, red, "logo MISSING");
+            fig_gui_text(BOX_X + 8, BOX_Y + 44, red, "logo MISSING");
         }
         /* VU: the peak of what the mixer actually wrote, decaying. */
         const color_t vu_c = vu > 0.8f ? red : (vu > 0.45f ? RGBA32(0xFF, 0xD0, 0x40, 0xFF) : teal);
-        kiln_gui_panel(BOX_X, BOX_Y + BOX_H + 4, BOX_W, 30, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(BOX_X + 6, BOX_Y + BOX_H + 16, dim, "VU");
-        kiln_gui_bar(BOX_X + 22, BOX_Y + BOX_H + 9, BOX_W - 28, 7, vu, vu_c, RGBA32(0x30, 0x34, 0x44, 0xFF));
-        kiln_gui_text(BOX_X + 6, BOX_Y + BOX_H + 29, dim, "bounce %d", lg.bounces);
+        fig_gui_panel(BOX_X, BOX_Y + BOX_H + 4, BOX_W, 30, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        fig_gui_text(BOX_X + 6, BOX_Y + BOX_H + 16, dim, "VU");
+        fig_gui_bar(BOX_X + 22, BOX_Y + BOX_H + 9, BOX_W - 28, 7, vu, vu_c, RGBA32(0x30, 0x34, 0x44, 0xFF));
+        fig_gui_text(BOX_X + 6, BOX_Y + BOX_H + 29, dim, "bounce %d", lg.bounces);
 
-        kiln_gui_panel(8, 8, 176, 124, navy, teal);
-        kiln_gui_text(14, 21, teal, "KILN ASSETS  streamdb pak");
-        kiln_gui_text(14, 33, ink, "docs %lu  .t3dm %d", (unsigned long)doc_count, t3dm_count);
+        fig_gui_panel(8, 8, 176, 124, navy, teal);
+        fig_gui_text(14, 21, teal, "KILN ASSETS  streamdb pak");
+        fig_gui_text(14, 33, ink, "docs %lu  .t3dm %d", (unsigned long)doc_count, t3dm_count);
         for (int i = 0; i < PAK_KEYS; i++) {
             const int y = 47 + i * 11;
             const int cur = i == g_index;
             const color_t c = !present[i] ? red : (cur ? teal : dim);
-            kiln_gui_text(14, y, c, "%c %-17s%5.1fK", cur ? '>' : ' ', PAK[i].file,
+            fig_gui_text(14, y, c, "%c %-17s%5.1fK", cur ? '>' : ' ', PAK[i].file,
                           (float)bytes[i] / 1024.0f);
         }
         if (g_model) {
-            kiln_gui_text(14, 114, ink, "verts %u  load %.1f ms",
+            fig_gui_text(14, 114, ink, "verts %u  load %.1f ms",
                           g_model->totalVertCount, (float)g_load_us / 1000.0f);
         } else {
-            kiln_gui_text(14, 114, red, "%s did not load", PAK[g_index].file);
+            fig_gui_text(14, 114, red, "%s did not load", PAK[g_index].file);
         }
-        kiln_gui_text(14, 126, dim, "sfx/blip.wav64 loose DFS");
+        fig_gui_text(14, 126, dim, "sfx/blip.wav64 loose DFS");
 
-        if (kiln_input_scripted(1)) {
-            kiln_gui_panel(SCREEN_W - 58, SCREEN_H - 44, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
+        if (fig_input_scripted(1)) {
+            fig_gui_panel(SCREEN_W - 58, SCREEN_H - 44, 50, 16, RGBA32(0xC0, 0x30, 0x60, 0xFF),
                            RGBA32(0xFF, 0xFF, 0xFF, 0xFF));
-            kiln_gui_text(SCREEN_W - 49, SCREEN_H - 32, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
+            fig_gui_text(SCREEN_W - 49, SCREEN_H - 32, RGBA32(0xFF, 0xFF, 0xFF, 0xFF), "DEMO");
         }
-        kiln_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
-        kiln_gui_text(14, SCREEN_H - 12, ink, "D< D> model    A kick the logo");
+        fig_gui_panel(8, SCREEN_H - 24, SCREEN_W - 16, 16, navy, RGBA32(0x8B, 0x5C, 0xF6, 0xFF));
+        fig_gui_text(14, SCREEN_H - 12, ink, "D< D> model    A kick the logo");
 
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_end();
+        fig_frame_end();
 
         float peak = 0.0f;
         while (audio_can_write()) {

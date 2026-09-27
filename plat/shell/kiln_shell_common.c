@@ -34,7 +34,7 @@ static const char *USAGE =
 "  --mute\n"
 "  --help\n";
 
-int kiln_shell_args(int argc, char **argv, KilnShellOpts *o)
+int fig_shell_args(int argc, char **argv, FigShellOpts *o)
 {
     memset(o, 0, sizeof *o);
     o->fps = 60;
@@ -58,7 +58,7 @@ int kiln_shell_args(int argc, char **argv, KilnShellOpts *o)
         else if (!strcmp(a, "--help") || !strcmp(a, "-h")) {
             fputs(USAGE, stdout);
             fputs("\n", stdout);
-            fputs(kiln_shell_keymap_text(), stdout);
+            fputs(fig_shell_keymap_text(), stdout);
             return 1;
         } else {
             fprintf(stderr, "unknown option: %s\n\n%s", a, USAGE);
@@ -70,17 +70,17 @@ int kiln_shell_args(int argc, char **argv, KilnShellOpts *o)
     return 0;
 }
 
-#ifndef KILN_SHELL_DEFAULT_DFS
-#  define KILN_SHELL_DEFAULT_DFS ""
+#ifndef FIG_SHELL_DEFAULT_DFS
+#  define FIG_SHELL_DEFAULT_DFS ""
 #endif
 
-static KilnShellOpts g_opts;
+static FigShellOpts g_opts;
 static int g_frames_seen;      /* vsyncs, i.e. frames STARTED  */
 static int g_presents;         /* present hook calls actually made */
 
-void kiln_shell_presented(void) { g_presents++; }
+void fig_shell_presented(void) { g_presents++; }
 
-void kiln_shell_tick(void)
+void fig_shell_tick(void)
 {
     /* On the vsync path on purpose. The frame limit used to live in the
      * present hook, which meant that breaking the present hook removed the
@@ -100,11 +100,11 @@ void kiln_shell_tick(void)
          * here as "presented 0" over a perfectly good framebuffer, which is
          * exactly the failure the old arrangement could not report. */
         fprintf(stdout, "shell: presented %d of %d frames\n", g_presents, limit);
-        kiln_host_stats(stdout, 6);
+        fig_host_stats(stdout, 6);
     }
 
     if (g_opts.shot) {
-        if (kiln_host_capture(g_opts.shot) != 0) {
+        if (fig_host_capture(g_opts.shot) != 0) {
             fprintf(stderr, "kiln: could not write %s\n", g_opts.shot);
             exit(1);
         }
@@ -113,7 +113,7 @@ void kiln_shell_tick(void)
     exit(0);
 }
 
-void kiln_shell_env(const KilnShellOpts *o)
+void fig_shell_env(const FigShellOpts *o)
 {
     g_opts = *o;
 
@@ -121,19 +121,19 @@ void kiln_shell_env(const KilnShellOpts *o)
      * the merged filesystem path in — so `kiln-engine-demo` with no arguments
      * runs the game rather than failing to find rom:/ paths. --dfs still wins,
      * which is what makes iterating on assets outside the store possible. */
-    if (!o->dfs && KILN_SHELL_DEFAULT_DFS[0])
-        setenv("KILN_HOST_DFS", KILN_SHELL_DEFAULT_DFS, 0);
+    if (!o->dfs && FIG_SHELL_DEFAULT_DFS[0])
+        setenv("KILN_HOST_DFS", FIG_SHELL_DEFAULT_DFS, 0);
 
     /* host_io.c reads both of these once, at dfs_init/eepfs_init time, which
      * is inside the game's own start-up — so they have to be set before
-     * kiln_game_main is called, not alongside it. */
+     * fig_game_main is called, not alongside it. */
     if (o->dfs)    setenv("KILN_HOST_DFS", o->dfs, 1);
-    if (o->eeprom) setenv("KILN_HOST_EEPROM", o->eeprom, 1);
+    if (o->eeprom) setenv("FIG_HOST_EEPROM", o->eeprom, 1);
 }
 
 /* ── the pad ───────────────────────────────────────────────────────── */
 
-void kiln_shell_pad(const KilnShellPad *p)
+void fig_shell_pad(const FigShellPad *p)
 {
     joypad_inputs_t in;
     memset(&in, 0, sizeof in);
@@ -155,45 +155,45 @@ void kiln_shell_pad(const KilnShellPad *p)
         in.btn.d_left  = p->d_left;
         in.btn.d_right = p->d_right;
     }
-    kiln_host_pad_set(JOYPAD_PORT_1, in);
+    fig_host_pad_set(JOYPAD_PORT_1, in);
 }
 
-void kiln_shell_pad_from_keys(const unsigned char down[KILN_KEY_COUNT],
-                              KilnShellPad *out)
+void fig_shell_pad_from_keys(const unsigned char down[FIG_KEY_COUNT],
+                              FigShellPad *out)
 {
     memset(out, 0, sizeof *out);
 
     /* A keyboard stick is a square and the console's is a disc, so a diagonal
-     * held on two keys would read 1.41x full deflection and kiln_input's
+     * held on two keys would read 1.41x full deflection and fig_input's
      * squared-magnitude deadzone would pass it straight through. 64 is
      * JOYPAD_RANGE_N64_STICK_MAX / sqrt(2), rounded down: full speed on an
      * axis, and a diagonal that lands just inside the rim rather than outside
      * it. */
     const int FULL = JOYPAD_RANGE_N64_STICK_MAX;
     const int DIAG = 64;
-    int x = (down[KILN_KEY_RIGHT] ? 1 : 0) - (down[KILN_KEY_LEFT] ? 1 : 0);
-    int y = (down[KILN_KEY_UP]    ? 1 : 0) - (down[KILN_KEY_DOWN] ? 1 : 0);
+    int x = (down[FIG_KEY_RIGHT] ? 1 : 0) - (down[FIG_KEY_LEFT] ? 1 : 0);
+    int y = (down[FIG_KEY_UP]    ? 1 : 0) - (down[FIG_KEY_DOWN] ? 1 : 0);
     const int mag = (x && y) ? DIAG : FULL;
     out->stick_x = (int8_t)(x * mag);
     out->stick_y = (int8_t)(y * mag);
 
-    out->d_up    = down[KILN_KEY_DUP];
-    out->d_down  = down[KILN_KEY_DDOWN];
-    out->d_left  = down[KILN_KEY_DLEFT];
-    out->d_right = down[KILN_KEY_DRIGHT];
-    out->a       = down[KILN_KEY_A];
-    out->b       = down[KILN_KEY_B];
-    out->z       = down[KILN_KEY_Z];
-    out->l       = down[KILN_KEY_L];
-    out->r       = down[KILN_KEY_R];
-    out->start   = down[KILN_KEY_START];
-    out->c_up    = down[KILN_KEY_CUP];
-    out->c_down  = down[KILN_KEY_CDOWN];
-    out->c_left  = down[KILN_KEY_CLEFT];
-    out->c_right = down[KILN_KEY_CRIGHT];
+    out->d_up    = down[FIG_KEY_DUP];
+    out->d_down  = down[FIG_KEY_DDOWN];
+    out->d_left  = down[FIG_KEY_DLEFT];
+    out->d_right = down[FIG_KEY_DRIGHT];
+    out->a       = down[FIG_KEY_A];
+    out->b       = down[FIG_KEY_B];
+    out->z       = down[FIG_KEY_Z];
+    out->l       = down[FIG_KEY_L];
+    out->r       = down[FIG_KEY_R];
+    out->start   = down[FIG_KEY_START];
+    out->c_up    = down[FIG_KEY_CUP];
+    out->c_down  = down[FIG_KEY_CDOWN];
+    out->c_left  = down[FIG_KEY_CLEFT];
+    out->c_right = down[FIG_KEY_CRIGHT];
 }
 
-const char *kiln_shell_keymap_text(void)
+const char *fig_shell_keymap_text(void)
 {
     return
     "keyboard:\n"
@@ -220,17 +220,17 @@ static uint32_t g_base_ms;    /* when the pacer was last reset      */
 static uint64_t g_frame;      /* frames issued since that reset     */
 static int      g_paced;
 
-void kiln_shell_pace_reset(uint32_t now_ms)
+void fig_shell_pace_reset(uint32_t now_ms)
 {
     g_base_ms = now_ms;
     g_frame   = 0;
     g_paced   = 1;
 }
 
-uint32_t kiln_shell_pace(uint32_t now_ms, int fps)
+uint32_t fig_shell_pace(uint32_t now_ms, int fps)
 {
     if (fps <= 0) fps = 60;
-    if (!g_paced) kiln_shell_pace_reset(now_ms);
+    if (!g_paced) fig_shell_pace_reset(now_ms);
 
     /* The deadline is computed from the frame INDEX, not accumulated a step
      * at a time. `1000 / 60` is 16 in integer arithmetic, so a per-frame step
@@ -247,7 +247,7 @@ uint32_t kiln_shell_pace(uint32_t now_ms, int fps)
          * late: without this, a launcher that loses a second to a window
          * resize then runs sixty frames flat out to "make up time", which on
          * a fixed-step simulation is a second of fast-forward. */
-        kiln_shell_pace_reset(now_ms);
+        fig_shell_pace_reset(now_ms);
         return 0;
     }
     return slack > 0 ? (uint32_t)slack : 0;

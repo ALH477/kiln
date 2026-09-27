@@ -5,14 +5,14 @@
  * Three capabilities, all built on Tiny3D's vertex buffer access +
  * segment-based buffer swapping (see Tiny3D examples/04_dynamic):
  *
- *   kiln_morph_*   Blend between N vertex buffers (morph targets) into a
+ *   fig_morph_*   Blend between N vertex buffers (morph targets) into a
  *                 working buffer via CPU lerp. Each target is a sibling
  *                 .t3dm with identical topology.
  *
- *   kiln_deform_*  A user callback modifies vertex positions/normals/colours
+ *   fig_deform_*  A user callback modifies vertex positions/normals/colours
  *                 per frame (water waves, wind sway, flag ripple).
  *
- *   kiln_vfx_*     Thin wrapper around t3d_state_set_vertex_fx for RSP-side
+ *   fig_vfx_*     Thin wrapper around t3d_state_set_vertex_fx for RSP-side
  *                 effects: spherical UV (env mapping), cel-shading, outline,
  *                 global UV offset. Zero CPU cost.
  *
@@ -37,8 +37,8 @@
  * vertex), but the engine's stance is: no gratuitous libm. A water surface that
  * needs a sine per vertex should tabulate it at init.
  */
-#ifndef KILN_VANIM_H
-#define KILN_VANIM_H
+#ifndef FIG_VANIM_H
+#define FIG_VANIM_H
 
 #include <stdint.h>
 #include <t3d/t3d.h>
@@ -51,20 +51,20 @@ extern "C" {
 /* ── Vertex FX (RSP-side, zero CPU cost) ─────────────────────────────── */
 
 typedef enum {
-    KILN_VFX_NONE           = 0,
-    KILN_VFX_SPHERICAL_UV   = 1,  /**< env mapping; arg0=w, arg1=h */
-    KILN_VFX_CELSHADE_COLOR = 2,
-    KILN_VFX_CELSHADE_ALPHA = 3,
-    KILN_VFX_OUTLINE        = 4,  /**< arg0=pixel_w, arg1=pixel_h */
-    KILN_VFX_UV_OFFSET     = 5,  /**< arg0/arg1 = UV offset (10.5 fixed) */
-} KilnVertexFX;
+    FIG_VFX_NONE           = 0,
+    FIG_VFX_SPHERICAL_UV   = 1,  /**< env mapping; arg0=w, arg1=h */
+    FIG_VFX_CELSHADE_COLOR = 2,
+    FIG_VFX_CELSHADE_ALPHA = 3,
+    FIG_VFX_OUTLINE        = 4,  /**< arg0=pixel_w, arg1=pixel_h */
+    FIG_VFX_UV_OFFSET     = 5,  /**< arg0/arg1 = UV offset (10.5 fixed) */
+} FigVertexFX;
 
 /** Set a global RSP vertex effect. Applies to all subsequent t3d_vert_load
- *  calls until kiln_vfx_clear. Call between kiln_scene_begin and the draw. */
-void kiln_vfx_set(KilnVertexFX fx, int16_t arg0, int16_t arg1);
+ *  calls until fig_vfx_clear. Call between fig_scene_begin and the draw. */
+void fig_vfx_set(FigVertexFX fx, int16_t arg0, int16_t arg1);
 
-/** Disable vertex FX (equivalent to kiln_vfx_set(KILN_VFX_NONE, 0, 0)). */
-void kiln_vfx_clear(void);
+/** Disable vertex FX (equivalent to fig_vfx_set(FIG_VFX_NONE, 0, 0)). */
+void fig_vfx_clear(void);
 
 /* ── Morph target blending ──────────────────────────────────────────── */
 
@@ -79,38 +79,38 @@ typedef struct {
     int current_buffer;           /**< cycles 0..buffer_count-1 */
     uint8_t segment_id;           /**< segment 1-6 for placeholder addressing */
     bool initialised;             /**< t3d_model_make_object_vert_placeholder done */
-} KilnMorph;
+} FigMorph;
 
 /** Initialise the morph set. `targets` must contain `target_count` vertex
  *  buffers obtained from sibling .t3dm models with the same vertex count.
  *  `buffer_count` is 2 (default) or 3. `segment_id` is 1-6 (use a different
  *  one per concurrent morphed model). Allocates uncached work buffers. */
-void kiln_morph_init(KilnMorph *m, const T3DModel *model,
+void fig_morph_init(FigMorph *m, const T3DModel *model,
                     T3DVertPacked **targets, int target_count,
                     int buffer_count, uint8_t segment_id);
 
 /** Free work buffers. Does not free `model` or `targets` (caller-owned). */
-void kiln_morph_destroy(KilnMorph *m);
+void fig_morph_destroy(FigMorph *m);
 
 /** Blend `targets` by `weights` into the current work buffer, then advance
  *  the buffer index. Weights are clamped to [0,1] and normalised so they
- *  sum to 1. Call once per frame before kiln_morph_draw. */
-void kiln_morph_update(KilnMorph *m, float dt);
+ *  sum to 1. Call once per frame before fig_morph_draw. */
+void fig_morph_update(FigMorph *m, float dt);
 
 /** Set the segment to the current work buffer, then draw the model. Call
- *  inside the 3D pass after kiln_transform_push. */
-void kiln_morph_draw(KilnMorph *m);
+ *  inside the 3D pass after fig_transform_push. */
+void fig_morph_draw(FigMorph *m);
 
 /* ── Procedural deformation ──────────────────────────────────────────── */
 
 /** Callback that modifies a vertex buffer in place. `time` is the
  *  accumulated animation time; `user_data` is opaque. */
-typedef void (*KilnDeformFn)(T3DVertPacked *verts, int vert_count,
+typedef void (*FigDeformFn)(T3DVertPacked *verts, int vert_count,
                             float time, void *user_data);
 
 typedef struct {
     const T3DModel *model;
-    KilnDeformFn fn;
+    FigDeformFn fn;
     void *user_data;
     T3DVertPacked *work_buffers;
     T3DVertPacked *base_buffer;   /**< copy of original vertices (for reset) */
@@ -120,26 +120,26 @@ typedef struct {
     uint8_t segment_id;
     float time;
     bool initialised;
-} KilnDeform;
+} FigDeform;
 
 /** Initialise from a model. Allocates uncached work buffers + a base copy.
  *  The base copy preserves the original vertices so the deform callback can
  *  work from a known reference each frame. */
-void kiln_deform_init(KilnDeform *d, const T3DModel *model,
-                     KilnDeformFn fn, void *user_data,
+void fig_deform_init(FigDeform *d, const T3DModel *model,
+                     FigDeformFn fn, void *user_data,
                      int buffer_count, uint8_t segment_id);
 
-void kiln_deform_destroy(KilnDeform *d);
+void fig_deform_destroy(FigDeform *d);
 
 /** Copy base into current work buffer, call the deform function, advance
- *  the buffer index. Call once per frame before kiln_deform_draw. */
-void kiln_deform_update(KilnDeform *d, float dt);
+ *  the buffer index. Call once per frame before fig_deform_draw. */
+void fig_deform_update(FigDeform *d, float dt);
 
 /** Set the segment + draw. Call inside the 3D pass after push. */
-void kiln_deform_draw(KilnDeform *d);
+void fig_deform_draw(FigDeform *d);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_VANIM_H */
+#endif /* FIG_VANIM_H */

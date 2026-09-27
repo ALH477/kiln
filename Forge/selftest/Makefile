@@ -7,7 +7,7 @@
 #
 # Include order is n64.mk, t3d.mk, kiln.mk — each prepends its own -l, so the
 # last included ends up leftmost, which is what the dependency direction wants
-# (libkiln calls Tiny3D calls libdragon). t3d.mk is included even though this ROM
+# (libfigulina calls Tiny3D calls libdragon). t3d.mk is included even though this ROM
 # draws no 3D: -lkiln's members that reference Tiny3D are never pulled in by this
 # link, but keeping the include order identical to every other ROM here means
 # one less thing that is different about the debug tool.

@@ -5,7 +5,7 @@
  * ── The gap this closes, and why it did not need what it said it needed ─
  * kiln_asset.h has carried this caveat since it was written:
  *
- *     kiln_asset_wav64 is NOT provided here: libdragon's wav64_open(wav, fn)
+ *     fig_asset_wav64 is NOT provided here: libdragon's wav64_open(wav, fn)
  *     is path-only with no in-memory variant [...] It lands when a
  *     wav64_open_buf lands upstream.
  *
@@ -61,8 +61,8 @@
  * reasoning, including why system.h's remark about read-only filesystems is a
  * warning rather than permission.
  */
-#ifndef KILN_SDBFS_H
-#define KILN_SDBFS_H
+#ifndef FIG_SDBFS_H
+#define FIG_SDBFS_H
 
 #include "kiln_asset.h"
 
@@ -70,12 +70,12 @@
 extern "C" {
 #endif
 
-#ifndef KILN_SDBFS_MAX_OPEN
+#ifndef FIG_SDBFS_MAX_OPEN
 /** Concurrently open files. Four covers the realistic worst case — a music
  *  stream, an ambience bed and a loader mid-flight — and each slot is small.
  *  Raise it here if a game opens more; running out returns EMFILE rather than
  *  corrupting anything. */
-#define KILN_SDBFS_MAX_OPEN 4
+#define FIG_SDBFS_MAX_OPEN 4
 #endif
 
 /** Mount `db` at `prefix` (which must end in ":/", e.g. "sdb:/").
@@ -84,10 +84,10 @@ extern "C" {
  *  while files are open is a caller bug this cannot detect. Returns 0 on
  *  success, -1 if something is already mounted, the prefix is malformed, or
  *  libdragon refused the attach. */
-int kiln_sdbfs_mount(const char *prefix, KilnAsset *db);
+int fig_sdbfs_mount(const char *prefix, FigAsset *db);
 
 /** Unmount. Safe when nothing is mounted. Open handles are invalidated. */
-void kiln_sdbfs_unmount(void);
+void fig_sdbfs_unmount(void);
 
 /** Whether the ROM fast path is available for `key` — that is, whether a
  *  loader opening it will get a non-zero IODFS_GET_ROM_BASE and stream by
@@ -103,10 +103,10 @@ void kiln_sdbfs_unmount(void);
  *
  *  Returns 1 for a DMA-capable key, 0 otherwise (absent key, no mount, host
  *  backend, or odd alignment). */
-int kiln_sdbfs_key_is_dma(const char *key, size_t key_len);
+int fig_sdbfs_key_is_dma(const char *key, size_t key_len);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_SDBFS_H */
+#endif /* FIG_SDBFS_H */

@@ -27,11 +27,11 @@
  * builds camera-relative transforms: each tile's world position is offset
  * by the camera position, keeping the values in a small range around
  * zero. This is the same precision trick as render_batch_relative_mtx in
- * Junkrunner64 and kiln_engine.h's KilnTransform.
+ * Junkrunner64 and kiln_engine.h's FigTransform.
  *
  * ── Integration with the existing engine ───────────────────────────────
  * The coordinator is a thin orchestration layer that sits between
- * kiln_scene_begin / kiln_gui_begin. It calls the user's draw callback twice:
+ * fig_scene_begin / fig_gui_begin. It calls the user's draw callback twice:
  * once for the far pass (with Z disabled) and once for the near pass
  * (with Z enabled). The user's callback receives the pass number and
  * iterates the tile grid's loaded tiles at the appropriate LOD.
@@ -42,8 +42,8 @@
  * step registration, camera-relative transforms via the scratch allocator,
  * and explicit Z-mode control per pass.
  */
-#ifndef KILN_TWOPASS_H
-#define KILN_TWOPASS_H
+#ifndef FIG_TWOPASS_H
+#define FIG_TWOPASS_H
 
 #include "kiln_scratch.h"
 #include "kiln_tile.h"
@@ -58,16 +58,16 @@ extern "C" {
 
 /** Draw callback for a single pass. The user iterates the tile grid and
  *  draws tiles at the appropriate LOD level. `pass` is 0 (far) or 1 (near).
- *  `user_ctx` is passed through from kiln_twopass_render.
+ *  `user_ctx` is passed through from fig_twopass_render.
  *
  *  The callback is responsible for frustum culling — the coordinator
  *  does not test tiles against the camera frustum. A tile that is in
  *  the loaded window but behind the camera will still be passed to
  *  the callback; the callback should skip it (e.g. by checking the
  *  tile center against the scene's view-projection matrix). */
-typedef void (*KilnPassDrawFn)(KilnTileGrid *grid, const KilnLODConfig *lod,
-                              int pass, KilnScratch *scratch,
-                              const KilnScene *scene, void *user_ctx);
+typedef void (*FigPassDrawFn)(FigTileGrid *grid, const FigLODConfig *lod,
+                              int pass, FigScratch *scratch,
+                              const FigScene *scene, void *user_ctx);
 
 /** Render two passes over the tile grid:
  *
@@ -81,17 +81,17 @@ typedef void (*KilnPassDrawFn)(KilnTileGrid *grid, const KilnLODConfig *lod,
  *  the far pass before the near pass changes Z mode.
  *
  *  The scratch allocator is used for per-pass transform matrices — the
- *  caller should call kiln_scratch_begin before this function and the
- *  transforms are valid until the next kiln_scratch_begin. */
-void kiln_twopass_render(KilnTileGrid *grid, const KilnLODConfig *lod,
-                        KilnScratch *scratch, const KilnScene *scene,
-                        KilnPassDrawFn draw_fn, void *user_ctx);
+ *  caller should call fig_scratch_begin before this function and the
+ *  transforms are valid until the next fig_scratch_begin. */
+void fig_twopass_render(FigTileGrid *grid, const FigLODConfig *lod,
+                        FigScratch *scratch, const FigScene *scene,
+                        FigPassDrawFn draw_fn, void *user_ctx);
 
 /** Default LOD threshold: tiles at LOD >= this value go in the far pass. */
-#define KILN_TWOPASS_FAR_LOD_THRESHOLD 2
+#define FIG_TWOPASS_FAR_LOD_THRESHOLD 2
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_TWOPASS_H */
+#endif /* FIG_TWOPASS_H */

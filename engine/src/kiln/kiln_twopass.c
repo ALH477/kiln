@@ -6,9 +6,9 @@
 #include <libdragon.h>
 #include <t3d/t3d.h>
 
-void kiln_twopass_render(KilnTileGrid *grid, const KilnLODConfig *lod,
-                        KilnScratch *scratch, const KilnScene *scene,
-                        KilnPassDrawFn draw_fn, void *user_ctx)
+void fig_twopass_render(FigTileGrid *grid, const FigLODConfig *lod,
+                        FigScratch *scratch, const FigScene *scene,
+                        FigPassDrawFn draw_fn, void *user_ctx)
 {
     if (!draw_fn) return;
 

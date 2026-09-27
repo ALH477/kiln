@@ -10,17 +10,17 @@
  * nix/checks/kiln-font.nix regenerates this and diffs, so a libdragon
  * bump that changes the font cannot drift past unnoticed.
  */
-#ifndef KILN_HOST_FONT_H
-#define KILN_HOST_FONT_H
+#ifndef FIG_HOST_FONT_H
+#define FIG_HOST_FONT_H
 
 #include <stdint.h>
 
-#define KILN_FONT_ASCENT      11
-#define KILN_FONT_DESCENT     -2
-#define KILN_FONT_LINE_GAP    0
-#define KILN_FONT_SPACE_WIDTH 6
-#define KILN_FONT_FIRST_CP    0x20
-#define KILN_FONT_LAST_CP     0xbf
+#define FIG_FONT_ASCENT      11
+#define FIG_FONT_DESCENT     -2
+#define FIG_FONT_LINE_GAP    0
+#define FIG_FONT_SPACE_WIDTH 6
+#define FIG_FONT_FIRST_CP    0x20
+#define FIG_FONT_LAST_CP     0xbf
 
 /* One byte per pixel of coverage: 0 transparent, 1 fill, 2 outline. Row
  * major, `w` bytes per row, `h` rows. Kept a byte per pixel rather than
@@ -31,10 +31,10 @@ typedef struct {
     uint8_t  advance;   /* pixels to step the cursor                  */
     int8_t   xoff, yoff;/* box origin, relative to cursor + baseline  */
     uint8_t  w, h;      /* box size; 0x0 means no glyph               */
-    uint16_t bits;      /* offset into kiln_font_bits, or 0           */
-} KilnFontGlyph;
+    uint16_t bits;      /* offset into fig_font_bits, or 0           */
+} FigFontGlyph;
 
-static const uint8_t kiln_font_bits[6345] = {
+static const uint8_t fig_font_bits[6345] = {
     /* 0x21 '!' */
     2,2,2,2,1,2,2,1,2,2,1,2,2,1,2,2,1,2,2,2,2,2,1,2,
     2,2,2,
@@ -487,7 +487,7 @@ static const uint8_t kiln_font_bits[6345] = {
     2,2,2,1,1,1,2,2,0,2,2,2,2,2,0,
 };
 
-static const KilnFontGlyph kiln_font_glyphs[160] = {
+static const FigFontGlyph fig_font_glyphs[160] = {
     {   6,   0,   0,  0,  0,     0 }, /* 0x20   */
     {   6,   1,  -8,  3,  9,     0 }, /* 0x21 ! */
     {   6,   0,  -8,  5,  5,    27 }, /* 0x22 " */
@@ -650,4 +650,4 @@ static const KilnFontGlyph kiln_font_glyphs[160] = {
     {   6,  -1,  -8,  7,  9,  6282 }, /* 0xbf   */
 };
 
-#endif /* KILN_HOST_FONT_H */
+#endif /* FIG_HOST_FONT_H */

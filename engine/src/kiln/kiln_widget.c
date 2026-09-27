@@ -8,9 +8,9 @@
 #include <fmath.h>
 #include <string.h>
 
-KilnWidgetStyle kiln_widget_style_default(void)
+FigWidgetStyle fig_widget_style_default(void)
 {
-    return (KilnWidgetStyle){
+    return (FigWidgetStyle){
         .bg     = RGBA32( 10,  10,  24, 210),
         .border = RGBA32(139,  92, 246, 255),
         .text   = RGBA32(232, 232, 240, 255),
@@ -21,9 +21,9 @@ KilnWidgetStyle kiln_widget_style_default(void)
     };
 }
 
-KilnWidgetStyle kiln_widget_style_funky(void)
+FigWidgetStyle fig_widget_style_funky(void)
 {
-    KilnWidgetStyle st = kiln_widget_style_default();
+    FigWidgetStyle st = fig_widget_style_default();
     /* Numbers picked against a 320x240 framebuffer, where one pixel is a
      * lot. A 5 px lean across a 100 px panel is about 3 degrees — enough
      * that nothing lines up with the screen edge, little enough that text
@@ -39,25 +39,25 @@ KilnWidgetStyle kiln_widget_style_funky(void)
 
 /* ── the clock ──────────────────────────────────────────────────────────*/
 
-static float kiln_widget_clock;
+static float fig_widget_clock;
 
-void kiln_widget_tick(float dt)
+void fig_widget_tick(float dt)
 {
-    kiln_widget_clock += dt;
+    fig_widget_clock += dt;
     /* Wrap on a whole number of seconds so the sines below stay continuous
      * across the wrap AND the float never grows large enough to lose
      * precision in its fractional part. 1024 s is about 17 minutes, longer
      * than any single screen will be up, and a power of two so the wrap is
      * exact. */
-    if (kiln_widget_clock > 1024.0f) kiln_widget_clock -= 1024.0f;
+    if (fig_widget_clock > 1024.0f) fig_widget_clock -= 1024.0f;
 }
 
-float kiln_widget_time(void)
+float fig_widget_time(void)
 {
-    return kiln_widget_clock;
+    return fig_widget_clock;
 }
 
-float kiln_widget_jitter(uint32_t seed)
+float fig_widget_jitter(uint32_t seed)
 {
     /* Knuth's multiplicative hash, then the top bits mapped to [-1, 1].
      * Deterministic from the index alone: the same menu row is crooked the
@@ -72,23 +72,23 @@ float kiln_widget_jitter(uint32_t seed)
 
 /** The shared sway. `phase` de-syncs one widget from another so a screenful
  *  of panels drifts as a crowd rather than as one rigid sheet. */
-static float sway(const KilnWidgetStyle *st, float phase)
+static float sway(const FigWidgetStyle *st, float phase)
 {
     if (st->wobble <= 0.0f) return 0.0f;
-    return st->wobble * fm_sinf(kiln_widget_clock * st->rate * 6.2831853f
+    return st->wobble * fm_sinf(fig_widget_clock * st->rate * 6.2831853f
                                 + phase);
 }
 
-void kiln_widget_panel_skew(int x, int y, int w, int h, float lean,
+void fig_widget_panel_skew(int x, int y, int w, int h, float lean,
                            color_t fill, color_t border)
 {
     if (h <= 0 || w <= 0) return;
     if (lean > -0.5f && lean < 0.5f) {
-        kiln_gui_panel(x, y, w, h, fill, border);
+        fig_gui_panel(x, y, w, h, fill, border);
         return;
     }
 
-    /* kiln_gui has axis-aligned rects and nothing else, so a parallelogram is
+    /* fig_gui has axis-aligned rects and nothing else, so a parallelogram is
      * a stack of bands, each nudged along. BAND is 2 px rather than 1 for
      * two reasons, and only one of them is cost: at 320x240 a 2 px step is
      * already below what reads as a stair, and halving the rect count halves
@@ -104,11 +104,11 @@ void kiln_widget_panel_skew(int x, int y, int w, int h, float lean,
         int dx = (int)(lean * t);
         int edge_top = (row == 0);
         int edge_bot = (row + bh >= h);
-        kiln_gui_rect(x + dx, y + row, w, bh, border);
+        fig_gui_rect(x + dx, y + row, w, bh, border);
         int inset_y = y + row + (edge_top ? 1 : 0);
         int inset_h = bh - (edge_top ? 1 : 0) - (edge_bot ? 1 : 0);
         if (inset_h > 0 && w > 2) {
-            kiln_gui_rect(x + dx + 1, inset_y, w - 2, inset_h, fill);
+            fig_gui_rect(x + dx + 1, inset_y, w - 2, inset_h, fill);
         }
     }
 }
@@ -130,7 +130,7 @@ static color_t with_alpha(color_t c, float f)
 
 /* ── Menu ──────────────────────────────────────────────────────────────*/
 
-void kiln_menu_init(KilnMenu *m, int count, int visible_rows)
+void fig_menu_init(FigMenu *m, int count, int visible_rows)
 {
     m->cursor = 0;
     m->count = count < 0 ? 0 : count;
@@ -140,7 +140,7 @@ void kiln_menu_init(KilnMenu *m, int count, int visible_rows)
 }
 
 /** Pull `scroll` toward the cursor so the cursor is always drawn. */
-static void menu_reveal(KilnMenu *m)
+static void menu_reveal(FigMenu *m)
 {
     int vis = m->visible_rows ? m->visible_rows : m->count;
     if (vis <= 0 || vis >= m->count) { m->scroll = 0; return; }
@@ -150,14 +150,14 @@ static void menu_reveal(KilnMenu *m)
     if (m->scroll < 0) m->scroll = 0;
 }
 
-void kiln_menu_set_count(KilnMenu *m, int count)
+void fig_menu_set_count(FigMenu *m, int count)
 {
     m->count = count < 0 ? 0 : count;
     if (m->cursor >= m->count) m->cursor = m->count > 0 ? m->count - 1 : 0;
     menu_reveal(m);
 }
 
-int kiln_menu_move(KilnMenu *m, int delta)
+int fig_menu_move(FigMenu *m, int delta)
 {
     if (m->count <= 0) return 0;
     int c = m->cursor + delta;
@@ -174,10 +174,10 @@ int kiln_menu_move(KilnMenu *m, int delta)
     return m->cursor;
 }
 
-int kiln_menu_move_enabled(KilnMenu *m, int delta, const uint8_t *enabled,
+int fig_menu_move_enabled(FigMenu *m, int delta, const uint8_t *enabled,
                           int count)
 {
-    if (!enabled || m->count <= 0) return kiln_menu_move(m, delta);
+    if (!enabled || m->count <= 0) return fig_menu_move(m, delta);
     if (count > m->count) count = m->count;
 
     int step = delta >= 0 ? 1 : -1;
@@ -213,19 +213,19 @@ int kiln_menu_move_enabled(KilnMenu *m, int delta, const uint8_t *enabled,
     return m->cursor;
 }
 
-int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
+int fig_menu_draw(const FigMenu *m, int x, int y, int w,
                   const char *const *labels, const uint8_t *enabled,
-                  const KilnWidgetStyle *st)
+                  const FigWidgetStyle *st)
 {
     int vis = m->visible_rows ? m->visible_rows : m->count;
     if (vis > m->count) vis = m->count;
     /* Rows need more vertical room once they are allowed to shift about. */
-    int pitch = KILN_WIDGET_LINE_H + (st->jitter > 0.0f ? 3 : 0);
+    int pitch = FIG_WIDGET_LINE_H + (st->jitter > 0.0f ? 3 : 0);
     int h = vis * pitch + 8;
 
     int panel_sway = (int)sway(st, 0.0f);
     x += panel_sway;
-    kiln_widget_panel_skew(x, y, w, h, st->lean, st->bg, st->border);
+    fig_widget_panel_skew(x, y, w, h, st->lean, st->bg, st->border);
 
     for (int i = 0; i < vis; i++) {
         int row = m->scroll + i;
@@ -241,9 +241,9 @@ int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
          * is the same crookedness every frame, plus a slow sway phased off
          * that same hash so the rows drift out of step with each other.
          * Rows that swayed together would just be a moving list. */
-        int jx = (int)(st->jitter * kiln_widget_jitter(row * 2u + 1u));
-        int jy = (int)(st->jitter * 0.45f * kiln_widget_jitter(row * 2u + 7u));
-        float phase = kiln_widget_jitter(row * 2u + 3u) * 3.1416f;
+        int jx = (int)(st->jitter * fig_widget_jitter(row * 2u + 1u));
+        int jy = (int)(st->jitter * 0.45f * fig_widget_jitter(row * 2u + 7u));
+        float phase = fig_widget_jitter(row * 2u + 3u) * 3.1416f;
         int rx = x + lean_at(st->lean, h, ry - y) + jx
                + (int)(sway(st, phase) * 0.6f);
         ry += jy;
@@ -253,15 +253,15 @@ int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
          * row that has visibly moved tells you the menu noticed you. */
         if (sel) {
             rx += (int)st->pop;
-            kiln_gui_rect(rx + 1, ry - 1, w - 4, KILN_WIDGET_LINE_H + 2,
+            fig_gui_rect(rx + 1, ry - 1, w - 4, FIG_WIDGET_LINE_H + 2,
                          RGBA32(st->accent.r, st->accent.g, st->accent.b, 56));
-            kiln_gui_rect(rx + 1, ry - 1, 2, KILN_WIDGET_LINE_H + 2, st->accent);
+            fig_gui_rect(rx + 1, ry - 1, 2, FIG_WIDGET_LINE_H + 2, st->accent);
         }
         color_t c = !on ? st->dim : (sel ? st->accent : st->text);
-        kiln_gui_text(rx + 6 + KILN_WIDGET_CHAR_W, ry + KILN_WIDGET_LINE_H - 3,
+        fig_gui_text(rx + 6 + FIG_WIDGET_CHAR_W, ry + FIG_WIDGET_LINE_H - 3,
                      c, "%s", label);
         if (sel) {
-            kiln_gui_text(rx + 5, ry + KILN_WIDGET_LINE_H - 3, st->accent, ">");
+            fig_gui_text(rx + 5, ry + FIG_WIDGET_LINE_H - 3, st->accent, ">");
         }
     }
 
@@ -273,9 +273,9 @@ int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
         if (knob_h < 4) knob_h = 4;
         int knob_y = y + 4 + (track_h - knob_h) * m->scroll /
                      (m->count - vis);
-        kiln_gui_rect(x + w - 5 + lean_at(st->lean, h, 4), y + 4, 2,
+        fig_gui_rect(x + w - 5 + lean_at(st->lean, h, 4), y + 4, 2,
                      track_h, st->dim);
-        kiln_gui_rect(x + w - 6 + lean_at(st->lean, h, knob_y - y), knob_y, 4,
+        fig_gui_rect(x + w - 6 + lean_at(st->lean, h, knob_y - y), knob_y, 4,
                      knob_h, st->accent);
     }
 
@@ -284,8 +284,8 @@ int kiln_menu_draw(const KilnMenu *m, int x, int y, int w,
 
 /* ── Button ────────────────────────────────────────────────────────────*/
 
-int kiln_widget_button(int x, int y, int w, int h, const char *label,
-                      int selected, int pressed, const KilnWidgetStyle *st)
+int fig_widget_button(int x, int y, int w, int h, const char *label,
+                      int selected, int pressed, const FigWidgetStyle *st)
 {
     color_t border = selected ? st->accent : st->border;
     color_t fill   = selected
@@ -296,14 +296,14 @@ int kiln_widget_button(int x, int y, int w, int h, const char *label,
     float lean = selected ? -st->lean * 1.4f : st->lean;
     x += (int)sway(st, (float)(x + y) * 0.13f);
     if (selected) y -= (int)(st->pop * 0.5f);
-    kiln_widget_panel_skew(x, y, w, h, lean, fill, border);
+    fig_widget_panel_skew(x, y, w, h, lean, fill, border);
 
     if (label) {
         int len = (int)strlen(label);
-        int tx = x + (w - len * KILN_WIDGET_CHAR_W) / 2 + lean_at(lean, h, h / 2);
+        int tx = x + (w - len * FIG_WIDGET_CHAR_W) / 2 + lean_at(lean, h, h / 2);
         if (tx < x + 2) tx = x + 2;
         int ty = y + h / 2 + 4;
-        kiln_gui_text(tx, ty, selected ? st->accent : st->text, "%s", label);
+        fig_gui_text(tx, ty, selected ? st->accent : st->text, "%s", label);
     }
 
     return selected && pressed;
@@ -328,8 +328,8 @@ static const uint16_t k_pips[7] = {
     (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 8) /* 6 */
 };
 
-void kiln_widget_dice(int x, int y, int size, int face, int rolling,
-                     float anim_t, const KilnWidgetStyle *st)
+void fig_widget_dice(int x, int y, int size, int face, int rolling,
+                     float anim_t, const FigWidgetStyle *st)
 {
     if (size < 12) size = 12;
 
@@ -344,7 +344,7 @@ void kiln_widget_dice(int x, int y, int size, int face, int rolling,
     }
 
     color_t body = rolling ? st->dim : st->text;
-    kiln_gui_panel(x, y, size, size, st->bg, body);
+    fig_gui_panel(x, y, size, size, st->bg, body);
 
     if (shown >= 1 && shown <= 6) {
         int pip = size / 7;
@@ -355,12 +355,12 @@ void kiln_widget_dice(int x, int y, int size, int face, int rolling,
             if (!(mask & (1u << i))) continue;
             int cx = x + step * (1 + (i % 3)) - pip / 2;
             int cy = y + step * (1 + (i / 3)) - pip / 2;
-            kiln_gui_rect(cx, cy, pip, pip, rolling ? st->dim : st->accent);
+            fig_gui_rect(cx, cy, pip, pip, rolling ? st->dim : st->accent);
         }
     } else if (shown > 0) {
-        /* kiln_dice allows up to 16 faces; past 6 there is no pip pattern,
+        /* fig_dice allows up to 16 faces; past 6 there is no pip pattern,
          * so show the number. */
-        kiln_gui_text(x + size / 2 - KILN_WIDGET_CHAR_W / 2,
+        fig_gui_text(x + size / 2 - FIG_WIDGET_CHAR_W / 2,
                      y + size / 2 + 4, st->accent, "%d", shown);
     }
 }
@@ -369,17 +369,17 @@ void kiln_widget_dice(int x, int y, int size, int face, int rolling,
 
 #define SLOT_H 20
 
-int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
-                         int count, const KilnWidgetStyle *st)
+int fig_widget_hud_strip(int x, int y, int w, const FigPlayerSlot *slots,
+                         int count, const FigWidgetStyle *st)
 {
     int h = count * SLOT_H + 8;
     /* A third of the menus' lean. This one is read while the player is
      * trying to do something else, and a score column that leans as hard as
      * a title screen stops being legible and starts being in the way. */
-    kiln_widget_panel_skew(x, y, w, h, st->lean * 0.34f, st->bg, st->border);
+    fig_widget_panel_skew(x, y, w, h, st->lean * 0.34f, st->bg, st->border);
 
     for (int i = 0; i < count; i++) {
-        const KilnPlayerSlot *s = &slots[i];
+        const FigPlayerSlot *s = &slots[i];
         int ry = y + 4 + i * SLOT_H;
         int lx = lean_at(st->lean * 0.34f, h, ry - y);
         /* Only the ACTIVE player's row sways — it is a cheap way to draw
@@ -388,17 +388,17 @@ int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
         x += lx;
 
         if (s->active) {
-            kiln_gui_rect(x + 2, ry, w - 4, SLOT_H,
+            fig_gui_rect(x + 2, ry, w - 4, SLOT_H,
                          RGBA32(st->accent.r, st->accent.g, st->accent.b, 40));
         }
         /* Colour swatch: the only thing on the strip that identifies a
          * player at a glance from across a room, so it goes first and is
          * the full row height. */
-        kiln_gui_rect(x + 4, ry + 2, 5, SLOT_H - 4, s->tint);
+        fig_gui_rect(x + 4, ry + 2, 5, SLOT_H - 4, s->tint);
 
         color_t name_c = s->active ? st->accent : st->text;
-        kiln_gui_text(x + 13, ry + 9, name_c, "%-8s", s->name ? s->name : "?");
-        kiln_gui_text(x + 13 + 8 * KILN_WIDGET_CHAR_W, ry + 9, st->text,
+        fig_gui_text(x + 13, ry + 9, name_c, "%-8s", s->name ? s->name : "?");
+        fig_gui_text(x + 13 + 8 * FIG_WIDGET_CHAR_W, ry + 9, st->text,
                      "%4d", (int)s->score);
 
         /* A status note takes the charge bar's slot rather than a line of
@@ -407,13 +407,13 @@ int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
          * locked, that he is couch-locked matters more at a glance than how
          * close his special is. */
         if (s->note) {
-            kiln_gui_text(x + 15 + 13 * KILN_WIDGET_CHAR_W, ry + 13,
+            fig_gui_text(x + 15 + 13 * FIG_WIDGET_CHAR_W, ry + 13,
                          st->warn, "%s", s->note);
         } else if (s->charge >= 0.0f) {
-            int bx = x + 13 + 13 * KILN_WIDGET_CHAR_W;
+            int bx = x + 13 + 13 * FIG_WIDGET_CHAR_W;
             int bw = w - (bx - x) - 8;
             if (bw > 8) {
-                kiln_gui_bar(bx, ry + 6, bw, 5, s->charge,
+                fig_gui_bar(bx, ry + 6, bw, 5, s->charge,
                             s->ready ? st->accent : st->border,
                             RGBA32(30, 30, 48, 255));
             }
@@ -426,28 +426,28 @@ int kiln_widget_hud_strip(int x, int y, int w, const KilnPlayerSlot *slots,
 
 /* ── Results panel ─────────────────────────────────────────────────────*/
 
-int kiln_widget_results(int x, int y, int w, const char *title,
-                       const KilnPlayerSlot *slots, const int *order,
-                       int count, const KilnWidgetStyle *st)
+int fig_widget_results(int x, int y, int w, const char *title,
+                       const FigPlayerSlot *slots, const int *order,
+                       int count, const FigWidgetStyle *st)
 {
-    int h = count * KILN_WIDGET_LINE_H + 12 + KILN_WIDGET_LINE_H + 6;
-    kiln_widget_panel_skew(x, y, w, h, st->lean, st->bg, st->border);
+    int h = count * FIG_WIDGET_LINE_H + 12 + FIG_WIDGET_LINE_H + 6;
+    fig_widget_panel_skew(x, y, w, h, st->lean, st->bg, st->border);
 
     if (title) {
         int len = (int)strlen(title);
-        int tx = x + (w - len * KILN_WIDGET_CHAR_W) / 2
-               + lean_at(st->lean, h, KILN_WIDGET_LINE_H);
+        int tx = x + (w - len * FIG_WIDGET_CHAR_W) / 2
+               + lean_at(st->lean, h, FIG_WIDGET_LINE_H);
         if (tx < x + 4) tx = x + 4;
-        kiln_gui_text(tx, y + KILN_WIDGET_LINE_H, st->accent, "%s", title);
+        fig_gui_text(tx, y + FIG_WIDGET_LINE_H, st->accent, "%s", title);
     }
-    kiln_gui_rect(x + 4 + lean_at(st->lean, h, KILN_WIDGET_LINE_H + 4),
-                 y + KILN_WIDGET_LINE_H + 4, w - 8, 1, st->border);
+    fig_gui_rect(x + 4 + lean_at(st->lean, h, FIG_WIDGET_LINE_H + 4),
+                 y + FIG_WIDGET_LINE_H + 4, w - 8, 1, st->border);
 
     for (int i = 0; i < count; i++) {
         int idx = order ? order[i] : i;
         if (idx < 0) continue;
-        const KilnPlayerSlot *s = &slots[idx];
-        int ry = y + KILN_WIDGET_LINE_H + 16 + i * KILN_WIDGET_LINE_H;
+        const FigPlayerSlot *s = &slots[idx];
+        int ry = y + FIG_WIDGET_LINE_H + 16 + i * FIG_WIDGET_LINE_H;
 
         /* First place gets the accent; everyone else is plain. Ties are the
          * caller's problem — it built `order`. */
@@ -456,11 +456,11 @@ int kiln_widget_results(int x, int y, int w, const char *title,
          * point of this panel, so the first row is the one that moves. */
         int lx = lean_at(st->lean, h, ry - y)
                + (i == 0 ? (int)(sway(st, 0.0f) * 1.4f) : 0);
-        kiln_gui_rect(x + lx + 6, ry - 7, 5, 8, s->tint);
-        kiln_gui_text(x + lx + 14, ry, c, "%d.", i + 1);
-        kiln_gui_text(x + lx + 14 + 3 * KILN_WIDGET_CHAR_W, ry, c,
+        fig_gui_rect(x + lx + 6, ry - 7, 5, 8, s->tint);
+        fig_gui_text(x + lx + 14, ry, c, "%d.", i + 1);
+        fig_gui_text(x + lx + 14 + 3 * FIG_WIDGET_CHAR_W, ry, c,
                      "%-8s", s->name ? s->name : "?");
-        kiln_gui_text(x + lx + 14 + 12 * KILN_WIDGET_CHAR_W, ry, c,
+        fig_gui_text(x + lx + 14 + 12 * FIG_WIDGET_CHAR_W, ry, c,
                      "%4d", (int)s->score);
     }
 
@@ -469,23 +469,23 @@ int kiln_widget_results(int x, int y, int w, const char *title,
 
 /* ── Banner ────────────────────────────────────────────────────────────*/
 
-void kiln_widget_banner(int x, int y, int w, int h, const char *text,
-                       float fade, const KilnWidgetStyle *st)
+void fig_widget_banner(int x, int y, int w, int h, const char *text,
+                       float fade, const FigWidgetStyle *st)
 {
     /* A banner leans harder than anything else on screen and sways on its
      * own phase. It is the one widget whose whole job is to be noticed. */
     float lean = -st->lean * 1.8f;
     int sx = x + (int)(sway(st, 1.7f) * 1.5f);
     int sy = y + (int)(sway(st, 0.4f) * 0.5f);
-    kiln_widget_panel_skew(sx, sy, w, h, lean,
+    fig_widget_panel_skew(sx, sy, w, h, lean,
                           with_alpha(st->bg, fade),
                           with_alpha(st->accent, fade));
     if (text) {
         int len = (int)strlen(text);
-        int tx = sx + (w - len * KILN_WIDGET_CHAR_W) / 2
+        int tx = sx + (w - len * FIG_WIDGET_CHAR_W) / 2
                + lean_at(lean, h, h / 2);
         if (tx < sx + 2) tx = sx + 2;
-        kiln_gui_text(tx, sy + h / 2 + 4, with_alpha(st->accent, fade),
+        fig_gui_text(tx, sy + h / 2 + 4, with_alpha(st->accent, fade),
                      "%s", text);
     }
 }

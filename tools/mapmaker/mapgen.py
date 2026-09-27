@@ -188,7 +188,7 @@ def cmd_classes(args):
     for cn in sorted(mapfmt.REQUIRED_EPAIRS):
         print(f"{cn:20} {', '.join(mapfmt.REQUIRED_EPAIRS[cn])}")
     print("\nAny other classname is accepted by the parser; the engine skips")
-    print("one no game registered via kiln_map_register_classname.")
+    print("one no game registered via fig_map_register_classname.")
     return 0
 
 

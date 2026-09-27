@@ -6,7 +6,7 @@
  * them:
  *
  *   .FRG   the editor's own state: voxels and the texture atlas, RLE'd, with
- *          kiln_store's CRC over the whole payload. LOSSLESS across sessions.
+ *          fig_store's CRC over the whole payload. LOSSLESS across sessions.
  *          It has to be, because the greedy box reduction is one-way — a .map
  *          round-tripped back into blocks would come home as boxes, and the
  *          next save would look completely different in a diff.
@@ -49,7 +49,7 @@
 /* ── .FRG payload ──────────────────────────────────────────────────────*/
 
 /* Bumped to 2 when entities, the light rig and the camera keys joined the
- * payload. The version is CHECKED on read (kiln_store_read refuses a mismatch),
+ * payload. The version is CHECKED on read (fig_store_read refuses a mismatch),
  * so an old .FRG on a card does not load as a new one with the tail read as
  * garbage — it refuses, says EVERSION, and the editor reports which step. That
  * is the whole reason the header carries a version rather than the format being
@@ -61,9 +61,9 @@
  * atlas. 24 * 8195 + 4160 = ~200 KB. Static rather than malloc'd, and sized for
  * the pathological case rather than the typical one, because the failure mode of
  * guessing low is a save that refuses at the moment it is needed most. */
-#define FRG_MAX_BYTES (KILN_VOXEL_MAX_CHUNKS * (3 + 2 * KILN_VOXEL_CHUNK_BLOCKS) \
-                       + KILN_VOXATLAS_SIDE * KILN_VOXATLAS_SIDE                \
-                       + 2 * KILN_VOXATLAS_COLOURS * 2                         \
+#define FRG_MAX_BYTES (FIG_VOXEL_MAX_CHUNKS * (3 + 2 * FIG_VOXEL_CHUNK_BLOCKS) \
+                       + FIG_VOXATLAS_SIDE * FIG_VOXATLAS_SIDE                \
+                       + 2 * FIG_VOXATLAS_COLOURS * 2                         \
                        + FORGE_MAX_ENTS * 32                                  \
                        + FORGE_MAX_KEYS * 32                                  \
                        + 128)
@@ -153,15 +153,15 @@ int forge_io_save(Forge *f)
     at = put_f32(g_frg, at, f->world.offset.v[0]);
     at = put_f32(g_frg, at, f->world.offset.v[1]);
     at = put_f32(g_frg, at, f->world.offset.v[2]);
-    at = put_u16(g_frg, at, (uint16_t)kiln_voxel_chunk_count(&f->world));
+    at = put_u16(g_frg, at, (uint16_t)fig_voxel_chunk_count(&f->world));
 
-    for (int s = kiln_voxel_slot_first(&f->world); s >= 0;
-             s = kiln_voxel_slot_next(&f->world, s)) {
-        const KilnVoxelChunk *c = &f->world.chunks[s];
+    for (int s = fig_voxel_slot_first(&f->world); s >= 0;
+             s = fig_voxel_slot_next(&f->world, s)) {
+        const FigVoxelChunk *c = &f->world.chunks[s];
         at = put_u8(g_frg, at, c->cx);
         at = put_u8(g_frg, at, c->cy);
         at = put_u8(g_frg, at, c->cz);
-        at = rle_encode(c->blocks, KILN_VOXEL_CHUNK_BLOCKS, g_frg, at);
+        at = rle_encode(c->blocks, FIG_VOXEL_CHUNK_BLOCKS, g_frg, at);
     }
 
     /* The atlas rides in the same blob rather than a sibling file. A level and
@@ -171,7 +171,7 @@ int forge_io_save(Forge *f)
     memcpy(&g_frg[at], f->atlas.index, sizeof f->atlas.index);
     at += sizeof f->atlas.index;
     for (int st = 0; st < 2; st++)
-        for (int i = 0; i < KILN_VOXATLAS_COLOURS; i++)
+        for (int i = 0; i < FIG_VOXATLAS_COLOURS; i++)
             at = put_u16(g_frg, at, f->atlas.tlut[st][i]);
 
     /* Entities. Positions as floats rather than block indices: an entity is a
@@ -187,7 +187,7 @@ int forge_io_save(Forge *f)
      * byte that was an untouched `count` reads back as `key_id`. Nothing in
      * this tree ever consumed `count`, the value is shown on the ENT panel
      * under its new name, and the alternative — bumping the version — would
-     * make kiln_store_read refuse every level already on a card outright.
+     * make fig_store_read refuse every level already on a card outright.
      * Stated here rather than discovered: see forge_ent.c's header. */
     at = put_u16(g_frg, at, (uint16_t)f->ent_count);
     for (int i = 0; i < f->ent_count; i++) {
@@ -227,12 +227,12 @@ int forge_io_save(Forge *f)
     }
 
     f->last_action = "save";
-    f->last_store = kiln_store_write(FORGE_LEVEL_NAME, FRG_VERSION, g_frg, at);
-    if (f->last_store != KILN_STORE_OK) return f->last_store;
+    f->last_store = fig_store_write(FORGE_LEVEL_NAME, FRG_VERSION, g_frg, at);
+    if (f->last_store != FIG_STORE_OK) return f->last_store;
 
     /* ── The derived .map ──────────────────────────────────────────────*/
-    int nb = kiln_voxel_boxes(&f->world, f->boxes, FORGE_MAX_BOXES, NULL);
-    if (nb < 0) { f->box_overflow = -nb; nb = kiln_voxel_boxes(&f->world, f->boxes, FORGE_MAX_BOXES - 1, NULL); }
+    int nb = fig_voxel_boxes(&f->world, f->boxes, FORGE_MAX_BOXES, NULL);
+    if (nb < 0) { f->box_overflow = -nb; nb = fig_voxel_boxes(&f->world, f->boxes, FORGE_MAX_BOXES - 1, NULL); }
     if (nb < 0) nb = 0;
     f->boxes_used = (uint32_t)nb;
 
@@ -246,7 +246,7 @@ int forge_io_save(Forge *f)
         /* One texture name per block type. Names, not indices, because the
          * .map format carries a name and every other tool in the chain reads
          * it as one: quake_map.py turns it into a Blender material and
-         * kiln_surface keys gameplay off the brush's surface id. */
+         * fig_surface keys gameplay off the brush's surface id. */
         char tex[16];
         snprintf(tex, sizeof tex, "FORGE%d", f->boxes[i].surface);
 
@@ -281,14 +281,14 @@ int forge_io_save(Forge *f)
                       (int)f->fly_pos.v[0], (int)f->fly_pos.v[1],
                       (int)f->fly_pos.v[2]);
 
-    int text_st = kiln_store_write_text(FORGE_LEVEL_NAME, "MAP", g_map);
+    int text_st = fig_store_write_text(FORGE_LEVEL_NAME, "MAP", g_map);
 
     /* The light header and the camera table, as their own text files. Written
      * BEFORE the status is decided below so a failure on either still logs. */
     forge_light_emit(f, g_aux, AUX_MAX_BYTES);
-    int lt_st = kiln_store_write_text(FORGE_LEVEL_NAME, "H", g_aux);
+    int lt_st = fig_store_write_text(FORGE_LEVEL_NAME, "H", g_aux);
 
-    int cam_st = KILN_STORE_OK;
+    int cam_st = FIG_STORE_OK;
     if (f->key_count > 0) {
         /* Re-validate at the moment of writing rather than trusting the flag the
          * update loop left behind: a key edited on the same frame as START would
@@ -300,41 +300,41 @@ int forge_io_save(Forge *f)
              * t3d_viewport_attach, several layers from the table that caused it.
              * Writing it anyway moves that discovery two tools away from the
              * person holding the controller. */
-            kiln_store_log("cam table NOT written: err %#lx at key %d",
+            fig_store_log("cam table NOT written: err %#lx at key %d",
                           (unsigned long)f->cine_err, f->cine_report.bad_key);
-            cam_st = KILN_STORE_EVERSION;   /* "refused", surfaced on the HUD */
+            cam_st = FIG_STORE_EVERSION;   /* "refused", surfaced on the HUD */
         } else {
             forge_cine_emit(f, g_aux, AUX_MAX_BYTES);
-            cam_st = kiln_store_write_text(FORGE_LEVEL_NAME, "KEY", g_aux);
+            cam_st = fig_store_write_text(FORGE_LEVEL_NAME, "KEY", g_aux);
         }
     }
-    if (lt_st != KILN_STORE_OK)
-        kiln_store_log("light header not written: %s",
-                      kiln_store_status_name(lt_st));
-    if (cam_st != KILN_STORE_OK)
+    if (lt_st != FIG_STORE_OK)
+        fig_store_log("light header not written: %s",
+                      fig_store_status_name(lt_st));
+    if (cam_st != FIG_STORE_OK)
         f->last_store = cam_st, f->last_action = "cam";
     /* The .FRG is the save; the .MAP is a bonus that only the SD backend can
      * carry. Reporting the text failure would make an entirely successful save
      * look broken on the save-chip fallback, so it is logged and the .FRG's
      * status stands. */
-    if (text_st != KILN_STORE_OK)
-        kiln_store_log("map text not written: %s", kiln_store_status_name(text_st));
+    if (text_st != FIG_STORE_OK)
+        fig_store_log("map text not written: %s", fig_store_status_name(text_st));
     else
-        kiln_store_log("saved %s: %d brushes, %lu solid blocks",
+        fig_store_log("saved %s: %d brushes, %lu solid blocks",
                       FORGE_LEVEL_NAME, nb,
-                      (unsigned long)kiln_voxel_solid_count(&f->world));
-    return KILN_STORE_OK;
+                      (unsigned long)fig_voxel_solid_count(&f->world));
+    return FIG_STORE_OK;
 }
 
 int forge_io_load(Forge *f)
 {
     uint32_t len = 0;
     f->last_action = "load";
-    f->last_store = kiln_store_read(FORGE_LEVEL_NAME, FRG_VERSION,
+    f->last_store = fig_store_read(FORGE_LEVEL_NAME, FRG_VERSION,
                                    g_frg, FRG_MAX_BYTES, &len);
-    if (f->last_store != KILN_STORE_OK) return f->last_store;
+    if (f->last_store != FIG_STORE_OK) return f->last_store;
 
-    kiln_voxel_clear(&f->world);
+    fig_voxel_clear(&f->world);
     uint32_t at = 0;
     at = get_f32(g_frg, at, &f->world.offset.v[0]);
     at = get_f32(g_frg, at, &f->world.offset.v[1]);
@@ -343,44 +343,44 @@ int forge_io_load(Forge *f)
     at = get_u16(g_frg, at, &nchunks);
 
     int refused = 0;
-    static uint8_t blocks[KILN_VOXEL_CHUNK_BLOCKS];
+    static uint8_t blocks[FIG_VOXEL_CHUNK_BLOCKS];
     for (uint16_t i = 0; i < nchunks && at + 3 < len; i++) {
         int cx = g_frg[at++], cy = g_frg[at++], cz = g_frg[at++];
         memset(blocks, 0, sizeof blocks);
-        at = rle_decode(g_frg, at, len, blocks, KILN_VOXEL_CHUNK_BLOCKS);
+        at = rle_decode(g_frg, at, len, blocks, FIG_VOXEL_CHUNK_BLOCKS);
 
-        /* Replay through kiln_voxel_set rather than memcpy'ing into a chunk:
+        /* Replay through fig_voxel_set rather than memcpy'ing into a chunk:
          * the setter is what allocates the slot, keeps `solid` right and marks
          * neighbours dirty. Writing the array directly would load a level whose
          * chunk counts and mesh state are quietly wrong. */
-        for (int z = 0; z < KILN_VOXEL_CHUNK; z++)
-        for (int y = 0; y < KILN_VOXEL_CHUNK; y++)
-        for (int x = 0; x < KILN_VOXEL_CHUNK; x++) {
-            uint8_t b = blocks[(z * KILN_VOXEL_CHUNK + y) * KILN_VOXEL_CHUNK + x];
-            if (b == KILN_VOXEL_AIR) continue;
-            /* kiln_voxel_set refuses a block once KILN_VOXEL_MAX_CHUNKS is
+        for (int z = 0; z < FIG_VOXEL_CHUNK; z++)
+        for (int y = 0; y < FIG_VOXEL_CHUNK; y++)
+        for (int x = 0; x < FIG_VOXEL_CHUNK; x++) {
+            uint8_t b = blocks[(z * FIG_VOXEL_CHUNK + y) * FIG_VOXEL_CHUNK + x];
+            if (b == FIG_VOXEL_AIR) continue;
+            /* fig_voxel_set refuses a block once FIG_VOXEL_MAX_CHUNKS is
              * reached. Discarding that return is how a level pushed from the
              * host arrives on the console missing whole rooms, with nothing to
              * say so but the `chunks n/24` gauge going red -- which nobody is
              * watching during a load. The host side now refuses to WRITE such
              * a file (tools/forge/frg.py's encode); this is the other end. */
-            if (kiln_voxel_set(&f->world, cx * KILN_VOXEL_CHUNK + x,
-                                          cy * KILN_VOXEL_CHUNK + y,
-                                          cz * KILN_VOXEL_CHUNK + z, b) != 0)
+            if (fig_voxel_set(&f->world, cx * FIG_VOXEL_CHUNK + x,
+                                          cy * FIG_VOXEL_CHUNK + y,
+                                          cz * FIG_VOXEL_CHUNK + z, b) != 0)
                 refused++;
         }
     }
 
     if (refused)
         debugf("forge_io: %d block(s) refused — the file needs more than "
-               "KILN_VOXEL_MAX_CHUNKS (%d) chunks, so this level loaded "
-               "INCOMPLETE\n", refused, KILN_VOXEL_MAX_CHUNKS);
+               "FIG_VOXEL_MAX_CHUNKS (%d) chunks, so this level loaded "
+               "INCOMPLETE\n", refused, FIG_VOXEL_MAX_CHUNKS);
 
     if (at + sizeof f->atlas.index <= len) {
         memcpy(f->atlas.index, &g_frg[at], sizeof f->atlas.index);
         at += sizeof f->atlas.index;
         for (int st = 0; st < 2; st++)
-            for (int c = 0; c < KILN_VOXATLAS_COLOURS; c++) {
+            for (int c = 0; c < FIG_VOXATLAS_COLOURS; c++) {
                 uint16_t v; at = get_u16(g_frg, at, &v);
                 f->atlas.tlut[st][c] = v;
             }
@@ -390,7 +390,7 @@ int forge_io_load(Forge *f)
     /* Every section below is guarded on there being enough payload left, so a
      * .FRG written by an older ROM (or truncated) loads its geometry and leaves
      * the rest at defaults rather than reading past the buffer. The version check
-     * in kiln_store_read already refuses a mismatch; this is the second line of
+     * in fig_store_read already refuses a mismatch; this is the second line of
      * defence for a payload that is self-consistently short, which a checksum
      * cannot detect. */
     uint16_t nents = 0;
@@ -438,7 +438,7 @@ int forge_io_load(Forge *f)
         f->cine_loop = g_frg[at++];
         f->key_count = 0;
         for (uint16_t i = 0; i < nk && at + 28 <= len; i++) {
-            KilnCamKey *k = &f->keys[f->key_count];
+            FigCamKey *k = &f->keys[f->key_count];
             at = get_f32(g_frg, at, &k->t);
             for (int a = 0; a < 3; a++) at = get_f32(g_frg, at, &k->eye.v[a]);
             for (int a = 0; a < 3; a++) at = get_f32(g_frg, at, &k->look.v[a]);
@@ -449,7 +449,7 @@ int forge_io_load(Forge *f)
     }
 
     forge_geo_remesh(f);
-    return KILN_STORE_OK;
+    return FIG_STORE_OK;
 }
 
 /* A starter room, so a first boot is not an empty void with a reticle in it. A
@@ -457,14 +457,14 @@ int forge_io_load(Forge *f)
  * immediately, which is the mode that justifies the tool. */
 void forge_io_seed(Forge *f)
 {
-    kiln_voxel_clear(&f->world);
-    kiln_voxel_fill(&f->world, 0, 0, 0, 15, 0, 15, 1);        /* floor       */
-    kiln_voxel_fill(&f->world, 0, 1, 0, 15, 4, 0, 2);         /* back wall   */
-    kiln_voxel_fill(&f->world, 0, 1, 0, 0, 4, 15, 2);         /* left wall   */
-    kiln_voxel_fill(&f->world, 15, 1, 0, 15, 4, 15, 2);       /* right wall  */
-    kiln_voxel_fill(&f->world, 6, 1, 15, 9, 3, 15, KILN_VOXEL_AIR); /* doorway */
-    kiln_voxel_fill(&f->world, 0, 1, 15, 5, 4, 15, 3);
-    kiln_voxel_fill(&f->world, 10, 1, 15, 15, 4, 15, 3);
+    fig_voxel_clear(&f->world);
+    fig_voxel_fill(&f->world, 0, 0, 0, 15, 0, 15, 1);        /* floor       */
+    fig_voxel_fill(&f->world, 0, 1, 0, 15, 4, 0, 2);         /* back wall   */
+    fig_voxel_fill(&f->world, 0, 1, 0, 0, 4, 15, 2);         /* left wall   */
+    fig_voxel_fill(&f->world, 15, 1, 0, 15, 4, 15, 2);       /* right wall  */
+    fig_voxel_fill(&f->world, 6, 1, 15, 9, 3, 15, FIG_VOXEL_AIR); /* doorway */
+    fig_voxel_fill(&f->world, 0, 1, 15, 5, 4, 15, 3);
+    fig_voxel_fill(&f->world, 10, 1, 15, 15, 4, 15, 3);
 
     /* A spawn and a three-key shot, so a FIRST BOOT exercises every mode rather
      * than only the two that need no content. An ENT panel over an empty list and
@@ -475,7 +475,7 @@ void forge_io_seed(Forge *f)
      * Three keys, not two: Catmull-Rom takes its tangent from a key's two
      * NEIGHBOURS, so two keys give a straight line and demonstrate nothing about
      * the curve — which is the thing CAM mode is for looking at. */
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
     f->ent_count = 0;
     f->ents[0] = (ForgeEnt){
         .pos = {{ 8.5f * B, 1.5f * B, 8.5f * B }},
@@ -487,11 +487,11 @@ void forge_io_seed(Forge *f)
 
     f->key_count = 3;
     f->cine_duration = 8.0f;
-    f->keys[0] = (KilnCamKey){ 0.0f, {{ -2.0f * B, 6.0f * B, -2.0f * B }},
+    f->keys[0] = (FigCamKey){ 0.0f, {{ -2.0f * B, 6.0f * B, -2.0f * B }},
                                      {{  8.0f * B, 2.0f * B,  8.0f * B }} };
-    f->keys[1] = (KilnCamKey){ 4.0f, {{  8.0f * B, 7.0f * B, -4.0f * B }},
+    f->keys[1] = (FigCamKey){ 4.0f, {{  8.0f * B, 7.0f * B, -4.0f * B }},
                                      {{  8.0f * B, 2.0f * B,  8.0f * B }} };
-    f->keys[2] = (KilnCamKey){ 8.0f, {{ 18.0f * B, 6.0f * B,  8.0f * B }},
+    f->keys[2] = (FigCamKey){ 8.0f, {{ 18.0f * B, 6.0f * B,  8.0f * B }},
                                      {{  8.0f * B, 2.0f * B,  8.0f * B }} };
     f->key_sel = 0;
     forge_cine_validate(f);

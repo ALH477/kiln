@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT
  *
- * Drives the REAL frame bracket — kiln_frame_begin / kiln_scene_begin /
- * kiln_gui_begin / kiln_frame_end — on the host, with the real
+ * Drives the REAL frame bracket — fig_frame_begin / fig_scene_begin /
+ * fig_gui_begin / fig_frame_end — on the host, with the real
  * engine/src/kiln/kiln_engine.c and kiln_gui.c, and captures the result.
  *
  * That bracket is the engine's one state transition per frame and CLAUDE.md
@@ -16,7 +16,7 @@
  *   lighting    the ambient term plus two directional lights, on a cube whose
  *               faces have known normals — a wrong normal unpack or a sign
  *               error on the dot product makes the shading flat or inverted.
- *   matrices    each cube goes through a KilnTransform, i.e. through
+ *   matrices    each cube goes through a FigTransform, i.e. through
  *               t3d_mat4_to_fixed's s16.16 quantisation and t3d_matrix_push.
  *   fog         enabled with a range that puts the far cube inside it.
  *   the seam    a HUD is drawn afterwards, and must land ON TOP with no depth
@@ -35,11 +35,11 @@ static int fails = 0;
 #define CHECK(c, ...) do { if (!(c)) { \
         printf("  FAIL: "); printf(__VA_ARGS__); printf("\n"); fails++; } } while (0)
 
-/* ── a cube, packed exactly as kiln_voxmesh packs geometry ──
+/* ── a cube, packed exactly as fig_voxmesh packs geometry ──
  * Two vertices per T3DVertPacked, positions as int16 (the integer part of the
  * ucode's s16.16), one packed normal per vertex, RGBA8 per vertex. Building it
  * by hand rather than loading a model is the point: it is the same submission
- * path kiln_map_draw and kiln_voxmesh use, and it needs no .t3dm parser. */
+ * path fig_map_draw and fig_voxmesh use, and it needs no .t3dm parser. */
 #define S 40   /* half-extent in world units */
 
 typedef struct { int nx, ny, nz; uint8_t r, g, b; } Face;
@@ -121,12 +121,12 @@ int main(int argc, char **argv)
     const char *png = argc > 1 ? argv[1] : "scene.png";
     const char *manifest = argc > 2 ? argv[2] : "scene.txt";
 
-    kiln_engine_init(RESOLUTION_320x240);
-    kiln_gui_init();
+    fig_engine_init(RESOLUTION_320x240);
+    fig_gui_init();
     build_cube();
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
+    FigScene scene;
+    fig_scene_init(&scene);
     scene.cam_pos    = (fm_vec3_t){{ 130.0f,  95.0f, 210.0f }};
     scene.cam_target = (fm_vec3_t){{   0.0f,   0.0f,   0.0f }};
     scene.fov_deg    = 55.0f;
@@ -147,11 +147,11 @@ int main(int argc, char **argv)
     scene.lights[0].dir = (fm_vec3_t){{ -0.80f, -0.20f, -0.55f }};
     scene.light_count = 2;
 
-    kiln_scene_set_fog(&scene, RGBA32(0x0A, 0x0C, 0x14, 0xFF), 260.0f, 620.0f);
+    fig_scene_set_fog(&scene, RGBA32(0x0A, 0x0C, 0x14, 0xFF), 260.0f, 620.0f);
 
-    KilnTransform near_t, far_t;
-    kiln_transform_init(&near_t);
-    kiln_transform_init(&far_t);
+    FigTransform near_t, far_t;
+    fig_transform_init(&near_t);
+    fig_transform_init(&far_t);
     near_t.pos = (fm_vec3_t){{ -30.0f, 0.0f,  40.0f }};
     near_t.rot_axis = (fm_vec3_t){{ 0.3f, 1.0f, 0.1f }};
     near_t.rot_angle = 0.6f;
@@ -162,26 +162,26 @@ int main(int argc, char **argv)
     far_t.rot_angle = 0.9f;
     far_t.scale = (fm_vec3_t){{ 1.6f, 1.6f, 1.6f }};
 
-    kiln_scene_update(&scene);
+    fig_scene_update(&scene);
 
-    kiln_frame_begin();
-      kiln_scene_begin(&scene);
-        kiln_transform_push(&far_t);  draw_cube(); kiln_transform_pop();
-        kiln_transform_push(&near_t); draw_cube(); kiln_transform_pop();
-      kiln_gui_begin();
-        kiln_gui_rect(0, 0, 320, 12, RGBA32(0x10, 0x12, 0x18, 0xFF));
-        kiln_gui_text(6, 9, RGBA32(0x00, 0xF5, 0xD4, 0xFF), "KILN SCENE");
-        kiln_gui_panel(8, 20, 116, 44, RGBA32(0x10, 0x12, 0x18, 0xFF),
+    fig_frame_begin();
+      fig_scene_begin(&scene);
+        fig_transform_push(&far_t);  draw_cube(); fig_transform_pop();
+        fig_transform_push(&near_t); draw_cube(); fig_transform_pop();
+      fig_gui_begin();
+        fig_gui_rect(0, 0, 320, 12, RGBA32(0x10, 0x12, 0x18, 0xFF));
+        fig_gui_text(6, 9, RGBA32(0x00, 0xF5, 0xD4, 0xFF), "KILN SCENE");
+        fig_gui_panel(8, 20, 116, 44, RGBA32(0x10, 0x12, 0x18, 0xFF),
                        RGBA32(0x00, 0xF5, 0xD4, 0xFF));
-        kiln_gui_text(14, 34, RGBA32(0xFF,0xFF,0xFF,0xFF), "lights %d", scene.light_count);
-        kiln_gui_text(14, 48, RGBA32(0xFF,0xFF,0xFF,0xFF), "fog on");
+        fig_gui_text(14, 34, RGBA32(0xFF,0xFF,0xFF,0xFF), "lights %d", scene.light_count);
+        fig_gui_text(14, 48, RGBA32(0xFF,0xFF,0xFF,0xFF), "fog on");
         /* Straight through the middle of both cubes. It must be visible over
          * them: the HUD has no depth interaction by construction. */
-        kiln_gui_line(0, 150, 319, 120, 1, RGBA32(0xFF, 0x30, 0x60, 0xFF));
-      kiln_gui_end();
-    kiln_frame_end();
+        fig_gui_line(0, 150, 319, 120, 1, RGBA32(0xFF, 0x30, 0x60, 0xFF));
+      fig_gui_end();
+    fig_frame_end();
 
-    const KilnHostT3DCounters *t = kiln_host_t3d_counters();
+    const FigHostT3DCounters *t = fig_host_t3d_counters();
     printf("  3D: vert_loads %u verts %u submitted %u drawn %u culled %u "
            "clipped %u matdepth %u\n",
            t->vert_loads, t->verts, t->tris_submitted, t->tris_drawn,
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
     /* Two cubes, 12 triangles each. */
     CHECK(t->tris_submitted == 24, "expected 24 triangles submitted, got %u",
           t->tris_submitted);
-    /* All 24, because kiln_scene_begin sets T3D_FLAG_SHADED | T3D_FLAG_DEPTH
+    /* All 24, because fig_scene_begin sets T3D_FLAG_SHADED | T3D_FLAG_DEPTH
      * and NOT either cull flag — the engine resolves closed geometry with the
      * depth buffer rather than by discarding back faces. Worth pinning: on a
      * fill-rate-bound console that is roughly twice the shaded pixels for any
@@ -212,10 +212,10 @@ int main(int argc, char **argv)
     CHECK(t->tris_culled == 0, "%u triangles culled; none should be",
           t->tris_culled);
 
-    kiln_host_stats(stdout, 8);
+    fig_host_stats(stdout, 8);
 
-    CHECK(kiln_host_capture(png) == 0, "could not write %s", png);
-    CHECK(kiln_host_text_manifest(manifest) == 0, "could not write %s", manifest);
+    CHECK(fig_host_capture(png) == 0, "could not write %s", png);
+    CHECK(fig_host_text_manifest(manifest) == 0, "could not write %s", manifest);
 
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
     printf("the real frame bracket ran on the host: 3D pass, seam, 2D pass\n");

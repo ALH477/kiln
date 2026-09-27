@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# nix/checks/kiln-vanim.nix — kiln_morph's CPU blend.
+# nix/checks/kiln-vanim.nix — fig_morph's CPU blend.
 #
 # The blend scaled packed RGBA words by float weights and never wrote normals,
 # so every morph on console garbled its colours and lit at flat ambient. The
@@ -11,5 +11,5 @@
 target.mkCheck {
   pname = "vanimcheck";
   sources = [ ./kiln-vanim-check.c ];
-  meta.description = "kiln_morph blends colour per channel and normals between its two heaviest targets, rounds once, clamps weights and alternates buffers; kiln_deform starts from its base every frame";
+  meta.description = "fig_morph blends colour per channel and normals between its two heaviest targets, rounds once, clamps weights and alternates buffers; fig_deform starts from its base every frame";
 }

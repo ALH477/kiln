@@ -34,13 +34,13 @@
 
 /* A reserved channel, not an auto-allocated one.
  *
- * kiln_sfx_play(-1) picks the first idle channel in [0, sfx_channels), which
+ * fig_sfx_play(-1) picks the first idle channel in [0, sfx_channels), which
  * is the same pool a game's ambience bed may already be sitting in — and a
  * one-shot that lands on top of a looping bed leaves one of the two with a
  * sample buffer and no reader. Owning a channel outright means the splash's
  * audio cannot collide with anything the game is doing, and means the
  * splash can STOP it when it is finished, which is the other half of the
- * fix (see kiln_splash_update).
+ * fix (see fig_splash_update).
  *
  * Channel 2, not 1: a STEREO waveform occupies two adjacent mixer
  * channels, so a game holding channel 0 for a bed may really be holding
@@ -59,7 +59,7 @@ static int   g_done;
 static int   g_started;
 static int   g_flash;      /* frames of white left after the beat */
 
-static KilnTransform g_xform;
+static FigTransform g_xform;
 static int          g_xform_ready;
 
 /* The flame gets its own transform stacked on top of the body's, so it can
@@ -74,10 +74,10 @@ static T3DObject     *g_kiln_obj;
 static T3DObject     *g_flame_obj;
 static T3DObject     *g_plate_obj;
 static int             g_objects_looked_up;
-static KilnTransform   g_flame_xform;
+static FigTransform   g_flame_xform;
 static int             g_flame_xform_ready;
 
-void kiln_splash_init(T3DModel *model, int jingle_sfx, const char *line)
+void fig_splash_init(T3DModel *model, int jingle_sfx, const char *line)
 {
     g_model = model;
     g_jingle = jingle_sfx;
@@ -92,7 +92,7 @@ void kiln_splash_init(T3DModel *model, int jingle_sfx, const char *line)
     g_plate_obj = NULL;
 }
 
-int kiln_splash_done(void) { return g_done; }
+int fig_splash_done(void) { return g_done; }
 
 /* Ease used by the assembly: fast in, hard stop. The pieces arrive like
  * they were thrown, not like they were animated — that overshoot-free
@@ -115,7 +115,7 @@ static float flame_flicker(float t)
     return 1.0f + 0.10f * fm_sinf(t * 26.0f) + 0.06f * fm_sinf(t * 41.0f + 1.7f);
 }
 
-void kiln_splash_update(float dt, const KilnInput *in)
+void fig_splash_update(float dt, const FigInput *in)
 {
     if (g_done) return;
 
@@ -125,7 +125,7 @@ void kiln_splash_update(float dt, const KilnInput *in)
         /* Highest priority: this is the only sound playing, and a boot
          * jingle losing its channel to anything is not a failure mode
          * worth allowing. */
-        if (g_jingle >= 0) kiln_sfx_play(g_jingle, SPLASH_CH, 255);
+        if (g_jingle >= 0) fig_sfx_play(g_jingle, SPLASH_CH, 255);
     }
 
     const float prev = g_t;
@@ -146,13 +146,13 @@ void kiln_splash_update(float dt, const KilnInput *in)
     const int finishing = (in && in->edges) || g_t >= T_END;
     if (finishing && !g_jingle_stopped) {
         g_jingle_stopped = 1;
-        if (g_jingle >= 0) kiln_sfx_stop(SPLASH_CH);
+        if (g_jingle >= 0) fig_sfx_stop(SPLASH_CH);
     }
     if (in && in->edges) { g_done = 1; return; }   /* skipped */
     if (g_t >= T_END) g_done = 1;
 }
 
-void kiln_splash_apply(KilnScene *scene)
+void fig_splash_apply(FigScene *scene)
 {
     /* A fixed three-quarter view. The logo moves, the camera does not —
      * the original boot holds its frame and lets the mark do the work,
@@ -169,12 +169,12 @@ void kiln_splash_apply(KilnScene *scene)
     scene->far_z = 4096.0f;
 }
 
-void kiln_splash_draw3d(void)
+void fig_splash_draw3d(void)
 {
     if (g_done) return;
 
     if (!g_xform_ready) {
-        kiln_transform_init(&g_xform);
+        fig_transform_init(&g_xform);
         g_xform_ready = 1;
     }
 
@@ -210,14 +210,14 @@ void kiln_splash_draw3d(void)
      * as one rigid piece below — that has always been this module's
      * contract, and a lookup miss must not turn into a blank frame. */
     if (g_kiln_obj || g_flame_obj || g_plate_obj) {
-        kiln_transform_push(&g_xform);
+        fig_transform_push(&g_xform);
         if (g_kiln_obj)  t3d_model_draw_object(g_kiln_obj, NULL);
         if (g_plate_obj) t3d_model_draw_object(g_plate_obj, NULL);
-        kiln_transform_pop();
+        fig_transform_pop();
 
         if (g_flame_obj) {
             if (!g_flame_xform_ready) {
-                kiln_transform_init(&g_flame_xform);
+                fig_transform_init(&g_flame_xform);
                 g_flame_xform_ready = 1;
             }
             /* Same rigid placement as the body, plus a small independent
@@ -231,19 +231,19 @@ void kiln_splash_draw3d(void)
             g_flame_xform.scale = (fm_vec3_t){ { scale * flick,
                                                  scale * (0.92f + 0.08f * flick),
                                                  scale * flick } };
-            kiln_transform_push(&g_flame_xform);
+            fig_transform_push(&g_flame_xform);
             t3d_model_draw_object(g_flame_obj, NULL);
-            kiln_transform_pop();
+            fig_transform_pop();
         }
         return;
     }
 
-    kiln_transform_push(&g_xform);
+    fig_transform_push(&g_xform);
     t3d_model_draw(g_model);
-    kiln_transform_pop();
+    fig_transform_pop();
 }
 
-void kiln_splash_draw2d(int w, int h)
+void fig_splash_draw2d(int w, int h)
 {
     if (g_done) return;
 
@@ -255,9 +255,9 @@ void kiln_splash_draw2d(int w, int h)
         const int bw = (int)(120 * k);
         const color_t ink = RGBA32(206, 202, 196, 255);
         const color_t red = RGBA32(176, 26, 32, 255);
-        kiln_gui_rect(w / 2 - bw, h / 2 - 24, bw, 8, ink);
-        kiln_gui_rect(w / 2 - bw, h / 2 - 8, (int)(bw * 0.6f), 8, red);
-        kiln_gui_rect(w / 2 - bw, h / 2 + 8, (int)(bw * 0.8f), 8, red);
+        fig_gui_rect(w / 2 - bw, h / 2 - 24, bw, 8, ink);
+        fig_gui_rect(w / 2 - bw, h / 2 - 8, (int)(bw * 0.6f), 8, red);
+        fig_gui_rect(w / 2 - bw, h / 2 + 8, (int)(bw * 0.8f), 8, red);
     }
 
     /* The publisher line, fading up after the mark has landed, and lit by
@@ -265,7 +265,7 @@ void kiln_splash_draw2d(int w, int h)
      * drives both, so the glow on the words and the flex of the flame read
      * as one light source rather than an unrelated coincidence.
      *
-     * The 2D pass has no lighting (kiln_gui_begin turns depth and shading
+     * The 2D pass has no lighting (fig_gui_begin turns depth and shading
      * state off — see kiln_gui.c), so this is the only way "light from
      * the fire reaches the text" can mean anything here: not a real light
      * hitting real geometry, but the text's own colour pulled warmer
@@ -282,7 +282,7 @@ void kiln_splash_draw2d(int w, int h)
         const uint8_t lb = (uint8_t)(180.0f + glow * (130.0f - 180.0f));
 
         const int len = (int)strlen(g_line);
-        kiln_gui_text(w / 2 - len * 4, h / 2 + 52,
+        fig_gui_text(w / 2 - len * 4, h / 2 + 52,
                      RGBA32(lr, lg, lb, (uint8_t)(a * 255.0f)),
                      "%s", g_line);
     }
@@ -293,7 +293,7 @@ void kiln_splash_draw2d(int w, int h)
      * timer rounds that to either nothing or too much. */
     if (g_flash > 0) {
         const uint8_t a = (uint8_t)(220 - (g_flash - 1) * 28);
-        kiln_gui_rect(0, 0, w, h, RGBA32(255, 255, 255, a));
+        fig_gui_rect(0, 0, w, h, RGBA32(255, 255, 255, a));
         if (++g_flash > 8) g_flash = 0;
     }
 
@@ -302,6 +302,6 @@ void kiln_splash_draw2d(int w, int h)
     if (g_t >= T_FADE_OUT) {
         float a = (g_t - T_FADE_OUT) / (T_END - T_FADE_OUT);
         if (a > 1.0f) a = 1.0f;
-        kiln_gui_rect(0, 0, w, h, RGBA32(0, 0, 0, (uint8_t)(a * 255.0f)));
+        fig_gui_rect(0, 0, w, h, RGBA32(0, 0, 0, (uint8_t)(a * 255.0f)));
     }
 }

@@ -51,8 +51,19 @@ import time
 try:
     from evdev import UInput, AbsInfo, ecodes as e
 except ImportError:
-    sys.exit("n64-input: python evdev not available (it is in the nix devShell; "
-             "run this through ./dev, or `nix develop`)")
+    # The old wording here told the reader to "run this through ./dev" — which
+    # is exactly what they were doing when they saw it. ./dev drive calls
+    # n64-drive.sh with plain bash, not through `nix develop`, so the python
+    # on PATH was the host's. Name the actual fix instead.
+    sys.exit(
+        "n64-input: this python has no evdev, so no uinput gamepad can be "
+        "created.\n"
+        "  The flake ships one that does. Either set N64_PYTHON to it:\n"
+        "    N64_PYTHON=$(nix build --no-link --print-out-paths "
+        "<kiln>#capture-python)/bin/python3\n"
+        "  or run inside `nix develop`, where it is already on PATH.\n"
+        "  ./dev sets N64_PYTHON for you; if you are seeing this FROM ./dev, "
+        "that is a bug in ./dev, not in your shell.")
 
 # ── The device ─────────────────────────────────────────────────────────
 # Fixed identity: the SDL GUID is derived from these, and the ares bindings

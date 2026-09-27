@@ -15,8 +15,8 @@
  * IMPACT_PUNCH_TIME, then eases depth_max -> 0 over HEAL_TIME. Both stages
  * use the same smoothstep, which is point-symmetric (smoothstep(1-t) ==
  * 1-smoothstep(t)) so the heal is exactly the punch curve run backwards. */
-#define KILN_CRATER_PUNCH_TIME 0.15f
-#define KILN_CRATER_HEAL_TIME  7.5f
+#define FIG_CRATER_PUNCH_TIME 0.15f
+#define FIG_CRATER_HEAL_TIME  7.5f
 
 static inline float smoothstep01(float t)
 {
@@ -27,15 +27,15 @@ static inline float smoothstep01(float t)
 
 /* Current sink this slot contributes at local (x, z): its own punch/heal
  * depth times a radial falloff to 0 at `radius`. Shared by
- * kiln_crater_update (per vertex) and kiln_crater_sample (per query point)
+ * fig_crater_update (per vertex) and fig_crater_sample (per query point)
  * so the two can never disagree about what "the current crater shape" is. */
-static float crater_contribution(const KilnCraterSlot *s, float x, float z)
+static float crater_contribution(const FigCraterSlot *s, float x, float z)
 {
     float depth_now;
-    if (s->age < KILN_CRATER_PUNCH_TIME) {
-        depth_now = s->depth_max * smoothstep01(s->age / KILN_CRATER_PUNCH_TIME);
+    if (s->age < FIG_CRATER_PUNCH_TIME) {
+        depth_now = s->depth_max * smoothstep01(s->age / FIG_CRATER_PUNCH_TIME);
     } else {
-        float t_heal = (s->age - KILN_CRATER_PUNCH_TIME) / KILN_CRATER_HEAL_TIME;
+        float t_heal = (s->age - FIG_CRATER_PUNCH_TIME) / FIG_CRATER_HEAL_TIME;
         depth_now = s->depth_max * (1.0f - smoothstep01(t_heal));
     }
     if (depth_now <= 0.0f) return 0.0f;
@@ -50,7 +50,7 @@ static float crater_contribution(const KilnCraterSlot *s, float x, float z)
     return depth_now * falloff;
 }
 
-int kiln_crater_init(KilnCraterField *cf, const T3DModel *model,
+int fig_crater_init(FigCraterField *cf, const T3DModel *model,
                     const char *object_name)
 {
     memset(cf, 0, sizeof(*cf));
@@ -58,7 +58,7 @@ int kiln_crater_init(KilnCraterField *cf, const T3DModel *model,
 
     T3DObject *obj = t3d_model_get_object(model, object_name);
     if (!obj) {
-        debugf("kiln_crater: object '%s' not found; craters disabled\n",
+        debugf("fig_crater: object '%s' not found; craters disabled\n",
                object_name);
         return -1;
     }
@@ -69,15 +69,15 @@ int kiln_crater_init(KilnCraterField *cf, const T3DModel *model,
         total += (int)obj->parts[p].vertLoadCount * 2;
     }
     if (total <= 0) {
-        debugf("kiln_crater: object '%s' has no vertices; craters disabled\n",
+        debugf("fig_crater: object '%s' has no vertices; craters disabled\n",
                object_name);
         cf->object = NULL;
         return -1;
     }
 
-    cf->verts = malloc(sizeof(KilnCraterVert) * (size_t)total);
+    cf->verts = malloc(sizeof(FigCraterVert) * (size_t)total);
     if (!cf->verts) {
-        debugf("kiln_crater: no memory for %d vertices; craters disabled\n",
+        debugf("fig_crater: no memory for %d vertices; craters disabled\n",
                total);
         cf->object = NULL;
         return -1;
@@ -100,7 +100,7 @@ int kiln_crater_init(KilnCraterField *cf, const T3DModel *model,
     return 0;
 }
 
-void kiln_crater_destroy(KilnCraterField *cf)
+void fig_crater_destroy(FigCraterField *cf)
 {
     if (cf->verts) {
         free(cf->verts);
@@ -110,13 +110,13 @@ void kiln_crater_destroy(KilnCraterField *cf)
     cf->object = NULL;
 }
 
-void kiln_crater_impact(KilnCraterField *cf, float x, float z,
+void fig_crater_impact(FigCraterField *cf, float x, float z,
                        float radius, float depth_max)
 {
     if (cf->vert_count <= 0) return;
 
     int slot = -1;
-    for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
+    for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
         if (!cf->slots[i].active) { slot = i; break; }
     }
     if (slot < 0) {
@@ -124,7 +124,7 @@ void kiln_crater_impact(KilnCraterField *cf, float x, float z,
          * storm actively tearing up the ground reads better than a strike
          * that lands and is immediately dropped for lack of a slot. */
         float oldest = -1.0f;
-        for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
+        for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
             if (cf->slots[i].age > oldest) {
                 oldest = cf->slots[i].age;
                 slot = i;
@@ -140,12 +140,12 @@ void kiln_crater_impact(KilnCraterField *cf, float x, float z,
     cf->slots[slot].active = 1;
 }
 
-void kiln_crater_update(KilnCraterField *cf, float dt)
+void fig_crater_update(FigCraterField *cf, float dt)
 {
     cf->touched_last_update = 0;
 
     int have_active = 0;
-    for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
+    for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
         if (cf->slots[i].active) {
             cf->slots[i].age += dt;
             have_active = 1;
@@ -156,10 +156,10 @@ void kiln_crater_update(KilnCraterField *cf, float dt)
     if (!have_active) return;
 
     for (int v = 0; v < cf->vert_count; v++) {
-        KilnCraterVert *mv = &cf->verts[v];
+        FigCraterVert *mv = &cf->verts[v];
         float sink = 0.0f;
-        for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
-            const KilnCraterSlot *s = &cf->slots[i];
+        for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
+            const FigCraterSlot *s = &cf->slots[i];
             if (!s->active) continue;
             const float c = crater_contribution(s, (float)mv->x, (float)mv->z);
             /* MAX, not sum, across overlapping craters — two nearby
@@ -167,7 +167,7 @@ void kiln_crater_update(KilnCraterField *cf, float dt)
             if (c > sink) sink = c;
         }
         /* Absolute position from the untouched rest pose, not an
-         * accumulated delta — see KilnCraterVert's comment. This also
+         * accumulated delta — see FigCraterVert's comment. This also
          * correctly restores a vertex to its rest Y on the exact frame its
          * last covering crater finishes healing (sink naturally reaches 0
          * exactly then), with no separate "reset" path needed. */
@@ -178,19 +178,19 @@ void kiln_crater_update(KilnCraterField *cf, float dt)
         }
     }
 
-    for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
-        KilnCraterSlot *s = &cf->slots[i];
-        if (s->active && s->age > KILN_CRATER_PUNCH_TIME + KILN_CRATER_HEAL_TIME) {
+    for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
+        FigCraterSlot *s = &cf->slots[i];
+        if (s->active && s->age > FIG_CRATER_PUNCH_TIME + FIG_CRATER_HEAL_TIME) {
             s->active = 0;
         }
     }
 }
 
-float kiln_crater_sample(const KilnCraterField *cf, float x, float z)
+float fig_crater_sample(const FigCraterField *cf, float x, float z)
 {
     float sink = 0.0f;
-    for (int i = 0; i < KILN_CRATER_MAX_ACTIVE; i++) {
-        const KilnCraterSlot *s = &cf->slots[i];
+    for (int i = 0; i < FIG_CRATER_MAX_ACTIVE; i++) {
+        const FigCraterSlot *s = &cf->slots[i];
         if (!s->active) continue;
         const float c = crater_contribution(s, x, z);
         if (c > sink) sink = c;

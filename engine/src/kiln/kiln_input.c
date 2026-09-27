@@ -7,12 +7,12 @@
 
 #include <string.h>
 
-static KilnInput g_input[JOYPAD_PORT_COUNT];
+static FigInput g_input[JOYPAD_PORT_COUNT];
 static uint32_t g_last_buttons[JOYPAD_PORT_COUNT];
 
 typedef struct {
-    const KilnInputTape *forced;
-    const KilnInputTape *attract;
+    const FigInputTape *forced;
+    const FigInputTape *attract;
     uint16_t idle_frames;
     uint16_t idle;          /* consecutive idle updates, saturating */
     uint8_t  attract_on;
@@ -28,14 +28,14 @@ static int port_index(int port)
     return port - 1;
 }
 
-void kiln_input_init(void)
+void fig_input_init(void)
 {
     memset(g_input, 0, sizeof(g_input));
     memset(g_last_buttons, 0, sizeof(g_last_buttons));
     memset(g_tape, 0, sizeof(g_tape));
 }
 
-void kiln_input_play(int port, const KilnInputTape *tape)
+void fig_input_play(int port, const FigInputTape *tape)
 {
     TapeState *t = &g_tape[port_index(port)];
     t->forced = tape;
@@ -43,7 +43,7 @@ void kiln_input_play(int port, const KilnInputTape *tape)
     t->key = 0;
 }
 
-void kiln_input_set_attract(int port, const KilnInputTape *tape, uint16_t idle_frames)
+void fig_input_set_attract(int port, const FigInputTape *tape, uint16_t idle_frames)
 {
     TapeState *t = &g_tape[port_index(port)];
     t->attract = tape;
@@ -53,20 +53,20 @@ void kiln_input_set_attract(int port, const KilnInputTape *tape, uint16_t idle_f
     if (!t->forced) { t->frame = 0; t->key = 0; }
 }
 
-int kiln_input_scripted(int port)
+int fig_input_scripted(int port)
 {
     const TapeState *t = &g_tape[port_index(port)];
     return t->forced != NULL || t->attract_on;
 }
 
 /* Read the tape at its clock into raw pad values, then advance the clock. */
-static void tape_read(TapeState *t, const KilnInputTape *tape, joypad_inputs_t *in)
+static void tape_read(TapeState *t, const FigInputTape *tape, joypad_inputs_t *in)
 {
     memset(in, 0, sizeof *in);
     if (!tape || !tape->keys || tape->count == 0) return;
 
     const uint16_t last = (uint16_t)(tape->count - 1);
-    if (tape->loop_frame != KILN_INPUT_NO_LOOP && tape->count > 1 &&
+    if (tape->loop_frame != FIG_INPUT_NO_LOOP && tape->count > 1 &&
         t->frame >= tape->keys[last].frame) {
         t->frame = tape->loop_frame;
         t->key = 0;
@@ -74,7 +74,7 @@ static void tape_read(TapeState *t, const KilnInputTape *tape, joypad_inputs_t *
     if (t->frame < tape->keys[t->key].frame) t->key = 0;
     while (t->key < last && tape->keys[t->key + 1].frame <= t->frame) t->key++;
 
-    const KilnInputKey *k = &tape->keys[t->key];
+    const FigInputKey *k = &tape->keys[t->key];
     if (t->frame >= k->frame) {
         in->btn.raw  = k->buttons;
         in->stick_x  = k->sx;
@@ -85,7 +85,7 @@ static void tape_read(TapeState *t, const KilnInputTape *tape, joypad_inputs_t *
     if (t->frame < 0xFFFE) t->frame++;
 }
 
-void kiln_input_update(void)
+void fig_input_update(void)
 {
     /* ── The poll this module is named for ──────────────────────────────
      * libdragon reads the joypads asynchronously under interrupt, and
@@ -105,7 +105,7 @@ void kiln_input_update(void)
      * examples that were being watched kept working while everything built on
      * the wrapper did not.
      *
-     * This header has claimed "kiln_input_update() polls once at the top of
+     * This header has claimed "fig_input_update() polls once at the top of
      * the frame" since the module was written. It is now true. */
     joypad_poll();
 
@@ -168,23 +168,23 @@ void kiln_input_update(void)
     }
 }
 
-const KilnInput *kiln_input_get(int port)
+const FigInput *fig_input_get(int port)
 {
     if (port < 1 || port > JOYPAD_PORT_COUNT) port = 1;
     return &g_input[port - 1];
 }
 
-int kiln_input_held(int port, uint32_t mask)
+int fig_input_held(int port, uint32_t mask)
 {
-    return (kiln_input_get(port)->buttons & mask) != 0;
+    return (fig_input_get(port)->buttons & mask) != 0;
 }
 
-int kiln_input_pressed(int port, uint32_t mask)
+int fig_input_pressed(int port, uint32_t mask)
 {
-    return (kiln_input_get(port)->edges & mask) != 0;
+    return (fig_input_get(port)->edges & mask) != 0;
 }
 
-int kiln_input_released(int port, uint32_t mask)
+int fig_input_released(int port, uint32_t mask)
 {
-    return (kiln_input_get(port)->released & mask) != 0;
+    return (fig_input_get(port)->released & mask) != 0;
 }

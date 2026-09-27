@@ -223,17 +223,17 @@ def emit_header(f, out):
     A(" * nix/checks/kiln-font.nix regenerates this and diffs, so a libdragon")
     A(" * bump that changes the font cannot drift past unnoticed.")
     A(" */")
-    A("#ifndef KILN_HOST_FONT_H")
-    A("#define KILN_HOST_FONT_H")
+    A("#ifndef FIG_HOST_FONT_H")
+    A("#define FIG_HOST_FONT_H")
     A("")
     A("#include <stdint.h>")
     A("")
-    A(f"#define KILN_FONT_ASCENT      {f.ascent}")
-    A(f"#define KILN_FONT_DESCENT     {f.descent}")
-    A(f"#define KILN_FONT_LINE_GAP    {f.line_gap}")
-    A(f"#define KILN_FONT_SPACE_WIDTH {f.space_width}")
-    A(f"#define KILN_FONT_FIRST_CP    {f.first_cp:#04x}")
-    A(f"#define KILN_FONT_LAST_CP     {f.first_cp + f.n_cp - 1:#04x}")
+    A(f"#define FIG_FONT_ASCENT      {f.ascent}")
+    A(f"#define FIG_FONT_DESCENT     {f.descent}")
+    A(f"#define FIG_FONT_LINE_GAP    {f.line_gap}")
+    A(f"#define FIG_FONT_SPACE_WIDTH {f.space_width}")
+    A(f"#define FIG_FONT_FIRST_CP    {f.first_cp:#04x}")
+    A(f"#define FIG_FONT_LAST_CP     {f.first_cp + f.n_cp - 1:#04x}")
     A("")
     A("/* One byte per pixel of coverage: 0 transparent, 1 fill, 2 outline. Row")
     A(" * major, `w` bytes per row, `h` rows. Kept a byte per pixel rather than")
@@ -244,8 +244,8 @@ def emit_header(f, out):
     A("    uint8_t  advance;   /* pixels to step the cursor                  */")
     A("    int8_t   xoff, yoff;/* box origin, relative to cursor + baseline  */")
     A("    uint8_t  w, h;      /* box size; 0x0 means no glyph               */")
-    A("    uint16_t bits;      /* offset into kiln_font_bits, or 0           */")
-    A("} KilnFontGlyph;")
+    A("    uint16_t bits;      /* offset into fig_font_bits, or 0           */")
+    A("} FigFontGlyph;")
     A("")
 
     blobs = []
@@ -264,7 +264,7 @@ def emit_header(f, out):
         recs.append((cp, g["adv"], g["xo"], g["yo"], g["w"], g["h"], off))
         off += len(cov)
 
-    A(f"static const uint8_t kiln_font_bits[{off}] = {{")
+    A(f"static const uint8_t fig_font_bits[{off}] = {{")
     for cp, cov in blobs:
         ch = chr(cp) if 0x20 < cp < 0x7F else "?"
         A(f"    /* {cp:#04x} {ch!r} */")
@@ -272,7 +272,7 @@ def emit_header(f, out):
             A("    " + "".join(f"{v}," for v in cov[i : i + 24]))
     A("};")
     A("")
-    A(f"static const KilnFontGlyph kiln_font_glyphs[{f.n_cp}] = {{")
+    A(f"static const FigFontGlyph fig_font_glyphs[{f.n_cp}] = {{")
     for cp, adv, xo, yo, w, h, boff in recs:
         ch = chr(cp) if 0x20 < cp < 0x7F else " "
         A(
@@ -281,7 +281,7 @@ def emit_header(f, out):
         )
     A("};")
     A("")
-    A("#endif /* KILN_HOST_FONT_H */")
+    A("#endif /* FIG_HOST_FONT_H */")
 
     text = "\n".join(lines) + "\n"
     if out == "-":

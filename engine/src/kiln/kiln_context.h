@@ -5,11 +5,11 @@
  * standing near and facing.
  *
  * ── How it works ───────────────────────────────────────────────────────
- * Each frame, kiln_context_scan walks the NPC, DOOR, CHEST, PROP, and ITEM
+ * Each frame, fig_context_scan walks the NPC, DOOR, CHEST, PROP, and ITEM
  * category lists and finds the closest actor within a forward-facing arc
- * (~2 m, ~60° cone). It returns a KilnContextAction describing what A would
+ * (~2 m, ~60° cone). It returns a FigContextAction describing what A would
  * do right now. The HUD shows the label ("Talk", "Open", "Unlock").
- * When the player presses A, kiln_context_execute dispatches the action.
+ * When the player presses A, fig_context_execute dispatches the action.
  *
  * ── Why a separate module, not inline in main.c ───────────────────────
  * The scan logic (cone test, category walk, distance check) is generic
@@ -25,8 +25,8 @@
  * context system is what makes that possible: it tells the game what
  * A should do THIS frame, and the game routes the input accordingly.
  */
-#ifndef KILN_CONTEXT_H
-#define KILN_CONTEXT_H
+#ifndef FIG_CONTEXT_H
+#define FIG_CONTEXT_H
 
 #include <t3d/t3dmath.h>
 #include <stdint.h>
@@ -37,30 +37,30 @@ extern "C" {
 #endif
 
 typedef enum {
-    KILN_CTX_NONE = 0,
-    KILN_CTX_TALK,
-    KILN_CTX_OPEN,
-    KILN_CTX_UNLOCK,
-    KILN_CTX_OPEN_CHEST,
-    KILN_CTX_USE,
-    KILN_CTX_PICKUP,
-} KilnContextAction;
+    FIG_CTX_NONE = 0,
+    FIG_CTX_TALK,
+    FIG_CTX_OPEN,
+    FIG_CTX_UNLOCK,
+    FIG_CTX_OPEN_CHEST,
+    FIG_CTX_USE,
+    FIG_CTX_PICKUP,
+} FigContextAction;
 
 /** Scan for the nearest interactable actor within `max_dist` and a
  *  forward-facing cone of half-angle `cone_half` (radians). Returns the
  *  action and sets `out_actor` to the handle. The action type is derived
  *  from the actor's category: NPC→TALK, DOOR→OPEN (or UNLOCK if the
  *  actor's flags indicate locked), CHEST→OPEN_CHEST, PROP→USE,
- *  ITEM→PICKUP. Returns KILN_CTX_NONE if nothing is in range. */
-KilnContextAction kiln_context_scan(fm_vec3_t player_pos, float yaw,
+ *  ITEM→PICKUP. Returns FIG_CTX_NONE if nothing is in range. */
+FigContextAction fig_context_scan(fm_vec3_t player_pos, float yaw,
                                    float max_dist, float cone_half,
-                                   KilnActorHandle *out_actor);
+                                   FigActorHandle *out_actor);
 
 /** Human-readable label for the action, for HUD display. */
-const char *kiln_context_label(KilnContextAction action);
+const char *fig_context_label(FigContextAction action);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_CONTEXT_H */
+#endif /* FIG_CONTEXT_H */

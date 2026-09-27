@@ -186,17 +186,17 @@ static color_t flash_strip(int x, int y, int w, int age, int good)
     const color_t hot = good ? OK : BAD;
     const color_t tint = good ? RGBA32(18, 56, 30, 255) : RGBA32(64, 18, 22, 255);
     if (age < FLASH && (age / 4) % 2 == 0) {
-        kiln_gui_rect(x, y, w, 12, hot);
+        fig_gui_rect(x, y, w, 12, hot);
         return FILL;
     }
-    kiln_gui_rect(x, y, w, 12, tint);
+    fig_gui_rect(x, y, w, 12, tint);
     return hot;
 }
 
 int main(void)
 {
     kernel_init();
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
 
@@ -242,18 +242,18 @@ int main(void)
 
     // ---- Kiln's own reader, on the same container ----
     int all_agree = res.verdict == 0;
-    uint32_t kiln_docs = 0;
-    size_t need = kiln_asset_probe_size(DB_PATH);
-    assertf(need > 0, "exsec-streamdb-demo: kiln_asset_probe_size failed");
+    uint32_t fig_docs = 0;
+    size_t need = fig_asset_probe_size(DB_PATH);
+    assertf(need > 0, "exsec-streamdb-demo: fig_asset_probe_size failed");
     void *arena = malloc(need);
-    KilnAsset *db = kiln_asset_open(DB_PATH, arena, need);
-    assertf(db, "exsec-streamdb-demo: kiln_asset_open failed");
-    kiln_docs = kiln_asset_count(db);
-    if (kiln_docs != res.docs) all_agree = 0;
+    FigAsset *db = fig_asset_open(DB_PATH, arena, need);
+    assertf(db, "exsec-streamdb-demo: fig_asset_open failed");
+    fig_docs = fig_asset_count(db);
+    if (fig_docs != res.docs) all_agree = 0;
 
     for (int i = 0; i < NKEYS; i++) {
         size_t kn = strlen(KEYS[i]);
-        size_t ksize = kiln_asset_size(db, KEYS[i], kn);
+        size_t ksize = fig_asset_size(db, KEYS[i], kn);
         int agree;
         if (res.k[i].state == 0) {
             agree = ksize == 0;
@@ -264,7 +264,7 @@ int main(void)
         } else {
             uint8_t *p = malloc(ksize ? ksize : 1);
             size_t got = ksize;
-            int rc = kiln_asset_load(db, KEYS[i], kn, p, &got);
+            int rc = fig_asset_load(db, KEYS[i], kn, p, &got);
             agree = rc == STREAMDB_EMB_OK && got == ksize &&
                     res.k[i].offset + ksize <= g_len &&
                     memcmp(p, g_buf + res.k[i].offset, ksize) == 0;
@@ -304,31 +304,31 @@ int main(void)
     const int t_loop = T_TYPE + type_frames + T_HOLD;
 
     // ---- the stage behind the panels ----
-    KilnScene scene;
-    kiln_scene_init(&scene);
-    kiln_prim_stage(&scene, RGBA32(0x3C, 0x46, 0x64, 0xFF), 90.0f, 190.0f);
+    FigScene scene;
+    fig_scene_init(&scene);
+    fig_prim_stage(&scene, RGBA32(0x3C, 0x46, 0x64, 0xFF), 90.0f, 190.0f);
     scene.fov_deg = 60.0f;
     scene.near_z = 6.0f;
     scene.far_z = 200.0f;
     scene.cam_pos = (fm_vec3_t){{ 0, 34, -95 }};
     scene.cam_target = (fm_vec3_t){{ 0, 25, 0 }};
 
-    KilnPrim floor_prim, slab_idle, slab_ok, slab_bad;
-    kiln_prim_floor(&floor_prim, 120.0f, 12,
-                    kiln_prim_rgba(0x6C, 0x76, 0x8E), kiln_prim_rgba(0x5A, 0x64, 0x7C));
+    FigPrim floor_prim, slab_idle, slab_ok, slab_bad;
+    fig_prim_floor(&floor_prim, 120.0f, 12,
+                    fig_prim_rgba(0x6C, 0x76, 0x8E), fig_prim_rgba(0x5A, 0x64, 0x7C));
     const fm_vec3_t slab_half = {{ 8, 10, 2 }};
     const fm_vec3_t slab_off = {{ 0, 10, 0 }};
-    kiln_prim_box(&slab_idle, slab_off, slab_half, kiln_prim_rgba(0xB0, 0xB8, 0xCC),
-                  kiln_prim_rgba(0x80, 0x88, 0xA0), kiln_prim_rgba(0x50, 0x58, 0x70));
-    kiln_prim_box(&slab_ok, slab_off, slab_half, kiln_prim_rgba(0x90, 0xFF, 0xB0),
-                  kiln_prim_rgba(0x40, 0xD0, 0x70), kiln_prim_rgba(0x20, 0x70, 0x38));
-    kiln_prim_box(&slab_bad, slab_off, slab_half, kiln_prim_rgba(0xFF, 0x90, 0x90),
-                  kiln_prim_rgba(0xE0, 0x40, 0x40), kiln_prim_rgba(0x70, 0x20, 0x20));
+    fig_prim_box(&slab_idle, slab_off, slab_half, fig_prim_rgba(0xB0, 0xB8, 0xCC),
+                  fig_prim_rgba(0x80, 0x88, 0xA0), fig_prim_rgba(0x50, 0x58, 0x70));
+    fig_prim_box(&slab_ok, slab_off, slab_half, fig_prim_rgba(0x90, 0xFF, 0xB0),
+                  fig_prim_rgba(0x40, 0xD0, 0x70), fig_prim_rgba(0x20, 0x70, 0x38));
+    fig_prim_box(&slab_bad, slab_off, slab_half, fig_prim_rgba(0xFF, 0x90, 0x90),
+                  fig_prim_rgba(0xE0, 0x40, 0x40), fig_prim_rgba(0x70, 0x20, 0x20));
 
-    KilnTransform floor_xf, slab_xf[NKEYS];
-    kiln_transform_init(&floor_xf);
+    FigTransform floor_xf, slab_xf[NKEYS];
+    fig_transform_init(&floor_xf);
     for (int i = 0; i < NKEYS; i++) {
-        kiln_transform_init(&slab_xf[i]);
+        fig_transform_init(&slab_xf[i]);
         /* Camera looks down +Z, so screen-right is -X: key 0 on the left. */
         slab_xf[i].pos = (fm_vec3_t){{ 30.0f - 30.0f * (float)i, 0, 0 }};
         slab_xf[i].rot_axis = (fm_vec3_t){{ 0, 1, 0 }};
@@ -345,96 +345,96 @@ int main(void)
 
         const int row_t[NKEYS] = { T_ROW0, T_ROW0 + T_ROW_GAP, T_ROW0 + 2 * T_ROW_GAP };
 
-        kiln_scene_update(&scene);
-        kiln_frame_begin();
-        kiln_scene_begin(&scene);
+        fig_scene_update(&scene);
+        fig_frame_begin();
+        fig_scene_begin(&scene);
 
-        kiln_transform_push(&floor_xf); kiln_prim_draw(&floor_prim); kiln_transform_pop();
+        fig_transform_push(&floor_xf); fig_prim_draw(&floor_prim); fig_transform_pop();
         for (int i = 0; i < NKEYS; i++) {
             if (res.k[i].state == 0) continue;      // absent: an outline, below
             const int age = t - row_t[i];
-            const KilnPrim *slab = &slab_idle;
+            const FigPrim *slab = &slab_idle;
             if (age >= 0 && !(age < FLASH && (age / 4) % 2 == 1))
                 slab = res.k[i].agree ? &slab_ok : &slab_bad;
             slab_xf[i].rot_angle = spin + (float)i * 0.9f;
-            kiln_transform_push(&slab_xf[i]);
-            kiln_prim_draw(slab);
-            kiln_transform_pop();
+            fig_transform_push(&slab_xf[i]);
+            fig_prim_draw(slab);
+            fig_transform_pop();
         }
 
-        kiln_gui_begin();
+        fig_gui_begin();
 
-        kiln_dd_begin(&scene, SCREEN_W, SCREEN_H);
+        fig_dd_begin(&scene, SCREEN_W, SCREEN_H);
         for (int i = 0; i < NKEYS; i++) {
             if (res.k[i].state != 0) continue;
             const int age = t - row_t[i];
             fm_vec3_t c = slab_xf[i].pos;
             c.v[1] += 10.0f;
-            kiln_dd_box(c, slab_half, age < 0 ? DIM : res.k[i].agree ? OK : BAD);
+            fig_dd_box(c, slab_half, age < 0 ? DIM : res.k[i].agree ? OK : BAD);
         }
-        kiln_dd_end();
+        fig_dd_end();
 
         // ── A: the reader and its thread ──
-        kiln_gui_panel(4, 4, 312, 50, FILL, HEAD);
-        kiln_gui_text(10, 17, HEAD, "EXSECUTOR STREAMDB READER");
-        if (KILN_JUMP == JUMP_NONE) kiln_gui_text(262, 17, DIM, "pass %lu", (unsigned long)pass);
+        fig_gui_panel(4, 4, 312, 50, FILL, HEAD);
+        fig_gui_text(10, 17, HEAD, "EXSECUTOR STREAMDB READER");
+        if (KILN_JUMP == JUMP_NONE) fig_gui_text(262, 17, DIM, "pass %lu", (unsigned long)pass);
 
         const float grow = t < T_OPEN ? (float)t / (float)T_OPEN : 1.0f;
         const float frac = (float)stack_peak / (float)EXSEC_STACK;
-        kiln_gui_text(10, 30, INK, "stack");
-        kiln_gui_bar(46, 24, 180, 7, frac * grow,
+        fig_gui_text(10, 30, INK, "stack");
+        fig_gui_bar(46, 24, 180, 7, frac * grow,
                      stack_peak > EXSEC_STACK - 1024 ? BAD : HEAD, RGBA32(42, 42, 62, 255));
-        kiln_gui_rect(46 + (int)(180.0f * STATIC_FRAME / EXSEC_STACK), 22, 2, 11,
+        fig_gui_rect(46 + (int)(180.0f * STATIC_FRAME / EXSEC_STACK), 22, 2, 11,
                       RGBA32(255, 216, 96, 255));
-        kiln_gui_text(232, 30, INK, "%5lu/%d", (unsigned long)(stack_peak * grow), EXSEC_STACK);
+        fig_gui_text(232, 30, INK, "%5lu/%d", (unsigned long)(stack_peak * grow), EXSEC_STACK);
 
         if (t >= T_OPEN)
-            kiln_gui_text(10, 44, res.verdict == 0 ? OK : BAD, "open verdict %d", res.verdict);
+            fig_gui_text(10, 44, res.verdict == 0 ? OK : BAD, "open verdict %d", res.verdict);
         if (t >= T_DOCS)
-            kiln_gui_text(118, 44, kiln_docs == res.docs ? OK : BAD,
+            fig_gui_text(118, 44, fig_docs == res.docs ? OK : BAD,
                           "docs %lu=%lu  nodes %lu", (unsigned long)res.docs,
-                          (unsigned long)kiln_docs, (unsigned long)res.nodes);
+                          (unsigned long)fig_docs, (unsigned long)res.nodes);
 
         // ── B: key by key ──
-        kiln_gui_panel(4, 58, 312, 60, FILL, HEAD);
+        fig_gui_panel(4, 58, 312, 60, FILL, HEAD);
         for (int i = 0; i < NKEYS; i++) {
             const int age = t - row_t[i];
             const int y = 71 + 12 * i;
             if (age < 0) {
-                kiln_gui_text(10, y, DIM, "%-16s ...", KEYS[i]);
+                fig_gui_text(10, y, DIM, "%-16s ...", KEYS[i]);
                 continue;
             }
             color_t ink = flash_strip(7, y - 10, 306, age, res.k[i].agree);
             const char *what = res.k[i].state > 0 ? "found" :
                                res.k[i].state == 0 ? "absent" : "BAD";
-            kiln_gui_text(10, y, ink, "%-16s %-6s %5lu  %s", KEYS[i], what,
+            fig_gui_text(10, y, ink, "%-16s %-6s %5lu  %s", KEYS[i], what,
                           (unsigned long)res.k[i].size,
                           res.k[i].agree ? "AGREE" : "DIFFER");
         }
         if (t >= T_VERDICT) {
             color_t ink = flash_strip(7, 99, 306, t - T_VERDICT, all_agree);
-            kiln_gui_text(10, 109, ink, all_agree ? "BOTH READERS AGREE" : "READERS DISAGREE");
+            fig_gui_text(10, 109, ink, all_agree ? "BOTH READERS AGREE" : "READERS DISAGREE");
         }
 
         // ── C: the document ──
-        kiln_gui_panel(4, 178, 312, 58, FILL, HEAD);
-        kiln_gui_text(10, 191, DIM, "data/ave.txt, as the Exsecutor reader found it");
+        fig_gui_panel(4, 178, 312, 58, FILL, HEAD);
+        fig_gui_text(10, 191, DIM, "data/ave.txt, as the Exsecutor reader found it");
         if (t >= T_TYPE) {
             const int typed = (t - T_TYPE) / TYPE_RATE;
             for (int l = 0; l < nlines; l++) {
                 int n = typed - line_start[l];
                 if (n <= 0) break;
                 if (n > line_len[l]) n = line_len[l];
-                kiln_gui_text(10, 204 + 12 * l, INK, "%.*s", n, ave + line_start[l]);
+                fig_gui_text(10, 204 + 12 * l, INK, "%.*s", n, ave + line_start[l]);
                 const int done = typed >= ave_len;
                 if ((n < line_len[l] || l == nlines - 1) && (!done || (t / 20) % 2 == 0))
-                    kiln_gui_rect(11 + 6 * n, 196 + 12 * l, 5, 9, HEAD);
+                    fig_gui_rect(11 + 6 * n, 196 + 12 * l, 5, 9, HEAD);
                 if (n < line_len[l]) break;
             }
         }
 
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_end();
+        fig_frame_end();
 
         if (KILN_JUMP == JUMP_NONE && ++t >= t_loop) { t = 0; pass++; }
     }

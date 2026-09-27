@@ -78,7 +78,7 @@ Add to `.mcp.json` (project) or `~/.claude/mcp.json` (user):
 
 `point_entities` (Quake) and `other_nodes` (Godot) are reported, not
 imported — spawns, lights, and triggers are content decisions for the game
-to make (usually as `kiln_room.h` `KilnRoomSpawn` entries or `KilnActor`
+to make (usually as `kiln_room.h` `FigRoomSpawn` entries or `FigActor`
 profiles), not something this pipeline should guess at.
 
 ## The manual verification this was built against

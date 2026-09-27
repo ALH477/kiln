@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# nix/checks/kiln-input.nix — kiln_input's scripted-input tapes, frame by frame.
+# nix/checks/kiln-input.nix — fig_input's scripted-input tapes, frame by frame.
 #
 # Attract modes and jump ROMs are how every example is made to show something
 # with no controller attached. When a tape is off by a frame or never cancels,
@@ -11,5 +11,5 @@
 target.mkCheck {
   pname = "inputcheck";
   sources = [ ./kiln-input-check.c ];
-  meta.description = "kiln_input tapes produce real edges, loop, force, and hand back to a real pad";
+  meta.description = "fig_input tapes produce real edges, loop, force, and hand back to a real pad";
 }

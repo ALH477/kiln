@@ -4,7 +4,7 @@
  *
  * Closes the gap `CLAUDE.md`'s "Not yet built" section used to call out: the
  * build side of the pipeline (nix/assets.nix: mkModel/mkSprite/mkSound/...)
- * was already there, but nothing in libkiln actually opened a StreamDB at
+ * was already there, but nothing in libfigulina actually opened a StreamDB at
  * runtime. This is that runtime layer.
  *
  * ── Why a StreamDB layer at all, when DFS already exists ───────────────
@@ -24,16 +24,16 @@
  * sized with streamdb_emb_probe (or just give it more than that — the reader
  * uses what it needs and frees the rest back). A heap failure mid-level is
  * not recoverable on a 4 MB console, so the layer finds out at boot instead.
- * Same pattern as kiln_actor_system_init and streamdb-embedded itself.
+ * Same pattern as fig_actor_system_init and streamdb-embedded itself.
  *
  * ── No cache ───────────────────────────────────────────────────────────
- * kiln_asset_model and kiln_asset_sprite malloc and return; the caller holds
+ * fig_asset_model and fig_asset_sprite malloc and return; the caller holds
  * the pointer. The demo ROM loads each asset once before the loop, exactly
  * as examples/assets-demo already does with raw t3d_model_load. A bounded
  * cache table is a one-day follow-up if an actor type ever needs on-demand
  * loading; not needed now.
  *
- * ── kiln_asset_model needs t3d_model_load_buf ──────────────────────────
+ * ── fig_asset_model needs t3d_model_load_buf ──────────────────────────
  * Tiny3D upstream only exposes t3d_model_load(path), which calls
  * asset_load(path, &size) and patches the returned buffer in place. There is
  * no in-memory variant, so loading a .t3dm out of a StreamDB payload —
@@ -41,7 +41,7 @@
  * repo carries at nix/patches/tiny3d-load-buf.patch. See CLAUDE.md's Phase
  * C notes.
  *
- * ── kiln_asset_wav64 is still not here, and no longer needs to be ─────
+ * ── fig_asset_wav64 is still not here, and no longer needs to be ─────
  * This used to read: "libdragon's wav64_open(wav, fn) is path-only with no
  * in-memory variant [...] It lands when a wav64_open_buf lands upstream."
  * That was the wrong remedy for the right observation, and AUDIO_REVIEW.md's
@@ -57,11 +57,11 @@
  * motivated it: the first asset to need this is 6,979,644 bytes of
  * orchestra, on a console with four megabytes of RAM.
  *
- * So there is no kiln_asset_wav64 and there should not be — audio is not a
- * typed accessor, it is a path, and kiln_sdbfs makes the path work.
+ * So there is no fig_asset_wav64 and there should not be — audio is not a
+ * typed accessor, it is a path, and fig_sdbfs makes the path work.
  */
-#ifndef KILN_ASSET_H
-#define KILN_ASSET_H
+#ifndef FIG_ASSET_H
+#define FIG_ASSET_H
 
 #include <libdragon.h>
 #include <t3d/t3dmodel.h>
@@ -72,46 +72,46 @@
 extern "C" {
 #endif
 
-typedef struct KilnAsset KilnAsset;
+typedef struct FigAsset FigAsset;
 
 /** Open a StreamDB file from a DFS path (e.g. "rom:/assets.streamdb").
  *
- *  The arena must outlive the handle. Size it with kiln_asset_probe_size on
+ *  The arena must outlive the handle. Size it with fig_asset_probe_size on
  *  the same path, or pass a buffer larger than that — the reader uses what
  *  it needs. Returns NULL on any open failure; the engine's assertf is not
  *  used here because a missing asset DB at boot is a content fact (wrong
  *  ROM) not a programming error, and the caller may want to fall back to
  *  loose-DFS assets rather than abort. */
-KilnAsset *kiln_asset_open(const char *dfs_path, void *arena, size_t arena_size);
+FigAsset *fig_asset_open(const char *dfs_path, void *arena, size_t arena_size);
 
 /** Close and release the arena-backed reader. Does NOT free assets returned
- *  by kiln_asset_model / kiln_asset_sprite — those are caller-owned. */
-void kiln_asset_close(KilnAsset *db);
+ *  by fig_asset_model / fig_asset_sprite — those are caller-owned. */
+void fig_asset_close(FigAsset *db);
 
-/** How much arena kiln_asset_open would need for this DB. 0 on probe
+/** How much arena fig_asset_open would need for this DB. 0 on probe
  *  failure; the caller should treat 0 as an error rather than pass it back
  *  as an arena size. */
-size_t kiln_asset_probe_size(const char *dfs_path);
+size_t fig_asset_probe_size(const char *dfs_path);
 
 /** Document count. */
-uint32_t kiln_asset_count(const KilnAsset *db);
+uint32_t fig_asset_count(const FigAsset *db);
 
 /** Payload size in bytes, or 0 if the key is absent. Lets a caller size a
  *  buffer at boot rather than guessing. */
-size_t kiln_asset_size(const KilnAsset *db, const char *key, size_t key_len);
+size_t fig_asset_size(const FigAsset *db, const char *key, size_t key_len);
 
 /** Arena bytes the open reader holds for its index and trie — the persistent
- *  part of what kiln_asset_probe_size sized. Against the arena the caller
+ *  part of what fig_asset_probe_size sized. Against the arena the caller
  *  allocated, this is the headroom a HUD gauge can show. 0 for NULL. */
-size_t kiln_asset_arena_used(const KilnAsset *db);
+size_t fig_asset_arena_used(const FigAsset *db);
 
 /** Boolean key presence. */
-int kiln_asset_exists(const KilnAsset *db, const char *key, size_t key_len);
+int fig_asset_exists(const FigAsset *db, const char *key, size_t key_len);
 
 /** CRC-verified read into a caller buffer. `*len` is the buffer size on
  *  entry and the payload length on return. Returns STREAMDB_EMB_OK on
  *  success; see streamdb_embedded.h for the other result codes. */
-int kiln_asset_load(const KilnAsset *db,
+int fig_asset_load(const FigAsset *db,
                    const char *key, size_t key_len,
                    void *buf, size_t *len);
 
@@ -119,7 +119,7 @@ int kiln_asset_load(const KilnAsset *db,
  *  in trie order. Returns the number of matches visited. Passthrough to
  *  streamdb_emb_find_suffix — the reverse trie is what makes this O(suffix
  *  + matches) rather than a scan. */
-int kiln_asset_find_suffix(const KilnAsset *db,
+int fig_asset_find_suffix(const FigAsset *db,
                           const char *suffix, size_t suffix_len,
                           int (*cb)(const streamdb_emb_doc_t *doc, void *user),
                           void *user);
@@ -129,14 +129,14 @@ int kiln_asset_find_suffix(const KilnAsset *db,
  *  reason this exists, because a filesystem has to do ranged reads and ask
  *  for a document's ROM address, and neither belongs on this interface.
  *  Borrowed, never owned; NULL for a NULL or unopened handle. */
-streamdb_emb_t *kiln_asset_reader(KilnAsset *db);
+streamdb_emb_t *fig_asset_reader(FigAsset *db);
 
 /** Load and parse a sprite out of the DB. The buffer is malloc'd inside and
  *  ownership is transferred to the caller: free with plain `sprite_free`.
  *  (Mirrors libdragon's `sprite_load` contract — see kiln_asset.c for the
  *  ownership-transfer detail.) Returns NULL if the key is missing or the
  *  payload doesn't parse. */
-sprite_t *kiln_asset_sprite(const KilnAsset *db, const char *key, size_t key_len);
+sprite_t *fig_asset_sprite(const FigAsset *db, const char *key, size_t key_len);
 
 /** Load and parse a Tiny3D model out of the DB. Requires the patched
  *  t3d_model_load_buf (nix/patches/tiny3d-load-buf.patch). The buffer is
@@ -144,10 +144,10 @@ sprite_t *kiln_asset_sprite(const KilnAsset *db, const char *key, size_t key_len
  *  the buffer pointer (same shape as upstream t3d_model_load), so freeing
  *  with `t3d_model_free` frees both. Returns NULL if the key is missing or
  *  the payload doesn't parse. */
-T3DModel *kiln_asset_model(const KilnAsset *db, const char *key, size_t key_len);
+T3DModel *fig_asset_model(const FigAsset *db, const char *key, size_t key_len);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_ASSET_H */
+#endif /* FIG_ASSET_H */

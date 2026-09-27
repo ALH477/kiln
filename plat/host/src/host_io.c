@@ -15,12 +15,12 @@
  *             entire PLAY screen. Here that mismatch is a missing file you can
  *             see with ls.
  *   joypad     no physical controller exists in a Nix sandbox, so the state is
- *             settable from a test. That is what lets kiln_input's edge
+ *             settable from a test. That is what lets fig_input's edge
  *             detection be exercised at all.
  *   EEPROM     one file, with the console's 4/16 Kbit sizes ENFORCED. A host
  *             that let a save grow would answer the wrong question — fitting
- *             into 512 bytes is the entire problem kiln_save exists for.
- *   sprites    real .sprite parsing, because kiln_texanim reaches into width,
+ *             into 512 bytes is the entire problem fig_save exists for.
+ *   sprites    real .sprite parsing, because fig_texanim reaches into width,
  *             height and the format bits.
  *   libcart    reports no cart, loudly rather than by pretending. See
  *             plat/host/include/libcart/cart.h.
@@ -32,14 +32,75 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <system.h>
+#include <fcntl.h>
 
 /* ── DragonFS ─────────────────────────────────────────────────────────── */
 
 #define DFS_MAX_OPEN 32
 
-static struct { FILE *fp; long size; int used; } g_dfs[DFS_MAX_OPEN];
+/* An attached handle carries `fs` and the filesystem's own file pointer; a
+ * plain one carries `fp`. Exactly one of the two is set. */
+static struct {
+    FILE *fp; long size; int used;
+    filesystem_t *fs; void *fh;
+} g_dfs[DFS_MAX_OPEN];
 static int  g_dfs_ready;
 static char g_dfs_root[512] = ".";
+
+/* ── Attached filesystems ─────────────────────────────────────────────────
+ * libdragon lets a module hook a whole filesystem in behind a prefix, and
+ * fig_sdbfs uses it to serve a StreamDB container at "sdb:/". Supporting it
+ * here is what lets that module compile and run UNMODIFIED on the host — the
+ * alternative is a host twin of an engine module, which is the thing this
+ * directory exists to avoid.
+ *
+ * Four is not a considered limit; it is more than any game in this tree
+ * mounts, and overrunning it says so rather than dropping a mount. */
+#define HOST_MAX_MOUNTS 4
+static struct { char prefix[32]; filesystem_t *fs; } g_mounts[HOST_MAX_MOUNTS];
+
+int attach_filesystem(const char *const prefix, filesystem_t *filesystem)
+{
+    if (!prefix || !filesystem) return -1;
+    for (int i = 0; i < HOST_MAX_MOUNTS; i++) {
+        if (g_mounts[i].fs) continue;
+        snprintf(g_mounts[i].prefix, sizeof g_mounts[i].prefix, "%s", prefix);
+        g_mounts[i].fs = filesystem;
+        return 0;
+    }
+    assertf(0, "attach_filesystem('%s'): more than %d filesystems attached",
+            prefix, HOST_MAX_MOUNTS);
+    return -1;
+}
+
+int detach_filesystem(const char *const prefix)
+{
+    if (!prefix) return -1;
+    for (int i = 0; i < HOST_MAX_MOUNTS; i++) {
+        if (!g_mounts[i].fs || strcmp(g_mounts[i].prefix, prefix) != 0) continue;
+        g_mounts[i].fs = NULL;
+        g_mounts[i].prefix[0] = '\0';
+        return 0;
+    }
+    return -1;
+}
+
+/* The attached filesystem whose prefix this path carries, or NULL. `rest` is
+ * set to the name AFTER the prefix, because that is what libdragon's system.c
+ * hands the filesystem's own open — and fig_sdbfs's open says in as many
+ * words that it relies on it. */
+static filesystem_t *mount_for(const char *path, const char **rest)
+{
+    for (int i = 0; i < HOST_MAX_MOUNTS; i++) {
+        if (!g_mounts[i].fs) continue;
+        const size_t n = strlen(g_mounts[i].prefix);
+        if (n == 0 || strncmp(path, g_mounts[i].prefix, n) != 0) continue;
+        *rest = path + n;
+        return g_mounts[i].fs;
+    }
+    return NULL;
+}
 
 int dfs_init(pi_addr_t base_fs_loc)
 {
@@ -76,11 +137,41 @@ int dfs_open(const char *const path)
             "on console rom:/ is not mounted yet and this load fails", path);
     if (!g_dfs_ready) return DFS_ENOINIT;
 
+    /* An attached filesystem claims the path before the directory does, which
+     * is the order libdragon resolves in. */
+    const char *rest = NULL;
+    filesystem_t *mfs = mount_for(path, &rest);
+    if (mfs) {
+        if (!mfs->open) return DFS_ENOFILE;
+        char name[512];
+        snprintf(name, sizeof name, "%s", rest);
+        void *fh = mfs->open(name, O_RDONLY);
+        if (!fh) {
+            debugf("dfs_open: '%s': attached filesystem has no such file\n",
+                   path);
+            return DFS_ENOFILE;
+        }
+        for (int i = 0; i < DFS_MAX_OPEN; i++) {
+            if (g_dfs[i].used) continue;
+            struct stat st;
+            g_dfs[i].size = (mfs->fstat && mfs->fstat(fh, &st) == 0)
+                          ? (long)st.st_size : 0;
+            g_dfs[i].fp = NULL;
+            g_dfs[i].fs = mfs;
+            g_dfs[i].fh = fh;
+            g_dfs[i].used = 1;
+            return i + 1;
+        }
+        if (mfs->close) mfs->close(fh);
+        assertf(0, "dfs_open: more than %d files open at once", DFS_MAX_OPEN);
+        return DFS_EBADINPUT;
+    }
+
     char full[1024];
     resolve(full, sizeof full, path);
     FILE *fp = fopen(full, "rb");
     if (!fp) {
-        /* debugf and not silence: kiln_map_load returns non-zero rather than
+        /* debugf and not silence: fig_map_load returns non-zero rather than
          * asserting, so a missing asset is a POLITE failure all the way down.
          * Saying which path failed is the difference between "PLAY has no
          * collision world" and an afternoon. */
@@ -93,8 +184,10 @@ int dfs_open(const char *const path)
         g_dfs[i].size = ftell(fp);
         fseek(fp, 0, SEEK_SET);
         g_dfs[i].fp = fp;
+        g_dfs[i].fs = NULL;
+        g_dfs[i].fh = NULL;
         g_dfs[i].used = 1;
-        return i + 1;    /* handle 0 is reserved: see kiln_cache's lesson */
+        return i + 1;    /* handle 0 is reserved: see fig_cache's lesson */
     }
     fclose(fp);
     assertf(0, "dfs_open: more than %d files open at once", DFS_MAX_OPEN);
@@ -106,12 +199,22 @@ static int handle_ok(uint32_t h) { return h >= 1 && h <= DFS_MAX_OPEN && g_dfs[h
 int dfs_read(void *const buf, int size, int count, uint32_t handle)
 {
     if (!handle_ok(handle) || !buf) return DFS_EBADINPUT;
+    if (g_dfs[handle-1].fs)
+        return g_dfs[handle-1].fs->read(g_dfs[handle-1].fh, (uint8_t *)buf,
+                                        size * count);
     return (int)fread(buf, (size_t)size, (size_t)count, g_dfs[handle-1].fp) * size;
 }
 
 int dfs_close(uint32_t handle)
 {
     if (!handle_ok(handle)) return DFS_EBADINPUT;
+    if (g_dfs[handle-1].fs) {
+        if (g_dfs[handle-1].fs->close) g_dfs[handle-1].fs->close(g_dfs[handle-1].fh);
+        g_dfs[handle-1].fs = NULL;
+        g_dfs[handle-1].fh = NULL;
+        g_dfs[handle-1].used = 0;
+        return DFS_ESUCCESS;
+    }
     fclose(g_dfs[handle-1].fp);
     g_dfs[handle-1].used = 0;
     return DFS_ESUCCESS;
@@ -126,18 +229,43 @@ int dfs_size(uint32_t handle)
 int dfs_seek(uint32_t handle, int offset, int origin)
 {
     if (!handle_ok(handle)) return DFS_EBADINPUT;
+    if (g_dfs[handle-1].fs)
+        return g_dfs[handle-1].fs->lseek(g_dfs[handle-1].fh, offset, origin) >= 0
+             ? DFS_ESUCCESS : DFS_EBADINPUT;
     return fseek(g_dfs[handle-1].fp, offset, origin) == 0 ? DFS_ESUCCESS
                                                           : DFS_EBADINPUT;
 }
 int dfs_tell(uint32_t handle)
 {
     if (!handle_ok(handle)) return DFS_EBADINPUT;
+    if (g_dfs[handle-1].fs)
+        return g_dfs[handle-1].fs->lseek(g_dfs[handle-1].fh, 0, SEEK_CUR);
     return (int)ftell(g_dfs[handle-1].fp);
 }
 int dfs_eof(uint32_t handle)
 {
     if (!handle_ok(handle)) return DFS_EBADINPUT;
+    if (g_dfs[handle-1].fs)
+        return g_dfs[handle-1].fs->lseek(g_dfs[handle-1].fh, 0, SEEK_CUR)
+               >= (int)g_dfs[handle-1].size ? 1 : 0;
     return feof(g_dfs[handle-1].fp) ? 1 : 0;
+}
+
+/* ── Asset compression ────────────────────────────────────────────────────
+ * On console this registers the level-2 decompressor so asset_load can unwrap
+ * a DCA container. The host has no asset_load at all: every loader here reads
+ * raw bytes, so the host asset set is decompressed at BUILD time instead
+ * (`mkasset -c 0`, which decompresses because mkasset itself calls asset_load
+ * first). Accepting the call and saying so once is the honest answer — a game
+ * that calls it is correct to, and its ROM build needs it. */
+void asset_init_compression_internal(int level)
+{
+    static int said;
+    if (!said) {
+        said = 1;
+        debugf("asset_init_compression(%d): the host reads assets raw; the "
+               "host asset set is decompressed at build time.\n", level);
+    }
 }
 
 /* See the declaration: a host file has no PI address. Returning 0 is what
@@ -161,7 +289,7 @@ void joypad_init(void)
     memset(g_pad, 0, sizeof g_pad);
     memset(g_pad_live, 0, sizeof g_pad_live);
     memset(g_pad_prev, 0, sizeof g_pad_prev);
-    /* Port 1 only. Four connected pads would make kiln_input's per-port loop
+    /* Port 1 only. Four connected pads would make fig_input's per-port loop
      * exercise ports that a host test never sets, and "why is player 3
      * walking" is a bad afternoon. */
     g_pad_connected[0] = 1;
@@ -172,7 +300,7 @@ void joypad_close(void) { }
 void joypad_poll(void)
 {
     /* One latch per frame, matching libdragon: joypad_get_* must return the
-     * same values for the whole frame, which is exactly what kiln_input's
+     * same values for the whole frame, which is exactly what fig_input's
      * one-poll-per-frame contract depends on. */
     for (int i = 0; i < JOYPAD_PORT_COUNT; i++) {
         g_pad_prev[i] = g_pad[i].btn;
@@ -180,10 +308,10 @@ void joypad_poll(void)
     }
 }
 
-void kiln_host_pad_set(joypad_port_t port, joypad_inputs_t in)
+void fig_host_pad_set(joypad_port_t port, joypad_inputs_t in)
 {
     assertf((int)port >= 0 && (int)port < JOYPAD_PORT_COUNT,
-            "kiln_host_pad_set: port %d", (int)port);
+            "fig_host_pad_set: port %d", (int)port);
     g_pad_live[port] = in;
     g_pad_connected[port] = 1;
 }
@@ -259,14 +387,14 @@ int eepfs_init(const eepfs_entry_t *entries, size_t count)
         total += blocks;
     }
     /* The console limit, enforced. Fitting into it is the entire problem
-     * kiln_save exists to solve, so a host that quietly allowed more would be
+     * fig_save exists to solve, so a host that quietly allowed more would be
      * answering a question nobody asked. */
     assertf(total * EEP_BLOCK <= EEP_16K_BYTES,
             "eepfs_init: %zu entries need %zu blocks (%zu bytes), and a 16 Kbit "
             "EEPROM has %zu (%d bytes)", count, total, total * EEP_BLOCK,
             eeprom_total_blocks(), EEP_16K_BYTES);
 
-    const char *p = getenv("KILN_HOST_EEPROM");
+    const char *p = getenv("FIG_HOST_EEPROM");
     if (p && *p) snprintf(g_eep_path, sizeof g_eep_path, "%s", p);
 
     memset(g_eep, 0, sizeof g_eep);
@@ -340,7 +468,7 @@ bool eepfs_verify_signature(void)
 {
     /* Upstream hashes the entry table into block 0 so a layout change is
      * detected rather than silently reinterpreting old bytes. Same idea, and
-     * the same consequence when it fails: kiln_save wipes and starts over. */
+     * the same consequence when it fails: fig_save wipes and starts over. */
     if (!g_eep_ready) return false;
     uint32_t sig = 0x4B4C4E53u;  /* 'KLNS' */
     for (size_t i = 0; i < g_eep_count; i++) {
@@ -432,7 +560,7 @@ int  sram_write(const void *src, size_t off, size_t len)
 { (void)src; (void)off; (void)len; return -1; }
 
 /* ── libdragon's debug SD surface ─────────────────────────────────────
- * No flashcart, so no mount. Returning false is what kiln_store's backend
+ * No flashcart, so no mount. Returning false is what fig_store's backend
  * walk is written for. */
 bool debug_init_sdfs(const char *prefix, int npart)
 { (void)prefix; (void)npart; return false; }

@@ -6,9 +6,9 @@
  * winding it writes is the fourth copy of a table whose sign decides whether a
  * brush survives quake_map.py's CSG at all, and it was the only one of the four
  * with no gate on it. forge_io.c cannot compile on the host — it is libdragon,
- * kiln_store and the voxel world — so the text emitter had to leave it.
+ * fig_store and the voxel world — so the text emitter had to leave it.
  *
- * Same split, for the same reason, that kiln_voxmesh's vertex packing got out
+ * Same split, for the same reason, that fig_voxmesh's vertex packing got out
  * of the mesher so nix/checks/kiln-logic could reach it.
  *
  * Includes <stdio.h>, <string.h> and the generated vocabulary. Nothing else.

@@ -30,7 +30,7 @@ YM64
 sm64
 
 # group 3 — the pre-rename on-disk format magic, which is DATA, not a name.
-# kiln_store still accepts blobs written before the rename, because a project
+# fig_store still accepts blobs written before the rename, because a project
 # rename must not strand a level already saved to a flashcart. Three sites:
 # the constant, its explanation, and frg.py's host mirror of the same reader.
 'M64S'

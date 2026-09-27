@@ -7,14 +7,14 @@
 // these tables, and an editor that previews a curve merely resembling the
 // one a game flies is the same failure as a validator measuring one — worse,
 // because the author then tunes against the wrong shape. That game keeps a
-// shim over its old header path so KilnCamKey/kiln_camkey_sample keep
+// shim over its old header path so FigCamKey/fig_camkey_sample keep
 // working unchanged for it.
 //
 // Split out of the runtime's own camera-table header so consumers can share
 // one implementation of the interpolation instead of several that agree by
 // inspection — a game's runtime (the camera the player sees), a game's own
 // spatial-overlay debugger (which draws the flown curve), the static
-// validator (`kiln_camlint`, which measures it), and Forge (the editor,
+// validator (`fig_camlint`, which measures it), and Forge (the editor,
 // which authors the table in the first place).
 //
 // The validator is why this header exists at all: it is deliberately free
@@ -41,8 +41,8 @@
 // this in MODULES: MODULES drives $(OBJS), and a name in there with no .c fails
 // the archive outright.
 
-#ifndef KILN_CAMKEY_H
-#define KILN_CAMKEY_H
+#ifndef FIG_CAMKEY_H
+#define FIG_CAMKEY_H
 
 #include <t3d/t3dmath.h>
 
@@ -51,14 +51,14 @@ typedef struct {
     float     t;
     fm_vec3_t eye;
     fm_vec3_t look;
-} KilnCamKey;
+} FigCamKey;
 
 /** Catmull-Rom through four control values, evaluated at `f` in [0,1] between
  *  p1 and p2.
  *
  *  Passes exactly through every key and, unlike a per-segment ease, has a
  *  CONTINUOUS velocity across them — which is the whole point here. */
-static inline float kiln_camkey_spline1(float p0, float p1, float p2, float p3,
+static inline float fig_camkey_spline1(float p0, float p1, float p2, float p3,
                                       float f)
 {
     const float f2 = f * f;
@@ -94,7 +94,7 @@ static inline float kiln_camkey_spline1(float p0, float p1, float p2, float p3,
  *  comes from that key's TWO NEIGHBOURS, so a large gap next to a small one
  *  drags the curve past the small one. A real shot has needed three
  *  hand-inserted midpoint keys whose only job was suppressing exactly that. */
-static inline void kiln_camkey_sample(const KilnCamKey *keys, int n, int loop,
+static inline void fig_camkey_sample(const FigCamKey *keys, int n, int loop,
                                     float t, fm_vec3_t *eye, fm_vec3_t *look)
 {
     if (!keys || n <= 0) return;
@@ -122,15 +122,15 @@ static inline void kiln_camkey_sample(const KilnCamKey *keys, int n, int loop,
 
     for (int k = 0; k < 3; k++) {
         if (eye)
-            eye->v[k] = kiln_camkey_spline1(keys[i0].eye.v[k], keys[i1].eye.v[k],
+            eye->v[k] = fig_camkey_spline1(keys[i0].eye.v[k], keys[i1].eye.v[k],
                                           keys[i2].eye.v[k], keys[i3].eye.v[k],
                                           f);
         if (look)
-            look->v[k] = kiln_camkey_spline1(keys[i0].look.v[k],
+            look->v[k] = fig_camkey_spline1(keys[i0].look.v[k],
                                            keys[i1].look.v[k],
                                            keys[i2].look.v[k],
                                            keys[i3].look.v[k], f);
     }
 }
 
-#endif // KILN_CAMKEY_H
+#endif // FIG_CAMKEY_H

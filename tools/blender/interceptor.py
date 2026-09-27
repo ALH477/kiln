@@ -25,7 +25,7 @@ goblin.py's 2.3-unit character, and well inside the int16 vertex range.
 
 ── No texture, on purpose ─────────────────────────────────────────────────
 Every surface is COLOR_0 through the `shade` preset, which is exactly the
-combiner kiln_scene_begin() already sets — so this model composes with
+combiner fig_scene_begin() already sets — so this model composes with
 hand-built geometry in the same pass, costs no TMEM, and needs no tile setup.
 Panel lines and insignia would need a texture and a UV unwrap; the colour
 here does the work instead, which is the trade N64-era models generally made.

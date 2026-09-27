@@ -20,7 +20,7 @@ pkgs.runCommand "check-kiln-hostmath"
     set -euo pipefail
     gcc -O1 -std=gnu11 -Wall -Wextra -Werror \
         -I${hostMath}/include -o hostmath_check \
-        ${./kiln-hostmath-check.c} ${hostMath}/lib/libkilnmath.a -lm
+        ${./kiln-hostmath-check.c} ${hostMath}/lib/libfigulinamath.a -lm
     ./hostmath_check
     mkdir -p $out && touch $out/ok
   ''

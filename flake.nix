@@ -110,8 +110,8 @@
         # The host tier, once, for any toolchain. `hostTargets.targets` names
         # the compilers: native, wasm32, wasm32-node, and (Linux only, not
         # gated) aarch64 and riscv64 under qemu-user. Each target carries its
-        # own hostMath, zlib and VADPCM build, a libkilnhost.a and a
-        # libkiln.a driven off engine/modules.mk's HOST_MODULES, and the
+        # own hostMath, zlib and VADPCM build, a libfigulinahost.a and a
+        # libfigulina.a driven off engine/modules.mk's HOST_MODULES, and the
         # mkCheck/mkProgram/mkGame that build against them. See nix/host.nix
         # for why the recipe moved out of the seven checks that used to each
         # carry a copy.
@@ -122,7 +122,7 @@
           platHost = ./plat/host;
           platShell = ./plat/shell;
           streamdbSrc = ./streamdb-embedded;
-          webShellHtml = ./plat/shell/kiln_web_shell.html;
+          webShellHtml = ./plat/shell/fig_web_shell.html;
         };
         hostNative = hostTargets.targets.native;
         hostWasm   = hostTargets.targets.wasm32;
@@ -186,7 +186,7 @@
           extraLibs = [ tiny3d-sdk streamdb-emb ];
         };
 
-        # The Kiln engine — 3D on Tiny3D, 2D GUI on rdpq, asset layer on
+        # The Figulina — 3D on Tiny3D, 2D GUI on rdpq, asset layer on
         # streamdb-embedded.
         kiln-engine = import ./nix/engine.nix {
           inherit pkgs toolchain n64InstBase;
@@ -254,10 +254,10 @@
 
         # ── StreamDB-destined demo assets ──────────────────────────────
         # Three assets packed into a single .streamdb, exercising every
-        # kiln_asset accessor: kiln_asset_model (cube.t3dm), kiln_asset_sprite
-        # (logo.sprite), and kiln_asset_load on a raw level-layout blob.
+        # fig_asset accessor: fig_asset_model (cube.t3dm), fig_asset_sprite
+        # (logo.sprite), and fig_asset_load on a raw level-layout blob.
         #
-        # IMPORTANT: compress = 0 across the board. kiln_asset_load returns
+        # IMPORTANT: compress = 0 across the board. fig_asset_load returns
         # the StreamDB payload bytes verbatim — there is no asset_load in the
         # path to decompress them, so a mkasset-compressed .t3dm/.sprite
         # would arrive at t3d_model_load_buf / sprite_load_buf still
@@ -302,7 +302,7 @@
           compress = 0;
           extension = "bin";
         };
-        # Loose Quake .map shipped to rom:/maps/ for kiln_map at runtime.
+        # Loose Quake .map shipped to rom:/maps/ for fig_map at runtime.
         quakeMap = assetLib.mkRawAsset {
           # The NAME IS THE FILENAME. It was "quake-test-map", shipping
           # maps/quake-test-map.map, while examples/map-demo/main.c:89 opens
@@ -326,7 +326,7 @@
           compress = 0;
         };
         # Two-room + enemies test map for examples/oot-demo. Same raw-asset
-        # path as quakeMap so kiln_map reads it via rom:/maps/oot_test.map —
+        # path as quakeMap so fig_map reads it via rom:/maps/oot_test.map —
         # which this entry CLAIMED and did not do: the name was "oot-test-map",
         # so it shipped maps/oot-test-map.map while
         # examples/oot-demo/main.c:222 asked for oot_test.map. A comment
@@ -371,7 +371,7 @@
         # assets-demo's StreamDB pak, auto-keyed by mkAssetPak: five vertex-
         # coloured models and the logo sprite. The models are twins of the test
         # set and the interceptor with two changes, both required here:
-        #   compress = 0  kiln_asset_load hands t3d_model_load_buf the payload
+        #   compress = 0  fig_asset_load hands t3d_model_load_buf the payload
         #                 verbatim, with no asset_load to decompress it (see
         #                 the sdModel comment above);
         #   fog=true      f3d_inject's default fog=False becomes
@@ -396,12 +396,12 @@
                      (assetsPakModel "cone") (assetsPakModel "cube") sdSprite ];
         };
 
-        # openworld-demo's tile meshes, StreamDB-packed so kiln_streamio loads
-        # them through kiln_asset_model + kiln_cache. Keys are
+        # openworld-demo's tile meshes, StreamDB-packed so fig_streamio loads
+        # them through fig_asset_model + fig_cache. Keys are
         # models/ow_<biome>_<lod>.t3dm: twelve keys shared by a 32x32 island,
         # so the pacer contends over many requests for few distinct assets.
         # Four biomes x three LODs, all authored by tools/blender/ow_tile.py.
-        # Uncompressed because kiln_asset_model hands the bytes straight to
+        # Uncompressed because fig_asset_model hands the bytes straight to
         # t3d_model_load_buf, and with fog=1 on the material so Tiny3D keeps
         # fog on while it draws them — the fog is what hides the edge of the
         # streamed window.
@@ -433,7 +433,7 @@
         # Each model isolates one class of renderer bug; tools/blender/models.py
         # documents which. Untextured models go through the `shade` preset,
         # which reproduces libdragon's RDPQ_COMBINER_SHADE exactly — the same
-        # combiner kiln_scene_begin() already sets, so they compose with
+        # combiner fig_scene_begin() already sets, so they compose with
         # hand-built geometry in the same pass.
         mkTestModel = model: extra: blenderLib.mkBlenderModel ({
           name = model;
@@ -466,7 +466,7 @@
 
         # The rigged/animated reference — Tiny3D's skinning + animation
         # (t3dskeleton.h/t3danim.h) through the Blender-authoring path. It is
-        # also kiln_skel's runtime test: examples/camera-skel-demo walks it
+        # also fig_skel's runtime test: examples/camera-skel-demo walks it
         # round a courtyard blending Idle<->Walk by speed, and that demo's RIG
         # jump keeps the hand-authored skelModel rig booting alongside it.
         # tools/blender/goblin.py documents why every part is rigidly bound
@@ -480,7 +480,7 @@
         # The hero prop: not a test shape, but a piece of content authored the
         # way a game's content is — one silhouette from six interpenetrating
         # parts, shaded entirely by COLOR_0 through the same `shade` combiner
-        # kiln_scene_begin() already sets, so it composes with hand-built
+        # fig_scene_begin() already sets, so it composes with hand-built
         # geometry in one pass and needs no TMEM. tools/blender/interceptor.py
         # documents the orientation and the budget.
         interceptorModel = blenderLib.mkBlenderModel {
@@ -503,8 +503,8 @@
           animated = true;
         };
         # Hand-authored Quake .map for the cinematic-demo's hangar room.
-        # Same mkRawAsset path as quakeMap / ootMap so kiln_map reads it via
-        # rom:/maps/hangar.map at runtime. compress=0 because kiln_map_load
+        # Same mkRawAsset path as quakeMap / ootMap so fig_map reads it via
+        # rom:/maps/hangar.map at runtime. compress=0 because fig_map_load
         # is the consumer — there is no asset_load in the path, so a
         # compressed .map would arrive still-compressed and fail to parse.
         hangarMap = assetLib.mkRawAsset {
@@ -662,14 +662,14 @@
         engine-demo = mkN64Rom {
           name = "engine";
           src = ./examples/engine;
-          romTitle = "Kiln Engine";
+          romTitle = "Figulina Demo";
         };
 
         # Open-world streaming demo: scratch allocator, refcounted cache,
         # tile residency manager, LOD selector, two-pass renderer, and
-        # (Phase F) kiln_stream + kiln_streamio pacing real kiln_asset loads
-        # through kiln_cache instead of the hand-built stub loaders every
-        # other kiln_tile consumer still uses.
+        # (Phase F) fig_stream + fig_streamio pacing real fig_asset loads
+        # through fig_cache instead of the hand-built stub loaders every
+        # other fig_tile consumer still uses.
         openworldDemoArgs = {
           name = "openworld-demo";
           src = ./examples/openworld-demo;
@@ -729,7 +729,7 @@
         };
         assets-demo = mkN64Rom assetsDemoArgs;
 
-        # Phase B verification: the actor system (engine/src/kiln/kiln_actor.*)
+        # Phase B verification: the actor system (engine/src/kiln/fig_actor.*)
         # with one profile per category that matters here — spawn, handle-based
         # despawn, an actor despawning itself mid-update, and the fixed
         # category draw order all exercised in one ROM.
@@ -741,7 +741,7 @@
         actors-demo = mkN64Rom actorsDemoArgs;
 
         # Scene/room streaming — a 2×2 grid of rooms, camera starts in room A.
-        # The kiln_room module loads the room under the camera and its
+        # The fig_room module loads the room under the camera and its
         # neighbours; HUD reports current room + loaded count.
         roomsDemoArgs = {
           name = "rooms-demo";
@@ -750,10 +750,10 @@
         };
         rooms-demo = mkN64Rom roomsDemoArgs;
 
-        # Phase B completion: the goblin in a lit courtyard — kiln_camera
-        # (OoT-style spring arm, collision on) + kiln_skel (Idle/Walk/Run at
+        # Phase B completion: the goblin in a lit courtyard — fig_camera
+        # (OoT-style spring arm, collision on) + fig_skel (Idle/Walk/Run at
         # stride-matched rates, Jump/Fall/Land, a torso-masked sword overlay, a
-        # bone socket) + kiln_clip (floor, walls, pillars, plinths) + kiln_audio
+        # bone socket) + fig_clip (floor, walls, pillars, plinths) + fig_audio
         # (step.wav64 on each foot contact). Jump ROMs in
         # nix/demos/camera-skel-demo.nix. skelModel is here for the RIG jump;
         # the base ROM carries it so the two share args.
@@ -767,11 +767,11 @@
         camera-skel-demo = mkN64Rom cameraSkelDemoArgs;
 
         # Phase C verification: one StreamDB container mounted at boot via
-        # kiln_asset_open, and everything on screen comes out of it. The raw
-        # level blob (kiln_asset_load) is parsed into spawn points, the model
-        # (kiln_asset_model, the patched t3d_model_load_buf path) stands on
-        # each, the sprite (kiln_asset_sprite) is the logo, and the HUD lists
-        # every key by kiln_asset_find_suffix against kiln_asset_count.
+        # fig_asset_open, and everything on screen comes out of it. The raw
+        # level blob (fig_asset_load) is parsed into spawn points, the model
+        # (fig_asset_model, the patched t3d_model_load_buf path) stands on
+        # each, the sprite (fig_asset_sprite) is the logo, and the HUD lists
+        # every key by fig_asset_find_suffix against fig_asset_count.
         # Jump ROM and host builds: nix/demos/streamdb-demo.nix.
         streamdbDemoArgs = {
           name = "streamdb-demo";
@@ -793,8 +793,8 @@
         };
         exsec-streamdb-demo = mkN64Rom exsecStreamdbDemoArgs;
 
-        # Phase C step 1: kiln_input (deadzoned joypad wrapper with button
-        # edges) + kiln_clip (swept-AABB-vs-brushes collision with iterative
+        # Phase C step 1: fig_input (deadzoned joypad wrapper with button
+        # edges) + fig_clip (swept-AABB-vs-brushes collision with iterative
         # SlideMove). One player box pushed around a 5-brush room; the box
         # slides along walls, HUD reports the last trace's fraction / normal /
         # surface. No assets, no actors — the proof stays focused on the
@@ -807,9 +807,9 @@
         };
         clip-demo = mkN64Rom clipDemoArgs;
 
-        # Phase E: kiln_room brush auto-install + kiln_clip broadphase toggle
-        # + kiln_physics HL2-style rigid bodies. One room (floor + 4 walls,
-        # brushes auto-installed via kiln_room); 6 dynamic crate bodies fall,
+        # Phase E: fig_room brush auto-install + fig_clip broadphase toggle
+        # + fig_physics HL2-style rigid bodies. One room (floor + 4 walls,
+        # brushes auto-installed via fig_room); 6 dynamic crate bodies fall,
         # stack, rest, sleep; A punts the nearest crate in a forward cone
         # (gravity-gun feel); D-pad toggles PHYS ON/OFF and BP ON/OFF; HUD
         # shows the last trace's brush count so the broadphase win is visible.
@@ -821,7 +821,7 @@
         physics-demo = mkN64Rom physicsDemoArgs;
 
         # Quiet looping nightlight. Sierpinski tet + two baked voices
-        # (pad + bells) after PD lullabies; kiln_radio picks both from a boot seed.
+        # (pad + bells) after PD lullabies; fig_radio picks both from a boot seed.
         nightlightGoldberg = faust.mkBakedInstrument {
           name = "goldberg";
           src = ./dsp/nightlight_goldberg.dsp;
@@ -906,9 +906,9 @@
         };
         nightlight-demo = mkN64Rom nightlightDemoArgs;
 
-        # Phase C step 2: kiln_dict + kiln_map. Loads assets/quake_test.map,
+        # Phase C step 2: fig_dict + fig_map. Loads assets/quake_test.map,
         # parses it into brushes + face quads, and spawns the player at the
-        # info_player_start entity by reading "origin" from the KilnDict.
+        # info_player_start entity by reading "origin" from the FigDict.
         mapDemoArgs = {
           name = "map-demo";
           src = ./examples/map-demo;
@@ -921,7 +921,7 @@
 
         # The engine's own boot splash (kiln_splash.h) with its jingle, handing
         # over to a lit turntable of the same model that replays the splash on
-        # START or every 20 s. kilnLogo is the model kiln_splash_apply's camera
+        # START or every 20 s. kilnLogo is the model fig_splash_apply's camera
         # comment is tuned for — see tools/blender/kiln_logo.py.
         #
         # kilnLogoRaw is that model with compress = 0: the host's .t3dm reader
@@ -942,7 +942,7 @@
         };
         splash-demo = mkN64Rom splashDemoArgs;
 
-        # Phase 4: kiln_event. A switch actor posts DOOR_OPEN with a 500 ms
+        # Phase 4: fig_event. A switch actor posts DOOR_OPEN with a 500 ms
         # delay; the door actor's event callback rotates it open. HUD shows
         # the queued-event count so the 500 ms gap is visible.
         eventDemoArgs = {
@@ -954,14 +954,14 @@
         event-demo = mkN64Rom eventDemoArgs;
 
         # Phase 6: the OoT + id Tech 4 integration proof. A player actor
-        # (kiln_player locomotion) walks an oot_test.map room, slides via
-        # kiln_clip, Z-targets enemies (kiln_target + camera TARGETING mode),
-        # and emits footstep SFX through kiln_event + kiln_sound shaders.
+        # (fig_player locomotion) walks an oot_test.map room, slides via
+        # fig_clip, Z-targets enemies (fig_target + camera TARGETING mode),
+        # and emits footstep SFX through fig_event + fig_sound shaders.
         ootDemoArgs = {
           name = "oot-demo";
           src = ./examples/oot-demo;
           romTitle = "Kiln OoT";
-          # goblinModel: the skinned hero (kiln_skel). The pc-* builds below
+          # goblinModel: the skinned hero (fig_skel). The pc-* builds below
           # leave it out and set KILN_OOT_PRIM_BODY, because plat/host cannot
           # run a skeleton.
           assets = [ ootMap stepSound impactSfx goblinModel ];
@@ -980,8 +980,8 @@
 
         # The on-screen retro debug console. Built with `debugConsole = true`
         # so KILN_DEBUG=1 reaches the example's main.c (gating the
-        # kiln_console_* calls). The console module itself is always in
-        # libkiln.a; the flag only controls whether the example wires it up.
+        # fig_console_* calls). The console module itself is always in
+        # libfigulina.a; the flag only controls whether the example wires it up.
         # Toggle in-rom by holding Start and pressing C-Up → C-Left →
         # C-Down → C-Right (counter-clockwise around the C cluster).
         debugDemoArgs = {
@@ -1013,9 +1013,9 @@
         interceptor-demo = mkN64Rom interceptorDemoArgs;
 
         # texanim-demo: one exhibit per texture / vertex effect, each driven by
-        # the engine module that owns it — kiln_texanim's scroll on a tiled
-        # floor, kiln_vfx's env map and cel shade, kiln_deform's flag and
-        # kiln_morph's blob. Every model's name is its rom:/models/ filename.
+        # the engine module that owns it — fig_texanim's scroll on a tiled
+        # floor, fig_vfx's env map and cel shade, fig_deform's flag and
+        # fig_morph's blob. Every model's name is its rom:/models/ filename.
         #
         # fog=true on every material, deliberately: f3d_inject's default
         # fog=False becomes T3D_FOG_MODE_DISABLED (materialParser.cpp: g_fog+1),
@@ -1028,7 +1028,7 @@
         # summed across a ROM: the largest here is one 32x32 RGBA16, 2 KB of 4.
         #
         # firewall / lavapool / monitors are texture REFERENCE materials
-        # (useRef): Tiny3D uploads nothing for them and kiln_texanim's
+        # (useRef): Tiny3D uploads nothing for them and fig_texanim's
         # dynTextureCb uploads the flipbook frame, the CI4 surface or the
         # offscreen render, matched by refAddress. refSize is the runtime
         # surface's size, because the UVs are baked against it. firewall and
@@ -1110,9 +1110,9 @@
         cinematic-demo = mkN64Rom cinematicDemoArgs;
 
         # A minimal playable first-person shooter. First-person camera
-        # (kiln_fpscam), hitscan weapon (kiln_weapon), enemy actors that chase
+        # (fig_fpscam), hitscan weapon (fig_weapon), enemy actors that chase
         # the player, HUD with crosshair + health + ammo. The FPS level is a
-        # Quake .map loaded at runtime via kiln_map.
+        # Quake .map loaded at runtime via fig_map.
         fpsArgs = {
           name = "fps";
           src = ./examples/fps;
@@ -1145,7 +1145,7 @@
           romTitle = "Kiln Bass Synth";
           assets = bassWavFlat;
           audioRate = 32000;
-          # The patch is saved through kiln_store: SD card on a flashcart that
+          # The patch is saved through fig_store: SD card on a flashcart that
           # has one, else this 32 KB save chip (and what an emulator gives).
           saveType = "sram256k";
         };
@@ -1161,7 +1161,7 @@
         # whole iteration loop rests on one assumption — that a ROM can write
         # files to the SD card of an ED64 Plus, which is a clone board libcart
         # names but nobody here has proved. This probe answers that in one boot,
-        # exercising kiln_store's real write path rather than a copy of it.
+        # exercising fig_store's real write path rather than a copy of it.
         #
         # saveType is DELIBERATELY not eeprom/sram here: the probe reports
         # whether the SD path works, and a declared save type would have the
@@ -1185,7 +1185,7 @@
 
         # Forge with a level baked into the ROM. Its only purpose is to make the
         # LOAD path verifiable without a cart: `./dev shot forge-dfs` boots it,
-        # kiln_store falls through SD and the save chip to read-only `rom:/`, and
+        # fig_store falls through SD and the save chip to read-only `rom:/`, and
         # the level either appears or the HUD says which step refused.
         forge-dfs = mkN64Rom {
           name = "forge-dfs";
@@ -1283,7 +1283,7 @@
             (builtins.attrNames (builtins.readDir ./nix/demos)));
 
         # The same probe with a save chip declared, which is the ONLY way to
-        # exercise kiln_store's SRAM fallback: `sram_detect()` round-trips a word
+        # exercise fig_store's SRAM fallback: `sram_detect()` round-trips a word
         # through the cart, so with no save type in the ROM header there is
         # nothing there to detect and the fallback correctly refuses itself.
         #
@@ -1299,7 +1299,7 @@
           saveType = "sram256k";
         };
 
-        # Phase 1 verification: kiln_rng + kiln_dice + kiln_board + kiln_turn
+        # Phase 1 verification: fig_rng + fig_dice + fig_board + fig_turn
         # end-to-end. 4 tokens, 5 rounds, a 10-node branching path, an
         # auto-advancing state machine. No assets — the proof is the
         # topology and the turn transitions, drawn as a 2D HUD schematic.
@@ -1326,7 +1326,7 @@
           # and collapsed into an unreadable grey slab on screen. Tiny3D
           # stores vertices as integers; sub-unit detail simply does not
           # survive. 64 keeps it consistent with every other model here, and
-          # kiln_splash's camera is placed in the same units.
+          # fig_splash's camera is placed in the same units.
           baseScale = 64;
         };
 
@@ -1341,7 +1341,7 @@
         # sampling a 2K albedo per vertex converges on a flat beige that
         # reads worse than the authored courses it replaces.
         #
-        # The flame and the plate stay procedural. kiln_splash gives the
+        # The flame and the plate stay procedural. fig_splash gives the
         # flame its own transform (kiln_splash.h, "The flame moves separately
         # from the body") and it carries a smooth base-to-tip vertex
         # gradient; a baked body would hand over one rigid object with that
@@ -1380,7 +1380,7 @@
           # ambience bed never showed it, and that difference is the whole
           # clue. A looping sample simply never reaches that state.
           #
-          # kiln_splash stops the channel at 3.8 s and the sample is 4.0 s,
+          # fig_splash stops the channel at 3.8 s and the sample is 4.0 s,
           # so it is stopped before it would ever wrap — the loop flag costs
           # nothing audible and removes the end-of-sample path entirely.
           loop = true;
@@ -1405,7 +1405,7 @@
                     frommap ${./assets/oot_test.map} $out/LEVEL.frg
           '';
 
-        # compress = 0 because kiln_store reads this with a plain fopen, not
+        # compress = 0 because fig_store reads this with a plain fopen, not
         # asset_fopen: an mkasset-compressed payload would come back as its
         # container bytes and fail the CRC, which is a confusing way to discover
         # a compression setting.
@@ -1431,7 +1431,7 @@
         hostGames = {
           # ── playable host builds ───────────────────────────────────
           # The same examples/<x>/main.c the ROM builds, compiled with
-          # -Dmain=kiln_game_main and linked against plat/shell. engine-demo
+          # -Dmain=fig_game_main and linked against plat/shell. engine-demo
           # first because it is the report's own benchmark for a working port
           # — a lit spinning cube plus a HUD, which on hardware runs at 59.8
           # fps and here exercises the 3D pass, the seam and the 2D pass.
@@ -1591,20 +1591,40 @@
               };
             })))
           hostGames;
+
+      # ── The capture loop's python ────────────────────────────────────
+      # evdev drives tools/n64-input.py's uinput gamepad — there is no way to
+      # reach a screen behind "press start" without it — and pillow is what
+      # turns a screenshot into the pixel statistics `./dev shot` reports.
+      #
+      # Named here rather than written inline in the devShell, because the
+      # capture scripts need it whether or not anyone is standing in a
+      # devShell. `./dev drive` runs tools/n64-drive.sh with plain `bash`, not
+      # through `nix develop`, so a bare `python3` on that script's PATH was
+      # the host's — and on a host without evdev the virtual pad silently
+      # failed to come up, with an error that told the reader to do the thing
+      # they were already doing. It is exposed as a package so `./dev` can put
+      # exactly this interpreter on PATH for one command.
+      capturePython = pkgs.python3.withPackages (ps: [ ps.evdev ps.pillow ]);
       in
       {
         packages = hostGames // hostWebGames // {
+          # The interpreter tools/n64-drive.sh and tools/n64-shot.sh need. See
+          # capturePython above for why this is a package and not only a
+          # devShell entry.
+          capture-python = capturePython;
+
           # `./dev map-render` — a level, through the real kiln_map.c, drawn by
           # the real engine, with no ROM and no compositor. Shares its whole
           # frame with nix/checks/kiln-map.nix; kiln-maprender holds the two to
           # the same reference image. See tools/maprender/map_render.h.
-          # kiln_camlint over a camera shot written as JSON — the engine's own
+          # fig_camlint over a camera shot written as JSON — the engine's own
           # validator, natively, on data. `./dev cine-lint shot.json [--json]`.
           camlint = hostNative.mkProgram {
             pname = "camlint";
             sources = [ ./tools/camlint/camlint.c ];
             meta = {
-              description = "validate a camera shot (JSON) with kiln_camlint";
+              description = "validate a camera shot (JSON) with fig_camlint";
               mainProgram = "camlint";
             };
           };
@@ -1629,7 +1649,13 @@
           host-vadpcm       = hostNative.vadpcm;
 
           inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
-          engine = kiln-engine;
+          # docs/NAMING.md section 4: the engine's package name is figulina.
+          # `engine` stays as an alias for one release train (section 9 step 4)
+          # — SAME derivation, not a rebuild, so `nix build .#engine` and
+          # `.#figulina` cannot produce different bytes. Section 5.4: the alias
+          # that is not canonical is deleted once downstreams have moved.
+          figulina = kiln-engine;
+          engine   = kiln-engine;
           host-math = hostMath;
           streamdb = streamdb-emb;
           inherit textures;
@@ -1663,7 +1689,7 @@
           model-quake-test = quakeTestModel;
           model-kiln-logo = kilnLogo;
           model-kiln-logo-meshy = kilnLogoMeshy;
-          # The splash's two assets, exposed as a pair. kiln_splash is
+          # The splash's two assets, exposed as a pair. fig_splash is
           # engine-level — a PUBLISHER mark, not any one game's — so a
           # downstream game adopts it by putting these two in its own ROM's
           # `assets` list, not by rebuilding them. Both are optional and the
@@ -1712,6 +1738,26 @@
           # what it refuses to let default.
           mkAssetBudgetCheck = args:
             import ./nix/checks/asset-budget.nix ({ inherit pkgs; } // args);
+
+          # ── The playable targets ────────────────────────────────────
+          # `hostNative.mkGame` compiles a game's OWN main.c, unedited, with
+          # -Dmain=fig_game_main and links plat/shell — the same sources and
+          # the same asset derivations mkN64Rom takes. `hostWasm` is the same
+          # game in a browser.
+          #
+          # These were the conspicuous hole in this block. Kiln has built its
+          # own examples this way for a long time (24 pc-* targets and 24
+          # web-* twins in this file), and mkStudioManifest below already
+          # describes a game's record as "every ROM, jump ROM, PC and web
+          # build" — while a downstream game had no way to produce the last
+          # two. A game reaching plat/host directly, as PetaByte Madness'
+          # nix/checks/pm-cine.nix already does, is the symptom this fixes.
+          #
+          # Exported as the target sets rather than as bare `mkGame`, because a
+          # game wants `hostNative.mkProgram` too: a headless harness with no
+          # launcher is how tools/maprender renders without a window, and it is
+          # what a fast development loop actually runs.
+          inherit hostNative hostWasm;
 
           # Kiln Studio's project model: every ROM, jump ROM, PC and web build
           # grouped by game, from the `kiln` records the builders attach. A
@@ -1928,8 +1974,16 @@
             inherit pkgs;
             repo = ./.;
           };
+
+          # The SECOND rename this repo has gated. kiln-names.nix keeps the
+          # pre-Kiln engine name from coming back; this keeps the engine's
+          # symbols from drifting back to kiln_ while the compatibility train
+          # of docs/NAMING.md section 9 is still running.
+          fig-names = import ./nix/checks/fig-names.nix {
+            inherit pkgs; repo = ./.;
+          };
           # Forge's own content round trip: the .FRG container, the host mirror
-          # of kiln_voxel_boxes, and the .map emitter against the STRICT reader.
+          # of fig_voxel_boxes, and the .map emitter against the STRICT reader.
           # Held to mapmaker-roundtrip's standard by the same method, because the
           # two .map emitters have to agree about the same brush.
           forge-roundtrip = import ./nix/checks/forge-roundtrip.nix {
@@ -1984,6 +2038,15 @@
             inherit pkgs n64Inst; target = hostWasm;
             cubeGltf = ./assets/cube.gltf;
           };
+          # The bind pose under wasm32 as well. Worth the duplicate because
+          # the skeleton chunk is the second file-format reader in plat/host
+          # and the only one that reads FLOATS out of big-endian bytes — the
+          # cube's positions are int16. A target that assembled them
+          # differently would put every bone somewhere else.
+          kiln-skel-wasm32 = import ./nix/checks/kiln-skel.nix {
+            inherit pkgs n64Inst; target = hostWasm;
+            skelGltf = ./assets/skel_test.gltf;
+          };
           kiln-map-wasm32 = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostWasm;
             mapAsset = ./assets/quake_test.map;
@@ -1996,7 +2059,7 @@
             inherit pkgs; target = hostWasm;
             forgeSrc = ./Forge/src;
           };
-          # kiln_widget's screens, rendered through the same host backend and
+          # fig_widget's screens, rendered through the same host backend and
           # diffed against their committed captures.
           kiln-widget = import ./nix/checks/kiln-widget.nix {
             inherit pkgs; target = hostNative;
@@ -2007,7 +2070,7 @@
           kiln-scene = import ./nix/checks/kiln-scene.nix {
             inherit pkgs; target = hostNative;
           };
-          # kiln_prim's boxes and floors, read back: outward winding, signed
+          # fig_prim's boxes and floors, read back: outward winding, signed
           # 5.6.5 normals, extents, and 17-quad batches under the vertex cache.
           kiln-prim = import ./nix/checks/kiln-prim.nix {
             inherit pkgs; target = hostNative;
@@ -2015,7 +2078,7 @@
           kiln-prim-wasm32 = import ./nix/checks/kiln-prim.nix {
             inherit pkgs; target = hostWasm;
           };
-          # kiln_input's tapes: the attract modes and jump ROMs every example
+          # fig_input's tapes: the attract modes and jump ROMs every example
           # uses to show something without a controller.
           kiln-input = import ./nix/checks/kiln-input.nix {
             inherit pkgs; target = hostNative;
@@ -2024,7 +2087,7 @@
           kiln-texrect = import ./nix/checks/kiln-texrect.nix {
             inherit pkgs; target = hostNative;
           };
-          # kiln_fpscam's strafe and turn, against the renderer's screen-right.
+          # fig_fpscam's strafe and turn, against the renderer's screen-right.
           kiln-fpscam = import ./nix/checks/kiln-fpscam.nix {
             inherit pkgs; target = hostNative;
           };
@@ -2034,7 +2097,7 @@
             inherit pkgs;
             renderer = faust.mkOfflineRenderer { name = "ksvoice"; src = ./dsp/ks.dsp; };
           };
-          # kiln_music_playing follows the player; kiln_audio's output tap.
+          # fig_music_playing follows the player; fig_audio's output tap.
           kiln-audio = import ./nix/checks/kiln-audio.nix {
             inherit pkgs; target = hostNative; sound = demoSound;
             # A stereo wav64 (every committed .wav is mono): ks.dsp's two
@@ -2045,7 +2108,7 @@
               gate = { param = "gate"; on = 0.0; off = 0.02; };
             };
           };
-          # kiln_room's loaded set, walked across a 2x2 grid frame by frame.
+          # fig_room's loaded set, walked across a 2x2 grid frame by frame.
           # examples/cinematic-demo's shots: camlint-clean, no eye inside the
           # cast or the hangar across the whole loop, bounds match the models.
           cinematic-cam = import ./nix/checks/cinematic-cam.nix {
@@ -2056,15 +2119,15 @@
           kiln-room = import ./nix/checks/kiln-room.nix {
             inherit pkgs; target = hostNative;
           };
-          # kiln_morph's CPU blend: colour per channel, normals kept.
+          # fig_morph's CPU blend: colour per channel, normals kept.
           kiln-vanim = import ./nix/checks/kiln-vanim.nix {
             inherit pkgs; target = hostNative;
           };
-          # kiln_context's A-button scan: locked doors UNLOCK, open ones OPEN.
+          # fig_context's A-button scan: locked doors UNLOCK, open ones OPEN.
           kiln-context = import ./nix/checks/kiln-context.nix {
             inherit pkgs; target = hostNative;
           };
-          # kiln_console reads its buttons through kiln_input, so tapes drive it.
+          # fig_console reads its buttons through fig_input, so tapes drive it.
           kiln-console = import ./nix/checks/kiln-console.nix {
             inherit pkgs; target = hostNative;
           };
@@ -2083,13 +2146,21 @@
             inherit pkgs n64Inst; target = hostNative;
             cubeGltf = ./assets/cube.gltf;
           };
+          # The same, RIGGED: the 'S' chunk parsed, the bind pose composed
+          # through Tiny3D's own arithmetic, and the mesh drawn from it. The
+          # host used to abort on every t3d_skeleton_* call; this is what
+          # replaced the abort's argument with evidence.
+          kiln-skel = import ./nix/checks/kiln-skel.nix {
+            inherit pkgs n64Inst; target = hostNative;
+            skelGltf = ./assets/skel_test.gltf;
+          };
           # The engine's real boot splash — kiln + flame + lit publisher
           # line — rendered by the actual kiln_splash.c, not a stand-in.
           kiln-splash = import ./nix/checks/kiln-splash.nix {
             inherit pkgs n64Inst kilnLogo; target = hostNative;
           };
           # A real Quake .map, loaded off the host VFS and rendered. Found
-          # two defects in kiln_map and pins both — see the check's header.
+          # two defects in fig_map and pins both — see the check's header.
           kiln-map = import ./nix/checks/kiln-map.nix {
             inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
@@ -2429,13 +2500,10 @@
             pkgs.faust
             pkgs.ares
             pkgs.pkg-config
-            # The capture loop's python: evdev drives tools/n64-input.py's
-            # uinput gamepad (there is no way to reach a screen behind
-            # "press start" without it), and pillow is what turns a
-            # screenshot into the pixel statistics ./dev shot reports —
-            # CLAUDE.md's own warning is that eyeballing the PNG has
-            # already cost this project real time.
-            (pkgs.python3.withPackages (ps: [ ps.evdev ps.pillow ]))
+            # The same interpreter the capture scripts get on PATH — see
+            # capturePython's comment above. One derivation, so a devShell and
+            # a `./dev drive` can never disagree about whether evdev is there.
+            capturePython
           ];
 
           # Bare metal: see nix/libdragon.nix.
@@ -2475,11 +2543,11 @@
       templates = {
         game = {
           path = ./templates/game;
-          description = "A game on the Kiln engine: a flake, a ROM, and Kiln Studio's manifest";
+          description = "A game on Figulina: a flake, a ROM, and Kiln Studio's manifest";
         };
         hello = {
           path = ./examples/hello;
-          description = "Plain libdragon, no Kiln engine: the smallest ROM";
+          description = "Plain libdragon, no Figulina: the smallest ROM";
         };
         default = self.templates.game;
       };

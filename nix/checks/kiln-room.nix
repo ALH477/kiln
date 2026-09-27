@@ -10,5 +10,5 @@
 target.mkCheck {
   pname = "roomcheck";
   sources = [ ./kiln-room-check.c ];
-  meta.description = "kiln_room loads the camera's rooms and their neighbours, unloads the rest, and respects max_loaded";
+  meta.description = "fig_room loads the camera's rooms and their neighbours, unloads the rest, and respects max_loaded";
 }

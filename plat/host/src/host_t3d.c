@@ -26,7 +26,7 @@
  *
  * 2. Every RSP limit that is silent on hardware is an assert here. The vertex
  *    cache is 70 entries and overrunning it on console wraps the DMA and
- *    corrupts geometry with no diagnostic at all; kiln_voxmesh batches 68 for
+ *    corrupts geometry with no diagnostic at all; fig_voxmesh batches 68 for
  *    precisely that reason. The matrix stack has a fixed depth. Those are the
  *    limits a host build can genuinely check, and checking them is the
  *    argument for having one — see CLAUDE.md on the host being STRICTER than
@@ -64,7 +64,7 @@
  * across both slices.
  *
  * Transforming at DRAW time instead is indistinguishable for every
- * single-matrix consumer (kiln_map, kiln_voxmesh, an unskinned model) and
+ * single-matrix consumer (fig_map, fig_voxmesh, an unskinned model) and
  * silently collapses a skinned model onto its last bone. */
 typedef struct {
     float   x, y, z, w;     /* clip space */
@@ -95,9 +95,9 @@ static int        g_fog_on;
 static int32_t    g_fog_offset;
 static int16_t    g_fog_scale;
 
-static KilnHostT3DCounters g_c;
+static FigHostT3DCounters g_c;
 
-const KilnHostT3DCounters *kiln_host_t3d_counters(void) { return &g_c; }
+const FigHostT3DCounters *fig_host_t3d_counters(void) { return &g_c; }
 
 /* ── lifecycle ────────────────────────────────────────────────────────── */
 
@@ -132,7 +132,7 @@ void t3d_frame_start(void)
      *
      * T3D_FLAG_DEPTH is the RSP's half (compute and emit z); this is the RDP's
      * half (compare and write it). Both are needed, which is the same
-     * two-halves shape kiln_scene_begin's own comment describes for fog. */
+     * two-halves shape fig_scene_begin's own comment describes for fog. */
     rdpq_set_mode_standard();
     rdpq_mode_antialias(1);
     rdpq_mode_zbuf(true, true);
@@ -151,8 +151,8 @@ T3DViewport t3d_viewport_create(void)
     memset(&vp, 0, sizeof vp);
     fm_mat4_identity(&vp.matCamera);
     fm_mat4_identity(&vp.matProj);
-    vp.size[0] = kiln_hostfb_w();
-    vp.size[1] = kiln_hostfb_h();
+    vp.size[0] = fig_hostfb_w();
+    vp.size[1] = fig_hostfb_h();
     vp.guardBandScale = 2;
     vp.fov = 1.0f; vp.near_z = 1.0f; vp.far_z = 1000.0f;
     return vp;
@@ -166,8 +166,8 @@ void t3d_viewport_attach(T3DViewport *vp)
      * mode refuses to save an invalid keyframe table. Reproduce it, loudly:
      * the whole value of the camera validator is that this failure is real. */
     if (vp->size[0] == 0 || vp->size[1] == 0) {
-        vp->size[0] = kiln_hostfb_w();
-        vp->size[1] = kiln_hostfb_h();
+        vp->size[0] = fig_hostfb_w();
+        vp->size[1] = fig_hostfb_h();
     }
     g_vp = vp;
 }
@@ -228,6 +228,78 @@ void t3d_viewport_look_at(T3DViewport *vp, const T3DVec3 *eye,
     m.m[3][1] = -(u.v[0]*eye->v[0] + u.v[1]*eye->v[1] + u.v[2]*eye->v[2]);
     m.m[3][2] =  (f.v[0]*eye->v[0] + f.v[1]*eye->v[1] + f.v[2]*eye->v[2]);
     vp->matCamera = m;
+
+    /* Tiny3D recomputes the frustum HERE (t3d.c:624-629), not lazily and not
+     * in set_projection — which only marks the combined matrix dirty. Doing
+     * the same means a caller that reads viewFrustum after look_at always
+     * gets this frame's camera, on both targets, without having to know that
+     * rule. */
+    fm_mat4_t cam_proj;
+    fm_mat4_mul(&cam_proj, &vp->matProj, &vp->matCamera);
+    t3d_mat4_to_frustum(&vp->viewFrustum, &cam_proj);
+}
+
+/* ── the frustum ──────────────────────────────────────────────────────────
+ * Both bodies are Tiny3D's, copied rather than reimplemented: this header
+ * tree's standing rule is "copy the real definition; do not approximate it",
+ * and a culling test that disagreed with the console by a rounding step would
+ * show up as geometry missing on one target only.
+ */
+void t3d_mat4_to_frustum(T3DFrustum *frustum, const T3DMat4 *mat)
+{
+    assertf(frustum && mat, "t3d_mat4_to_frustum: NULL");
+    for (int i = 0; i < 4; ++i) {
+        frustum->planes[0].v[i] = mat->m[i][3] + mat->m[i][0]; /* left   */
+        frustum->planes[1].v[i] = mat->m[i][3] - mat->m[i][0]; /* right  */
+        frustum->planes[2].v[i] = mat->m[i][3] + mat->m[i][1]; /* bottom */
+        frustum->planes[3].v[i] = mat->m[i][3] - mat->m[i][1]; /* top    */
+        frustum->planes[4].v[i] = mat->m[i][3] + mat->m[i][2]; /* near   */
+        frustum->planes[5].v[i] = mat->m[i][3] - mat->m[i][2]; /* far    */
+    }
+    for (int i = 0; i < 6; ++i) {
+        const fm_vec3_t *n = (const fm_vec3_t *)&frustum->planes[i];
+        const float len = fm_vec3_len(n);
+        /* ── A named divergence from upstream, and the only one here ──
+         * A degenerate plane means the projection matrix is still zero, which
+         * happens legitimately: t3d_viewport_look_at recomputes the frustum
+         * (that is where upstream does it too), and a caller is allowed to
+         * call look_at before set_projection — nix/checks/kiln-fpscam.nix
+         * does exactly that.
+         *
+         * Upstream divides by zero here and fills the plane with inf and NaN.
+         * This host must NOT reproduce that, for two reasons. A NaN plane
+         * makes t3d_frustum_vs_sphere's `dist < -radius` comparison false in
+         * a way that depends on the compiler, so culling would differ between
+         * the differential rig's gcc and clang builds; and those builds run
+         * under -fno-sanitize-recover, where the division is a hard abort of
+         * an unrelated shape.
+         *
+         * Leaving the plane zero is the conservative reading: `dist` is then
+         * 0, `0 < -radius` is false for every positive radius, and an
+         * unconfigured frustum culls NOTHING. A frustum that culls nothing
+         * draws a correct picture slowly; one full of NaN drops geometry at
+         * random. This used to assert instead, which was worse than both — it
+         * made the host refuse something the console accepts.
+         */
+        if (!(len > 1e-9f)) continue;
+        frustum->planes[i].v[0] /= len;
+        frustum->planes[i].v[1] /= len;
+        frustum->planes[i].v[2] /= len;
+        frustum->planes[i].v[3] /= len;
+    }
+}
+
+bool t3d_frustum_vs_sphere(const T3DFrustum *frustum, const T3DVec3 *center,
+                           float radius)
+{
+    assertf(frustum && center, "t3d_frustum_vs_sphere: NULL");
+    for (int i = 0; i < 6; ++i) {
+        const float dist =
+            fm_vec3_dot((const fm_vec3_t *)&frustum->planes[i], center)
+            + frustum->planes[i].v[3];
+        if (dist < -radius) return false;
+    }
+    return true;
 }
 
 /* ── matrices, quantised on purpose ───────────────────────────────────── */
@@ -319,8 +391,8 @@ void t3d_state_set_vertex_fx(T3DVertexFX fx, int16_t a, int16_t b)
             "ucode features with no host equivalent yet.", (int)fx);
 }
 
-void t3d_screen_clear_color(color_t c) { kiln_hostfb_clear_color(c); }
-void t3d_screen_clear_depth(void)      { kiln_hostfb_clear_depth(); }
+void t3d_screen_clear_color(color_t c) { fig_hostfb_clear_color(c); }
+void t3d_screen_clear_depth(void)      { fig_hostfb_clear_depth(); }
 
 /* ── lights ───────────────────────────────────────────────────────────── */
 
@@ -332,7 +404,7 @@ void t3d_light_set_ambient(const uint8_t *color)
 
 void t3d_light_set_count(int count)
 {
-    /* Tiny3D supports 7 directional lights. KILN_SCENE_MAX_LIGHTS is 4, so a
+    /* Tiny3D supports 7 directional lights. FIG_SCENE_MAX_LIGHTS is 4, so a
      * ROM cannot reach this — but the shim is the API, not the engine. */
     assertf(count >= 0 && count <= 7,
             "t3d_light_set_count(%d): Tiny3D supports 0..7", count);
@@ -365,7 +437,7 @@ void t3d_fog_set_range(float near, float far)
         return;
     }
     /* Stricter than Tiny3D, which accepts it and fogs inverted. Nothing here
-     * means to, and kiln_prim_stage already refuses such a range. */
+     * means to, and fig_prim_stage already refuses such a range. */
     assertf(far > near, "t3d_fog_set_range: far %f <= near %f",
             (double)far, (double)near);
 
@@ -443,7 +515,7 @@ void t3d_vert_load(const T3DVertPacked *vertices, uint32_t offset, uint32_t coun
             "t3d_vert_load: count %u outside 1..%d", count, T3D_VERTEX_CACHE);
     assertf(offset + count <= T3D_VERTEX_CACHE,
             "t3d_vert_load: offset %u + count %u overruns the %d-entry vertex "
-            "cache. kiln_voxmesh batches 68 for exactly this reason.",
+            "cache. fig_voxmesh batches 68 for exactly this reason.",
             offset, count, T3D_VERTEX_CACHE);
 
     assertf(g_vp != NULL, "t3d_vert_load before t3d_viewport_attach: the "
@@ -603,7 +675,7 @@ static inline float edge(float ax, float ay, float bx, float by, float px, float
 
 void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
 {
-    assertf(kiln_hostfb_attached(), "t3d_tri_draw with nothing attached");
+    assertf(fig_hostfb_attached(), "t3d_tri_draw with nothing attached");
     assertf(g_vp != NULL, "t3d_tri_draw before t3d_viewport_attach");
     const uint32_t idx[3] = { i0, i1, i2 };
     for (int k = 0; k < 3; k++) {
@@ -629,7 +701,7 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
         if (o[k].w <= 1e-4f) { g_c.tris_clipped++; return; }
     }
 
-    const int W = kiln_hostfb_w(), H = kiln_hostfb_h();
+    const int W = fig_hostfb_w(), H = fig_hostfb_h();
     float sx[3], sy[3], sz[3];
     for (int k = 0; k < 3; k++) {
         const float iw = 1.0f / o[k].w;
@@ -658,8 +730,8 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
     if (maxy > H) maxy = H;
     if (minx >= maxx || miny >= maxy) { g_c.tris_culled++; return; }
 
-    const int ztest  = (g_flags & T3D_FLAG_DEPTH) && kiln_hostfb_ztest();
-    const int zwrite = (g_flags & T3D_FLAG_DEPTH) && kiln_hostfb_zwrite();
+    const int ztest  = (g_flags & T3D_FLAG_DEPTH) && fig_hostfb_ztest();
+    const int zwrite = (g_flags & T3D_FLAG_DEPTH) && fig_hostfb_zwrite();
 
     /* Barycentrics without reordering the vertices. The three edge functions
      * carry the sign of the total area, so flipping all of them by that sign
@@ -688,7 +760,7 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
              * T3D_FLAG_TEXTURED makes the RSP emit texture coordinates. It is
              * the COMBINER that decides whether the sampled texel reaches the
              * framebuffer, and with RDPQ_COMBINER_SHADE — which is what
-             * kiln_scene_begin sets every frame — it does not. Reproduced
+             * fig_scene_begin sets every frame — it does not. Reproduced
              * rather than smoothed over: "uploaded but never sampled" is a
              * real state, and a host that sampled anyway would hide it. */
             color_t tex = { 255, 255, 255, 255 };
@@ -699,7 +771,7 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
                 if (iw > 1e-9f) {
                     const float ss = (w0*o[0].sow + w1*o[1].sow + w2*o[2].sow) / iw;
                     const float tt = (w0*o[0].tow + w1*o[1].tow + w2*o[2].tow) / iw;
-                    have_tex = kiln_hosttex_sample(0, ss, tt, &tex);
+                    have_tex = fig_hosttex_sample(0, ss, tt, &tex);
                 }
             }
 
@@ -721,11 +793,11 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
              * The hardware blender works in 5-bit alpha; Ares' captures show
              * no 32-step banding once its dither averages out, so this is the
              * plain 8-bit lerp they measure as. */
-            const rdpq_blender_t fogmode = kiln_hostfb_fog_mode();
+            const rdpq_blender_t fogmode = fig_hostfb_fog_mode();
             const uint8_t shade_alpha = col.a;
             if (fogmode) col.a = 255;
 
-            const rdpq_combiner_t comb = kiln_hostfb_combiner();
+            const rdpq_combiner_t comb = fig_hostfb_combiner();
             if (have_tex) {
                 if (comb == RDPQ_COMBINER_TEX) {
                     col = tex;
@@ -745,14 +817,14 @@ void t3d_tri_draw(uint32_t i0, uint32_t i1, uint32_t i2)
             }
 
             if (fogmode) {
-                const color_t fc = kiln_hostfb_fog_color();
+                const color_t fc = fig_hostfb_fog_color();
                 const unsigned a = shade_alpha, ia = 255u - a;
                 col.r = (uint8_t)((col.r * a + fc.r * ia + 127) / 255);
                 col.g = (uint8_t)((col.g * a + fc.g * ia + 127) / 255);
                 col.b = (uint8_t)((col.b * a + fc.b * ia + 127) / 255);
             }
 
-            kiln_hostfb_put_z(x, y, (uint16_t)(z * 65535.0f), col, ztest, zwrite);
+            fig_hostfb_put_z(x, y, (uint16_t)(z * 65535.0f), col, ztest, zwrite);
             drew = 1;
         }
     }
@@ -838,4 +910,44 @@ void t3d_indexbuffer_convert(int16_t indices[], int count)
      * no-op rather than removed because the symbol is part of the API and a
      * caller doing its own strip submission still calls it. */
     (void)indices; (void)count;
+}
+
+/* ── bone maths ──────────────────────────────────────────────────────────
+ * The two of the seven that are out of line upstream (t3dmath.c); the other
+ * five are `inline static` in t3dmath.h on both targets. Copied line for line
+ * — see the header's note for why an approximation is not available here.
+ */
+void t3d_quat_nlerp(T3DQuat *res, const T3DQuat *a, const T3DQuat *b, float t)
+{
+    float blend = 1.0f - t;
+    if (t3d_quat_dot(a, b) < 0.0f) {
+        blend = -blend;
+    }
+    res->v[0] = blend * a->v[0] + t * b->v[0];
+    res->v[1] = blend * a->v[1] + t * b->v[1];
+    res->v[2] = blend * a->v[2] + t * b->v[2];
+    res->v[3] = blend * a->v[3] + t * b->v[3];
+    t3d_quat_normalize(res);
+}
+
+void t3d_mat4_from_srt(T3DMat4 *mat, const float scale[3], const float quat[4],
+                       const float translate[3])
+{
+    float qxx = quat[0] * quat[0];
+    float qyy = quat[1] * quat[1];
+    float qzz = quat[2] * quat[2];
+    float qxz = quat[0] * quat[2];
+    float qxy = quat[0] * quat[1];
+    float qyz = quat[1] * quat[2];
+    float qwx = quat[3] * quat[0];
+    float qwy = quat[3] * quat[1];
+    float qwz = quat[3] * quat[2];
+
+    *mat = (T3DMat4){{
+        {1.0f - 2.0f * (qyy + qzz),        2.0f * (qxy + qwz),        2.0f * (qxz - qwy), 0.0f},
+        {       2.0f * (qxy - qwz), 1.0f - 2.0f * (qxx + qzz),        2.0f * (qyz + qwx), 0.0f},
+        {       2.0f * (qxz + qwy),        2.0f * (qyz - qwx), 1.0f - 2.0f * (qxx + qyy), 0.0f},
+        {             translate[0],              translate[1],              translate[2], 1.0f}
+    }};
+    t3d_mat4_scale(mat, scale[0], scale[1], scale[2]);
 }

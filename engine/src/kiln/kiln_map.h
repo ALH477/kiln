@@ -1,17 +1,17 @@
 /* SPDX-License-Identifier: MIT
  *
  * kiln_map.h — a clean-room idMapFile analogue: load a Quake-format `.map`
- * and turn it into `KilnBrush` collision + `KilnRoomSpawn` templates with
- * `KilnDict` spawn args. See CLAUDE.md's Phase C notes for what was and
+ * and turn it into `FigBrush` collision + `FigRoomSpawn` templates with
+ * `FigDict` spawn args. See CLAUDE.md's Phase C notes for what was and
  * wasn't carried over from id Tech 4's map pipeline.
  *
  * ── Why Quake .map text format ──────────────────────────────────────────
  * `assets/quake_test.map` already exists, and TrenchBroom (the standard
  * Quake/Doom editor) emits it. The file is human-readable, version-controlled
  * friendly, and the parser is small enough to run on a 4 MB console at boot
- * once per room. Entity epairs map 1:1 to `KilnDict`; brushes reduce to AABBs
+ * once per room. Entity epairs map 1:1 to `FigDict`; brushes reduce to AABBs
  * for collision and hand-rolled face quads for rendering. One `.map` = one
- * `KilnMap` = one room for the demo; multi-room games load several `.map`
+ * `FigMap` = one room for the demo; multi-room games load several `.map`
  * files and connect them via entity `target_room` epairs later.
  *
  * ── Brush CSG, and the AABB it produces ─────────────────────────────────
@@ -49,8 +49,8 @@
  * polygon set produced here at load time. Real Doom 3 maps also need a CM model
  * built offline; our collision is the AABB approximation.
  */
-#ifndef KILN_MAP_H
-#define KILN_MAP_H
+#ifndef FIG_MAP_H
+#define FIG_MAP_H
 
 #include <stdint.h>
 #include "kiln_clip.h"
@@ -77,43 +77,43 @@ typedef struct {
     T3DVertPacked *verts;
     uint32_t       rgba;
     uint8_t        vert_count;
-} KilnMapFace;
+} FigMapFace;
 
 /** A parsed .map room. `brushes` and `faces` are module-owned arrays allocated
- *  during kiln_map_load; kiln_map_free releases them. `spawns` are the non-
- *  worldspawn entities translated into KilnRoomSpawn form, each carrying a
- *  populated `KilnDict`. `world_aabb` is the union of all brush AABBs. */
+ *  during fig_map_load; fig_map_free releases them. `spawns` are the non-
+ *  worldspawn entities translated into FigRoomSpawn form, each carrying a
+ *  populated `FigDict`. `world_aabb` is the union of all brush AABBs. */
 typedef struct {
-    KilnBrush     *brushes;
+    FigBrush     *brushes;
     uint16_t      brush_count;
 
-    KilnMapFace   *faces;
+    FigMapFace   *faces;
     uint16_t      face_count;
 
-    KilnRoomSpawn *spawns;
+    FigRoomSpawn *spawns;
     uint16_t      spawn_count;
 
     fm_vec3_t     world_aabb_min;
     fm_vec3_t     world_aabb_max;
-} KilnMap;
+} FigMap;
 
 /** Bind a Quake `classname` string to an actor profile id. Must be called
- *  before kiln_map_load for any classnames the map uses; unknown classnames
+ *  before fig_map_load for any classnames the map uses; unknown classnames
  *  are skipped (with a debugf) rather than failing the whole load. */
-void kiln_map_register_classname(const char *classname, uint16_t profile_id);
+void fig_map_register_classname(const char *classname, uint16_t profile_id);
 
 /** Parse a `.map` from a DFS path. Returns 0 on success, -1 on any I/O or
- *  parse failure. On success the caller must call kiln_map_free. Brushes are
+ *  parse failure. On success the caller must call fig_map_free. Brushes are
  *  tagged with surface ids: index 0 for worldspawn brushes, index 1 for any
  *  brush whose classname (via a yet-unloaded entity) is "func_metal" etc.
- *  For now all worldspawn brushes use surface 0; kiln_map's role is to lay the
+ *  For now all worldspawn brushes use surface 0; fig_map's role is to lay the
  *  data out, not to own the surface table semantics. */
-int  kiln_map_load(KilnMap *out, const char *dfs_path);
-void kiln_map_free(KilnMap *m);
+int  fig_map_load(FigMap *out, const char *dfs_path);
+void fig_map_free(FigMap *m);
 
 /** Vertex colours for a parsed map's faces, which arrive flat white.
  *
- *  kiln_map parses no texture or UV data, so a level loaded as-is is a white
+ *  fig_map parses no texture or UV data, so a level loaded as-is is a white
  *  box lit by its normals. Three examples had each grown their own shading
  *  pass over the packed vertices; this is that pass, once. It writes only
  *  colours — positions and normals are untouched — and costs one walk over
@@ -133,17 +133,17 @@ typedef struct {
     uint32_t wall_low, wall_high;
     float    z_face_shade;
     uint32_t underside;
-} KilnMapTint;
+} FigMapTint;
 
-void kiln_map_tint(KilnMap *m, const KilnMapTint *t);
+void fig_map_tint(FigMap *m, const FigMapTint *t);
 
 /** Draw every face in the map, one `t3d_vert_load` and one triangle fan per
  *  face. Intended to be called from a room's draw callback between
- *  kiln_scene_begin and kiln_actor_draw_all. */
-void kiln_map_draw(const KilnMap *m);
+ *  fig_scene_begin and fig_actor_draw_all. */
+void fig_map_draw(const FigMap *m);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_MAP_H */
+#endif /* FIG_MAP_H */

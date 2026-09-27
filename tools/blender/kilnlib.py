@@ -132,6 +132,17 @@ def make_mesh(name, verts, faces, material, colors=None, uvs=None,
 
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.scene.collection.objects.link(obj)
+
+    # What the exporter will emit for this mesh, recorded now while the source
+    # arrays are still in hand. report() prints it; see emitted_verts.
+    # Keyed by obj.name, not `name`: Blender appends .001 on a name collision,
+    # and the glTF node — hence the T3DObject — takes the name Blender settled
+    # on, not the one that was asked for.
+    _EMITTED[obj.name] = (
+        emitted_verts(name, verts, faces, colors=colors, uvs=uvs,
+                      smooth=smooth),
+        len(verts), len(faces),
+    )
     return obj
 
 
@@ -377,27 +388,253 @@ def export_gltf(path, animated=False):
     )))
 
 
-def report(max_tris=None):
-    """Print the numbers that decide whether this ships, and fail loudly rather
-    than late if the budget is blown.
+# ── what the exporter will actually EMIT ────────────────────────────────────
+# report() used to print len(mesh.vertices) — BLENDER's vertex count — and that
+# is not the number the console pays. The glTF exporter splits a vertex per
+# distinct (position, normal, colour, uv) it finds on a face corner, so a
+# flat-shaded mesh carrying per-face colours — which is most of this project,
+# see box()'s "24 verts, not 8" — emits two to three times what Blender holds.
+# Measured across PetaByte Madness' twenty built models the ratio runs from
+# 1.06 (the demon lane, authored from source normals) to 2.77 (centaur,
+# guard_cousin, horner), and several meshes sit at exactly 3.00, which is no
+# vertex sharing at all.
+#
+# That was wrong twice over, because the 70-vertex note below was checked
+# against the same wrong number: gltf_to_t3d's MAX_VERTEX_COUNT (structs.h:293)
+# counts EMITTED vertices, so a mesh reporting 60 could emit 180 and be split
+# into three vertex-load batches with nothing said about it.
+#
+# The key is by VALUE, not by vertex index, because that is what the exporter
+# dedupes on: two distinct Blender vertices at the same position sharing a
+# normal, a colour and a UV collapse into one.
+VERT_CACHE = 70          # gltf_to_t3d MAX_VERTEX_COUNT (structs.h:293)
+_EMIT_QUANT = 5          # decimals; float32 noise finer than this is not a split
 
-    The 70-vertex note is informational: gltf_to_t3d splits any object past
-    MAX_VERTEX_COUNT into chunks by itself (structs.h:290). What it cannot do
-    is tell you the total was never affordable in the first place.
+# name -> (emitted vertex count, verts, faces) as make_mesh built it. A
+# registry rather than a read-back off the Blender mesh on purpose: the
+# corner-normal API has moved twice (mesh.loops[].normal, then
+# mesh.corner_normals) and this file has to survive a nixpkgs Blender bump.
+#
+# The vert and face counts are stored WITH the answer so report() can tell
+# whether the mesh is still the one that was measured. It often is not: both
+# pm_meshy.py and pm_props.py apply a decimate modifier AFTER make_mesh, and a
+# registry that did not notice reported a bone_idol at 2,250 emitted vertices
+# when the model that shipped had 396 — the pre-decimate figure, wrong by
+# 5.7x, and wrong in the flattering direction where nobody would question it.
+#
+# When the shape has moved, report() prints `?` rather than a stale number.
+# Anything this file did not build is `?` too. The truth for both comes from
+# nix/blender.nix, which reads the exported glTF after conversion and prints it
+# per object.
+_EMITTED = {}
+
+
+def _unit(v):
+    x, y, z = v
+    m = math.sqrt(x * x + y * y + z * z)
+    return (0.0, 0.0, 0.0) if m == 0.0 else (x / m, y / m, z / m)
+
+
+def emitted_verts(name, verts, faces, colors=None, uvs=None, smooth=False):
+    """How many vertices the glTF exporter will emit for this mesh.
+
+    Pure — no bpy — so test_prims.py can pin it without starting Blender,
+    which is the same discipline the winding checks follow.
+
+    `smooth` picks the normal the way make_mesh does: a shared per-vertex
+    normal (the area-weighted sum of incident faces, which is what Blender
+    computes) or each face's own.
     """
-    total_v = total_t = 0
+    normals = None
+    if smooth:
+        acc = [[0.0, 0.0, 0.0] for _ in verts]
+        for face in faces:
+            nx, ny, nz = _newell(verts, face)
+            for vi in face:
+                acc[vi][0] += nx
+                acc[vi][1] += ny
+                acc[vi][2] += nz
+        normals = [_unit(a) for a in acc]
+
+    resolved = (_resolve_colors(name, colors, len(verts), len(faces))
+                if colors is not None else None)
+
+    q = _EMIT_QUANT
+    keys = set()
+    for face_i, face in enumerate(faces):
+        fn = None if smooth else _unit(_newell(verts, face))
+        for vi in face:
+            nrm = normals[vi] if smooth else fn
+            col = None
+            if resolved is not None:
+                col = (resolved.values[face_i] if resolved.per_face
+                       else resolved.values[vi])
+            keys.add((
+                tuple(round(c, q) for c in verts[vi]),
+                tuple(round(c, q) for c in nrm),
+                None if col is None else tuple(round(c, q) for c in col),
+                None if uvs is None else tuple(round(c, q) for c in uvs[vi]),
+            ))
+    return len(keys)
+
+
+def parts_for(emitted):
+    """Vertex-load batches gltf_to_t3d will split an object into.
+
+    Each batch is one RSP vertex load, so this — not the triangle count — is
+    what a distant object actually costs to submit.
+    """
+    return max(1, -(-emitted // VERT_CACHE))
+
+
+def tris_in(faces):
+    """Triangles a face list becomes once triangulated."""
+    return sum(len(f) - 2 for f in faces)
+
+
+# ── detail tiers ───────────────────────────────────────────────────────────
+# A model can carry lower-detail versions of its objects as EXTRA OBJECTS in
+# the same .t3dm, named `<base>.lod1`, `<base>.lod2`. The engine picks one tier
+# per instance by distance (kiln_detail.h); only one is ever drawn, so the
+# tiers are ROM cost and not per-frame cost.
+#
+# The naming is the whole interface, and it is parsed in three places — here,
+# tools/asset_budget.py, and the engine's kiln_cull.c — because they are three
+# languages on three sides of a build. All three are held to the same table
+# (test_prims.py here, the selftest there, nix/checks/kiln-logic-check.c for
+# the C), including the case that matters most: `.001` is BLENDER's suffix for
+# a name collision and is NOT tier 1.
+def tier_of(name):
+    """Detail tier from an object name. `torso.lod2` -> 2, anything else 0."""
+    if not name:
+        return 0
+    base, _, suffix = name.rpartition(".")
+    if not base or not suffix.startswith("lod"):
+        return 0
+    digits = suffix[3:]
+    return int(digits) if digits.isdigit() else 0
+
+
+def tier_name(base, tier):
+    """The object name for a tier. Tier 0 is the base name itself."""
+    return base if tier == 0 else "%s.lod%d" % (base, tier)
+
+
+def add_lod_tiers(obj, ratios):
+    """Give `obj` lower-detail siblings: <name>.lod1, <name>.lod2, ...
+
+    `ratios` are Blender DECIMATE ratios applied to a copy of `obj` AS IT
+    STANDS — so 0.5 is half of this object's triangles, not half of whatever it
+    was decimated from. Each is applied immediately rather than left to the
+    exporter, for the reason pm_props.py already gives: a budget you only learn
+    after the fact is not a budget.
+
+    Every copy keeps `obj`'s material, so a tier costs no new material, no new
+    f3d_inject spec and no new fog decision — gltf_to_t3d keys materials by
+    name in a table separate from the objects (parser.cpp:181-193), so two
+    objects sharing one material is the normal case, not a trick.
+
+    Returns [(tier, object, tris)], so the caller prints what was made instead
+    of asserting it.
+    """
+    made = []
+    for tier, ratio in enumerate(ratios, start=1):
+        copy = obj.copy()
+        copy.data = obj.data.copy()
+        # Set the name AFTER linking the copy: obj.copy() takes `<name>.001`,
+        # and `<name>.lod1` is what the glTF node — hence the T3DObject — has
+        # to be called for the engine to see a tier at all.
+        bpy.context.scene.collection.objects.link(copy)
+        copy.name = tier_name(obj.name, tier)
+        copy.data.name = copy.name
+
+        mod = copy.modifiers.new(name="Decimate", type='DECIMATE')
+        mod.ratio = ratio
+        bpy.context.view_layer.objects.active = copy
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+
+        tris = sum(len(p.vertices) - 2 for p in copy.data.polygons)
+        if tris == 0:
+            raise SystemExit(
+                "kilnlib: %s decimated to nothing at ratio %.3f. A tier with "
+                "no triangles is a hole in the model at that distance, not a "
+                "saving — raise the ratio or give this object fewer tiers."
+                % (copy.name, ratio))
+        made.append((tier, copy, tris))
+    return made
+
+
+def report(max_tris=None, max_verts=None):
+    """Print the numbers that decide whether this ships, and fail loudly rather
+    than late if a budget is blown.
+
+    Two vertex columns, because they are different numbers and only the second
+    one is a cost: `bvert` is what Blender holds, `emit` is what the exporter
+    writes and the RSP transforms. `parts` is emit split into VERT_CACHE
+    batches — one RSP vertex load each. See emitted_verts above for why the
+    distinction is load-bearing.
+
+    An `emit` of `?` means the mesh did not come from make_mesh, or overrode
+    its normals afterwards; nix/blender.nix reports those from the exported
+    glTF, which is ground truth.
+    """
+    total_v = total_t = total_e = total_p = 0
+    unmeasured = 0
+    tier_tris = {}
+
     for obj in sorted(bpy.context.scene.objects, key=lambda o: o.name):
         if obj.type != 'MESH':
             continue
         mesh = obj.data
         tris = sum(len(p.vertices) - 2 for p in mesh.polygons)
+
+        # ── Only tier 0 counts against the budget ─────────────────────────
+        # The other tiers are alternatives to it, never drawn alongside it, so
+        # summing them would refuse a model for the very thing that made it
+        # cheaper on screen. They are reported on their own line instead.
+        tier = tier_of(obj.name)
+        tier_tris[tier] = tier_tris.get(tier, 0) + tris
+        if tier != 0:
+            print(f"  [MESH] {obj.name:<22} {len(mesh.vertices):>4} bvert "
+                  f"     -  emit     -  parts {tris:>4} tris   (lod{tier})")
+            continue
+
         total_v += len(mesh.vertices)
         total_t += tris
-        note = "  (will be chunked)" if len(mesh.vertices) > 70 else ""
-        print(f"  [MESH] {obj.name:<22} {len(mesh.vertices):>4} verts "
-              f"{tris:>4} tris{note}")
 
-    print(f"  [MESH] {'TOTAL':<22} {total_v:>4} verts {total_t:>4} tris")
+        rec = _EMITTED.get(obj.name)
+        # Only trust the recorded answer if the mesh still has the shape it
+        # was recorded for — see _EMITTED on the decimate that made this
+        # necessary.
+        emitted = None
+        if rec is not None and (rec[1], rec[2]) == (len(mesh.vertices),
+                                                    len(mesh.polygons)):
+            emitted = rec[0]
+        if emitted is None:
+            unmeasured += 1
+            emit_col, part_col, note = "     ?", "    ?", ""
+        else:
+            parts = parts_for(emitted)
+            total_e += emitted
+            total_p += parts
+            emit_col = "%6d" % emitted
+            part_col = "%5d" % parts
+            note = "  (%d vertex loads)" % parts if parts > 1 else ""
+
+        print(f"  [MESH] {obj.name:<22} {len(mesh.vertices):>4} bvert "
+              f"{emit_col} emit {part_col} parts {tris:>4} tris{note}")
+
+    ratio = (" (%.2fx)" % (total_e / total_t)) if total_t and total_e else ""
+    print(f"  [MESH] {'TOTAL':<22} {total_v:>4} bvert {total_e:>6} emit "
+          f"{total_p:>5} parts {total_t:>4} tris{ratio}")
+    if len(tier_tris) > 1:
+        drawn = tier_tris.get(0, 0)
+        print("  [MESH] %-22s %s" % ("TIERS", "  ".join(
+            "lod%d %d tris (%.0f%%)" % (t, n, 100.0 * n / drawn if drawn else 0)
+            for t, n in sorted(tier_tris.items()))))
+    if unmeasured:
+        print(f"  [MESH] {unmeasured} object(s) not measured here — see the "
+              f"per-object glTF counts in the convert step below")
 
     if max_tris is not None and total_t > max_tris:
         print(f"kilnlib: budget exceeded — {total_t} tris against a ceiling of "
@@ -405,6 +642,18 @@ def report(max_tris=None):
               f"geometry; do not let it drift.", file=sys.stderr)
         raise SystemExit(1)
 
+    # Vertices, not triangles, are the real cost on this console
+    # (PetaByte-Madness docs/ISLAND_PROPS.md). A mesh can sit inside its
+    # triangle ceiling and still be split into twice the vertex loads, which
+    # is why this gate exists separately rather than being folded into the one
+    # above.
+    if max_verts is not None and total_e > max_verts:
+        print(f"kilnlib: vertex budget exceeded — {total_e} emitted vertices "
+              f"({total_p} vertex loads) against a ceiling of {max_verts}. "
+              f"This is the number the RSP transforms, not len(mesh.vertices); "
+              f"sharing normals or colours is what brings it down.",
+              file=sys.stderr)
+        raise SystemExit(1)
 
 def arg(name, default=None):
     """Read `--name value` from the args after Blender's own `--` separator.
@@ -803,9 +1052,13 @@ def quantize(verts, step=N64_GRID):
     return [tuple(round(c / step) * step for c in v) for v in verts]
 
 
-def _face_area(verts, face):
-    """Newell area magnitude — judges a non-planar quad by its whole outline
-    rather than by whichever triangle you happened to fan from."""
+def _newell(verts, face):
+    """Unnormalised Newell normal for a face.
+
+    Newell rather than the first triangle's cross product so a non-planar quad
+    is judged by its whole outline — the same reason test_prims.py uses it for
+    the winding checks.
+    """
     nx = ny = nz = 0.0
     for i in range(len(face)):
         x0, y0, z0 = verts[face[i]]
@@ -813,6 +1066,12 @@ def _face_area(verts, face):
         nx += (y0 - y1) * (z0 + z1)
         ny += (z0 - z1) * (x0 + x1)
         nz += (x0 - x1) * (y0 + y1)
+    return nx, ny, nz
+
+
+def _face_area(verts, face):
+    """Newell area magnitude."""
+    nx, ny, nz = _newell(verts, face)
     return 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz)
 
 
@@ -987,7 +1246,7 @@ def translated(verts, dx=0.0, dy=0.0, dz=0.0):
 
 # ── Morph targets ────────────────────────────────────────────────────────
 # gltf_to_t3d does not parse glTF morph targets (prim.targets / WEIGHTS_0).
-# The engine's kiln_morph module works around this by loading sibling .t3dm
+# The engine's fig_morph module works around this by loading sibling .t3dm
 # models with the same topology as separate morph targets and blending
 # their vertex buffers on the CPU.
 #
@@ -999,7 +1258,7 @@ def translated(verts, dx=0.0, dy=0.0, dz=0.0):
 def make_morph_mesh(name, base_verts, faces, material, deform_fn, colors=None,
                     uvs=None, smooth=False):
     """Create a mesh object that is a deformed copy of `base_verts`, suitable
-    as a morph target for kiln_morph.
+    as a morph target for fig_morph.
 
     `deform_fn(verts)` takes the base vertex list and returns a new list of
     the same length with modified positions. Faces, UVs, and vertex order

@@ -30,10 +30,10 @@ int main(int argc, char **argv)
 
     map_render_init();
 
-    KilnMap m;
+    FigMap m;
     memset(&m, 0, sizeof m);
     if (map_render_open(&m, map) != 0) {
-        /* kiln_map_load's own failure, surfaced with the path. On console this
+        /* fig_map_load's own failure, surfaced with the path. On console this
          * is the silent case CLAUDE.md says cost a whole PLAY screen: the load
          * returns non-zero, the clip world stays empty, and every trace reports
          * "nothing in the way". Here it is one line with the name in it. */
@@ -49,7 +49,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* The two things kiln_host_stats does not say, and the most useful lines
+    /* The two things fig_host_stats does not say, and the most useful lines
      * for anyone who cannot look at the PNG.
      *
      * "submitted > 0 but drawn == 0" is the everything-is-behind-the-camera
@@ -58,14 +58,14 @@ int main(int argc, char **argv)
      * four bugs in examples/openworld-demo, one of which was a draw callback
      * subtracting the camera position twice and pushing every tile off the far
      * plane. A histogram called that frame "mostly background" and was right. */
-    const KilnHostT3DCounters *t = kiln_host_t3d_counters();
+    const FigHostT3DCounters *t = fig_host_t3d_counters();
     if (t->tris_submitted > 0 && t->tris_drawn == 0)
         printf("WARNING: %u triangles submitted, NONE rasterised — the camera "
                "is probably not looking at the geometry\n", t->tris_submitted);
-    else if (kiln_host_counters()->shaded_px == 0)
+    else if (fig_host_counters()->shaded_px == 0)
         printf("WARNING: no pixels were written; the frame is empty\n");
 
     printf("wrote %s\n", png);
-    kiln_map_free(&m);
+    fig_map_free(&m);
     return 0;
 }

@@ -2,8 +2,8 @@
 #
 # Cinematic-demo ROM: one continuous 60-second scene that exercises every
 # engine subsystem in a single shot. Interceptor in a hangar; goblin captain
-# walking the perimeter (kiln_player + kiln_skel walk-cycle); droids orbiting
-# the ship; aliens approaching (kiln_target acquire); physics-driven crates
+# walking the perimeter (fig_player + fig_skel walk-cycle); droids orbiting
+# the ship; aliens approaching (fig_target acquire); physics-driven crates
 # the goblin bumps; music + SFX; door opens on a delayed event.
 #
 # Same shape as examples/interceptor-demo's Makefile. The full asset list

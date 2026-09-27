@@ -1111,7 +1111,7 @@ def anim_fall(armature):
 def anim_land(armature):
     """Touchdown: absorb into a crouch, hold a beat, come up. The crouch RAISES
     the feet — there is no root translation channel — so a game lowers the
-    body by the feet's rise while this plays (kiln_skel_bone_pos on the foot
+    body by the feet's rise while this plays (fig_skel_bone_pos on the foot
     bones), which is also what keeps Idle and Walk planted."""
     impact = _tuck(0.55)
     impact.update({"head": (8, 0, 0), "arm_l": (34, 0, -30), "arm_r": (34, 0, 30),
@@ -1125,7 +1125,7 @@ def anim_land(armature):
 
 
 # The bones Attack keys. Upper body only, by construction: a game masks the
-# overlay to kiln_skel_mask_bone("torso") and the legs keep running under it,
+# overlay to fig_skel_mask_bone("torso") and the legs keep running under it,
 # so a key on a leg or the root here would simply be thrown away.
 ATTACK_BONES = ("torso", "neck", "head", "jaw", "arm_l", "forearm_l", "arm_r",
                 "forearm_r", "hand_r", "ear_l", "ear_r")

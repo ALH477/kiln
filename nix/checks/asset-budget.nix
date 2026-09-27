@@ -39,13 +39,39 @@
 #     "all_assets": [ { "kind": "model", "name": "island" }, ... ],
 #     "scenes": {
 #       "PLAY": {
-#         "ceiling": { "tris": 3000, "verts": 3200, "resident_bytes": 900000 },
+#         "ceiling": { "tris": 3000, "verts": 3200, "parts": 90,
+#                      "resident_bytes": 900000 },
 #         "assets": [ { "kind": "model", "name": "island" },
+#                     { "kind": "model", "name": "bone_idol", "count": 4 },
+#                     { "kind": "model", "name": "palms", "count": 5,
+#                       "objects": [ "palm_00", "palm_01" ] },
 #                     { "kind": "texture", "name": "imp_hide",
 #                       "format": "CI4" } ]
 #       }
 #     }
 #   }
+#
+# ── count, objects, and parts ──────────────────────────────────────────────
+# `count` is how many times a thing is DRAWN, default 1. It multiplies the
+# per-frame quantities (tris, verts, parts, objects) and deliberately does NOT
+# multiply resident bytes: four idols are four idols of vertices and one idol
+# of RDRAM, because the same T3DModel is drawn from four matrices.
+#
+# `objects` names a subset of a model's objects to charge for. It exists
+# because a .t3dm is not always drawn whole: PetaByte Madness' palms model is a
+# sixteen-object prop ATLAS that the flyover picks ten objects out of by name.
+# Charging for all sixteen overstates that scene by more than double. An object
+# name the model does not contain is a FAILURE, not a zero.
+#
+# `parts` is the count of RSP vertex loads — ceil(verts / 70), where 70 is
+# gltf_to_t3d's MAX_VERTEX_COUNT. It is budgetable separately from `verts`
+# because a mesh can sit inside its vertex ceiling and still be split into more
+# batches than a scene can afford to submit.
+#
+# LOD tiers (objects named `foo.lod1`, `foo.lod2` — see kiln_detail.h) are
+# counted for ROM and resident cost but NOT for the per-frame figure, since only
+# one tier of a base is ever drawn. A budget that summed every tier would refuse
+# a model that had just been made cheaper on screen.
 #
 # A scene with no `ceiling` FAILS rather than passing, a ceiling naming a
 # quantity nothing measures FAILS, and a missing `all_assets` FAILS. Every one

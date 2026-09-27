@@ -10,7 +10,7 @@
  * engine/src/kiln/kiln_store.h for the three-rung fallback when it does not.
  *
  * Modes: GEO places and breaks blocks from a free-fly camera; WALK installs the
- * greedy-meshed boxes as the real clip world and hands the pad to kiln_fpscam, so
+ * greedy-meshed boxes as the real clip world and hands the pad to fig_fpscam, so
  * a doorway's width is judged by walking through it. L+R cycles.
  *
  * ── Read the numbers, not the picture ──────────────────────────────────
@@ -30,15 +30,15 @@ static Forge g_forge;
 
 int main(void)
 {
-    kiln_engine_init(RESOLUTION_320x240);
-    kiln_gui_init();
+    fig_engine_init(RESOLUTION_320x240);
+    fig_gui_init();
     joypad_init();
 
     Forge *f = &g_forge;
     memset(f, 0, sizeof *f);
     f->block = 1;
     f->mode = FORGE_MODE_GEO;
-    f->last_store = KILN_STORE_OK;
+    f->last_store = FIG_STORE_OK;
     f->ent_sel = f->ent_hover = -1;
     f->key_sel = -1;
     f->paint_colour = 8;
@@ -59,7 +59,7 @@ int main(void)
      * a session is never spent building into a save that was never going to
      * work. The preference order walks SD -> save chip -> read-only ROM; under
      * an emulator it lands on the last of those and says so. */
-    kiln_store_init(KILN_STORE_CART_SD);
+    fig_store_init(FIG_STORE_CART_SD);
 
     /* The vertex arena, uncached because the RSP DMAs out of it. One allocation
      * for the whole session: this module never mallocs again, so there is no
@@ -67,9 +67,9 @@ int main(void)
     T3DVertPacked *verts = malloc_uncached(sizeof(T3DVertPacked) * FORGE_ARENA_ENTRIES);
     assertf(verts != NULL, "forge: %d KB vertex arena did not fit",
             (int)(sizeof(T3DVertPacked) * FORGE_ARENA_ENTRIES / 1024));
-    kiln_voxmesh_arena_init(&f->arena, verts, FORGE_ARENA_ENTRIES);
+    fig_voxmesh_arena_init(&f->arena, verts, FORGE_ARENA_ENTRIES);
 
-    if (kiln_voxatlas_init(&f->atlas) != 0)
+    if (fig_voxatlas_init(&f->atlas) != 0)
         assertf(0, "forge: the 2 KB CI4 atlas did not fit");
 
     forge_cam_init(f);
@@ -79,7 +79,7 @@ int main(void)
      * asks the user to remember to load, and the one time they forget they build
      * for twenty minutes on top of nothing and save over the real thing. */
     int load_st = forge_io_load(f);
-    if (load_st != KILN_STORE_OK) {
+    if (load_st != FIG_STORE_OK) {
         forge_io_seed(f);
         /* Distinguish "nothing saved yet" from "something is there and I could
          * not read it". Only the first is normal, and the first version reported
@@ -87,9 +87,9 @@ int main(void)
          * its filesystem at all looked exactly like a clean first boot. A status
          * line that cannot tell those apart is worse than none: it is the reason
          * the defect took a capture to notice rather than a glance. */
-        if (load_st == KILN_STORE_ENOENT || load_st == KILN_STORE_ENOINIT) {
+        if (load_st == FIG_STORE_ENOENT || load_st == FIG_STORE_ENOINIT) {
             f->last_action = "new";
-            f->last_store = KILN_STORE_OK;
+            f->last_store = FIG_STORE_OK;
         } else {
             f->last_action = "load";
             f->last_store = load_st;    /* red, and names the step */
@@ -116,14 +116,14 @@ int main(void)
         if (dt > 0.1f) dt = 0.1f;
         if (dt > 0.0f) f->fps = f->fps * 0.9f + (1.0f / dt) * 0.1f;
 
-        kiln_input_update();
-        const KilnInput *in = kiln_input_get(0);
+        fig_input_update();
+        const FigInput *in = fig_input_get(0);
 
         /* L+R cycles mode — a chord, so neither shoulder alone can change mode
          * while it is doing its own job (R sprints, L picks a block type). Same
          * reasoning as pm_cine's arm chord. */
         const int mode_changed =
-            (in->buttons & KILN_BTN_L) && (in->edges & KILN_BTN_R);
+            (in->buttons & FIG_BTN_L) && (in->edges & FIG_BTN_R);
         if (mode_changed) {
             f->mode = (ForgeMode)((f->mode + 1) % FORGE_MODE_COUNT);
             if (f->mode == FORGE_MODE_WALK) forge_walk_enter(f);
@@ -135,7 +135,7 @@ int main(void)
          * "cycle to the mode I want, then save" failed silently for whoever
          * had not let go yet. A save button that sometimes does nothing is
          * worse than no save button. */
-        if (in->edges & KILN_BTN_START) forge_io_save(f);
+        if (in->edges & FIG_BTN_START) forge_io_save(f);
 
         /* The per-mode update still skips the frame the mode changed on, so a
          * mode never sees the chord's own edges as its input. */
@@ -181,12 +181,12 @@ int main(void)
             }
         }
 
-        kiln_frame_begin();
-        kiln_scene_begin(&f->scene);
+        fig_frame_begin();
+        fig_scene_begin(&f->scene);
         forge_geo_draw(f);
 
-        kiln_gui_begin();
-        /* Every spatial overlay draws in the 2D pass through kiln_scene_project,
+        fig_gui_begin();
+        /* Every spatial overlay draws in the 2D pass through fig_scene_project,
          * so none of them can perturb the frame they describe and all stay
          * visible through geometry — which for an edit cursor, an entity gizmo
          * and a camera path is the point rather than a compromise. */
@@ -199,7 +199,7 @@ int main(void)
         default: break;
         }
         forge_hud_draw(f);
-        kiln_gui_end();
-        kiln_frame_end();
+        fig_gui_end();
+        fig_frame_end();
     }
 }

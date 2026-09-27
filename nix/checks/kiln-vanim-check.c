@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT
  *
- * kiln_morph_update's blend, asserted on the host with the real kiln_vanim.c.
+ * fig_morph_update's blend, asserted on the host with the real kiln_vanim.c.
  *
  * The blend is CPU arithmetic over T3DVertPacked and needs no RSP, so it can
- * be checked here even though kiln_morph_init/draw cannot (vertex placeholders
- * abort on the host). The KilnMorph is assembled by hand around a model that
+ * be checked here even though fig_morph_init/draw cannot (vertex placeholders
+ * abort on the host). The FigMorph is assembled by hand around a model that
  * only states its vertex count — exactly the fields the update reads.
  *
  * What it pins, each of which rendered on console with nothing failing:
@@ -26,7 +26,7 @@
  *              raw ones, so an out-of-range weight overshot the shape.
  *   ping-pong  successive updates write alternate buffers, so the RSP never
  *              reads a buffer the CPU is rewriting.
- *   deform     kiln_deform_update starts every frame from the base copy — a
+ *   deform     fig_deform_update starts every frame from the base copy — a
  *              callback that ADDS a displacement must not compound — writes
  *              alternate buffers, and never touches the base.
  */
@@ -84,14 +84,14 @@ int main(void)
     T3DVertPacked *targets[3] = { red, green, blue };
     float weights[3] = { 0.5f, 0.5f, 0.0f };
 
-    KilnMorph m = {
+    FigMorph m = {
         .model = &model, .targets = targets, .target_count = 3,
         .weights = weights, .work_buffers = work, .buffer_count = 2,
         .current_buffer = 0, .segment_id = 1, .initialised = true,
     };
 
     /* ── 50/50 red + green ─────────────────────────────────────────── */
-    kiln_morph_update(&m, 1.0f / 60.0f);
+    fig_morph_update(&m, 1.0f / 60.0f);
     const T3DVertPacked *d = &work[0];
     CHECK(ch(d->rgbaA, 24) >= 126 && ch(d->rgbaA, 24) <= 128 &&
           ch(d->rgbaA, 16) >= 126 && ch(d->rgbaA, 16) <= 128 &&
@@ -124,7 +124,7 @@ int main(void)
     T3DVertPacked *same3[3] = { same, same, same };
     float thirds[3] = { 1.0f, 1.0f, 1.0f };
     m.targets = same3; m.weights = thirds;
-    kiln_morph_update(&m, 1.0f / 60.0f);
+    fig_morph_update(&m, 1.0f / 60.0f);
     d = &work[2];                       /* the second buffer this time */
     CHECK(d->posA[0] == 101 && d->posA[1] == -101 && d->posA[2] == 33,
           "three identical targets blend to (%d,%d,%d), want (101,-101,33)",
@@ -142,7 +142,7 @@ int main(void)
     /* ── an out-of-range weight is clamped, not used raw ───────────── */
     float over[3] = { 3.0f, 1.0f, 0.0f };
     m.targets = targets; m.weights = over;
-    kiln_morph_update(&m, 1.0f / 60.0f);
+    fig_morph_update(&m, 1.0f / 60.0f);
     d = &work[0];
     CHECK(d->posA[0] == 50 && d->posA[1] == 50,
           "weights {3,1,0} blend to (%d,%d); clamped they are {1,1,0} -> (50,50)",
@@ -151,7 +151,7 @@ int main(void)
     /* ── a held shape keeps its target's normal exactly ─────────────── */
     float held[3] = { 0.98f, 0.02f, 0.0f };
     m.weights = held;
-    kiln_morph_update(&m, 1.0f / 60.0f);
+    fig_morph_update(&m, 1.0f / 60.0f);
     d = &work[2];
     CHECK(d->normA == N_PX,
           "weights {0.98,0.02} give normal 0x%04x; under a 5%% share it is the dominant 0x%04x",
@@ -159,24 +159,24 @@ int main(void)
     /* and past 5% it moves off it: no jump at the crossover */
     float leaning[3] = { 0.7f, 0.3f, 0.0f };
     m.weights = leaning;
-    kiln_morph_update(&m, 1.0f / 60.0f);
+    fig_morph_update(&m, 1.0f / 60.0f);
     d = &work[0];
     CHECK(d->normA != N_PX && d->normA != N_PZ,
           "weights {0.7,0.3} give normal 0x%04x, which is one target's; it should be between", d->normA);
 
-    /* ── kiln_deform ───────────────────────────────────────────────── */
+    /* ── fig_deform ───────────────────────────────────────────────── */
     static T3DModel dmodel;
     dmodel.totalVertCount = 4;
     static T3DVertPacked base[2], dwork[4];
     base[0] = (T3DVertPacked){ .posA = { 5, 1, 2 } };
     base[1] = (T3DVertPacked){ .posA = { -5, 1, 2 } };
-    KilnDeform df = {
+    FigDeform df = {
         .model = &dmodel, .fn = push_x, .work_buffers = dwork, .base_buffer = base,
         .vert_count = 4, .buffer_count = 2, .current_buffer = 0, .segment_id = 1,
         .initialised = true,
     };
-    kiln_deform_update(&df, 0.25f);
-    kiln_deform_update(&df, 0.25f);
+    fig_deform_update(&df, 0.25f);
+    fig_deform_update(&df, 0.25f);
     CHECK(dwork[0].posA[0] == 15 && dwork[2].posA[0] == 15,
           "each frame starts from the base: buffers hold x = %d and %d, want 15 and 15 (not 25)",
           dwork[0].posA[0], dwork[2].posA[0]);
@@ -187,7 +187,7 @@ int main(void)
     CHECK(df.current_buffer == 0, "after two updates the next buffer is %d, want 0", df.current_buffer);
 
     if (fails) { printf("\nFAILED (%d)\n", fails); return 1; }
-    printf("kiln_morph: per-channel colour, blended normals, exact rounding, clamped weights, alternating buffers\n");
-    printf("kiln_deform: starts from base each frame, alternating buffers, base untouched\n");
+    printf("fig_morph: per-channel colour, blended normals, exact rounding, clamped weights, alternating buffers\n");
+    printf("fig_deform: starts from base each frame, alternating buffers, base untouched\n");
     return 0;
 }

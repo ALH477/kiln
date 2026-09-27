@@ -15,7 +15,7 @@
 #include <stddef.h>
 
 typedef struct {
-    KilnActorHandle h;
+    FigActorHandle h;
     float score;   /* dot(fwd, dir_to_cand); higher = more centred */
     float range2;  /* squared range, for tie-breaks */
 } Cand;
@@ -39,17 +39,17 @@ static int in_cone(fm_vec3_t eye, fm_vec3_t fwd, float cone_half, float max_rang
     return 1;
 }
 
-KilnActorHandle kiln_target_acquire(fm_vec3_t eye, fm_vec3_t fwd,
+FigActorHandle fig_target_acquire(fm_vec3_t eye, fm_vec3_t fwd,
                                   float cone_half, float max_range)
 {
-    Cand best = { KILN_ACTOR_HANDLE_NONE, -2.0f, 0.0f };
-    for (int cati = KILN_ACTOR_CAT_ENEMY; cati <= KILN_ACTOR_CAT_NPC; cati++) {
-        for (KilnActor *a = kiln_actor_first((uint8_t)cati); a; a = kiln_actor_next(a)) {
+    Cand best = { FIG_ACTOR_HANDLE_NONE, -2.0f, 0.0f };
+    for (int cati = FIG_ACTOR_CAT_ENEMY; cati <= FIG_ACTOR_CAT_NPC; cati++) {
+        for (FigActor *a = fig_actor_first((uint8_t)cati); a; a = fig_actor_next(a)) {
             float score, r2;
             if (!in_cone(eye, fwd, cone_half, max_range, a->xform.pos, &score, &r2)) continue;
             if (score > best.score ||
                 (score == best.score && r2 < best.range2)) {
-                best.h = kiln_actor_handle_of(a);
+                best.h = fig_actor_handle_of(a);
                 best.score = score;
                 best.range2 = r2;
             }
@@ -58,7 +58,7 @@ KilnActorHandle kiln_target_acquire(fm_vec3_t eye, fm_vec3_t fwd,
     return best.h;
 }
 
-KilnActorHandle kiln_target_switch(KilnActorHandle cur, fm_vec3_t eye, fm_vec3_t fwd,
+FigActorHandle fig_target_switch(FigActorHandle cur, fm_vec3_t eye, fm_vec3_t fwd,
                                  fm_vec3_t cam_right, float cone_half, float max_range,
                                  fm_vec3_t dir)
 {
@@ -67,12 +67,12 @@ KilnActorHandle kiln_target_switch(KilnActorHandle cur, fm_vec3_t eye, fm_vec3_t
      * forward) space; convert each candidate's offset to that space and
      * dot with dir. */
     fm_vec3_t cur_pos;
-    KilnActor *ca = kiln_actor_resolve(cur);
+    FigActor *ca = fig_actor_resolve(cur);
     cur_pos = ca ? ca->xform.pos : eye;
 
-    Cand best = { KILN_ACTOR_HANDLE_NONE, -2.0f, 0.0f };
-    for (int cati = KILN_ACTOR_CAT_ENEMY; cati <= KILN_ACTOR_CAT_NPC; cati++) {
-        for (KilnActor *a = kiln_actor_first((uint8_t)cati); a; a = kiln_actor_next(a)) {
+    Cand best = { FIG_ACTOR_HANDLE_NONE, -2.0f, 0.0f };
+    for (int cati = FIG_ACTOR_CAT_ENEMY; cati <= FIG_ACTOR_CAT_NPC; cati++) {
+        for (FigActor *a = fig_actor_first((uint8_t)cati); a; a = fig_actor_next(a)) {
             if (a == ca) continue;
             float score, r2;
             if (!in_cone(eye, fwd, cone_half, max_range, a->xform.pos, &score, &r2)) continue;
@@ -93,7 +93,7 @@ KilnActorHandle kiln_target_switch(KilnActorHandle cur, fm_vec3_t eye, fm_vec3_t
              * centring without throwing the cone out entirely. */
             float combined = bias * 1.0f + score * 0.3f;
             if (combined > best.score) {
-                best.h = kiln_actor_handle_of(a);
+                best.h = fig_actor_handle_of(a);
                 best.score = combined;
                 best.range2 = r2;
             }
@@ -102,30 +102,30 @@ KilnActorHandle kiln_target_switch(KilnActorHandle cur, fm_vec3_t eye, fm_vec3_t
     return best.h;
 }
 
-void kiln_target_draw_reticle(const KilnScene *scene, fm_vec3_t world,
+void fig_target_draw_reticle(const FigScene *scene, fm_vec3_t world,
                              int screen_w, int screen_h, color_t color)
 {
-    /* kiln_scene_project does the view-basis + perspective divide (this
-     * function used to inline it; kiln_widget's board view needs the same
-     * maths, so it lives in kiln_engine now). The reticle's own policy is to
+    /* fig_scene_project does the view-basis + perspective divide (this
+     * function used to inline it; fig_widget's board view needs the same
+     * maths, so it lives in fig_engine now). The reticle's own policy is to
      * clamp to the screen edge in BOTH the in-front-but-off-screen and the
      * behind-the-camera cases — a reticle that vanishes when the target
      * leaves the frame is the same information, harder to read. */
     int sx, sy;
-    kiln_scene_project(scene, world, screen_w, screen_h, &sx, &sy);
+    fig_scene_project(scene, world, screen_w, screen_h, &sx, &sy);
     if (sx < 8) sx = 8; else if (sx > screen_w - 8) sx = screen_w - 8;
     if (sy < 8) sy = 8; else if (sy > screen_h - 8) sy = screen_h - 8;
 
-    /* Four corner brackets, 12×12, 2 px thick (kiln_gui has no thick rect;
+    /* Four corner brackets, 12×12, 2 px thick (fig_gui has no thick rect;
      * draw three 2-px-wide rects per corner). Keep it small so it reads as
      * a reticle, not a frame. */
     int s = 12, t = 2;
-    kiln_gui_panel(sx - s, sy - s, t, s, color, color);              /* TL vertical */
-    kiln_gui_panel(sx - s, sy - s, s, t, color, color);              /* TL horizontal */
-    kiln_gui_panel(sx + s - t, sy - s, t, s, color, color);          /* TR vertical */
-    kiln_gui_panel(sx,     sy - s, s, t, color, color);             /* TR horizontal */
-    kiln_gui_panel(sx - s, sy + s - t, t, s, color, color);          /* BL vertical */
-    kiln_gui_panel(sx - s, sy + s - t, s, t, color, color);          /* BL horizontal */
-    kiln_gui_panel(sx + s - t, sy + s - t, t, s, color, color);      /* BR vertical */
-    kiln_gui_panel(sx,     sy + s - t, s, t, color, color);          /* BR horizontal */
+    fig_gui_panel(sx - s, sy - s, t, s, color, color);              /* TL vertical */
+    fig_gui_panel(sx - s, sy - s, s, t, color, color);              /* TL horizontal */
+    fig_gui_panel(sx + s - t, sy - s, t, s, color, color);          /* TR vertical */
+    fig_gui_panel(sx,     sy - s, s, t, color, color);             /* TR horizontal */
+    fig_gui_panel(sx - s, sy + s - t, t, s, color, color);          /* BL vertical */
+    fig_gui_panel(sx - s, sy + s - t, s, t, color, color);          /* BL horizontal */
+    fig_gui_panel(sx + s - t, sy + s - t, t, s, color, color);      /* BR vertical */
+    fig_gui_panel(sx,     sy + s - t, s, t, color, color);          /* BR horizontal */
 }

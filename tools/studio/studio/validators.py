@@ -74,7 +74,7 @@ def registry(repo, python, nix):
             "adapt": adapt_map,
         },
         "camlint": {
-            "label": "Camera shot lint (kiln_camlint)",
+            "label": "Camera shot lint (fig_camlint)",
             "args": lambda: _rel(repo, list((repo / "tools/camlint/fixtures").glob("*.shot.json"))
                                  + list((repo / "assets").glob("**/*.shot.json"))),
             "steps": lambda arg: [build + [f"{flake}#camlint"], ["{out}/bin/camlint", str(repo / arg), "--json"]],

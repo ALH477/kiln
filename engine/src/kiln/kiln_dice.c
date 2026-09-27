@@ -2,11 +2,11 @@
 
 #include "kiln_dice.h"
 
-void kiln_dice_init(KilnDice *d, const uint8_t *faces, const uint8_t *bias,
+void fig_dice_init(FigDice *d, const uint8_t *faces, const uint8_t *bias,
                    uint8_t face_count)
 {
     if (face_count == 0) face_count = 1;
-    if (face_count > KILN_DICE_MAX_FACES) face_count = KILN_DICE_MAX_FACES;
+    if (face_count > FIG_DICE_MAX_FACES) face_count = FIG_DICE_MAX_FACES;
     d->face_count = face_count;
     for (uint8_t i = 0; i < face_count; i++) {
         d->faces[i] = faces[i];
@@ -14,10 +14,10 @@ void kiln_dice_init(KilnDice *d, const uint8_t *faces, const uint8_t *bias,
     }
 }
 
-void kiln_dice_init_uniform(KilnDice *d, uint8_t face_count)
+void fig_dice_init_uniform(FigDice *d, uint8_t face_count)
 {
     if (face_count == 0) face_count = 1;
-    if (face_count > KILN_DICE_MAX_FACES) face_count = KILN_DICE_MAX_FACES;
+    if (face_count > FIG_DICE_MAX_FACES) face_count = FIG_DICE_MAX_FACES;
     d->face_count = face_count;
     for (uint8_t i = 0; i < face_count; i++) {
         d->faces[i] = (uint8_t)(i + 1);
@@ -25,7 +25,7 @@ void kiln_dice_init_uniform(KilnDice *d, uint8_t face_count)
     }
 }
 
-int kiln_dice_roll(const KilnDice *d, KilnRng *rng)
+int fig_dice_roll(const FigDice *d, FigRng *rng)
 {
     // Cumulative-bucket sampling: pick a target in [0, total), walk the
     // cumulative sum, return the face whose bucket contains the target.
@@ -35,7 +35,7 @@ int kiln_dice_roll(const KilnDice *d, KilnRng *rng)
     for (uint8_t i = 0; i < d->face_count; i++) total += d->bias[i];
     if (total == 0) return d->faces[0];
 
-    uint32_t target = kiln_rng_u32(rng) % total;
+    uint32_t target = fig_rng_u32(rng) % total;
     uint32_t acc = 0;
     for (uint8_t i = 0; i < d->face_count; i++) {
         acc += d->bias[i];
@@ -44,7 +44,7 @@ int kiln_dice_roll(const KilnDice *d, KilnRng *rng)
     return d->faces[d->face_count - 1];
 }
 
-void kiln_dice_set_bias(KilnDice *d, uint8_t face_index, uint8_t weight)
+void fig_dice_set_bias(FigDice *d, uint8_t face_index, uint8_t weight)
 {
     if (face_index < d->face_count) d->bias[face_index] = weight;
 }

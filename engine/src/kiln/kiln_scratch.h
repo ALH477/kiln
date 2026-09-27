@@ -41,8 +41,8 @@
  * principles: double-buffered instead of single, configurable alignment,
  * typed helpers, and an explicit uncached-memory path.
  */
-#ifndef KILN_SCRATCH_H
-#define KILN_SCRATCH_H
+#ifndef FIG_SCRATCH_H
+#define FIG_SCRATCH_H
 
 #include <libdragon.h>
 #include <t3d/t3d.h>
@@ -55,46 +55,46 @@
 extern "C" {
 #endif
 
-#ifndef KILN_SCRATCH_SIZE
+#ifndef FIG_SCRATCH_SIZE
 /** Per-half size in bytes. Total pool is 2× this. 64 KB is enough for
  *  ~256 T3DMat4FP transforms plus particle buffers and sort arrays. */
-#define KILN_SCRATCH_SIZE 65536
+#define FIG_SCRATCH_SIZE 65536
 #endif
 
 /** Double-buffered bump allocator for per-frame transient memory.
- *  Embed by value (it is 2×KILN_SCRATCH_SIZE + a few words). */
+ *  Embed by value (it is 2×FIG_SCRATCH_SIZE + a few words). */
 typedef struct {
-    uint8_t memory[2][KILN_SCRATCH_SIZE] __attribute__((aligned(16)));
+    uint8_t memory[2][FIG_SCRATCH_SIZE] __attribute__((aligned(16)));
     uint32_t offset;      /**< current write position within active half  */
     uint8_t  active;      /**< 0 or 1 — which half the CPU writes to     */
-} KilnScratch;
+} FigScratch;
 
 /** Initialise (zero the offset, start in half 0). */
-void kiln_scratch_init(KilnScratch *s);
+void fig_scratch_init(FigScratch *s);
 
 /** Call at the beginning of each frame: swap to the other half and reset
  *  the write offset. The previous half may still be read by the RSP/RDP. */
-void kiln_scratch_begin(KilnScratch *s);
+void fig_scratch_begin(FigScratch *s);
 
 /** Allocate `bytes` from the active half, 16-byte aligned. Returns NULL
  *  if the half is full (the caller should size the pool to never hit this
  *  in practice; a NULL return means a debugf-worthy overflow). */
-void *kiln_scratch_alloc(KilnScratch *s, size_t bytes);
+void *fig_scratch_alloc(FigScratch *s, size_t bytes);
 
 /** Allocate and return the UncachedAddr alias. Use for T3DMat4FP and
  *  any data the RSP will DMA — writes bypass the data cache. */
-void *kiln_scratch_alloc_uncached(KilnScratch *s, size_t bytes);
+void *fig_scratch_alloc_uncached(FigScratch *s, size_t bytes);
 
 /** Allocate one T3DMat4FP, uncached. The most common per-frame alloc. */
-T3DMat4FP *kiln_scratch_mat4fp(KilnScratch *s);
+T3DMat4FP *fig_scratch_mat4fp(FigScratch *s);
 
 /** How many bytes are left in the active half. */
-static inline size_t kiln_scratch_remaining(const KilnScratch *s) {
-    return KILN_SCRATCH_SIZE - s->offset;
+static inline size_t fig_scratch_remaining(const FigScratch *s) {
+    return FIG_SCRATCH_SIZE - s->offset;
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_SCRATCH_H */
+#endif /* FIG_SCRATCH_H */

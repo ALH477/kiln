@@ -17,7 +17,7 @@
  *
  * ── What it deliberately gets "wrong" ─────────────────────────────────
  * With the blender OFF, the RDP ignores source alpha and writes opaque. So
- * does this. That is not an omission: kiln_gui_panel's own comment says "the
+ * does this. That is not an omission: fig_gui_panel's own comment says "the
  * body may be translucent", and on console it is not unless the caller turns
  * the blender on. A host that helpfully blended anyway would make a
  * translucent-looking capture of geometry the console draws solid, and the
@@ -26,7 +26,7 @@
  * ── What it cannot tell you ───────────────────────────────────────────
  * Fill rate. That is the console's binding constraint and it has no host
  * analogue, so no host capture is evidence that content is affordable. What
- * it can do is COUNT — kiln_host_counters() reports pixels written, which is
+ * it can do is COUNT — fig_host_counters() reports pixels written, which is
  * the quantity the console is actually spending — so the number is available
  * even though the limit is not.
  */
@@ -61,7 +61,7 @@ static surface_t g_color, g_depth;
 static int       g_w, g_h;
 static int       g_inited;
 static uint32_t  g_frame;
-static KilnHostCounters g_cnt;
+static FigHostCounters g_cnt;
 
 /* ── rdpq mode state ───────────────────────────────────────────────────── */
 static rdpq_combiner_t g_comb;
@@ -144,7 +144,7 @@ surface_t *display_get(void)
      * whole of its frame pacing. A launcher paces and pumps its event queue in
      * the same place, so real time enters the host build at exactly the point
      * it enters the console build rather than at a new one. */
-    const KilnHostHooks *h = kiln_host_hooks();
+    const FigHostHooks *h = fig_host_hooks();
     if (h->vsync) h->vsync(h->ctx);
     return &g_color;
 }
@@ -161,7 +161,7 @@ void rdpq_attach(surface_t *color, surface_t *z)
     assertf(color != NULL, "rdpq_attach: NULL colour surface");
     g_attached = 1;
     memset(&g_cnt, 0, sizeof g_cnt);
-    kiln_host_text_reset();
+    fig_host_text_reset();
 }
 void rdpq_attach_clear(surface_t *color, surface_t *z)
 {
@@ -173,8 +173,8 @@ void rdpq_detach_show(void)
 {
     g_attached = 0;
     g_frame++;
-    kiln_host_audio_frame();
-    const KilnHostHooks *h = kiln_host_hooks();
+    fig_host_audio_frame();
+    const FigHostHooks *h = fig_host_hooks();
     if (h->present) h->present(h->ctx, g_fb, g_w, g_h);
 }
 
@@ -185,8 +185,8 @@ void rspq_flush(void) { }
 
 void rdpq_set_mode_standard(void)
 {
-    /* Matches libdragon: a plain 2D mode with the blender off. kiln_gui_begin
-     * relies on this resetting the blender, and kiln_gui_line relies on it NOT
+    /* Matches libdragon: a plain 2D mode with the blender off. fig_gui_begin
+     * relies on this resetting the blender, and fig_gui_line relies on it NOT
      * resetting the combiner it sets afterwards. */
     g_comb  = RDPQ_COMBINER_FLAT;
     g_blend = 0;
@@ -194,24 +194,76 @@ void rdpq_set_mode_standard(void)
 }
 void rdpq_set_mode_fill(color_t c)      { g_comb = RDPQ_COMBINER_FLAT; g_blend = 0; g_fogmode = 0; g_prim = c; }
 void rdpq_mode_combiner(rdpq_combiner_t comb) { g_comb = comb; }
-rdpq_combiner_t kiln_hostfb_combiner(void) { return g_comb; }
+rdpq_combiner_t fig_hostfb_combiner(void) { return g_comb; }
 void rdpq_mode_blender(rdpq_blender_t b)      { g_blend = b; }
 /* The 3D pass reads these; the 2D pass ignores them, which is exactly what
- * kiln_gui_begin's `rdpq_mode_zbuf(false, false)` is for. */
+ * fig_gui_begin's `rdpq_mode_zbuf(false, false)` is for. */
 static int g_ztest, g_zwrite;
 void rdpq_mode_zbuf(bool cmp, bool wr)  { g_ztest = cmp; g_zwrite = wr; }
-int  kiln_hostfb_ztest(void)  { return g_ztest; }
-int  kiln_hostfb_zwrite(void) { return g_zwrite; }
+int  fig_hostfb_ztest(void)  { return g_ztest; }
+int  fig_hostfb_zwrite(void) { return g_zwrite; }
 /* Read by the texture rectangle only: every 2D path the engine drew before it
- * was flat and opaque, and kiln_gui_begin sets 0. */
+ * was flat and opaque, and fig_gui_begin sets 0. */
 static int g_alphacmp;
 void rdpq_mode_alphacompare(int t)      { g_alphacmp = t; }
 void rdpq_mode_fog(rdpq_blender_t f)    { g_fogmode = f; }
-rdpq_blender_t kiln_hostfb_fog_mode(void) { return g_fogmode; }
+rdpq_blender_t fig_hostfb_fog_mode(void) { return g_fogmode; }
 void rdpq_mode_antialias(int m)         { (void)m; }
+
+/* ── rdpq_debug, which has nothing to look at here ────────────────────────
+ * See plat/host/include/rdpq_debug.h for why these say so rather than abort. */
+void rdpq_debug_start(void)
+{
+    static int said;
+    if (!said) {
+        said = 1;
+        debugf("rdpq_debug: the host has no RDP command stream, so the "
+               "validator has nothing to read. Calls are accepted and do "
+               "nothing; run the ROM to validate RDP state.\n");
+    }
+}
+void rdpq_debug_stop(void) { }
+void rdpq_debug_log(bool show) { (void)show; }
+void rdpq_debug_log_msg(const char *msg) { (void)msg; }
+
+/* ── The render-mode stack ────────────────────────────────────────────────
+ * rdpq_mode_push/pop save and restore the RDP's render mode around a local
+ * change. On console that is a block of SOM/combiner words; here it is this
+ * file's mode statics, which are the same information in the shape this
+ * rasteriser reads it.
+ *
+ * Depth 4 is not a considered limit — it is more than any nesting in this
+ * tree — and overrunning it says so rather than silently dropping a level,
+ * the same choice t3d_matrix_push makes.
+ */
+#define HOST_MODE_STACK 4
+static struct {
+    rdpq_combiner_t comb; rdpq_blender_t blend, fogmode;
+    color_t prim, fog; int ztest, zwrite, alphacmp;
+} g_modestack[HOST_MODE_STACK];
+static int g_modetop;
+
+void rdpq_mode_push(void)
+{
+    assertf(g_modetop < HOST_MODE_STACK,
+            "rdpq_mode_push: more than %d nested modes", HOST_MODE_STACK);
+    g_modestack[g_modetop++] = (typeof(g_modestack[0])){
+        g_comb, g_blend, g_fogmode, g_prim, g_fog,
+        g_ztest, g_zwrite, g_alphacmp
+    };
+}
+
+void rdpq_mode_pop(void)
+{
+    assertf(g_modetop > 0, "rdpq_mode_pop without a matching push");
+    const typeof(g_modestack[0]) m = g_modestack[--g_modetop];
+    g_comb = m.comb; g_blend = m.blend; g_fogmode = m.fogmode;
+    g_prim = m.prim; g_fog = m.fog;
+    g_ztest = m.ztest; g_zwrite = m.zwrite; g_alphacmp = m.alphacmp;
+}
 void rdpq_set_prim_color(color_t c)     { g_prim = c; }
 void rdpq_set_fog_color(color_t c)      { g_fog = c; }
-color_t kiln_hostfb_fog_color(void)     { return g_fog; }
+color_t fig_hostfb_fog_color(void)     { return g_fog; }
 
 void rdpq_fill_rectangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
@@ -245,7 +297,7 @@ void rdpq_texture_rectangle_scaled(rdpq_tile_t tile, float x0, float y0,
             if (g_comb != RDPQ_COMBINER_FLAT) {
                 const float s = s0 + ((float)x - x0) * dsdx;
                 const float t = t0 + ((float)y - y0) * dtdy;
-                assertf(kiln_hosttex_sample((int)tile, s, t, &c),
+                assertf(fig_hosttex_sample((int)tile, s, t, &c),
                         "rdpq_texture_rectangle: TILE%d has no texture uploaded",
                         (int)tile);
                 if (g_comb == RDPQ_COMBINER_TEX_FLAT) {
@@ -264,7 +316,7 @@ void rdpq_texture_rectangle_scaled(rdpq_tile_t tile, float x0, float y0,
 /* ── triangles ─────────────────────────────────────────────────────────
  * Barycentric, with a top-left fill rule so two triangles sharing an edge
  * neither double-shade it (visible with the blender on, which is exactly how
- * kiln_gui_line draws its quad) nor leave a seam. */
+ * fig_gui_line draws its quad) nor leave a seam. */
 static inline float edge(float ax, float ay, float bx, float by, float px, float py)
 {
     return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
@@ -334,7 +386,7 @@ void rdpq_triangle(const rdpq_trifmt_t *fmt, const float *v0,
  * that ships a typeface render in the wrong one, which is a difference nobody
  * would look for. */
 struct rdpq_font_s {
-    char    magic[3];   /* stamped "FNL" so kiln_gui's double-load guard sees
+    char    magic[3];   /* stamped "FNL" so fig_gui's double-load guard sees
                          * what it sees on console */
     uint8_t which;
     rdpq_fontstyle_t styles[64];
@@ -384,10 +436,10 @@ void rdpq_text_register_font(uint8_t id, rdpq_font_t *font)
     g_registered[id] = font;
 }
 
-static const KilnFontGlyph *glyph_for(unsigned cp)
+static const FigFontGlyph *glyph_for(unsigned cp)
 {
-    if (cp < KILN_FONT_FIRST_CP || cp > KILN_FONT_LAST_CP) return NULL;
-    const KilnFontGlyph *g = &kiln_font_glyphs[cp - KILN_FONT_FIRST_CP];
+    if (cp < FIG_FONT_FIRST_CP || cp > FIG_FONT_LAST_CP) return NULL;
+    const FigFontGlyph *g = &fig_font_glyphs[cp - FIG_FONT_FIRST_CP];
     return (g->advance == 0 && g->w == 0) ? NULL : g;
 }
 
@@ -413,11 +465,11 @@ int rdpq_text_print(const rdpq_textparms_t *parms, uint8_t font_id,
     int missing = 0, run_start = cursor;
 
     for (const unsigned char *p = (const unsigned char *)utf8_text; *p; p++) {
-        const KilnFontGlyph *g = glyph_for(*p);
-        if (!g) { missing++; g_cnt.missing++; cursor += KILN_FONT_SPACE_WIDTH; continue; }
+        const FigFontGlyph *g = glyph_for(*p);
+        if (!g) { missing++; g_cnt.missing++; cursor += FIG_FONT_SPACE_WIDTH; continue; }
         for (int gy = 0; gy < g->h; gy++) {
             for (int gx = 0; gx < g->w; gx++) {
-                uint8_t cov = kiln_font_bits[g->bits + gy * g->w + gx];
+                uint8_t cov = fig_font_bits[g->bits + gy * g->w + gx];
                 if (!cov) continue;
                 put(cursor + g->xoff + gx, baseline + g->yoff + gy,
                     cov == 1 ? st->color : st->outline_color);
@@ -439,12 +491,12 @@ int rdpq_text_print(const rdpq_textparms_t *parms, uint8_t font_id,
 
 /* ── what host_t3d.c borrows ───────────────────────────────────────────── */
 
-int kiln_hostfb_w(void) { return g_w; }
-int kiln_hostfb_h(void) { return g_h; }
-int kiln_hostfb_attached(void) { return g_attached; }
-void kiln_hostfb_put(int x, int y, color_t c) { put(x, y, c); }
+int fig_hostfb_w(void) { return g_w; }
+int fig_hostfb_h(void) { return g_h; }
+int fig_hostfb_attached(void) { return g_attached; }
+void fig_hostfb_put(int x, int y, color_t c) { put(x, y, c); }
 
-void kiln_hostfb_put_z(int x, int y, uint16_t z, color_t c, int test, int write)
+void fig_hostfb_put_z(int x, int y, uint16_t z, color_t c, int test, int write)
 {
     if (x < 0 || y < 0 || x >= g_w || y >= g_h) return;
     uint16_t *zp = &g_zb[y * g_w + x];
@@ -456,7 +508,7 @@ void kiln_hostfb_put_z(int x, int y, uint16_t z, color_t c, int test, int write)
     put(x, y, c);
 }
 
-void kiln_hostfb_clear_color(color_t c)
+void fig_hostfb_clear_color(color_t c)
 {
     for (long i = 0, n = (long)g_w * g_h; i < n; i++) {
         g_fb[i * 4 + 0] = c.r; g_fb[i * 4 + 1] = c.g;
@@ -464,18 +516,18 @@ void kiln_hostfb_clear_color(color_t c)
     }
 }
 
-void kiln_hostfb_clear_depth(void)
+void fig_hostfb_clear_depth(void)
 {
     for (long i = 0, n = (long)g_w * g_h; i < n; i++) g_zb[i] = 0xFFFF;
 }
 
 /* ── the host control surface ──────────────────────────────────────────── */
 
-uint32_t kiln_host_frame(void) { return g_frame; }
-const KilnHostCounters *kiln_host_counters(void) { return &g_cnt; }
-void kiln_host_text_reset(void) { g_nruns = 0; }
+uint32_t fig_host_frame(void) { return g_frame; }
+const FigHostCounters *fig_host_counters(void) { return &g_cnt; }
+void fig_host_text_reset(void) { g_nruns = 0; }
 
-int kiln_host_text_manifest(const char *path)
+int fig_host_text_manifest(const char *path)
 {
     FILE *fp = fopen(path, "w");
     if (!fp) return -1;
@@ -491,7 +543,7 @@ int kiln_host_text_manifest(const char *path)
     return 0;
 }
 
-void kiln_host_stats(FILE *out, int top)
+void fig_host_stats(FILE *out, int top)
 {
     /* Deliberately the same quantities tools/n64-shot.sh prints, so a host
      * capture and a console capture are read the same way — CLAUDE.md's
@@ -527,10 +579,10 @@ void kiln_host_stats(FILE *out, int top)
 }
 
 /* host_png.c */
-int kiln_host_write_png(const char *path, const uint8_t *rgba, int w, int h);
+int fig_host_write_png(const char *path, const uint8_t *rgba, int w, int h);
 
-int kiln_host_capture(const char *path)
+int fig_host_capture(const char *path)
 {
-    assertf(g_inited, "kiln_host_capture before display_init");
-    return kiln_host_write_png(path, g_fb, g_w, g_h);
+    assertf(g_inited, "fig_host_capture before display_init");
+    return fig_host_write_png(path, g_fb, g_w, g_h);
 }

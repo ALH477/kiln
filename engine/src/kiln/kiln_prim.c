@@ -29,7 +29,7 @@ static void pack_vert(T3DVertPacked *base, int vi, const int16_t pos[3],
     }
 }
 
-static int alloc_quads(KilnPrim *out, int quads)
+static int alloc_quads(FigPrim *out, int quads)
 {
     memset(out, 0, sizeof *out);
     /* Two vertices per entry, four per quad: two entries per quad. */
@@ -61,7 +61,7 @@ static void emit_quad(T3DVertPacked *base, int q, fm_vec3_t c, fm_vec3_t u,
     }
 }
 
-int kiln_prim_box(KilnPrim *out, fm_vec3_t offset, fm_vec3_t half,
+int fig_prim_box(FigPrim *out, fm_vec3_t offset, fm_vec3_t half,
                   uint32_t top, uint32_t side, uint32_t bottom)
 {
     if (alloc_quads(out, 6) != 0) return -1;
@@ -129,7 +129,7 @@ static const uint32_t SIERP_FACE[4] = {
     0xFFC890FFu, 0xE09070FFu, 0x90B0E8FFu, 0x7088C0FFu,
 };
 
-static void emit_tet(T3DVertPacked *base, int tet_i, const KilnTet *t)
+static void emit_tet(T3DVertPacked *base, int tet_i, const FigTet *t)
 {
     fm_vec3_t inward = {{
         0.25f * (t->v[0].v[0] + t->v[1].v[0] + t->v[2].v[0] + t->v[3].v[0]),
@@ -144,7 +144,7 @@ static void emit_tet(T3DVertPacked *base, int tet_i, const KilnTet *t)
                       inward, SIERP_FACE[f]);
 }
 
-int kiln_prim_tets(KilnPrim *out, const KilnTet *tets, int n)
+int fig_prim_tets(FigPrim *out, const FigTet *tets, int n)
 {
     if (n < 0) n = 0;
     if (alloc_quads(out, n * 4) != 0) return -1;
@@ -154,7 +154,7 @@ int kiln_prim_tets(KilnPrim *out, const KilnTet *tets, int n)
     return 0;
 }
 
-void kiln_prim_tets_update(KilnPrim *p, const KilnTet *tets, int n)
+void fig_prim_tets_update(FigPrim *p, const FigTet *tets, int n)
 {
     if (!p || !p->verts || n * 4 != (int)p->quad_count) return;
     for (int i = 0; i < n; i++) emit_tet(p->verts, i, &tets[i]);
@@ -162,11 +162,11 @@ void kiln_prim_tets_update(KilnPrim *p, const KilnTet *tets, int n)
                              sizeof(T3DVertPacked) * (size_t)p->quad_count * 2);
 }
 
-int kiln_prim_floor(KilnPrim *out, float extent, int cells,
+int fig_prim_floor(FigPrim *out, float extent, int cells,
                     uint32_t rgba_a, uint32_t rgba_b)
 {
     if (cells < 1) cells = 1;
-    if (cells > KILN_PRIM_FLOOR_MAX_CELLS) cells = KILN_PRIM_FLOOR_MAX_CELLS;
+    if (cells > FIG_PRIM_FLOOR_MAX_CELLS) cells = FIG_PRIM_FLOOR_MAX_CELLS;
     if (alloc_quads(out, cells * cells) != 0) return -1;
 
     const float cell = 2.0f * extent / (float)cells;
@@ -187,14 +187,14 @@ int kiln_prim_floor(KilnPrim *out, float extent, int cells,
     return 0;
 }
 
-void kiln_prim_draw(const KilnPrim *p)
+void fig_prim_draw(const FigPrim *p)
 {
     if (!p || !p->verts || !p->quad_count) return;
 
     uint32_t drawn = 0;
     while (drawn < p->quad_count) {
         uint32_t batch = p->quad_count - drawn;
-        if (batch * 4 > KILN_PRIM_BATCH) batch = KILN_PRIM_BATCH / 4;
+        if (batch * 4 > FIG_PRIM_BATCH) batch = FIG_PRIM_BATCH / 4;
 
         /* Offset in vertices; the source pointer walks in entries of two. */
         t3d_vert_load(p->verts + drawn * 2, 0, batch * 4);
@@ -208,14 +208,14 @@ void kiln_prim_draw(const KilnPrim *p)
     }
 }
 
-void kiln_prim_free(KilnPrim *p)
+void fig_prim_free(FigPrim *p)
 {
     if (!p) return;
     if (p->verts) free_uncached(p->verts);
     memset(p, 0, sizeof *p);
 }
 
-uint32_t kiln_prim_shade(uint32_t rgba, float k)
+uint32_t fig_prim_shade(uint32_t rgba, float k)
 {
     uint32_t out = rgba & 0xFFu;
     for (int shift = 8; shift <= 24; shift += 8) {
@@ -227,7 +227,7 @@ uint32_t kiln_prim_shade(uint32_t rgba, float k)
     return out;
 }
 
-void kiln_prim_stage(KilnScene *s, color_t sky, float fog_near, float fog_far)
+void fig_prim_stage(FigScene *s, color_t sky, float fog_near, float fog_far)
 {
     s->clear_color = sky;
 
@@ -261,6 +261,6 @@ void kiln_prim_stage(KilnScene *s, color_t sky, float fog_near, float fog_far)
     fm_vec3_norm(&s->lights[0].dir, &s->lights[0].dir);
     s->light_count = 2;
 
-    if (fog_far > fog_near) kiln_scene_set_fog(s, sky, fog_near, fog_far);
-    else kiln_scene_disable_fog(s);
+    if (fog_far > fog_near) fig_scene_set_fog(s, sky, fog_near, fog_far);
+    else fig_scene_disable_fog(s);
 }

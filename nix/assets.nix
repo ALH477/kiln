@@ -456,7 +456,7 @@ rec {
   # same effect done as a screen filter instead — the single most expensive
   # thing you can ask an RDP to do, buying nothing the swap does not.
   #
-  # `kiln_voxmesh`'s `kiln_voxatlas_bind` is the generic engine-side half of
+  # `fig_voxmesh`'s `fig_voxatlas_bind` is the generic engine-side half of
   # binding one of a pair of resident palettes; a game wanting this on its
   # own materials (not just Forge's voxel atlas) binds per-material on top of
   # that. This builder produces the pixel+palette pair either consumes.
@@ -679,14 +679,14 @@ if pal != 0:
 
   # ── Single-file asset container ──────────────────────────────────────
   # Packs a list of already-converted assets into one .streamdb file the
-  # runtime kiln_asset layer mounts from DFS. The pack tool is the upstream C
+  # runtime fig_asset layer mounts from DFS. The pack tool is the upstream C
   # writer — the SAME binary nix/checks/streamdb.nix builds to verify the
   # reader, so the format writer is reviewed code we already trust. No new
   # writer to maintain.
   #
   # Each entry is `{ key, asset }`:
   #   * `key`  is the StreamDB key, e.g. "models/cube.t3dm" — the same string
-  #     the ROM will pass to kiln_asset_load. Convention: the key IS the path
+  #     the ROM will pass to fig_asset_load. Convention: the key IS the path
   #     the file would have had in loose DFS, so an asset can move between
   #     the two containers with no code change at the call site.
   #   * `asset` is a mkModel/mkSprite/mkSound/mkRawAsset derivation (anything

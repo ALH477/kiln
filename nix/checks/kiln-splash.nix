@@ -2,7 +2,7 @@
 #
 # nix/checks/kiln-splash.nix — the engine's real boot splash renders.
 #
-# Runs the actual kiln_splash_init/update/apply/draw3d/draw2d sequence — not
+# Runs the actual fig_splash_init/update/apply/draw3d/draw2d sequence — not
 # a stand-in for it — against a real .t3dm converted from
 # tools/blender/kiln_logo.py's own generated glTF, and holds the settled
 # frame to a committed reference.
@@ -15,10 +15,10 @@
 # prove the model parses and draws correctly.
 #
 # ── What a lookup failure would mean, and why it is asserted first ────
-# kiln_splash_draw3d looks up "kiln", "flame" and "plate" by name and gives
+# fig_splash_draw3d looks up "kiln", "flame" and "plate" by name and gives
 # the flame its own transform, independent of the body's settle animation —
 # see kiln_splash.h's "The flame moves separately from the body". If a future
-# edit to kiln_logo.py renames or drops one of those objects, kiln_splash
+# edit to kiln_logo.py renames or drops one of those objects, fig_splash
 # falls back to drawing the model as one rigid piece: correct for an older or
 # foreign model, wrong for this one, and a plain pixel diff downstream would
 # only be able to say "the frame changed" — not why. The check's structural

@@ -23,14 +23,14 @@ static void ensure_video_lib(void)
     g_video_lib_ready = 1;
 }
 
-void kiln_video_open(KilnVideo *mv, const char *dfs_path)
+void fig_video_open(FigVideo *mv, const char *dfs_path)
 {
     memset(mv, 0, sizeof *mv);
     ensure_video_lib();
 
     video_t *v = video_open(dfs_path, NULL);
     if (!v) {
-        debugf("kiln_video: no %s, playing silent/blank\n", dfs_path);
+        debugf("fig_video: no %s, playing silent/blank\n", dfs_path);
         return;
     }
 
@@ -51,14 +51,14 @@ void kiln_video_open(KilnVideo *mv, const char *dfs_path)
     // of dt (routine on the very first frame after open) would hit exactly
     // that with no video_next_frame() ever having run.
     if (!video_next_frame(v)) {
-        debugf("kiln_video: %s decoded no frames\n", dfs_path);
+        debugf("fig_video: %s decoded no frames\n", dfs_path);
         video_close(v);
         return;
     }
     mv->ready = true;
 }
 
-bool kiln_video_update(KilnVideo *mv, float dt)
+bool fig_video_update(FigVideo *mv, float dt)
 {
     if (!mv->ready) return false;
 
@@ -74,7 +74,7 @@ bool kiln_video_update(KilnVideo *mv, float dt)
     return true;
 }
 
-void kiln_video_draw(KilnVideo *mv, int screen_w, int screen_h)
+void fig_video_draw(FigVideo *mv, int screen_w, int screen_h)
 {
     if (!mv->ready) return;
 
@@ -92,7 +92,7 @@ void kiln_video_draw(KilnVideo *mv, int screen_w, int screen_h)
     yuv_blitter_run((yuv_blitter_t *)mv->blitter_block, &frame);
 }
 
-void kiln_video_close(KilnVideo *mv)
+void fig_video_close(FigVideo *mv)
 {
     if (mv->blitter_ready) {
         yuv_blitter_free((yuv_blitter_t *)mv->blitter_block);

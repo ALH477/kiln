@@ -8,7 +8,7 @@
 
 #include <fmath.h>
 
-void kiln_fpscam_init(KilnFpsCam *cam)
+void fig_fpscam_init(FigFpsCam *cam)
 {
     cam->pos        = (fm_vec3_t){ { 0, 0, 0 } };
     cam->yaw        = 0.0f;
@@ -27,11 +27,11 @@ void kiln_fpscam_init(KilnFpsCam *cam)
     /* The bindings this module used to hardcode. Defaulted here so every
      * existing caller is byte-for-byte unchanged, and overridable so a game
      * that needs R and B for something else can say so. */
-    cam->btn_run    = KILN_BTN_R;
-    cam->btn_jump   = KILN_BTN_B;
+    cam->btn_run    = FIG_BTN_R;
+    cam->btn_jump   = FIG_BTN_B;
 }
 
-void kiln_fpscam_snap(KilnFpsCam *cam, fm_vec3_t pos, float yaw, float pitch)
+void fig_fpscam_snap(FigFpsCam *cam, fm_vec3_t pos, float yaw, float pitch)
 {
     cam->pos   = pos;
     cam->yaw   = yaw;
@@ -39,7 +39,7 @@ void kiln_fpscam_snap(KilnFpsCam *cam, fm_vec3_t pos, float yaw, float pitch)
     cam->vy    = 0.0f;
 }
 
-fm_vec3_t kiln_fpscam_forward(const KilnFpsCam *cam)
+fm_vec3_t fig_fpscam_forward(const FigFpsCam *cam)
 {
     float cp = fm_cosf(cam->pitch);
     return (fm_vec3_t){ {
@@ -59,7 +59,7 @@ fm_vec3_t kiln_fpscam_forward(const KilnFpsCam *cam)
  * both times, so stick right strafed left and C right turned left in every
  * consumer, on console as well as on the host. nix/checks/kiln-fpscam.nix asks
  * the look-at matrix where screen-right is and holds the pad to it. */
-fm_vec3_t kiln_fpscam_right(const KilnFpsCam *cam)
+fm_vec3_t fig_fpscam_right(const FigFpsCam *cam)
 {
     return (fm_vec3_t){ {
         -fm_cosf(cam->yaw),
@@ -68,16 +68,16 @@ fm_vec3_t kiln_fpscam_right(const KilnFpsCam *cam)
     } };
 }
 
-void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
+void fig_fpscam_update(FigFpsCam *cam, const FigInput *in, float dt)
 {
     /* Look: C-stick X → yaw, C-stick Y → pitch. Right is negative yaw; see
-     * kiln_fpscam_right. */
+     * fig_fpscam_right. */
     cam->yaw   -= in->cstick_x * cam->look_speed;
     cam->pitch += in->cstick_y * cam->look_speed;
 
     /* Clamp pitch to avoid gimbal-flip. */
-    if (cam->pitch >  KILN_FPSCAM_PITCH_LIMIT) cam->pitch =  KILN_FPSCAM_PITCH_LIMIT;
-    if (cam->pitch < -KILN_FPSCAM_PITCH_LIMIT) cam->pitch = -KILN_FPSCAM_PITCH_LIMIT;
+    if (cam->pitch >  FIG_FPSCAM_PITCH_LIMIT) cam->pitch =  FIG_FPSCAM_PITCH_LIMIT;
+    if (cam->pitch < -FIG_FPSCAM_PITCH_LIMIT) cam->pitch = -FIG_FPSCAM_PITCH_LIMIT;
 
     /* Wrap yaw to [-pi, pi] for numerical stability. */
     if (cam->yaw >  3.14159f) cam->yaw -= 6.28318f;
@@ -99,9 +99,9 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     float dx = (fwd_x * in->stick_y + rgt_x * in->stick_x) * speed * dt;
     float dz = (fwd_z * in->stick_y + rgt_z * in->stick_x) * speed * dt;
 
-    /* Horizontal movement via kiln_clip_slide. */
+    /* Horizontal movement via fig_clip_slide. */
     fm_vec3_t hvel = { { dx, 0, dz } };
-    cam->pos = kiln_clip_slide(cam->pos, hvel, cam->mins, cam->maxs, 4);
+    cam->pos = fig_clip_slide(cam->pos, hvel, cam->mins, cam->maxs, 4);
 
     /* Jump: B button edge, only if on ground. */
     if (cam->btn_jump && (in->edges & cam->btn_jump) && cam->on_ground) {
@@ -112,7 +112,7 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     /* Vertical integration: gravity + floor collision.
      *
      * ── The sweep starts at cam->pos, NOT at cam->pos + dy ──────────────
-     * kiln_clip_slide(pos, vel, ...) takes a START position and a full-frame
+     * fig_clip_slide(pos, vel, ...) takes a START position and a full-frame
      * DISPLACEMENT and returns where the box ends up (see kiln_clip.h). This
      * used to pre-add dy to the start position and then hand the same dy in as
      * the displacement, which did two wrong things at once:
@@ -121,7 +121,7 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
      *   2. Far worse — began the sweep BELOW the floor it was falling onto.
      *      A swept AABB starting already past a surface has nothing to hit, so
      *      the floor was skipped entirely and the player kept going. Where they
-     *      finally stopped was wherever kiln_clip_ground's short probe happened
+     *      finally stopped was wherever fig_clip_ground's short probe happened
      *      to catch a brush's underside.
      *
      * In real use that put the player about 111 units — 1.7 m — under the
@@ -130,14 +130,14 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
      * read as a lighting or camera-framing problem, and a known "the player
      * can leave the room mid-fall" comment in the game's own code had been
      * treated as a fact of life rather than a symptom. Found in one capture
-     * once kiln_debugdraw could draw the room's brushes next to the camera the
+     * once fig_debugdraw could draw the room's brushes next to the camera the
      * scene was actually built from. */
     if (cam->gravity > 0.0f) {
         cam->vy -= cam->gravity * dt;
         const float dy = cam->vy * dt;
         const fm_vec3_t vvel = { { 0, dy, 0 } };
         const float want_y = cam->pos.v[1] + dy;
-        fm_vec3_t new_pos = kiln_clip_slide(cam->pos, vvel,
+        fm_vec3_t new_pos = fig_clip_slide(cam->pos, vvel,
                                            cam->mins, cam->maxs, 2);
         cam->pos.v[1] = new_pos.v[1];
 
@@ -153,7 +153,7 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     }
 
     /* Ground probe. */
-    KilnTrace g = kiln_clip_ground(cam->pos, cam->mins, cam->maxs);
+    FigTrace g = fig_clip_ground(cam->pos, cam->mins, cam->maxs);
     cam->on_ground = (g.fraction < 1.0f) ? 1 : 0;
     cam->last_surf = g.hitsurface;
     if (cam->on_ground && cam->vy < 0.0f) {
@@ -161,10 +161,10 @@ void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt)
     }
 }
 
-void kiln_fpscam_apply(const KilnFpsCam *cam, KilnScene *scene)
+void fig_fpscam_apply(const FigFpsCam *cam, FigScene *scene)
 {
     scene->cam_pos = cam->pos;
-    fm_vec3_t fwd = kiln_fpscam_forward(cam);
+    fm_vec3_t fwd = fig_fpscam_forward(cam);
     scene->cam_target = (fm_vec3_t){ {
         cam->pos.v[0] + fwd.v[0] * 100.0f,
         cam->pos.v[1] + fwd.v[1] * 100.0f,

@@ -17,7 +17,7 @@
  * Uploading a texture does not make it visible. The RSP emits texture
  * coordinates when T3D_FLAG_TEXTURED is set, and then the RDP's COLOR COMBINER
  * decides whether the sampled texel reaches the framebuffer. With
- * RDPQ_COMBINER_SHADE — which is what kiln_scene_begin sets, every frame — the
+ * RDPQ_COMBINER_SHADE — which is what fig_scene_begin sets, every frame — the
  * output is vertex colour and the texel is discarded.
  *
  * This shim reproduces that faithfully rather than helpfully sampling anyway,
@@ -44,7 +44,7 @@ static int         g_tlut_loaded;
 static rdpq_tlut_t g_tlut_mode = TLUT_NONE;
 static int         g_tmem_used;
 
-int kiln_host_tmem_used(void) { return g_tmem_used; }
+int fig_host_tmem_used(void) { return g_tmem_used; }
 
 int rdpq_tex_upload(rdpq_tile_t tile, const surface_t *tex,
                     const rdpq_texparms_t *parms)
@@ -119,7 +119,7 @@ void rdpq_mode_dithering(int d){ (void)d; }
 void rdpq_set_lookup_address(uint8_t index, void *rdram_addr)
 {
     /* On console this points one of the RDP's lookup slots at RDRAM, which is
-     * how kiln_texanim swaps a palette without re-uploading the texture. The
+     * how fig_texanim swaps a palette without re-uploading the texture. The
      * host has no indirection to set up — the pointer IS the address — so this
      * is recorded and nothing else. */
     (void)index; (void)rdram_addr;
@@ -159,7 +159,7 @@ static inline int wrap_coord(float c, int size, float repeats)
     return i;
 }
 
-int kiln_hosttex_sample(int tile, float s, float t, color_t *out)
+int fig_hosttex_sample(int tile, float s, float t, color_t *out)
 {
     if (tile < 0 || tile >= 8 || !g_tiles[tile].bound) return 0;
     const Tile *T = &g_tiles[tile];
@@ -206,7 +206,7 @@ int kiln_hosttex_sample(int tile, float s, float t, color_t *out)
         return 1;
     }
     default:
-        assertf(0, "kiln_hosttex_sample: texture format %#x is not implemented. "
+        assertf(0, "fig_hosttex_sample: texture format %#x is not implemented. "
                    "Add it to plat/host/src/host_tex.c rather than letting it "
                    "sample as something else.",
                 (unsigned)surface_get_format(&T->surf));

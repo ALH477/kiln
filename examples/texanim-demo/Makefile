@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# texanim-demo: exercises kiln_texanim + kiln_vanim.
+# texanim-demo: exercises fig_texanim + fig_vanim.
 BUILD_DIR = build
 include $(N64_INST)/include/n64.mk
 include $(N64_INST)/include/t3d.mk

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
 # camera-skel-demo: the goblin in a courtyard behind a spring-arm camera —
-# locomotion over kiln_skel's slots, jumps, a masked sword overlay, a socketed
+# locomotion over fig_skel's slots, jumps, a masked sword overlay, a socketed
 # sword and an inspector.
 #   camera-skel-demo-walk  the attract tape, forced from boot
 #   camera-skel-demo-run   a flat-out circle: Walk/Run slots, stride-synced

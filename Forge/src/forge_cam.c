@@ -6,12 +6,12 @@
  * for its cinematic debugger), and for the reasons that camera was built the
  * way it was rather than out of convenience:
  *
- * - **Not kiln_fpscam.** That camera probes the ground against the clip world
+ * - **Not fig_fpscam.** That camera probes the ground against the clip world
  *   and falls when there is none. An editor with an empty world would drop
  *   forever on the first frame — which is precisely the bug that made PLAY look
  *   like a black screen with a working HUD for its entire life.
  *
- * - **Look on the C-buttons AND the C-stick.** kiln_fpscam reads only the
+ * - **Look on the C-buttons AND the C-stick.** fig_fpscam reads only the
  *   C-stick, and a real N64 controller does not have one — that path is dead
  *   on the pad the hardware actually ships. An editor that cannot turn
  *   around is not an editor, so both are read.
@@ -28,12 +28,12 @@
 
 void forge_cam_init(Forge *f)
 {
-    kiln_scene_init(&f->scene);
+    fig_scene_init(&f->scene);
 
     /* Start outside the origin looking back at it, so a freshly seeded level is
      * in frame. A camera that boots inside the geometry is the single most
      * common way a scene reads as broken when it is not. */
-    const float B = (float)KILN_VOXEL_BLOCK_UNITS;
+    const float B = (float)FIG_VOXEL_BLOCK_UNITS;
     f->fly_pos = (fm_vec3_t){{ -6.0f * B, 8.0f * B, -6.0f * B }};
     f->fly_yaw = 0.78f;      /* facing +X+Z */
     f->fly_pitch = -0.45f;
@@ -59,17 +59,17 @@ fm_vec3_t forge_cam_forward(const Forge *f)
                          fm_cosf(f->fly_yaw) * cp }};
 }
 
-void forge_cam_update(Forge *f, const KilnInput *in, float dt)
+void forge_cam_update(Forge *f, const FigInput *in, float dt)
 {
     /* Look: C-stick if it is being pushed, C-buttons otherwise. Reading both
      * unconditionally would mean a held C-button fights a resting stick. */
     float lx = 0.0f, ly = 0.0f;
     if (in->cstick_x > 20 || in->cstick_x < -20) lx = (float)in->cstick_x / 80.0f;
     if (in->cstick_y > 20 || in->cstick_y < -20) ly = (float)in->cstick_y / 80.0f;
-    if (in->buttons & KILN_BTN_CR) lx += 1.0f;
-    if (in->buttons & KILN_BTN_CL)  lx -= 1.0f;
-    if (in->buttons & KILN_BTN_CU)    ly += 1.0f;
-    if (in->buttons & KILN_BTN_CD)  ly -= 1.0f;
+    if (in->buttons & FIG_BTN_CR) lx += 1.0f;
+    if (in->buttons & FIG_BTN_CL)  lx -= 1.0f;
+    if (in->buttons & FIG_BTN_CU)    ly += 1.0f;
+    if (in->buttons & FIG_BTN_CD)  ly -= 1.0f;
 
     f->fly_yaw   -= lx * FLY_LOOK * dt;
     f->fly_pitch += ly * FLY_LOOK * dt;
@@ -82,7 +82,7 @@ void forge_cam_update(Forge *f, const KilnInput *in, float dt)
     if (scale < 0.25f) scale = 0.25f;
     if (scale > 8.0f)  scale = 8.0f;
     float sp = FLY_MOVE * scale * dt;
-    if (in->buttons & KILN_BTN_R) sp *= 3.0f;
+    if (in->buttons & FIG_BTN_R) sp *= 3.0f;
 
     fm_vec3_t fwd = forge_cam_forward(f);
     fm_vec3_t right = {{ fm_cosf(f->fly_yaw), 0.0f, -fm_sinf(f->fly_yaw) }};
@@ -95,11 +95,11 @@ void forge_cam_update(Forge *f, const KilnInput *in, float dt)
      * of the shoulder-free pair. In GEO, vertical movement is on the D-pad
      * instead; see forge_geo.c. */
     if (f->mode != FORGE_MODE_GEO) {
-        if (in->buttons & KILN_BTN_A) f->fly_pos.v[1] += sp;
-        if (in->buttons & KILN_BTN_B) f->fly_pos.v[1] -= sp;
+        if (in->buttons & FIG_BTN_A) f->fly_pos.v[1] += sp;
+        if (in->buttons & FIG_BTN_B) f->fly_pos.v[1] -= sp;
     } else {
-        if (in->buttons & KILN_BTN_DU)   f->fly_pos.v[1] += sp;
-        if (in->buttons & KILN_BTN_DD) f->fly_pos.v[1] -= sp;
+        if (in->buttons & FIG_BTN_DU)   f->fly_pos.v[1] += sp;
+        if (in->buttons & FIG_BTN_DD) f->fly_pos.v[1] -= sp;
     }
 }
 
@@ -110,5 +110,5 @@ void forge_cam_apply(Forge *f)
     for (int a = 0; a < 3; a++)
         f->scene.cam_target.v[a] = f->fly_pos.v[a] + fwd.v[a] * 100.0f;
     f->scene.cam_up = (fm_vec3_t){{ 0.0f, 1.0f, 0.0f }};
-    kiln_scene_update(&f->scene);
+    fig_scene_update(&f->scene);
 }

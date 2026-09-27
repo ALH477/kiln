@@ -12,7 +12,7 @@ extra pixels shaded, against a blended full-screen quad's worth of
 read-modify-writes for the same effect done as a screen filter.
 
 This file is that bake's palette half; `nix/assets.nix`'s `mkVeilTexture` is
-the pixel half, and `kiln_voxmesh`'s `kiln_voxatlas_bind` is the generic
+the pixel half, and `fig_voxmesh`'s `fig_voxatlas_bind` is the generic
 engine-side entry point that swaps which TLUT of a pair is resident. A
 specific game's own runtime binds a palette per-material and per-frame on
 top of that; this tool only has to agree on the file format and the

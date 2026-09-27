@@ -9,5 +9,5 @@
 target.mkCheck {
   pname = "contextcheck";
   sources = [ ./kiln-context-check.c ];
-  meta.description = "kiln_context returns UNLOCK for locked doors, OPEN, OPEN_CHEST, TALK and NONE where it should";
+  meta.description = "fig_context returns UNLOCK for locked doors, OPEN, OPEN_CHEST, TALK and NONE where it should";
 }

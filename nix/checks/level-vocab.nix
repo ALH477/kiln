@@ -33,7 +33,7 @@
 #   A  edit one line of tools/mapmaker/src/vocab.gen.js
 #   B1 swap [0,1,0] and [0,0,1] in level_vocab.json's -X corners
 #   B2 change one coordinate in Forge/src/forge_map.c's snprintf
-#   B3 add kiln_map_register_classname("info_nope", 0) to any example
+#   B3 add fig_map_register_classname("info_nope", 0) to any example
 #   B4 put a literal back in kiln_map.c's #define MAX_BRUSHES
 { pkgs, toolsDir, engineSrc, forgeSrc, examplesDir, mapmakerSrc }:
 

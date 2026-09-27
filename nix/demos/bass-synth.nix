@@ -13,7 +13,7 @@ ctx: with ctx; {
     makeFlags = (args.bassSynthArgs.makeFlags or [ ]) ++ [ "KILN_JUMP=PATCH" ];
   });
 
-  # The host has a real mixer for wav64, so the synth sounds on PC; kiln_store
+  # The host has a real mixer for wav64, so the synth sounds on PC; fig_store
   # falls through to read-only rom:/ there, which the HUD shows in red.
   pc-bass-synth = hostNative.mkGame {
     pname = "kiln-bass-synth";

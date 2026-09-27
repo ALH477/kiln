@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  *
- * kiln_physics.c — see kiln_physics.h for the model. Built on kiln_clip for
+ * kiln_physics.c — see kiln_physics.h for the model. Built on fig_clip for
  * world collision; body-vs-body is overlap + positional correction + a
  * 1-axis impulse exchange (the AABB-only simplification the header
  * documents). Single precision throughout, no libm beyond the abs/min
@@ -28,10 +28,10 @@
 #define PHYS_RESTITUTION_DEFAULT 0.2f
 #define PHYS_FRICTION_DEFAULT    0.7f
 
-void kiln_physics_init(KilnPhysicsWorld *w, KilnPhysicsBody *bodies, uint16_t cap)
+void fig_physics_init(FigPhysicsWorld *w, FigPhysicsBody *bodies, uint16_t cap)
 {
-    assertf(w, "kiln_physics: world NULL");
-    assertf(bodies || cap == 0, "kiln_physics: bodies NULL with cap %u", cap);
+    assertf(w, "fig_physics: world NULL");
+    assertf(bodies || cap == 0, "fig_physics: bodies NULL with cap %u", cap);
     w->bodies    = bodies;
     w->count     = 0;
     w->capacity  = cap;
@@ -41,21 +41,21 @@ void kiln_physics_init(KilnPhysicsWorld *w, KilnPhysicsBody *bodies, uint16_t ca
     w->broadphase = 0;
 }
 
-void kiln_physics_set_enabled(KilnPhysicsWorld *w, int enabled)
+void fig_physics_set_enabled(FigPhysicsWorld *w, int enabled)
 {
     w->enabled = enabled ? 1 : 0;
 }
 
-KilnPhysicsBody *kiln_physics_spawn(KilnPhysicsWorld *w, KilnPhysType type,
+FigPhysicsBody *fig_physics_spawn(FigPhysicsWorld *w, FigPhysType type,
                                   fm_vec3_t pos, fm_vec3_t half_extents,
                                   float mass)
 {
     assertf(w->count < w->capacity,
-            "kiln_physics: pool full (%u/%u) — raise capacity at init",
+            "fig_physics: pool full (%u/%u) — raise capacity at init",
             w->count, w->capacity);
     if (w->count >= w->capacity) return NULL;
 
-    KilnPhysicsBody *b = &w->bodies[w->count++];
+    FigPhysicsBody *b = &w->bodies[w->count++];
     memset(b, 0, sizeof(*b));
     b->pos   = pos;
     b->vel   = (fm_vec3_t){ { 0, 0, 0 } };
@@ -63,7 +63,7 @@ KilnPhysicsBody *kiln_physics_spawn(KilnPhysicsWorld *w, KilnPhysType type,
     b->maxs  = (fm_vec3_t){ {  half_extents.v[0],  half_extents.v[1],  half_extents.v[2] } };
     b->type  = (uint8_t)type;
     b->mass  = mass;
-    b->inv_mass = (type == KILN_PHYS_DYNAMIC && mass > 0.0f) ? 1.0f / mass : 0.0f;
+    b->inv_mass = (type == FIG_PHYS_DYNAMIC && mass > 0.0f) ? 1.0f / mass : 0.0f;
     b->restitution = PHYS_RESTITUTION_DEFAULT;
     b->friction    = PHYS_FRICTION_DEFAULT;
     b->on_ground = 0;
@@ -73,7 +73,7 @@ KilnPhysicsBody *kiln_physics_spawn(KilnPhysicsWorld *w, KilnPhysType type,
     return b;
 }
 
-void kiln_physics_apply_impulse(KilnPhysicsBody *b, fm_vec3_t imp)
+void fig_physics_apply_impulse(FigPhysicsBody *b, fm_vec3_t imp)
 {
     if (!b || b->inv_mass == 0.0f) return;
     b->vel.v[0] += imp.v[0] * b->inv_mass;
@@ -88,15 +88,15 @@ void kiln_physics_apply_impulse(KilnPhysicsBody *b, fm_vec3_t imp)
 /* ── World collision ────────────────────────────────────────────────────
  *
  * Per dynamic body: integrate gravity, swept-slide against the world via
- * kiln_clip_slide (the same SlideMove shape kiln_player uses), then probe
- * the ground. kiln_clip_slide handles wall-sliding; kiln_clip_ground sets
+ * fig_clip_slide (the same SlideMove shape fig_player uses), then probe
+ * the ground. fig_clip_slide handles wall-sliding; fig_clip_ground sets
  * on_ground + last_surf. Vel is scaled by the fraction of the slide that
  * actually moved, so a body blocked against a wall doesn't keep banking
  * horizontal velocity into the wall.
  */
-static void integrate_world(KilnPhysicsWorld *w, KilnPhysicsBody *b, float dt)
+static void integrate_world(FigPhysicsWorld *w, FigPhysicsBody *b, float dt)
 {
-    if (b->type != KILN_PHYS_DYNAMIC) return;
+    if (b->type != FIG_PHYS_DYNAMIC) return;
     if (b->sleeping) return;
 
     /* Gravity. */
@@ -104,10 +104,10 @@ static void integrate_world(KilnPhysicsWorld *w, KilnPhysicsBody *b, float dt)
 
     /* Build the per-step displacement and slide. */
     fm_vec3_t disp = {{ b->vel.v[0] * dt, b->vel.v[1] * dt, b->vel.v[2] * dt }};
-    fm_vec3_t new_pos = kiln_clip_slide(b->pos, disp, b->mins, b->maxs, 4);
+    fm_vec3_t new_pos = fig_clip_slide(b->pos, disp, b->mins, b->maxs, 4);
 
     /* Reconstruct effective velocity from the actual move so a wall hit
-     * bleeds off the into-wall component instead of banking it. kiln_clip_slide
+     * bleeds off the into-wall component instead of banking it. fig_clip_slide
      * already clipped velocity internally per iteration; reconstructing here
      * is the cheap way to pick up that effect without exposing slide's
      * internals. */
@@ -122,7 +122,7 @@ static void integrate_world(KilnPhysicsWorld *w, KilnPhysicsBody *b, float dt)
     b->pos = new_pos;
 
     /* Ground probe. on_ground drives friction + sleep below. */
-    KilnTrace g = kiln_clip_ground(b->pos, b->mins, b->maxs);
+    FigTrace g = fig_clip_ground(b->pos, b->mins, b->maxs);
     b->on_ground = (g.fraction < 1.0f) ? 1 : 0;
     if (b->on_ground) b->last_surf = g.hitsurface;
 }
@@ -145,7 +145,7 @@ static void integrate_world(KilnPhysicsWorld *w, KilnPhysicsBody *b, float dt)
 static float minf(float a, float b) { return a < b ? a : b; }
 static float maxf(float a, float b) { return a > b ? a : b; }
 
-static int aabb_overlap(const KilnPhysicsBody *a, const KilnPhysicsBody *b,
+static int aabb_overlap(const FigPhysicsBody *a, const FigPhysicsBody *b,
                         float *pen, int *axis)
 {
     /* Overlap on each axis; the minimum-overlap axis is the contact axis. */
@@ -173,7 +173,7 @@ static int aabb_overlap(const KilnPhysicsBody *a, const KilnPhysicsBody *b,
     return 1;
 }
 
-static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
+static void resolve_pair(FigPhysicsBody *a, FigPhysicsBody *b,
                          float pen, int axis)
 {
     /* Resting contact — two bodies touching within the slop the correction
@@ -195,7 +195,7 @@ static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
      * The world is brushes, not bodies, so nothing here knows a crate is
      * standing on the floor. Splitting a vertical contact by mass therefore
      * pushed the LOWER crate down into the floor brush every substep — and a
-     * body that starts a trace inside a brush is ignored by kiln_clip, so the
+     * body that starts a trace inside a brush is ignored by fig_clip, so the
      * crate fell through the floor. physics-demo's pyramid sank into the
      * ground within a second; its predecessor spawned crates that never
      * actually landed on one another, which is why nobody saw it.
@@ -204,8 +204,8 @@ static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
      * correction or the impulse, and the upper body counts as grounded for
      * friction and sleep, the same as if it stood on a brush. */
     if (axis == 1) {
-        KilnPhysicsBody *lower = (sign > 0.0f) ? a : b;
-        KilnPhysicsBody *upper = (sign > 0.0f) ? b : a;
+        FigPhysicsBody *lower = (sign > 0.0f) ? a : b;
+        FigPhysicsBody *upper = (sign > 0.0f) ? b : a;
         if (lower->on_ground) {
             if (lower == a) ima = 0.0f; else imb = 0.0f;
         }
@@ -248,14 +248,14 @@ static void resolve_pair(KilnPhysicsBody *a, KilnPhysicsBody *b,
     }
 }
 
-static void resolve_body_body(KilnPhysicsWorld *w)
+static void resolve_body_body(FigPhysicsWorld *w)
 {
     for (uint16_t i = 0; i < w->count; i++) {
-        KilnPhysicsBody *a = &w->bodies[i];
-        if (a->type == KILN_PHYS_STATIC) continue; /* statics only react */
+        FigPhysicsBody *a = &w->bodies[i];
+        if (a->type == FIG_PHYS_STATIC) continue; /* statics only react */
         for (uint16_t k = i + 1; k < w->count; k++) {
-            KilnPhysicsBody *b = &w->bodies[k];
-            if (b->type == KILN_PHYS_STATIC && a->type != KILN_PHYS_DYNAMIC)
+            FigPhysicsBody *b = &w->bodies[k];
+            if (b->type == FIG_PHYS_STATIC && a->type != FIG_PHYS_DYNAMIC)
                 continue; /* kinematic-vs-static: skip */
             float pen; int axis;
             if (!aabb_overlap(a, b, &pen, &axis)) continue;
@@ -274,11 +274,11 @@ static void resolve_body_body(KilnPhysicsWorld *w)
  * impulse wakes it. Without sleeping, a stack of crates keeps doing tiny
  * gravity-compensation bounces forever and never settles.
  */
-static void friction_and_sleep(KilnPhysicsWorld *w, float dt)
+static void friction_and_sleep(FigPhysicsWorld *w, float dt)
 {
     for (uint16_t i = 0; i < w->count; i++) {
-        KilnPhysicsBody *b = &w->bodies[i];
-        if (b->type != KILN_PHYS_DYNAMIC) continue;
+        FigPhysicsBody *b = &w->bodies[i];
+        if (b->type != FIG_PHYS_DYNAMIC) continue;
         if (b->sleeping) continue;
 
         if (b->on_ground) {
@@ -315,12 +315,12 @@ static void friction_and_sleep(KilnPhysicsWorld *w, float dt)
  * top face of another body, and wakes if it is not. N ground traces a frame
  * for N sleeping bodies — at this module's body counts, cheaper than tracking
  * who rests on whom. */
-static int has_support(const KilnPhysicsWorld *w, const KilnPhysicsBody *b)
+static int has_support(const FigPhysicsWorld *w, const FigPhysicsBody *b)
 {
-    if (kiln_clip_ground(b->pos, b->mins, b->maxs).fraction < 1.0f) return 1;
+    if (fig_clip_ground(b->pos, b->mins, b->maxs).fraction < 1.0f) return 1;
     const float bottom = b->pos.v[1] + b->mins.v[1];
     for (uint16_t i = 0; i < w->count; i++) {
-        const KilnPhysicsBody *o = &w->bodies[i];
+        const FigPhysicsBody *o = &w->bodies[i];
         if (o == b) continue;
         const float top = o->pos.v[1] + o->maxs.v[1];
         if (top < bottom - 0.25f || top > bottom + 0.25f) continue;
@@ -333,11 +333,11 @@ static int has_support(const KilnPhysicsWorld *w, const KilnPhysicsBody *b)
     return 0;
 }
 
-static void wake_unsupported(KilnPhysicsWorld *w)
+static void wake_unsupported(FigPhysicsWorld *w)
 {
     for (uint16_t i = 0; i < w->count; i++) {
-        KilnPhysicsBody *b = &w->bodies[i];
-        if (b->type != KILN_PHYS_DYNAMIC || !b->sleeping) continue;
+        FigPhysicsBody *b = &w->bodies[i];
+        if (b->type != FIG_PHYS_DYNAMIC || !b->sleeping) continue;
         if (has_support(w, b)) continue;
         b->sleeping = 0;
         b->sleep_timer = 0.0f;
@@ -345,7 +345,7 @@ static void wake_unsupported(KilnPhysicsWorld *w)
     }
 }
 
-void kiln_physics_step(KilnPhysicsWorld *w, float dt)
+void fig_physics_step(FigPhysicsWorld *w, float dt)
 {
     if (!w->enabled) return;
     if (w->count == 0) return;

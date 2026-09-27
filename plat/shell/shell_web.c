@@ -74,14 +74,14 @@ EM_JS(void, web_blit, (const void *fb, int w, int h), {
 });
 
 /* ── input ─────────────────────────────────────────────────────────── */
-/* The key table is written by JS and read by C, one byte per KilnShellKey, so
+/* The key table is written by JS and read by C, one byte per FigShellKey, so
  * the mapping itself stays in kiln_shell_common.c where shell_sdl.c also
  * reads it. JS only says which physical key sets which slot. */
 
 EM_JS(void, web_input_init, (void), {
   var k = Module.kiln = Module.kiln || {};
   k.keys = new Uint8Array(32);
-  // Index order is KilnShellKey in plat/shell/kiln_shell.h.
+  // Index order is FigShellKey in plat/shell/kiln_shell.h.
   k.map = {
     'KeyW':0,'KeyS':1,'KeyA':2,'KeyD':3,
     'ArrowUp':4,'ArrowDown':5,'ArrowLeft':6,'ArrowRight':7,
@@ -106,7 +106,7 @@ EM_JS(void, web_keys, (unsigned char *out, int n), {
   HEAPU8.set(k.keys.subarray(0, n), out);
 });
 
-/* Returns a packed pad: bit 0..13 buttons in KilnShellPad order, then two
+/* Returns a packed pad: bit 0..13 buttons in FigShellPad order, then two
  * signed bytes of stick in the high half. Packed rather than a struct because
  * an EM_JS return crosses the boundary as one number. */
 EM_JS(int, web_gamepad, (void), {
@@ -187,8 +187,8 @@ EM_JS(void, web_audio_push, (const short *pcm, int frames, int freq), {
 
 /* Publish the pad the launcher just pushed, where the page can see it.
  *
- * This is the browser's version of kiln_host_counters() and
- * kiln_host_audio_counters(): a build with no stdout anybody reads still has
+ * This is the browser's version of fig_host_counters() and
+ * fig_host_audio_counters(): a build with no stdout anybody reads still has
  * to be able to say what it thinks is happening. It is also the only honest
  * way to check the input path from outside — the obvious observable, "the
  * picture changed", is a poor one here, because engine-demo's stick orbits a
@@ -202,7 +202,7 @@ EM_JS(void, web_publish_pad, (int sx, int sy, int buttons), {
 });
 
 /* ── the Kiln Studio bridge ────────────────────────────────────────── */
-/* Kiln Studio embeds the page (plat/shell/kiln_web_shell.html relays its
+/* Kiln Studio embeds the page (plat/shell/fig_web_shell.html relays its
  * postMessages) and talks to the game through Module.kiln: it leaves console
  * commands on `cmdq` and pad input on `padq`, and reads `frame`, `pad` and
  * `console` back. Queues and not calls: between frames the game is suspended
@@ -277,22 +277,22 @@ static uint32_t g_console_sig;
  * and a full ring stays the same length forever. */
 static void publish_console(void)
 {
-    const int n = kiln_console_tail_lines();
+    const int n = fig_console_tail_lines();
     uint32_t h = 2166136261u ^ (uint32_t)n;
     for (int i = 0; i < n; i++)
-        for (const char *c = kiln_console_tail_line(i); *c; c++)
+        for (const char *c = fig_console_tail_line(i); *c; c++)
             h = (h ^ (uint8_t)*c) * 16777619u;
     if (h == g_console_sig) return;
     g_console_sig = h;
     web_console_begin();
-    for (int i = 0; i < n; i++) web_console_line(kiln_console_tail_line(i));
+    for (int i = 0; i < n; i++) web_console_line(fig_console_tail_line(i));
     web_console_end();
 }
 
 /* Queued pad input is OR-ed over the keyboard and gamepad, the way a second
  * controller on the same port would be; queued commands run through the real
- * kiln_console, exactly as a line typed on the pad grid does. */
-static void drain_bridge(KilnShellPad *p)
+ * fig_console, exactly as a line typed on the pad grid does. */
+static void drain_bridge(FigShellPad *p)
 {
     const int q = web_padq_next();
     if (q & 1) {
@@ -311,12 +311,12 @@ static void drain_bridge(KilnShellPad *p)
     }
     char line[64];
     for (int i = 0; i < 8 && web_cmd_next(line, (int)sizeof line); i++)
-        kiln_console_exec(line);
+        fig_console_exec(line);
 }
 
 /* ── hooks ─────────────────────────────────────────────────────────── */
 
-static KilnShellOpts g_opt;
+static FigShellOpts g_opt;
 static int g_w, g_h;
 static int g_audio;
 static uint32_t g_frames;
@@ -326,8 +326,8 @@ static void present(void *ctx, const void *rgba8, int w, int h)
     (void)ctx;
     if (w != g_w || h != g_h) { web_open(w, h, g_opt.title); g_w = w; g_h = h; }
     web_blit(rgba8, w, h);
-    kiln_shell_presented();
-    const KilnHostCounters *c = kiln_host_counters();
+    fig_shell_presented();
+    const FigHostCounters *c = fig_host_counters();
     web_publish_frame((int)++g_frames, w, h, (int)c->rects, (int)c->tris, (int)c->glyphs, (double)c->shaded_px);
     publish_console();
 }
@@ -336,12 +336,12 @@ static void vsync(void *ctx)
 {
     (void)ctx;
 
-    unsigned char keys[KILN_KEY_COUNT];
+    unsigned char keys[FIG_KEY_COUNT];
     memset(keys, 0, sizeof keys);
     web_keys(keys, (int)sizeof keys);
 
-    KilnShellPad p;
-    kiln_shell_pad_from_keys(keys, &p);
+    FigShellPad p;
+    fig_shell_pad_from_keys(keys, &p);
 
     const int gp = web_gamepad();
     if (gp & 1) {
@@ -358,19 +358,19 @@ static void vsync(void *ctx)
         if (sy) p.stick_y = sy;
     }
     drain_bridge(&p);
-    kiln_shell_pad(&p);
+    fig_shell_pad(&p);
     web_publish_pad(p.stick_x, p.stick_y,
                     (p.a) | (p.b << 1) | (p.z << 2) | (p.l << 3) | (p.r << 4) |
                     (p.start << 5) | (p.c_up << 6) | (p.c_down << 7) |
                     (p.c_left << 8) | (p.c_right << 9) | (p.d_up << 10) |
                     (p.d_down << 11) | (p.d_left << 12) | (p.d_right << 13));
-    kiln_shell_tick();
+    fig_shell_tick();
 
     /* The yield. emscripten_sleep returns control to the browser's event loop
      * — which is what lets the key listeners above ever run — and comes back
      * here when the timer fires. Always at least 1 ms: sleeping 0 in a tight
      * loop starves rendering on some engines. */
-    const uint32_t wait = kiln_shell_pace((uint32_t)emscripten_get_now(), g_opt.fps);
+    const uint32_t wait = fig_shell_pace((uint32_t)emscripten_get_now(), g_opt.fps);
     emscripten_sleep(wait ? wait : 1);
 }
 
@@ -396,30 +396,30 @@ static void audio_submit(void *ctx, const short *stereo, int nsamples)
     web_audio_push(stereo, nsamples, audio_get_frequency());
 }
 
-/* The game is compiled with -Dmain=kiln_game_main; this file is compiled in
+/* The game is compiled with -Dmain=fig_game_main; this file is compiled in
  * the same command, so the macro reaches here too and would rename the
  * launcher's own entry point along with the game's. */
 #undef main
 
 int main(int argc, char **argv)
 {
-    const int r = kiln_shell_args(argc, argv, &g_opt);
+    const int r = fig_shell_args(argc, argv, &g_opt);
     if (r) return r < 0 ? 2 : 0;
     if (!g_opt.dfs) g_opt.dfs = "/assets";   /* where --preload-file lands it */
-    kiln_shell_env(&g_opt);
+    fig_shell_env(&g_opt);
 
     web_input_init();
     web_bridge_init();
 
-    const KilnHostHooks hooks = {
+    const FigHostHooks hooks = {
         .present      = present,
         .vsync        = vsync,
         .audio_free   = audio_free,
         .audio_submit = audio_submit,
         .ctx          = NULL,
     };
-    kiln_host_set_hooks(&hooks);
-    kiln_shell_pace_reset((uint32_t)emscripten_get_now());
+    fig_host_set_hooks(&hooks);
+    fig_shell_pace_reset((uint32_t)emscripten_get_now());
 
-    return kiln_game_main();
+    return fig_game_main();
 }

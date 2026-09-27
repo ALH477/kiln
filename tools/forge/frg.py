@@ -14,7 +14,7 @@ this module exists for the other direction and for the round-trip gate:
     console, which is the thing that makes this an editor for the existing game
     rather than only for new content;
   * `boxes_to_map` / `voxelise`, which are the host mirrors of
-    kiln_voxel_boxes and let `nix flake check` assert that .map -> .FRG -> .map
+    fig_voxel_boxes and let `nix flake check` assert that .map -> .FRG -> .map
     is idempotent without booting anything.
 
 No `bpy` import and nothing from libdragon: this runs under a bare `python3`.
@@ -25,7 +25,7 @@ here rather than being trusted because the C version passes.
 Format, big-endian throughout (it is written by a MIPS target and the encoder
 says so rather than leaving it to be inferred from one sample):
 
-  kiln_store header, 16 bytes:  magic 'KLNS' | u16 version | u16 flags
+  fig_store header, 16 bytes:  magic 'KLNS' | u16 version | u16 flags
                                | u32 len | u32 crc32   (CRC over payload only)
   payload:                     f32 offset x,y,z
                                u16 chunk_count
@@ -238,7 +238,7 @@ class World:
     def solid_count(self):
         return sum(sum(1 for b in c if b) for c in self.chunks.values())
 
-    # ── The host mirror of kiln_voxel_boxes ────────────────────────────────
+    # ── The host mirror of fig_voxel_boxes ────────────────────────────────
     # Same partition, same scan order (y, then z, then x), same per-chunk
     # scope. It has to be the same or the round-trip gate proves nothing: an
     # "equivalent" decomposition that merges differently produces a different
@@ -309,17 +309,17 @@ def encode(world):
     keys = sorted(world.chunks.keys(), key=lambda k: (k[2], k[1], k[0]))
     # MAX_CHUNKS was declared here and then used ONLY to format `info`'s
     # display string, so `frg.py frommap` of a map spanning more than 24 chunks
-    # wrote a .FRG the ROM loads PARTIALLY -- kiln_voxel_set refuses the extra
+    # wrote a .FRG the ROM loads PARTIALLY -- fig_voxel_set refuses the extra
     # chunks and forge_io.c discarded its return value, leaving a level that is
     # silently missing rooms with nothing to say so but a HUD gauge nobody is
     # looking at during an import. Refuse to write it instead.
     if len(keys) > MAX_CHUNKS:
         raise SystemExit(
             f'frg.py: this map needs {len(keys)} chunks but the ROM can hold '
-            f'{MAX_CHUNKS} (KILN_VOXEL_MAX_CHUNKS).\n'
+            f'{MAX_CHUNKS} (FIG_VOXEL_MAX_CHUNKS).\n'
             f'        A chunk is {CHUNK}x{CHUNK}x{CHUNK} blocks of '
             f'{BLOCK_UNITS} units. Shrink the level, or raise '
-            f'KILN_VOXEL_MAX_CHUNKS in engine/src/kiln/kiln_voxel.h and '
+            f'FIG_VOXEL_MAX_CHUNKS in engine/src/kiln/kiln_voxel.h and '
             f'MAX_CHUNKS here together.')
     p += struct.pack('>H', len(keys))
     for (cx, cy, cz) in keys:
@@ -366,7 +366,7 @@ def encode(world):
 
 def decode(blob):
     if len(blob) < 16:
-        raise ValueError('too short to hold a kiln_store header')
+        raise ValueError('too short to hold a fig_store header')
     magic, version, _flags, length, crc = struct.unpack('>IHHII', blob[:16])
     if magic not in (MAGIC, MAGIC_LEGACY):
         raise ValueError(f'bad magic {magic:#x}, expected KLNS')
@@ -503,7 +503,7 @@ def voxelise(map_text):
     # asserted that emit was idempotent, which it is over an empty world.
     #
     # So the map's own minimum corner, floored to a block boundary, becomes
-    # world.offset. kiln_voxel_boxes adds it back on export and the .FRG carries
+    # world.offset. fig_voxel_boxes adds it back on export and the .FRG carries
     # it, so the level lands back exactly where it was authored.
     if brushes:
         lo = [min(b[0][a] for b in brushes) for a in range(3)]

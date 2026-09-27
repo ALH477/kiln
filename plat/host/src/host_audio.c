@@ -2,7 +2,7 @@
  *
  * host_audio.c — the RSP mixer's channel arithmetic, and now its samples.
  *
- * Nearly all of kiln_audio is bookkeeping: a 32-channel budget partitioned
+ * Nearly all of fig_audio is bookkeeping: a 32-channel budget partitioned
  * into SFX and music ranges, priority-based voice stealing, room crossfades.
  * That arithmetic is either right or produces a silence nobody can explain,
  * and it needs no PCM to be checkable — which is why this file tracked
@@ -47,10 +47,10 @@ static int g_nch;
 static int g_freq;
 static float g_master = 1.0f;
 static short g_buf[4096];
-static KilnHostAudioCounters g_c;
+static FigHostAudioCounters g_c;
 static int g_said_silent;
 
-const KilnHostAudioCounters *kiln_host_audio_counters(void)
+const FigHostAudioCounters *fig_host_audio_counters(void)
 {
     g_c.channels = g_nch;
     g_c.frequency = g_freq;
@@ -61,7 +61,7 @@ const KilnHostAudioCounters *kiln_host_audio_counters(void)
 
 /* ── the output device, which does not exist ───────────────────────────
  * audio_can_write used to `return 1`, and that is not a stub, it is a hang:
- * kiln_audio_update is `while (audio_can_write()) { ... }`, draining until the
+ * fig_audio_update is `while (audio_can_write()) { ... }`, draining until the
  * device says full. A device that is never full never lets the frame end, so
  * any host build of a real game loop — as opposed to a check, which never
  * calls it — spins forever on the first frame. Nothing caught this because
@@ -88,9 +88,9 @@ void audio_init(const int frequency, float latency)
 }
 void audio_close(void) { g_freq = 0; g_credit = 0; }
 
-void kiln_host_audio_frame(void)
+void fig_host_audio_frame(void)
 {
-    const KilnHostHooks *h = kiln_host_hooks();
+    const FigHostHooks *h = fig_host_hooks();
     if (h->audio_free) return;          /* a real device keeps its own count */
     if (g_freq <= 0) return;
     g_credit += g_freq / 60;            /* one frame of samples consumed */
@@ -99,7 +99,7 @@ void kiln_host_audio_frame(void)
 
 int audio_can_write(void)
 {
-    const KilnHostHooks *h = kiln_host_hooks();
+    const FigHostHooks *h = fig_host_hooks();
     if (h->audio_free) return h->audio_free(h->ctx) > 0;
     return g_credit >= BUFLEN;
 }
@@ -108,14 +108,14 @@ int  audio_get_buffer_length(void) { return BUFLEN; }
 short *audio_write_begin(void) { return g_buf; }
 void  audio_write_end(void)
 {
-    const KilnHostHooks *h = kiln_host_hooks();
+    const FigHostHooks *h = fig_host_hooks();
     if (h->audio_submit) h->audio_submit(h->ctx, g_buf, BUFLEN);
     else                 g_credit -= BUFLEN;
 }
 
 void mixer_init(int num_channels)
 {
-    /* The console's hard limit. kiln_audio's default partition is 16 SFX + 10
+    /* The console's hard limit. fig_audio's default partition is 16 SFX + 10
      * music = 26, and the header explains why the sum matters; a host that
      * allowed 40 would let a partition through that cannot exist. */
     assertf(num_channels > 0 && num_channels <= MAX_CH,
@@ -152,7 +152,7 @@ void mixer_ch_play(int ch, waveform_t *wave)
     /* libdragon marks ch+1 the SECONDARY of a stereo waveform and asserts on
      * play / set_vol / set_freq through it. The host mixes stereo on one
      * channel and used to let all three through, so a game that played onto a
-     * secondary ran here and died on the console (kiln_audio's allocator did
+     * secondary ran here and died on the console (fig_audio's allocator did
      * exactly that; see kiln-audio-check.c). */
     assertf(!g_ch[ch].sub, "mixer_ch_play: cannot call on secondary stereo channel %d", ch);
     if (wave && wave->channels == 2) {
@@ -171,7 +171,7 @@ void mixer_ch_play(int ch, waveform_t *wave)
      *
      * The first version of this only seeded a frequency that was still zero,
      * which made pitch STICKY: a game that pitch-shifts with
-     * kiln_sfx_play_ex and then lets kiln_sfx_play steal that channel plays
+     * fig_sfx_play_ex and then lets fig_sfx_play steal that channel plays
      * the next sound at the previous sound's pitch, and two assets with
      * different sample rates sharing an SFX channel both resample at
      * whichever landed first. That is the pitch-and-time-drift class
@@ -200,7 +200,7 @@ void mixer_ch_set_vol(int ch, float lvol, float rvol)
 }
 void mixer_ch_set_vol_pan(int ch, float vol, float pan)
 {
-    /* libdragon's own mapping: pan 0 is hard left, 1 hard right. kiln_sound
+    /* libdragon's own mapping: pan 0 is hard left, 1 hard right. fig_sound
      * computes pan from the listener basis, so getting this backwards would
      * put every positional sound on the wrong side. */
     check_ch(ch, "mixer_ch_set_vol_pan");
@@ -269,7 +269,7 @@ bool mixer_ch_playing(int ch)
  *
  * Channels whose waveform never decoded (a Huffman VADPCM, an Opus file) have
  * wave->ctx == NULL and contribute nothing. They still occupy their channel
- * and still report as playing, because that is what kiln_audio's partition
+ * and still report as playing, because that is what fig_audio's partition
  * and voice-stealing arithmetic is entitled to see. */
 void mixer_poll(int16_t *out, int nsamples)
 {
@@ -301,7 +301,7 @@ void mixer_poll(int16_t *out, int nsamples)
     int audible = 0;
     for (int c = 0; c < g_nch; c++) {
         if (!g_ch[c].playing || !g_ch[c].wave) continue;
-        const KilnHostWave *w = (const KilnHostWave *)g_ch[c].wave->ctx;
+        const FigHostWave *w = (const FigHostWave *)g_ch[c].wave->ctx;
         if (!w || !w->pcm) continue;
         audible++;
 
@@ -352,7 +352,7 @@ void mixer_poll(int16_t *out, int nsamples)
         g_said_silent = 1;
         debugf("host audio: nothing decodable is playing, so mixer_poll is "
                "producing silence. Channel state is still exact — see "
-               "kiln_host_audio_counters.\n");
+               "fig_host_audio_counters.\n");
     }
 }
 void mixer_try_play(void) { }
@@ -368,7 +368,7 @@ void wav64_open(wav64_t *wav, const char *fn)
      * paths a game's flake never built — and it is exactly the class the DFS
      * gate was added for. */
     char err[128];
-    KilnHostWave *w = kiln_host_wave_load(fn, err, sizeof err);
+    FigHostWave *w = fig_host_wave_load(fn, err, sizeof err);
     if (!w) {
         g_c.wav_missing++;
         debugf("wav64_open: '%s': %s\n", fn, err);
@@ -397,12 +397,12 @@ void wav64_close(wav64_t *wav)
      * burst of noise, which reads as a decoder bug. */
     for (int i = 0; i < g_nch; i++)
         if (g_ch[i].wave == &wav->wave) { g_ch[i].playing = 0; g_ch[i].wave = NULL; }
-    kiln_host_wave_free((KilnHostWave *)wav->st);
+    fig_host_wave_free((FigHostWave *)wav->st);
     memset(wav, 0, sizeof *wav);
 }
 
 /* ── trackers ─────────────────────────────────────────────────────────
- * Channel counts matter: kiln_audio reserves a music range and asks the player
+ * Channel counts matter: fig_audio reserves a music range and asks the player
  * how many channels it wants. A host reporting 0 would make the partition
  * arithmetic trivially satisfiable and hide an over-subscription. */
 int xm64player_open(xm64player_t *p, const char *fn)
@@ -480,7 +480,7 @@ void ym64player_stop(ym64player_t *p)
 void ym64player_close(ym64player_t *p) { if (p) memset(p, 0, sizeof *p); }
 int  ym64player_num_channels(ym64player_t *p) { return p ? p->channels : 0; }
 
-/* rspq high-priority queue: kiln_audio brackets its mixer_poll with these so
+/* rspq high-priority queue: fig_audio brackets its mixer_poll with these so
  * audio jumps the display list. No queue here. */
 void rspq_highpri_begin(void) { }
 void rspq_highpri_end(void)   { }

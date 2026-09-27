@@ -9,8 +9,8 @@
 # pins "this is what it looks like when the combiner is wrong" rather than
 # "this is what Forge does".
 #
-# The check renders a real voxel mesh — kiln_voxel's greedy surface extraction
-# through kiln_voxmesh's packer through the host 3D pass — TWICE, with two
+# The check renders a real voxel mesh — fig_voxel's greedy surface extraction
+# through fig_voxmesh's packer through the host 3D pass — TWICE, with two
 # colour combiners, and diffs both captures. The pair is the point:
 #
 #   refs/kiln-voxmesh-shade.png     the WRONG combiner: a featureless white
@@ -33,7 +33,7 @@
 #                            per-face brightness, carrying no type at all.
 #   forge_geo.c              sets T3D_FLAG_TEXTURED, so the RSP emits texture
 #                            coordinates — and now also sets the combiner.
-#   kiln_engine.c:126        kiln_scene_begin sets RDPQ_COMBINER_SHADE, every
+#   kiln_engine.c:126        fig_scene_begin sets RDPQ_COMBINER_SHADE, every
 #                            frame. Correct as the engine's untextured default;
 #                            Forge overrides it for its own mesh.
 #   tiny3d t3d.c:300         t3d_state_set_drawflags only encodes the RSP
@@ -42,13 +42,13 @@
 # Under the wrong combiner every one of Forge's fifteen block types drew the
 # same grey, PAINT mode's CI4 atlas never reached the framebuffer, and `Z`'s
 # veiled-palette preview could not change the geometry it was previewing. The
-# counter kiln_host_t3d_counters()->texels_discarded measures it: ~83,000
+# counter fig_host_t3d_counters()->texels_discarded measures it: ~83,000
 # texels sampled and thrown away in one frame, which is what the -shade
 # reference still records.
 #
 # ── What the fix was ──────────────────────────────────────────────────
 # The fix is one rdpq_mode_combiner call and it belongs in Forge, not the
-# engine: kiln_voxmesh_draw's own comment says "Sets NO render state: the
+# engine: fig_voxmesh_draw's own comment says "Sets NO render state: the
 # caller has already chosen the combiner", so the engine behaves as designed
 # and the caller is the one omitting it. Which combiner, and whether the
 # authored palettes still read once it lands, is a judgement about a CRT that
@@ -99,7 +99,7 @@ target.mkCheck {
     # into a function forge_geo_draw never calls, or called only after the
     # chunk loop. So: strip C comments, look inside ONE function's body, and
     # require (a) the call as live code in begin_voxel_state and (b)
-    # forge_geo_draw calling begin_voxel_state before any kiln_voxmesh_draw.
+    # forge_geo_draw calling begin_voxel_state before any fig_voxmesh_draw.
     fn_body() {
       awk -v fn="$1" '
         index($0, fn) == 1 { infn = 1 }
@@ -124,14 +124,14 @@ target.mkCheck {
     state_before_draw() {
       fn_body 'void forge_geo_draw(' | awk '
         /begin_voxel_state\(/ && !b { b = NR }
-        /kiln_voxmesh_draw\(/ && !d { d = NR }
+        /fig_voxmesh_draw\(/ && !d { d = NR }
         END { exit !(b && d && b < d) }'
     }
     if ! combiner_live || ! state_before_draw; then
       echo ""
       echo "FAILED: Forge/src/forge_geo.c no longer sets a TEX combiner."
-      echo "  kiln_voxmesh puts the block type ONLY in the UVs, so without it"
-      echo "  kiln_scene_begin's RDPQ_COMBINER_SHADE stands, the texel is"
+      echo "  fig_voxmesh puts the block type ONLY in the UVs, so without it"
+      echo "  fig_scene_begin's RDPQ_COMBINER_SHADE stands, the texel is"
       echo "  discarded, and all fifteen block types draw the same grey."
       echo "  That is refs/kiln-voxmesh-shade.png, which is still green above"
       echo "  because this check renders both combiners itself."

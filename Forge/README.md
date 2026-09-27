@@ -35,11 +35,11 @@ otherwise only be verified by hand.
 | mode | authors | out |
 |---|---|---|
 | GEO | blocks: place, dig, drag-fill, 15 types | the brushes |
-| WALK | nothing — you stand in it under the real `kiln_fpscam` | — |
+| WALK | nothing — you stand in it under the real `fig_fpscam` | — |
 | PAINT | the CI4 atlas; `Z` previews the **veiled** palette | `.FRG` |
 | ENT | classname, origin, angle, numeric epairs | `.map` point entities |
 | LIGHT | key/fill direction and level, ambient, fog, clear colour | a generated header |
-| CAM | keyframes, validated live by `kiln_camlint` | a `PMCamKey` table |
+| CAM | keyframes, validated live by `fig_camlint` | a `PMCamKey` table |
 
 **The controls live in `src/forge_binds.def`** and nowhere else. `forge_hud.c`'s
 in-ROM help and the skill's table both come from it —
@@ -53,11 +53,11 @@ all three claimed GEO fills with `Z+A`, which it never has.
 | `src/forge.h` | the one `Forge` struct, every cap, every prototype |
 | `src/forge_main.c` | init, the mode switch, the frame loop |
 | `src/forge_geo.c` | reticle, place/dig/drag-fill, the mesh cache |
-| `src/forge_walk.c` | greedy boxes into the real clip world, real `kiln_fpscam` |
+| `src/forge_walk.c` | greedy boxes into the real clip world, real `fig_fpscam` |
 | `src/forge_paint.c` | the 16×16 CI4 tile editor and its palette |
 | `src/forge_ent.c` | the classname picker and the `.map` entity emitter |
 | `src/forge_light.c` | the 7-field light rig and its generated header |
-| `src/forge_cine.c` | keyframes, scrubbing, live `kiln_camlint` |
+| `src/forge_cine.c` | keyframes, scrubbing, live `fig_camlint` |
 | `src/forge_io.c` | `.FRG` encode/decode, the `.MAP` emitter, the aux writers |
 | `src/forge_map.c` | one AABB brush as `.map` text — **compiles natively**, so `level-vocab` can assert on its winding |
 | `src/forge_binds.def` | the control scheme |
@@ -69,8 +69,8 @@ byte-identical round trip through it.
 
 ## Two things that will surprise you
 
-- **The atlas is not currently reaching the screen.** `kiln_voxmesh` puts the
-  block type in the UVs, but `kiln_scene_begin` sets `RDPQ_COMBINER_SHADE`,
+- **The atlas is not currently reaching the screen.** `fig_voxmesh` puts the
+  block type in the UVs, but `fig_scene_begin` sets `RDPQ_COMBINER_SHADE`,
   which outputs vertex colour and discards the texel — so every block type draws
   the same grey. The fix is one `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)`
   **in Forge**, and `nix/checks/kiln-voxmesh.nix` holds both captures.

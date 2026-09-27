@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
 # The Exsecutor logo, rendered by Kiln's built-in software 3D path
-# (kiln_soft3d) from Exsecutor-emitted C. See main.c for what the screen
+# (fig_soft3d) from Exsecutor-emitted C. See main.c for what the screen
 # shows and ../../engine/src/kiln/gen/PROVENANCE.md for where the generated
 # unit and the EXSG stream come from.
 BUILD_DIR = build
@@ -12,10 +12,10 @@ include $(N64_INST)/include/kiln.mk
 
 N64_CFLAGS += -std=gnu2x -Wno-error
 
-# kiln_soft3d is registered in the engine (modules.mk), but the flake's
-# n64-inst prefix is NOT rewired to rebuild libkiln with it yet (see
+# fig_soft3d is registered in the engine (modules.mk), but the flake's
+# n64-inst prefix is NOT rewired to rebuild libfigulina with it yet (see
 # exsec-signaculum-demo.nix's DEFERRED note) — so the installed
-# <kiln/kiln_soft3d.h> does not exist and the installed libkiln.a has no
+# <kiln/kiln_soft3d.h> does not exist and the installed libfigulina.a has no
 # such member. Until then this ROM compiles against the ENGINE SOURCE TREE:
 # the header resolves via the first -I below, the module's object is built
 # by ../../engine's own Makefile (which is where its -fno-fast-math

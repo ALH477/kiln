@@ -8,7 +8,7 @@
  *   mounts the SD volume DEFERRED, so debug_init_sdfs() can return true without
  *   having touched the card at all; the first real failure would then surface
  *   from an fopen several screens later. Probing the cart up front means
- *   kiln_store_cart_name() has something true to report even when the mount is
+ *   fig_store_cart_name() has something true to report even when the mount is
  *   the thing that failed, which is the difference between "no cart" and "cart,
  *   no card".
  *
@@ -44,7 +44,7 @@
 
 /* ── Module state ──────────────────────────────────────────────────────*/
 
-static KilnStoreKind g_kind = KILN_STORE_NONE;
+static FigStoreKind g_kind = FIG_STORE_NONE;
 static int          g_cart = CART_NULL;
 static int          g_inited;
 static int          g_sram_ok;
@@ -54,16 +54,16 @@ static const char  *g_bus = "-";
  * payload offsets, no free list. `used` doubles as the valid flag so a wiped
  * (all-zero) SRAM parses as an empty directory rather than as garbage.
  */
-#define SRAM_DIR_BYTES  (KILN_STORE_SRAM_SLOTS * 32)
+#define SRAM_DIR_BYTES  (FIG_STORE_SRAM_SLOTS * 32)
 /* The top 8 bytes are reserved as try_sram's round-trip scratch — deliberately
  * ABOVE every slot, so a probe that runs at boot on a cart whose save chip is
  * flaky cannot land inside a level someone saved. */
 #define SRAM_PROBE_BYTES 8
-#define SRAM_SLOT_BYTES ((KILN_STORE_SRAM_BYTES - SRAM_DIR_BYTES - SRAM_PROBE_BYTES) \
-                         / KILN_STORE_SRAM_SLOTS)
+#define SRAM_SLOT_BYTES ((FIG_STORE_SRAM_BYTES - SRAM_DIR_BYTES - SRAM_PROBE_BYTES) \
+                         / FIG_STORE_SRAM_SLOTS)
 
 typedef struct {
-    char     name[KILN_STORE_NAME_MAX];
+    char     name[FIG_STORE_NAME_MAX];
     uint32_t used;   /* payload+header bytes in this slot, 0 = free */
     uint32_t _pad;
 } SramEntry;
@@ -75,7 +75,7 @@ typedef struct {
  * trade. 8 shifts per byte on a 93.75 MHz VR4300 is ~2 ms for a 64 KB level,
  * which is invisible next to the SD write it protects.
  */
-uint32_t kiln_store_crc32(const void *data, uint32_t len)
+uint32_t fig_store_crc32(const void *data, uint32_t len)
 {
     const uint8_t *p = (const uint8_t *)data;
     uint32_t crc = 0xFFFFFFFFu;
@@ -89,17 +89,17 @@ uint32_t kiln_store_crc32(const void *data, uint32_t len)
 
 /* ── Names ─────────────────────────────────────────────────────────────*/
 
-const char *kiln_store_kind_name(void)
+const char *fig_store_kind_name(void)
 {
     switch (g_kind) {
-    case KILN_STORE_CART_SD: return "sd";
-    case KILN_STORE_SRAM:    return "sram";
-    case KILN_STORE_DFS:     return "rom";
+    case FIG_STORE_CART_SD: return "sd";
+    case FIG_STORE_SRAM:    return "sram";
+    case FIG_STORE_DFS:     return "rom";
     default:                return "none";
     }
 }
 
-const char *kiln_store_cart_name(void)
+const char *fig_store_cart_name(void)
 {
     switch (g_cart) {
     case CART_CI:  return "64drive";
@@ -110,22 +110,22 @@ const char *kiln_store_cart_name(void)
     }
 }
 
-const char *kiln_store_bus_name(void) { return g_bus; }
+const char *fig_store_bus_name(void) { return g_bus; }
 
-const char *kiln_store_status_name(int status)
+const char *fig_store_status_name(int status)
 {
     switch (status) {
-    case KILN_STORE_OK:        return "ok";
-    case KILN_STORE_ENOINIT:   return "no-init";
-    case KILN_STORE_EREADONLY: return "read-only";
-    case KILN_STORE_EOPEN:     return "open-failed";
-    case KILN_STORE_EIO:       return "short-io";
-    case KILN_STORE_ENOSPACE:  return "no-space";
-    case KILN_STORE_ENOENT:    return "not-found";
-    case KILN_STORE_EMAGIC:    return "bad-magic";
-    case KILN_STORE_EVERSION:  return "bad-version";
-    case KILN_STORE_ECRC:      return "bad-crc";
-    case KILN_STORE_ENAME:     return "bad-name";
+    case FIG_STORE_OK:        return "ok";
+    case FIG_STORE_ENOINIT:   return "no-init";
+    case FIG_STORE_EREADONLY: return "read-only";
+    case FIG_STORE_EOPEN:     return "open-failed";
+    case FIG_STORE_EIO:       return "short-io";
+    case FIG_STORE_ENOSPACE:  return "no-space";
+    case FIG_STORE_ENOENT:    return "not-found";
+    case FIG_STORE_EMAGIC:    return "bad-magic";
+    case FIG_STORE_EVERSION:  return "bad-version";
+    case FIG_STORE_ECRC:      return "bad-crc";
+    case FIG_STORE_ENAME:     return "bad-name";
     default:                  return "unknown";
     }
 }
@@ -140,7 +140,7 @@ static int name_ok(const char *name)
 {
     if (!name || !name[0]) return 0;
     size_t n = strlen(name);
-    if (n >= KILN_STORE_NAME_MAX) return 0;
+    if (n >= FIG_STORE_NAME_MAX) return 0;
     for (size_t i = 0; i < n; i++) {
         char c = name[i];
         int alnum = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
@@ -152,7 +152,7 @@ static int name_ok(const char *name)
 
 static void path_for(char *out, size_t cap, const char *name, const char *ext)
 {
-    snprintf(out, cap, "%s/%s.%s", KILN_STORE_DIR, name, ext);
+    snprintf(out, cap, "%s/%s.%s", FIG_STORE_DIR, name, ext);
 }
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────*/
@@ -169,7 +169,7 @@ static int try_sd(void)
     /* The mount is deferred, so prove the card by touching it. mkdir first:
      * on a fresh card FORGE/ does not exist yet, and a failed open of a file
      * inside a missing directory is not evidence about the card. */
-    mkdir(KILN_STORE_DIR, 0777);
+    mkdir(FIG_STORE_DIR, 0777);
 
     char path[64];
     path_for(path, sizeof path, "MOUNT", "TMP");
@@ -209,7 +209,7 @@ static int try_sd(void)
  * engine — examples/map-demo and examples/assets-demo both call it in
  * main(), and every downstream game has too. That convention quietly broke
  * this backend: Forge does not load
- * models by DFS path, so it had no reason to call dfs_init, and kiln_store
+ * models by DFS path, so it had no reason to call dfs_init, and fig_store
  * happily reported `store rom` over a filesystem that was never mounted. Every
  * read then returned "not found" whether the file was there or not, and the
  * editor started empty with a green status line.
@@ -233,7 +233,7 @@ static int try_sram(void)
     sram_init();
     if (sram_detect() <= 0) return 0;
 
-    const size_t probe_off = KILN_STORE_SRAM_BYTES - SRAM_PROBE_BYTES;
+    const size_t probe_off = FIG_STORE_SRAM_BYTES - SRAM_PROBE_BYTES;
     uint32_t saved = 0, pattern = 0xC0FFEE01u, back = 0;
 
     if (sram_read(&saved, probe_off, sizeof saved) < 0) return 0;
@@ -247,60 +247,60 @@ static int try_sram(void)
     return 1;
 }
 
-KilnStoreKind kiln_store_init(KilnStoreKind prefer)
+FigStoreKind fig_store_init(FigStoreKind prefer)
 {
     if (g_inited) return g_kind;
     g_inited = 1;
 
-    if (prefer >= KILN_STORE_CART_SD && try_sd()) {
-        g_kind = KILN_STORE_CART_SD;
+    if (prefer >= FIG_STORE_CART_SD && try_sd()) {
+        g_kind = FIG_STORE_CART_SD;
         return g_kind;
     }
     /* cart_init may have succeeded even though the card did not; keep g_cart so
      * the HUD can say "ED64, no card" rather than "no cart". */
-    if (prefer >= KILN_STORE_SRAM && try_sram()) {
-        g_kind = KILN_STORE_SRAM;
+    if (prefer >= FIG_STORE_SRAM && try_sram()) {
+        g_kind = FIG_STORE_SRAM;
         return g_kind;
     }
-    if (prefer >= KILN_STORE_DFS && try_dfs()) {
-        g_kind = KILN_STORE_DFS;
+    if (prefer >= FIG_STORE_DFS && try_dfs()) {
+        g_kind = FIG_STORE_DFS;
         return g_kind;
     }
-    g_kind = KILN_STORE_NONE;
+    g_kind = FIG_STORE_NONE;
     return g_kind;
 }
 
-void kiln_store_close(void)
+void fig_store_close(void)
 {
-    if (g_kind == KILN_STORE_CART_SD) debug_close_sdfs();
-    g_kind = KILN_STORE_NONE;
+    if (g_kind == FIG_STORE_CART_SD) debug_close_sdfs();
+    g_kind = FIG_STORE_NONE;
     g_inited = 0;
 }
 
-KilnStoreKind kiln_store_kind(void) { return g_kind; }
+FigStoreKind fig_store_kind(void) { return g_kind; }
 
-int kiln_store_writable(void)
+int fig_store_writable(void)
 {
-    return g_kind == KILN_STORE_CART_SD || g_kind == KILN_STORE_SRAM;
+    return g_kind == FIG_STORE_CART_SD || g_kind == FIG_STORE_SRAM;
 }
 
 /* ── SRAM directory helpers ────────────────────────────────────────────*/
 
 static int sram_dir_read(SramEntry *dir)
 {
-    if (!g_sram_ok) return KILN_STORE_ENOINIT;
-    if (sram_read(dir, 0, SRAM_DIR_BYTES) < 0) return KILN_STORE_EIO;
+    if (!g_sram_ok) return FIG_STORE_ENOINIT;
+    if (sram_read(dir, 0, SRAM_DIR_BYTES) < 0) return FIG_STORE_EIO;
     /* A slot claiming more than it can hold is corruption, not a big slot. */
-    for (int i = 0; i < KILN_STORE_SRAM_SLOTS; i++) {
+    for (int i = 0; i < FIG_STORE_SRAM_SLOTS; i++) {
         if (dir[i].used > SRAM_SLOT_BYTES) dir[i].used = 0;
-        dir[i].name[KILN_STORE_NAME_MAX - 1] = '\0';
+        dir[i].name[FIG_STORE_NAME_MAX - 1] = '\0';
     }
-    return KILN_STORE_OK;
+    return FIG_STORE_OK;
 }
 
 static int sram_find(const SramEntry *dir, const char *name)
 {
-    for (int i = 0; i < KILN_STORE_SRAM_SLOTS; i++)
+    for (int i = 0; i < FIG_STORE_SRAM_SLOTS; i++)
         if (dir[i].used && strcmp(dir[i].name, name) == 0) return i;
     return -1;
 }
@@ -312,130 +312,130 @@ static size_t sram_slot_off(int slot)
 
 /* ── Blob write ────────────────────────────────────────────────────────*/
 
-int kiln_store_write(const char *name, uint16_t version,
+int fig_store_write(const char *name, uint16_t version,
                     const void *payload, uint32_t len)
 {
-    if (!name_ok(name)) return KILN_STORE_ENAME;
-    if (g_kind == KILN_STORE_NONE) return KILN_STORE_ENOINIT;
-    if (g_kind == KILN_STORE_DFS)  return KILN_STORE_EREADONLY;
+    if (!name_ok(name)) return FIG_STORE_ENAME;
+    if (g_kind == FIG_STORE_NONE) return FIG_STORE_ENOINIT;
+    if (g_kind == FIG_STORE_DFS)  return FIG_STORE_EREADONLY;
 
-    KilnStoreHeader h = {
-        .magic   = KILN_STORE_MAGIC,
+    FigStoreHeader h = {
+        .magic   = FIG_STORE_MAGIC,
         .version = version,
         .flags   = 0,
         .len     = len,
-        .crc     = kiln_store_crc32(payload, len),
+        .crc     = fig_store_crc32(payload, len),
     };
 
-    if (g_kind == KILN_STORE_CART_SD) {
+    if (g_kind == FIG_STORE_CART_SD) {
         char path[64];
         path_for(path, sizeof path, name, "FRG");
-        mkdir(KILN_STORE_DIR, 0777);
+        mkdir(FIG_STORE_DIR, 0777);
         FILE *f = fopen(path, "wb");
-        if (!f) return KILN_STORE_EOPEN;
+        if (!f) return FIG_STORE_EOPEN;
         int bad = fwrite(&h, 1, sizeof h, f) != sizeof h;
         if (!bad && len) bad = fwrite(payload, 1, len, f) != len;
         /* fclose's own return matters here: FatFs flushes the FAT and the
          * directory entry on close, so a write that "succeeded" and a close
          * that failed is a file the host will not find. */
         if (fclose(f) != 0) bad = 1;
-        return bad ? KILN_STORE_EIO : KILN_STORE_OK;
+        return bad ? FIG_STORE_EIO : FIG_STORE_OK;
     }
 
     /* SRAM */
-    if (sizeof h + len > SRAM_SLOT_BYTES) return KILN_STORE_ENOSPACE;
+    if (sizeof h + len > SRAM_SLOT_BYTES) return FIG_STORE_ENOSPACE;
 
-    SramEntry dir[KILN_STORE_SRAM_SLOTS];
+    SramEntry dir[FIG_STORE_SRAM_SLOTS];
     int st = sram_dir_read(dir);
-    if (st != KILN_STORE_OK) return st;
+    if (st != FIG_STORE_OK) return st;
 
     int slot = sram_find(dir, name);
     if (slot < 0)
-        for (int i = 0; i < KILN_STORE_SRAM_SLOTS && slot < 0; i++)
+        for (int i = 0; i < FIG_STORE_SRAM_SLOTS && slot < 0; i++)
             if (!dir[i].used) slot = i;
-    if (slot < 0) return KILN_STORE_ENOSPACE;
+    if (slot < 0) return FIG_STORE_ENOSPACE;
 
     size_t off = sram_slot_off(slot);
-    if (sram_write(&h, off, sizeof h) < 0) return KILN_STORE_EIO;
-    if (len && sram_write(payload, off + sizeof h, len) < 0) return KILN_STORE_EIO;
+    if (sram_write(&h, off, sizeof h) < 0) return FIG_STORE_EIO;
+    if (len && sram_write(payload, off + sizeof h, len) < 0) return FIG_STORE_EIO;
 
     /* Directory last: until it is updated the slot is still free, so an
      * interrupted write loses the new blob rather than corrupting the old
      * directory into pointing at a half-written one. */
     memset(&dir[slot], 0, sizeof dir[slot]);
-    snprintf(dir[slot].name, KILN_STORE_NAME_MAX, "%s", name);
+    snprintf(dir[slot].name, FIG_STORE_NAME_MAX, "%s", name);
     dir[slot].used = (uint32_t)(sizeof h + len);
-    if (sram_write(dir, 0, SRAM_DIR_BYTES) < 0) return KILN_STORE_EIO;
-    return KILN_STORE_OK;
+    if (sram_write(dir, 0, SRAM_DIR_BYTES) < 0) return FIG_STORE_EIO;
+    return FIG_STORE_OK;
 }
 
 /* ── Blob read ─────────────────────────────────────────────────────────*/
 
-static int check_header(const KilnStoreHeader *h, uint16_t version, uint32_t cap)
+static int check_header(const FigStoreHeader *h, uint16_t version, uint32_t cap)
 {
-    if (h->magic != KILN_STORE_MAGIC &&
-        h->magic != KILN_STORE_MAGIC_LEGACY) return KILN_STORE_EMAGIC;
-    if (h->version != version)       return KILN_STORE_EVERSION;
-    if (h->len > cap)                return KILN_STORE_ENOSPACE;
-    return KILN_STORE_OK;
+    if (h->magic != FIG_STORE_MAGIC &&
+        h->magic != FIG_STORE_MAGIC_LEGACY) return FIG_STORE_EMAGIC;
+    if (h->version != version)       return FIG_STORE_EVERSION;
+    if (h->len > cap)                return FIG_STORE_ENOSPACE;
+    return FIG_STORE_OK;
 }
 
-int kiln_store_read(const char *name, uint16_t version,
+int fig_store_read(const char *name, uint16_t version,
                    void *dst, uint32_t cap, uint32_t *out_len)
 {
-    if (!name_ok(name)) return KILN_STORE_ENAME;
-    if (g_kind == KILN_STORE_NONE) return KILN_STORE_ENOINIT;
+    if (!name_ok(name)) return FIG_STORE_ENAME;
+    if (g_kind == FIG_STORE_NONE) return FIG_STORE_ENOINIT;
 
-    KilnStoreHeader h;
+    FigStoreHeader h;
 
-    if (g_kind == KILN_STORE_SRAM) {
-        SramEntry dir[KILN_STORE_SRAM_SLOTS];
+    if (g_kind == FIG_STORE_SRAM) {
+        SramEntry dir[FIG_STORE_SRAM_SLOTS];
         int st = sram_dir_read(dir);
-        if (st != KILN_STORE_OK) return st;
+        if (st != FIG_STORE_OK) return st;
         int slot = sram_find(dir, name);
-        if (slot < 0) return KILN_STORE_ENOENT;
+        if (slot < 0) return FIG_STORE_ENOENT;
         size_t off = sram_slot_off(slot);
-        if (sram_read(&h, off, sizeof h) < 0) return KILN_STORE_EIO;
+        if (sram_read(&h, off, sizeof h) < 0) return FIG_STORE_EIO;
         st = check_header(&h, version, cap);
-        if (st != KILN_STORE_OK) return st;
+        if (st != FIG_STORE_OK) return st;
         if (h.len && sram_read(dst, off + sizeof h, h.len) < 0)
-            return KILN_STORE_EIO;
+            return FIG_STORE_EIO;
     } else {
         /* SD and DFS differ only in the path they open. */
         char path[64];
-        if (g_kind == KILN_STORE_CART_SD)
+        if (g_kind == FIG_STORE_CART_SD)
             path_for(path, sizeof path, name, "FRG");
         else
             snprintf(path, sizeof path, "rom:/forge/%s.frg", name);
 
         FILE *f = fopen(path, "rb");
-        if (!f) return KILN_STORE_ENOENT;
-        int st = KILN_STORE_OK;
-        if (fread(&h, 1, sizeof h, f) != sizeof h) st = KILN_STORE_EIO;
-        if (st == KILN_STORE_OK) st = check_header(&h, version, cap);
-        if (st == KILN_STORE_OK && h.len &&
-            fread(dst, 1, h.len, f) != h.len) st = KILN_STORE_EIO;
+        if (!f) return FIG_STORE_ENOENT;
+        int st = FIG_STORE_OK;
+        if (fread(&h, 1, sizeof h, f) != sizeof h) st = FIG_STORE_EIO;
+        if (st == FIG_STORE_OK) st = check_header(&h, version, cap);
+        if (st == FIG_STORE_OK && h.len &&
+            fread(dst, 1, h.len, f) != h.len) st = FIG_STORE_EIO;
         fclose(f);
-        if (st != KILN_STORE_OK) return st;
+        if (st != FIG_STORE_OK) return st;
     }
 
-    if (kiln_store_crc32(dst, h.len) != h.crc) return KILN_STORE_ECRC;
+    if (fig_store_crc32(dst, h.len) != h.crc) return FIG_STORE_ECRC;
     if (out_len) *out_len = h.len;
-    return KILN_STORE_OK;
+    return FIG_STORE_OK;
 }
 
-int kiln_store_exists(const char *name)
+int fig_store_exists(const char *name)
 {
     if (!name_ok(name)) return 0;
-    if (g_kind == KILN_STORE_SRAM) {
-        SramEntry dir[KILN_STORE_SRAM_SLOTS];
-        if (sram_dir_read(dir) != KILN_STORE_OK) return 0;
+    if (g_kind == FIG_STORE_SRAM) {
+        SramEntry dir[FIG_STORE_SRAM_SLOTS];
+        if (sram_dir_read(dir) != FIG_STORE_OK) return 0;
         return sram_find(dir, name) >= 0;
     }
-    if (g_kind == KILN_STORE_NONE) return 0;
+    if (g_kind == FIG_STORE_NONE) return 0;
 
     char path[64];
-    if (g_kind == KILN_STORE_CART_SD) path_for(path, sizeof path, name, "FRG");
+    if (g_kind == FIG_STORE_CART_SD) path_for(path, sizeof path, name, "FRG");
     else snprintf(path, sizeof path, "rom:/forge/%s.frg", name);
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
@@ -445,26 +445,26 @@ int kiln_store_exists(const char *name)
 
 /* ── Text ──────────────────────────────────────────────────────────────*/
 
-int kiln_store_write_text(const char *name, const char *ext, const char *text)
+int fig_store_write_text(const char *name, const char *ext, const char *text)
 {
-    if (!name_ok(name) || !ext || !ext[0]) return KILN_STORE_ENAME;
-    if (g_kind != KILN_STORE_CART_SD) return KILN_STORE_EREADONLY;
+    if (!name_ok(name) || !ext || !ext[0]) return FIG_STORE_ENAME;
+    if (g_kind != FIG_STORE_CART_SD) return FIG_STORE_EREADONLY;
 
     char path[64];
     path_for(path, sizeof path, name, ext);
-    mkdir(KILN_STORE_DIR, 0777);
+    mkdir(FIG_STORE_DIR, 0777);
     FILE *f = fopen(path, "wb");
-    if (!f) return KILN_STORE_EOPEN;
+    if (!f) return FIG_STORE_EOPEN;
     size_t n = strlen(text);
     int bad = n && fwrite(text, 1, n, f) != n;
     if (fclose(f) != 0) bad = 1;
-    return bad ? KILN_STORE_EIO : KILN_STORE_OK;
+    return bad ? FIG_STORE_EIO : FIG_STORE_OK;
 }
 
-void kiln_store_log(const char *fmt, ...)
+void fig_store_log(const char *fmt, ...)
 {
-    if (g_kind != KILN_STORE_CART_SD) return;
-    FILE *f = fopen(KILN_STORE_DIR "/FORGE.LOG", "a");
+    if (g_kind != FIG_STORE_CART_SD) return;
+    FILE *f = fopen(FIG_STORE_DIR "/FORGE.LOG", "a");
     if (!f) return;
     va_list ap;
     va_start(ap, fmt);
@@ -479,7 +479,7 @@ void kiln_store_log(const char *fmt, ...)
 
 #define PROBE_BYTES (64 * 1024)
 
-static void emit(KilnStoreLogFn log, void *ctx, const char *fmt, ...)
+static void emit(FigStoreLogFn log, void *ctx, const char *fmt, ...)
 {
     char line[80];
     va_list ap;
@@ -489,15 +489,15 @@ static void emit(KilnStoreLogFn log, void *ctx, const char *fmt, ...)
     if (log) log(ctx, line);
 }
 
-int kiln_store_selftest(KilnStoreLogFn log, void *ctx)
+int fig_store_selftest(FigStoreLogFn log, void *ctx)
 {
     int fails = 0;
 
-    emit(log, ctx, "cart  %s", kiln_store_cart_name());
-    emit(log, ctx, "store %s%s", kiln_store_kind_name(),
-         kiln_store_writable() ? "" : " (read only)");
+    emit(log, ctx, "cart  %s", fig_store_cart_name());
+    emit(log, ctx, "store %s%s", fig_store_kind_name(),
+         fig_store_writable() ? "" : " (read only)");
 
-    if (!kiln_store_writable()) {
+    if (!fig_store_writable()) {
         emit(log, ctx, "FAIL no writable backend");
         return 1;
     }
@@ -521,27 +521,27 @@ int kiln_store_selftest(KilnStoreLogFn log, void *ctx)
     /* SRAM cannot hold 64 KB; clamp so the probe measures the backend it is
      * actually running on rather than reporting a false ENOSPACE. */
     uint32_t len = PROBE_BYTES;
-    if (g_kind == KILN_STORE_SRAM && len > SRAM_SLOT_BYTES - sizeof(KilnStoreHeader))
-        len = SRAM_SLOT_BYTES - sizeof(KilnStoreHeader);
+    if (g_kind == FIG_STORE_SRAM && len > SRAM_SLOT_BYTES - sizeof(FigStoreHeader))
+        len = SRAM_SLOT_BYTES - sizeof(FigStoreHeader);
 
     uint64_t t0 = get_ticks_ms();
-    int st = kiln_store_write("PROBE", 1, buf, len);
+    int st = fig_store_write("PROBE", 1, buf, len);
     uint64_t t1 = get_ticks_ms();
     emit(log, ctx, "write %u B  %s  %llu ms", (unsigned)len,
-         kiln_store_status_name(st), (unsigned long long)(t1 - t0));
-    if (st != KILN_STORE_OK) fails++;
+         fig_store_status_name(st), (unsigned long long)(t1 - t0));
+    if (st != FIG_STORE_OK) fails++;
 
-    if (st == KILN_STORE_OK) {
+    if (st == FIG_STORE_OK) {
         uint32_t got = 0;
         memset(back, 0, PROBE_BYTES);
         t0 = get_ticks_ms();
-        st = kiln_store_read("PROBE", 1, back, PROBE_BYTES, &got);
+        st = fig_store_read("PROBE", 1, back, PROBE_BYTES, &got);
         t1 = get_ticks_ms();
         emit(log, ctx, "read  %u B  %s  %llu ms", (unsigned)got,
-             kiln_store_status_name(st), (unsigned long long)(t1 - t0));
-        if (st != KILN_STORE_OK) fails++;
+             fig_store_status_name(st), (unsigned long long)(t1 - t0));
+        if (st != FIG_STORE_OK) fails++;
 
-        if (st == KILN_STORE_OK) {
+        if (st == FIG_STORE_OK) {
             if (got != len) {
                 emit(log, ctx, "FAIL length %u expected %u",
                      (unsigned)got, (unsigned)len);
@@ -575,18 +575,18 @@ int kiln_store_selftest(KilnStoreLogFn log, void *ctx)
             uint64_t ms = (t1 - t0) ? (t1 - t0) : 1;
             uint32_t kbs = (uint32_t)((uint64_t)len / ms);  /* B/ms == KB/s */
             emit(log, ctx, "read rate %u KB/s", (unsigned)kbs);
-            if (g_kind == KILN_STORE_CART_SD)
+            if (g_kind == FIG_STORE_CART_SD)
                 g_bus = kbs > 200 ? "sd4" : (kbs < 60 ? "spi" : "-");
         }
     }
 
     /* Text emit, on the SD path only — this is the channel the .map goes out
      * through, so it is worth proving separately from the blob channel. */
-    if (g_kind == KILN_STORE_CART_SD) {
-        st = kiln_store_write_text("PROBE", "TXT", "kiln forge probe\n");
-        emit(log, ctx, "text  %s", kiln_store_status_name(st));
-        if (st != KILN_STORE_OK) fails++;
-        kiln_store_log("probe: %d failure(s)", fails);
+    if (g_kind == FIG_STORE_CART_SD) {
+        st = fig_store_write_text("PROBE", "TXT", "kiln forge probe\n");
+        emit(log, ctx, "text  %s", fig_store_status_name(st));
+        if (st != FIG_STORE_OK) fails++;
+        fig_store_log("probe: %d failure(s)", fails);
     }
 
     free(buf);

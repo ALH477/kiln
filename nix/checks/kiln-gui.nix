@@ -27,7 +27,7 @@
 # That the console draws the same pixels. It cannot: there is no RDP here, the
 # 2D pass is being reimplemented rather than emulated, and fill rate — the
 # console's actual binding constraint — has no host analogue at all. What it
-# proves is that kiln_gui's own arithmetic is stable and that its output is
+# proves is that fig_gui's own arithmetic is stable and that its output is
 # what a human looked at once and approved. The console remains the arbiter of
 # appearance; ./dev shot is still how you find out what a frame really looks
 # like.

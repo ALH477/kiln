@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 #
-# nix/engine.nix — the Kiln engine: 3D on Tiny3D, 2D GUI on rdpq.
+# nix/engine.nix — Figulina, the engine Kiln fires: 3D on Tiny3D, 2D GUI on rdpq.
 #
 # Packaged exactly like Tiny3D (same $N64_INST layout, own store path, merged
-# by n64-inst.nix) so a ROM links it with a plain `-lkiln` and nothing here is
+# by n64-inst.nix) so a ROM links it with a plain `-lfigulina` and nothing here is
 # special-cased.
 #
 # `n64InstBase` must be a prefix containing BOTH libdragon and Tiny3D: the
@@ -56,7 +56,11 @@ pkgs.stdenv.mkDerivation {
     export N64_INST="${n64InstBase}"
     export N64_GCCPREFIX="${toolchain}"
 
-    for f in include/kiln.mk mips64-elf/lib/libkiln.a; do
+    # Both names, deliberately: libfigulina.a is the archive and libkiln.a is
+    # the one-train symlink (docs/NAMING.md section 9 step 3). Checking only
+    # the new one would let the symlink silently stop being installed, which
+    # breaks a downstream that has not migrated in a way this repo never sees.
+    for f in include/kiln.mk mips64-elf/lib/libfigulina.a mips64-elf/lib/libkiln.a; do
       [ -e "$out/$f" ] || { echo "engine.nix: missing $f" >&2; exit 1; }
     done
 
@@ -98,7 +102,7 @@ pkgs.stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Kiln engine — Tiny3D 3D layer + rdpq 2D GUI layer";
+    description = "Figulina — the engine Kiln fires: Tiny3D 3D layer + rdpq 2D GUI layer";
     license = pkgs.lib.licenses.mpl20;
     platforms = pkgs.lib.platforms.linux;
   };

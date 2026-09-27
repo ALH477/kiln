@@ -7,12 +7,12 @@
  * what makes nix/checks/ able to compare a PNG byte for byte on four
  * architectures. A launcher supplies exactly the three things a gate must not
  * have — a surface, real time, and a device — through kiln_host.h's
- * KilnHostHooks, and nothing else.
+ * FigHostHooks, and nothing else.
  *
  * That boundary is the whole design. A launcher may:
  *   - blit the finished framebuffer,
  *   - pace the frame and pump an event queue,
- *   - push pad state with kiln_host_pad_set,
+ *   - push pad state with fig_host_pad_set,
  *   - accept and play audio buffers.
  * It may NOT rasterise, transform, decode a model, or reimplement any part of
  * a kiln_* or libdragon call. The moment it does, the thing on screen stops
@@ -29,21 +29,21 @@
  * deadline. Only the twenty lines that touch a surface differ.
  *
  * ── The game's main() ──────────────────────────────────────────────────
- * A game is compiled with -Dmain=kiln_game_main, so examples/<x>/main.c stays
+ * A game is compiled with -Dmain=fig_game_main, so examples/<x>/main.c stays
  * a ROM's main() — unedited, still `int main(void)`, still a blocking
  * for(;;) — and the launcher owns the real entry point. No example was
  * touched to make this work, and none has a host-only branch in it.
  */
-#ifndef KILN_SHELL_H
-#define KILN_SHELL_H
+#ifndef FIG_SHELL_H
+#define FIG_SHELL_H
 
 #include <stdint.h>
 
-/** The game, renamed by -Dmain=kiln_game_main. */
-int kiln_game_main(void);
+/** The game, renamed by -Dmain=fig_game_main. */
+int fig_game_main(void);
 
 /** A pad, before it is packed into libdragon's bitfield. Stick components are
- *  already in the console's -90..90 range: kiln_input divides by
+ *  already in the console's -90..90 range: fig_input divides by
  *  JOYPAD_RANGE_N64_STICK_MAX and applies its own radial deadzone, so a
  *  launcher that normalised differently would silently rescale every read. */
 typedef struct {
@@ -51,11 +51,11 @@ typedef struct {
     unsigned a : 1, b : 1, z : 1, l : 1, r : 1, start : 1;
     unsigned c_up : 1, c_down : 1, c_left : 1, c_right : 1;
     unsigned d_up : 1, d_down : 1, d_left : 1, d_right : 1;
-} KilnShellPad;
+} FigShellPad;
 
 typedef struct {
     const char *dfs;        /* asset directory; becomes $KILN_HOST_DFS   */
-    const char *eeprom;     /* save file;      becomes $KILN_HOST_EEPROM */
+    const char *eeprom;     /* save file;      becomes $FIG_HOST_EEPROM */
     const char *title;
     int   scale;            /* integer window scale, 0 = pick one        */
     int   fullscreen;
@@ -64,63 +64,63 @@ typedef struct {
     int   frames;           /* stop after N frames, 0 = run forever      */
     const char *shot;       /* write a PNG of the last frame, then exit  */
     int   stats;            /* print pixel statistics on the way out     */
-} KilnShellOpts;
+} FigShellOpts;
 
 /* ── shared by both backends (kiln_shell_common.c) ─────────────────── */
 
 /** Parse argv. Returns 0 on success, 1 if --help was asked for, -1 on error. */
-int  kiln_shell_args(int argc, char **argv, KilnShellOpts *o);
+int  fig_shell_args(int argc, char **argv, FigShellOpts *o);
 
 /** Apply the options that are environment variables to the host backend, and
- *  remember the options for kiln_shell_presented. */
-void kiln_shell_env(const KilnShellOpts *o);
+ *  remember the options for fig_shell_presented. */
+void fig_shell_env(const FigShellOpts *o);
 
 /** Call from a backend's present hook, after the blit. Counts only.
  *
  *  It used to also honour --frames and --shot, and that made the launcher
  *  gate hang rather than fail when the present hook was broken: the only
  *  thing terminating the run lived inside the thing under test. Now the run
- *  ends from kiln_shell_tick, which is on the vsync path and always runs, and
+ *  ends from fig_shell_tick, which is on the vsync path and always runs, and
  *  this counter is what the gate compares against the frames it asked for —
  *  the native equivalent of the browser gate counting putImageData calls in
  *  its DOM stub rather than believing the program's own report. */
-void kiln_shell_presented(void);
+void fig_shell_presented(void);
 
 /** Call from a backend's vsync hook, before pacing. Honours --frames and
  *  --shot, which is what makes a launcher testable: a windowed build that
  *  renders N frames and writes a PNG can be checked without a display, so
  *  "it builds" and "it draws the right thing" stop being separate questions.
  *  Does not return if the run is over. */
-void kiln_shell_tick(void);
+void fig_shell_tick(void);
 
 /** Pack and hand a pad to the host backend. NULL clears it. */
-void kiln_shell_pad(const KilnShellPad *p);
+void fig_shell_pad(const FigShellPad *p);
 
 /** Frame pacing, in one place so both backends wait the same way: returns
  *  the milliseconds to wait before the next frame is due, given a monotonic
  *  `now_ms`, or 0 if it is already late. Call once per frame. */
-uint32_t kiln_shell_pace(uint32_t now_ms, int fps);
+uint32_t fig_shell_pace(uint32_t now_ms, int fps);
 
 /** Reset the pacer to `now_ms`. Call once, immediately before the first
  *  frame, so a slow start-up is not repaid as a burst of catch-up frames. */
-void kiln_shell_pace_reset(uint32_t now_ms);
+void fig_shell_pace_reset(uint32_t now_ms);
 
 /** The keyboard map, shared so the two backends cannot disagree about it.
- *  `down` is indexed by KilnShellKey. */
+ *  `down` is indexed by FigShellKey. */
 typedef enum {
-    KILN_KEY_UP, KILN_KEY_DOWN, KILN_KEY_LEFT, KILN_KEY_RIGHT,   /* stick */
-    KILN_KEY_DUP, KILN_KEY_DDOWN, KILN_KEY_DLEFT, KILN_KEY_DRIGHT,
-    KILN_KEY_A, KILN_KEY_B, KILN_KEY_Z, KILN_KEY_L, KILN_KEY_R,
-    KILN_KEY_START,
-    KILN_KEY_CUP, KILN_KEY_CDOWN, KILN_KEY_CLEFT, KILN_KEY_CRIGHT,
-    KILN_KEY_COUNT
-} KilnShellKey;
+    FIG_KEY_UP, FIG_KEY_DOWN, FIG_KEY_LEFT, FIG_KEY_RIGHT,   /* stick */
+    FIG_KEY_DUP, FIG_KEY_DDOWN, FIG_KEY_DLEFT, FIG_KEY_DRIGHT,
+    FIG_KEY_A, FIG_KEY_B, FIG_KEY_Z, FIG_KEY_L, FIG_KEY_R,
+    FIG_KEY_START,
+    FIG_KEY_CUP, FIG_KEY_CDOWN, FIG_KEY_CLEFT, FIG_KEY_CRIGHT,
+    FIG_KEY_COUNT
+} FigShellKey;
 
 /** Fold a key-down table into a pad. */
-void kiln_shell_pad_from_keys(const unsigned char down[KILN_KEY_COUNT],
-                              KilnShellPad *out);
+void fig_shell_pad_from_keys(const unsigned char down[FIG_KEY_COUNT],
+                              FigShellPad *out);
 
 /** The one-screen key map, for --help and for the on-screen hint. */
-const char *kiln_shell_keymap_text(void);
+const char *fig_shell_keymap_text(void);
 
-#endif /* KILN_SHELL_H */
+#endif /* FIG_SHELL_H */

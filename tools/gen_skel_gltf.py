@@ -2,7 +2,7 @@
 """Generate a minimal 2-bone skinned glTF: a "hip" box and an "arm" box
 hinged above it, plus two rotation-only animations on the arm bone — "idle"
 (a slight constant tilt) and "swing" (a back-and-forth wave) — so a demo can
-exercise kiln_skel's two-slot blend the way Tiny3D's own examples blend
+exercise fig_skel's two-slot blend the way Tiny3D's own examples blend
 idle/walk. This is the smallest rig that exercises gltf_to_t3d's skin +
 animation path (rigid one-bone-per-vertex skinning, quaternion rotation
 keyframes) without needing fast64 custom properties — --ignore-materials

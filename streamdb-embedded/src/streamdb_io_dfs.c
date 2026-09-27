@@ -42,7 +42,7 @@ streamdb_emb_result_t streamdb_emb_io_dfs(streamdb_emb_io_t *io,
     /* libdragon's dfs_open takes a native DFS path ("assets.streamdb"), not
      * the newlib-style "rom:/assets.streamdb" prefix kiln_asset.h's own doc
      * comment tells every caller to pass (and every caller in this repo
-     * does). Strip it here so both forms work — kiln_map_load's dfs_open
+     * does). Strip it here so both forms work — fig_map_load's dfs_open
      * call hit this exact mismatch once already; see its comment. Without
      * this, dfs_open fails on real DFS (console/emulator) while the host
      * stub backend used by nix/checks/kiln-asset.nix never exercises this

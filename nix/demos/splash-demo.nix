@@ -2,7 +2,7 @@
 #
 # splash-demo: the boot splash, then a lit turntable of the kiln logo.
 #   splash-demo-stage     boots onto the turntable and never auto-replays
-#   pc-splash-demo[-stage] the same main.c on this machine (kiln_splash and
+#   pc-splash-demo[-stage] the same main.c on this machine (fig_splash and
 #                          rigid models both run on the host renderer)
 ctx: with ctx;
 let a = args.splashDemoArgs; in

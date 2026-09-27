@@ -2,14 +2,14 @@
  *
  * forge_light.c — M6: the light rig and the fog, aimed while looking at them.
  *
- * Four fields on KilnScene and nothing more, because that is all this engine has:
+ * Four fields on FigScene and nothing more, because that is all this engine has:
  * at most 4 of Tiny3D's 7 directional lights, no point lights, no spots, no
  * shadows (CLAUDE.md, "What genuinely does not exist"). So there is no light
  * editor to build — there is a key direction, a fill direction, an ambient level
  * and a fog range, and the only hard part is that all four are judgements about
  * a picture rather than numbers.
  *
- * Which is the entire argument for doing it here. `kiln_scene_set_fog` is
+ * Which is the entire argument for doing it here. `fig_scene_set_fog` is
  * per-pixel in the blender and costs a scene that already fogs almost nothing,
  * but whether a fog range makes distance READ or just makes the level grey is
  * not answerable from a host preview at a different resolution and gamma.
@@ -43,7 +43,7 @@ static void aim_from_angles(fm_vec3_t *dir, float yaw, float pitch)
 
 void forge_light_apply(Forge *f)
 {
-    KilnScene *s = &f->scene;
+    FigScene *s = &f->scene;
 
     aim_from_angles(&s->light_dir, f->key_yaw, f->key_pitch);
     s->light_color[0] = s->light_color[1] = s->light_color[2] = f->key_level;
@@ -64,30 +64,30 @@ void forge_light_apply(Forge *f)
         /* Fog colour tracks the clear colour by default. Matching the horizon is
          * what makes far geometry end in haze rather than at a visible edge —
          * and with no skydome in an editor, the clear colour IS the horizon. */
-        kiln_scene_set_fog(s, s->clear_color, f->fog_near, f->fog_far);
+        fig_scene_set_fog(s, s->clear_color, f->fog_near, f->fog_far);
     } else {
-        kiln_scene_disable_fog(s);
+        fig_scene_disable_fog(s);
     }
 }
 
-void forge_light_update(Forge *f, const KilnInput *in)
+void forge_light_update(Forge *f, const FigInput *in)
 {
     /* C-up/down selects the field, D-pad edits it. One selector and one editor,
      * rather than a chord per field: there are seven values here and seven
      * chords is a manual. */
-    if (in->edges & KILN_BTN_CU)
+    if (in->edges & FIG_BTN_CU)
         f->light_field = (f->light_field + FORGE_LIGHT_FIELDS - 1) % FORGE_LIGHT_FIELDS;
-    if (in->edges & KILN_BTN_CD)
+    if (in->edges & FIG_BTN_CD)
         f->light_field = (f->light_field + 1) % FORGE_LIGHT_FIELDS;
 
     int dx = 0, dy = 0;
     static int rep;
-    if (in->buttons & (KILN_BTN_DU | KILN_BTN_DD | KILN_BTN_DL | KILN_BTN_DR)) {
+    if (in->buttons & (FIG_BTN_DU | FIG_BTN_DD | FIG_BTN_DL | FIG_BTN_DR)) {
         if (rep == 0 || rep > 6) {
-            if (in->buttons & KILN_BTN_DL) dx = -1;
-            if (in->buttons & KILN_BTN_DR) dx = +1;
-            if (in->buttons & KILN_BTN_DD) dy = -1;
-            if (in->buttons & KILN_BTN_DU) dy = +1;
+            if (in->buttons & FIG_BTN_DL) dx = -1;
+            if (in->buttons & FIG_BTN_DR) dx = +1;
+            if (in->buttons & FIG_BTN_DD) dy = -1;
+            if (in->buttons & FIG_BTN_DU) dy = +1;
         }
         rep++;
     } else {
@@ -133,12 +133,12 @@ void forge_light_update(Forge *f, const KilnInput *in)
     default: break;
     }
 
-    if (in->edges & KILN_BTN_A) f->fog_on = !f->fog_on;
+    if (in->edges & FIG_BTN_A) f->fog_on = !f->fog_on;
 
     /* R cycles the clear colour through a few plausible horizons. Not a full
      * colour picker: the clear colour's job here is to be the fog colour, and
      * three defensible choices beat an RGB triple edited eight units at a time. */
-    if (in->edges & KILN_BTN_R) {
+    if (in->edges & FIG_BTN_R) {
         f->clear_idx = (f->clear_idx + 1) % 4;
         static const color_t CLEARS[4] = {
             { .r = 18,  .g = 20,  .b = 26,  .a = 255 },   /* night      */
@@ -168,9 +168,9 @@ void forge_light_draw(Forge *f)
     snprintf(val[FORGE_LF_FOG_FAR],   32, "%.0f", (double)f->fog_far);
 
     color_t hot = RGBA32(255, 210, 70, 255), dim = RGBA32(150, 150, 150, 255);
-    kiln_gui_text(6, 72, hot, "fog %s   clear %d", f->fog_on ? "on" : "off", f->clear_idx);
+    fig_gui_text(6, 72, hot, "fog %s   clear %d", f->fog_on ? "on" : "off", f->clear_idx);
     for (int i = 0; i < FORGE_LIGHT_FIELDS; i++)
-        kiln_gui_text(6, 84 + i * 10, i == f->light_field ? hot : dim,
+        fig_gui_text(6, 84 + i * 10, i == f->light_field ? hot : dim,
                      "%c %-11s %s", i == f->light_field ? '>' : ' ',
                      NAMES[i], val[i]);
     /* No help line here: forge_hud.c prints the per-mode help for every mode
@@ -185,8 +185,8 @@ void forge_light_draw3d(Forge *f)
     /* The two light directions, drawn from the camera as rays so an aim is a
      * picture. A direction is otherwise two numbers whose effect you infer from
      * the shading, which is the inference this mode exists to remove. */
-    kiln_dd_begin(&f->scene, FORGE_SCREEN_W, FORGE_SCREEN_H);
-    const float L = 3.0f * (float)KILN_VOXEL_BLOCK_UNITS;
+    fig_dd_begin(&f->scene, FORGE_SCREEN_W, FORGE_SCREEN_H);
+    const float L = 3.0f * (float)FIG_VOXEL_BLOCK_UNITS;
     fm_vec3_t at = f->fly_pos;
     fm_vec3_t fwd = forge_cam_forward(f);
     for (int a = 0; a < 3; a++) at.v[a] += fwd.v[a] * L * 2.0f;
@@ -196,11 +196,11 @@ void forge_light_draw3d(Forge *f)
         k.v[a]  -= f->scene.light_dir.v[a] * L;
         fl.v[a] -= f->scene.lights[0].dir.v[a] * L;
     }
-    kiln_dd_line(k, at, RGBA32(255, 240, 180, 255));
-    kiln_dd_text(k, RGBA32(255, 240, 180, 255), "key");
-    kiln_dd_line(fl, at, RGBA32(140, 180, 255, 255));
-    kiln_dd_text(fl, RGBA32(140, 180, 255, 255), "fill");
-    kiln_dd_end();
+    fig_dd_line(k, at, RGBA32(255, 240, 180, 255));
+    fig_dd_text(k, RGBA32(255, 240, 180, 255), "key");
+    fig_dd_line(fl, at, RGBA32(140, 180, 255, 255));
+    fig_dd_text(fl, RGBA32(140, 180, 255, 255), "fill");
+    fig_dd_end();
 }
 
 /* ── Export ────────────────────────────────────────────────────────────

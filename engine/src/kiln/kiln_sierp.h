@@ -7,8 +7,8 @@
  * Depth d needs 4^d slots. Morph is a per-vertex lerp so two orientations
  * of the same tree can turn into each other without rebuilding topology.
  */
-#ifndef KILN_SIERP_H
-#define KILN_SIERP_H
+#ifndef FIG_SIERP_H
+#define FIG_SIERP_H
 
 #include <t3d/t3dmath.h>
 
@@ -16,35 +16,35 @@
 extern "C" {
 #endif
 
-#define KILN_SIERP_MAX_DEPTH  4
-#define KILN_SIERP_MAX_LEAVES 256 /* 4^4 */
+#define FIG_SIERP_MAX_DEPTH  4
+#define FIG_SIERP_MAX_LEAVES 256 /* 4^4 */
 
-typedef struct KilnTet {
+typedef struct FigTet {
     fm_vec3_t v[4];
-} KilnTet;
+} FigTet;
 
 /** Regular tet centred on the origin, circumradius `radius`. */
-void kiln_sierp_regular(KilnTet *out, float radius);
+void fig_sierp_regular(FigTet *out, float radius);
 
 /** Rotate about Y by a given cos/sin (caller computes once per pose). */
-void kiln_sierp_rotate_y(KilnTet *out, const KilnTet *in, float c, float s);
+void fig_sierp_rotate_y(FigTet *out, const FigTet *in, float c, float s);
 
 /** Pointwise negate — the dual orientation through the origin. */
-void kiln_sierp_negate(KilnTet *out, const KilnTet *in);
+void fig_sierp_negate(FigTet *out, const FigTet *in);
 
 /** Fill `out` with the 4^depth corner tets of `root`. Returns the count,
  *  or 0 if `cap` cannot hold depth 0. Stops at the last depth that fits. */
-int kiln_sierp_leaves(KilnTet *out, int cap, const KilnTet *root, int depth);
+int fig_sierp_leaves(FigTet *out, int cap, const FigTet *root, int depth);
 
 /** dst[i] = lerp(a[i], b[i], t). t is clamped to [0,1]. */
-void kiln_sierp_morph(KilnTet *dst, const KilnTet *a, const KilnTet *b,
+void fig_sierp_morph(FigTet *dst, const FigTet *a, const FigTet *b,
                       int n, float t);
 
 /** Cubic smoothstep, clamped. */
-float kiln_sierp_smooth(float t);
+float fig_sierp_smooth(float t);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_SIERP_H */
+#endif /* FIG_SIERP_H */

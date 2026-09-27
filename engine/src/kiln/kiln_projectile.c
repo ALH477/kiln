@@ -11,8 +11,8 @@
 #include <fmath.h>
 #include <string.h>
 
-static KilnProjectile g_pool[KILN_PROJECTILE_MAX];
-static KilnProjHitFn  g_hit_fn;
+static FigProjectile g_pool[FIG_PROJECTILE_MAX];
+static FigProjHitFn  g_hit_fn;
 
 static const uint8_t CUBE_TRIS[12][3] = {
     {0,1,2},{2,3,0}, {4,6,5},{6,4,7},
@@ -45,21 +45,21 @@ static T3DVertPacked *make_proj_cube(int16_t half, uint32_t rgba)
     return v;
 }
 
-void kiln_projectile_init(void)
+void fig_projectile_init(void)
 {
     memset(g_pool, 0, sizeof(g_pool));
     g_hit_fn = NULL;
-    g_proj_verts[KILN_PROJ_ROCKET]  = make_proj_cube(4, 0xFF4444FF);
-    g_proj_verts[KILN_PROJ_PLASMA]  = make_proj_cube(3, 0x44FFFFFF);
-    g_proj_verts[KILN_PROJ_GRENADE] = make_proj_cube(4, 0x88FF44FF);
+    g_proj_verts[FIG_PROJ_ROCKET]  = make_proj_cube(4, 0xFF4444FF);
+    g_proj_verts[FIG_PROJ_PLASMA]  = make_proj_cube(3, 0x44FFFFFF);
+    g_proj_verts[FIG_PROJ_GRENADE] = make_proj_cube(4, 0x88FF44FF);
 }
 
-void kiln_projectile_set_hit_fn(KilnProjHitFn fn) { g_hit_fn = fn; }
+void fig_projectile_set_hit_fn(FigProjHitFn fn) { g_hit_fn = fn; }
 
-int kiln_projectile_spawn(uint8_t type, fm_vec3_t pos, fm_vec3_t vel,
+int fig_projectile_spawn(uint8_t type, fm_vec3_t pos, fm_vec3_t vel,
                           float lifetime, int damage, float radius)
 {
-    for (int i = 0; i < KILN_PROJECTILE_MAX; i++) {
+    for (int i = 0; i < FIG_PROJECTILE_MAX; i++) {
         if (!g_pool[i].active) {
             g_pool[i].pos = pos;
             g_pool[i].vel = vel;
@@ -77,8 +77,8 @@ int kiln_projectile_spawn(uint8_t type, fm_vec3_t pos, fm_vec3_t vel,
 static void explode(fm_vec3_t pos, int damage, float radius)
 {
     if (!g_hit_fn) return;
-    for (int cat = KILN_ACTOR_CAT_ENEMY; cat <= KILN_ACTOR_CAT_ENEMY; cat++) {
-        for (KilnActor *a = kiln_actor_first((uint8_t)cat); a; a = kiln_actor_next(a)) {
+    for (int cat = FIG_ACTOR_CAT_ENEMY; cat <= FIG_ACTOR_CAT_ENEMY; cat++) {
+        for (FigActor *a = fig_actor_first((uint8_t)cat); a; a = fig_actor_next(a)) {
             fm_vec3_t d = {{ a->xform.pos.v[0] - pos.v[0],
                               a->xform.pos.v[1] - pos.v[1],
                               a->xform.pos.v[2] - pos.v[2] }};
@@ -92,10 +92,10 @@ static void explode(fm_vec3_t pos, int damage, float radius)
     }
 }
 
-void kiln_projectile_update(float dt)
+void fig_projectile_update(float dt)
 {
-    for (int i = 0; i < KILN_PROJECTILE_MAX; i++) {
-        KilnProjectile *p = &g_pool[i];
+    for (int i = 0; i < FIG_PROJECTILE_MAX; i++) {
+        FigProjectile *p = &g_pool[i];
         if (!p->active) continue;
 
         p->lifetime -= dt;
@@ -109,21 +109,21 @@ void kiln_projectile_update(float dt)
                                 p->pos.v[1] + p->vel.v[1] * dt,
                                 p->pos.v[2] + p->vel.v[2] * dt }};
 
-        if (p->type == KILN_PROJ_GRENADE) {
+        if (p->type == FIG_PROJ_GRENADE) {
             p->vel.v[1] -= 500.0f * dt;
             fm_vec3_t vel = {{ p->vel.v[0] * dt, p->vel.v[1] * dt, p->vel.v[2] * dt }};
-            p->pos = kiln_clip_slide(p->pos, vel,
+            p->pos = fig_clip_slide(p->pos, vel,
                                      (fm_vec3_t){{-2,-2,-2}}, (fm_vec3_t){{2,2,2}}, 4);
         } else {
             fm_vec3_t end = new_pos;
-            KilnTrace tr = kiln_clip_ray(p->pos, end);
+            FigTrace tr = fig_clip_ray(p->pos, end);
             if (tr.fraction < 1.0f) {
                 if (p->radius > 0) explode(tr.endpos, p->damage, p->radius);
                 else if (g_hit_fn) g_hit_fn(0xFFFF, tr.endpos, p->damage, 0.0f);
                 p->active = 0;
                 continue;
             }
-            for (KilnActor *a = kiln_actor_first(KILN_ACTOR_CAT_ENEMY); a; a = kiln_actor_next(a)) {
+            for (FigActor *a = fig_actor_first(FIG_ACTOR_CAT_ENEMY); a; a = fig_actor_next(a)) {
                 /* Point-to-segment distance: find the closest point on the
                  * segment [p->pos, new_pos] to the enemy, then check if
                  * it's within the hit radius. This prevents tunnelling when
@@ -160,10 +160,10 @@ void kiln_projectile_update(float dt)
     }
 }
 
-void kiln_projectile_draw_all(void)
+void fig_projectile_draw_all(void)
 {
-    for (int i = 0; i < KILN_PROJECTILE_MAX; i++) {
-        KilnProjectile *p = &g_pool[i];
+    for (int i = 0; i < FIG_PROJECTILE_MAX; i++) {
+        FigProjectile *p = &g_pool[i];
         if (!p->active) continue;
         T3DVertPacked *v = g_proj_verts[p->type];
         if (!v) continue;

@@ -39,12 +39,12 @@
  * distance thresholds instead of priority + lod_scale, hierarchical
  * support, and camera-relative computation.
  */
-#ifndef KILN_LOD_H
-#define KILN_LOD_H
+#ifndef FIG_LOD_H
+#define FIG_LOD_H
 
 #include <t3d/t3dmath.h>
 #include <stdint.h>
-#include "kiln_tile.h"  /* KILN_TILE_MAX_LOD */
+#include "kiln_tile.h"  /* FIG_TILE_MAX_LOD */
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,29 +58,29 @@ typedef struct {
      *  LOD i+1. The last threshold is the max draw distance — beyond
      *  it, the tile is not loaded at all (the residency manager
      *  handles this by excluding it from the desired set). */
-    float thresholds_sq[KILN_TILE_MAX_LOD];
+    float thresholds_sq[FIG_TILE_MAX_LOD];
     /** Number of valid thresholds (determines the number of LOD levels). */
     uint8_t threshold_count;
-} KilnLODConfig;
+} FigLODConfig;
 
 /** Initialise with sensible defaults for a 256-unit tile size:
  *  LOD 0 within 1 tile, LOD 1 within 4 tiles, LOD 2 within 9 tiles. */
-void kiln_lod_init_defaults(KilnLODConfig *cfg, float tile_size);
+void fig_lod_init_defaults(FigLODConfig *cfg, float tile_size);
 
 /** Select LOD for a tile given its squared distance to the camera.
- *  Returns the LOD level (0 = highest detail), or KILN_TILE_MAX_LOD
+ *  Returns the LOD level (0 = highest detail), or FIG_TILE_MAX_LOD
  *  if the tile is beyond the max draw distance (should not be loaded). */
-uint8_t kiln_lod_select(const KilnLODConfig *cfg, float dist_sq);
+uint8_t fig_lod_select(const FigLODConfig *cfg, float dist_sq);
 
-/** A callback wrapper for use with kiln_tile_update. Returns the LOD
+/** A callback wrapper for use with fig_tile_update. Returns the LOD
  *  level for a tile given its squared distance. `user_ctx` must point
- *  to a KilnLODConfig. */
-uint8_t kiln_lod_selector_cb(int16_t tx, int16_t ty, float dist_sq,
+ *  to a FigLODConfig. */
+uint8_t fig_lod_selector_cb(int16_t tx, int16_t ty, float dist_sq,
                              void *user_ctx);
 
 /** Whether a tile at the given squared distance should be drawn at all
  *  (vs. being beyond the far threshold and skipped). */
-static inline int kiln_lod_visible(const KilnLODConfig *cfg, float dist_sq) {
+static inline int fig_lod_visible(const FigLODConfig *cfg, float dist_sq) {
     if (cfg->threshold_count == 0) return 1;
     return dist_sq <= cfg->thresholds_sq[cfg->threshold_count - 1];
 }
@@ -89,4 +89,4 @@ static inline int kiln_lod_visible(const KilnLODConfig *cfg, float dist_sq) {
 }
 #endif
 
-#endif /* KILN_LOD_H */
+#endif /* FIG_LOD_H */

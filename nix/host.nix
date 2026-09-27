@@ -5,7 +5,7 @@
 # ── Why this file exists ───────────────────────────────────────────────
 # Seven checks each carried their own copy of the same gcc line: the same
 # -std=gnu2x -Wall -Wextra -Werror, the same three -I paths, the same
-# $(echo plat/host/src/*.c) glob, the same libkilnmath.a. That was survivable
+# $(echo plat/host/src/*.c) glob, the same libfigulinamath.a. That was survivable
 # while there was one compiler. It is not survivable with four, because a flag
 # that has to be identical everywhere — and there is now exactly such a flag,
 # see -ffp-contract below — would have to be added in seven places and would
@@ -210,8 +210,8 @@ let
           for f in ${lib.concatStringsSep " " streamdbSources}; do
             ${cc} ${cflagsStr} ${incs} -c "$f" -o "$(basename "$f" .c).o"
           done
-          ${ar} rcs libkilnhost.a *.o
-          mkdir -p $out/lib && cp libkilnhost.a $out/lib/
+          ${ar} rcs libfigulinahost.a *.o
+          mkdir -p $out/lib && cp libfigulinahost.a $out/lib/
         '';
 
       # ── the engine's host tier, as one archive ─────────────────────
@@ -222,7 +222,7 @@ let
       # build before parity even gets a chance to explain why.
       engine = pkgs.runCommand "kiln-host-engine-${name}"
         { nativeBuildInputs = nativeBuildInputs ++ [ pkgs.gnumake ]; inherit buildInputs;
-          meta.description = "libkiln's host modules, compiled for ${description}"; }
+          meta.description = "libfigulina's host modules, compiled for ${description}"; }
         ''
           set -euo pipefail
           ${preBuild}
@@ -231,12 +231,12 @@ let
           for m in $(make -s -C ../engine -f modules.mk print-host-modules); do
             ${cc} ${cflagsStr} ${incs} -c "../engine/src/kiln/$m.c" -o "$m.o"
           done
-          ${ar} rcs libkiln.a *.o
-          mkdir -p $out/lib && cp libkiln.a $out/lib/
+          ${ar} rcs libfigulina.a *.o
+          mkdir -p $out/lib && cp libfigulina.a $out/lib/
         '';
 
-      libsLine = "${engine}/lib/libkiln.a ${backend}/lib/libkilnhost.a "
-               + "${hostMath}/lib/libkilnmath.a ${zlib}/lib/libz.a "
+      libsLine = "${engine}/lib/libfigulina.a ${backend}/lib/libfigulinahost.a "
+               + "${hostMath}/lib/libfigulinamath.a ${zlib}/lib/libz.a "
                + "${vadpcm}/lib/libvadpcm.a";
 
       # ── a host program: check harness, launcher, anything ──────────
@@ -289,7 +289,7 @@ let
             mkdir -p $out && cp -r . $out/ 2>/dev/null || true
           '';
       # ── a playable build of a game ─────────────────────────────────
-      # The game's own main.c is compiled unedited, with -Dmain=kiln_game_main
+      # The game's own main.c is compiled unedited, with -Dmain=fig_game_main
       # so that a ROM's `int main(void)` stays exactly that and the launcher
       # owns the process entry point. No example has a host branch in it and
       # none was touched to make this work.
@@ -319,7 +319,7 @@ let
             "${platShell}/kiln_shell_common.c"
             "${platShell}/${shell.source}"
           ];
-          extraCFlags = [ "-Dmain=kiln_game_main" "-I${platShell}" ]
+          extraCFlags = [ "-Dmain=fig_game_main" "-I${platShell}" ]
                         ++ shell.cflags ++ extraCFlags;
           # A game with no assets gets no filesystem: emcc's file_packager
           # fails outright on an empty preload, and a native build has nothing

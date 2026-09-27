@@ -9,7 +9,7 @@ static void mid(fm_vec3_t *o, const fm_vec3_t *a, const fm_vec3_t *b)
     o->v[2] = 0.5f * (a->v[2] + b->v[2]);
 }
 
-static void child_at(KilnTet *o, const KilnTet *p, int i)
+static void child_at(FigTet *o, const FigTet *p, int i)
 {
     o->v[0] = p->v[i];
     int k = 1;
@@ -20,7 +20,7 @@ static void child_at(KilnTet *o, const KilnTet *p, int i)
     }
 }
 
-void kiln_sierp_regular(KilnTet *out, float radius)
+void fig_sierp_regular(FigTet *out, float radius)
 {
     /* Corners of a regular tet. Each has length sqrt(3); scale to `radius`. */
     const float s = radius * (1.0f / 1.73205080757f);
@@ -30,7 +30,7 @@ void kiln_sierp_regular(KilnTet *out, float radius)
     out->v[3] = (fm_vec3_t){{ -s, -s,  s }};
 }
 
-void kiln_sierp_rotate_y(KilnTet *out, const KilnTet *in, float c, float s)
+void fig_sierp_rotate_y(FigTet *out, const FigTet *in, float c, float s)
 {
     for (int i = 0; i < 4; i++) {
         const float x = in->v[i].v[0], z = in->v[i].v[2];
@@ -40,7 +40,7 @@ void kiln_sierp_rotate_y(KilnTet *out, const KilnTet *in, float c, float s)
     }
 }
 
-void kiln_sierp_negate(KilnTet *out, const KilnTet *in)
+void fig_sierp_negate(FigTet *out, const FigTet *in)
 {
     for (int i = 0; i < 4; i++) {
         out->v[i].v[0] = -in->v[i].v[0];
@@ -49,18 +49,18 @@ void kiln_sierp_negate(KilnTet *out, const KilnTet *in)
     }
 }
 
-int kiln_sierp_leaves(KilnTet *out, int cap, const KilnTet *root, int depth)
+int fig_sierp_leaves(FigTet *out, int cap, const FigTet *root, int depth)
 {
     if (!out || !root || cap < 1) return 0;
     if (depth < 0) depth = 0;
-    if (depth > KILN_SIERP_MAX_DEPTH) depth = KILN_SIERP_MAX_DEPTH;
+    if (depth > FIG_SIERP_MAX_DEPTH) depth = FIG_SIERP_MAX_DEPTH;
 
     out[0] = *root;
     int n = 1;
     for (int d = 0; d < depth; d++) {
         if (n * 4 > cap) return n;
         for (int i = n - 1; i >= 0; i--) {
-            const KilnTet p = out[i];
+            const FigTet p = out[i];
             child_at(&out[i * 4 + 0], &p, 0);
             child_at(&out[i * 4 + 1], &p, 1);
             child_at(&out[i * 4 + 2], &p, 2);
@@ -71,7 +71,7 @@ int kiln_sierp_leaves(KilnTet *out, int cap, const KilnTet *root, int depth)
     return n;
 }
 
-void kiln_sierp_morph(KilnTet *dst, const KilnTet *a, const KilnTet *b,
+void fig_sierp_morph(FigTet *dst, const FigTet *a, const FigTet *b,
                       int n, float t)
 {
     if (t < 0.0f) t = 0.0f;
@@ -86,7 +86,7 @@ void kiln_sierp_morph(KilnTet *dst, const KilnTet *a, const KilnTet *b,
     }
 }
 
-float kiln_sierp_smooth(float t)
+float fig_sierp_smooth(float t)
 {
     if (t < 0.0f) return 0.0f;
     if (t > 1.0f) return 1.0f;

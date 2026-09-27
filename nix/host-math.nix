@@ -106,7 +106,7 @@ pkgs.stdenv.mkDerivation {
       ${cc} -c -O2 -std=gnu11 -ffp-contract=off -include assert.h \
           -Istage/include -Istage -o "$f.o" "$f"
     done
-    ${ar} rcs libkilnmath.a stage/math/fmath.c.o stage/math/fgeom.c.o
+    ${ar} rcs libfigulinamath.a stage/math/fmath.c.o stage/math/fgeom.c.o
 
     runHook postBuild
   '';
@@ -117,7 +117,7 @@ pkgs.stdenv.mkDerivation {
     install -m 0644 stage/include/fmath.h   $out/include/
     install -m 0644 stage/include/fgeom.h   $out/include/
     install -m 0644 stage/include/fgeom2d.h $out/include/
-    install -m 0644 libkilnmath.a           $out/lib/
+    install -m 0644 libfigulinamath.a           $out/lib/
     runHook postInstall
   '';
 

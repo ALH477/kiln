@@ -6,8 +6,8 @@
  *
  * ── Pure state, no rendering ───────────────────────────────────────────
  * The module tracks ammo, cooldown, and reload timing. The game code
- * reads the state for HUD display and triggers kiln_sound_play / hitscan
- * rays when kiln_weapon_fire returns 1. A viewmodel (first-person weapon
+ * reads the state for HUD display and triggers fig_sound_play / hitscan
+ * rays when fig_weapon_fire returns 1. A viewmodel (first-person weapon
  * mesh) is a future addition; for now the HUD crosshair is the only
  * visual feedback.
  *
@@ -18,8 +18,8 @@
  * for a thing that is always exactly one per player and never appears
  * in the world.
  */
-#ifndef KILN_WEAPON_H
-#define KILN_WEAPON_H
+#ifndef FIG_WEAPON_H
+#define FIG_WEAPON_H
 
 #include <stdint.h>
 
@@ -28,10 +28,10 @@ extern "C" {
 #endif
 
 typedef enum {
-    KILN_WPN_IDLE = 0,
-    KILN_WPN_FIRING,
-    KILN_WPN_RELOADING,
-} KilnWeaponState;
+    FIG_WPN_IDLE = 0,
+    FIG_WPN_FIRING,
+    FIG_WPN_RELOADING,
+} FigWeaponState;
 
 typedef struct {
     int           ammo;           /**< reserve ammo (not in magazine)          */
@@ -41,34 +41,34 @@ typedef struct {
     float         fire_cooldown;   /**< seconds between shots                    */
     float         reload_time;     /**< seconds to reload                        */
     float         timer;           /**< counts down: cooldown or reload remaining */
-    KilnWeaponState state;          /**< current state                            */
-} KilnWeapon;
+    FigWeaponState state;          /**< current state                            */
+} FigWeapon;
 
 /** Initialise a weapon. Sets ammo to `magazine_size` (one full mag loaded),
  *  no reserve. Call at boot or on weapon switch. */
-void kiln_weapon_init(KilnWeapon *w, int magazine_size,
+void fig_weapon_init(FigWeapon *w, int magazine_size,
                      float fire_cooldown, float reload_time);
 
 /** Returns 1 if a shot can be fired now (IDLE + magazine > 0). */
-int kiln_weapon_can_fire(const KilnWeapon *w);
+int fig_weapon_can_fire(const FigWeapon *w);
 
 /** Attempt to fire. If successful: decrements magazine, sets state to
  *  FIRING, starts cooldown timer, returns 1. The caller does the hitscan
  *  and plays the sound. If not (cooldown, reloading, empty): returns 0. */
-int kiln_weapon_fire(KilnWeapon *w);
+int fig_weapon_fire(FigWeapon *w);
 
 /** Begin a reload: if magazine < magazine_size and ammo > 0, sets state
  *  to RELOADING and starts the reload timer. Returns 0 if no reload is
  *  possible (already full, no reserve, already reloading). */
-int kiln_weapon_reload(KilnWeapon *w);
+int fig_weapon_reload(FigWeapon *w);
 
 /** Advance the state machine by `dt` seconds. Transitions FIRING→IDLE
  *  when cooldown elapses, RELOADING→IDLE when reload elapses (moving
  *  rounds from reserve to magazine). */
-void kiln_weapon_update(KilnWeapon *w, float dt);
+void fig_weapon_update(FigWeapon *w, float dt);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_WEAPON_H */
+#endif /* FIG_WEAPON_H */

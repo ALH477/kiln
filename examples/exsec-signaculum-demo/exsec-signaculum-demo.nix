@@ -42,8 +42,8 @@
 #      CLAUDE.md, "Not yet built").
 #
 #   3. Drop the ENGINE_DIR / SOFT3D_OBJ local-link block from this demo's
-#      Makefile: once nix/engine.nix reinstalls libkiln with modules.mk's
-#      kiln_soft3d entry, the prefix archive carries the module and -lkiln
+#      Makefile: once nix/engine.nix reinstalls libfigulina with modules.mk's
+#      fig_soft3d entry, the prefix archive carries the module and -lkiln
 #      resolves it with no local build.
 
 ctx: with ctx; {

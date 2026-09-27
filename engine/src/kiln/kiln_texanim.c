@@ -9,7 +9,7 @@
 
 /* Context passed through t3d_model_draw_custom as userData. */
 typedef struct {
-    KilnTexAnim *anims;
+    FigTexAnim *anims;
     int count;
     int tlut;    /* a PALETTE upload turned TLUT sampling on */
 } TexAnimCtx;
@@ -25,8 +25,8 @@ static void tile_cb(void *userData, rdpq_texparms_t *tileParams,
     (void)tile;
 
     for (int i = 0; i < ctx->count; i++) {
-        const KilnTexAnim *a = &ctx->anims[i];
-        if (a->mode == KILN_TEXANIM_SCROLL) {
+        const FigTexAnim *a = &ctx->anims[i];
+        if (a->mode == FIG_TEXANIM_SCROLL) {
             tileParams->s.translate = a->scroll.s_offset;
             tileParams->t.translate = a->scroll.t_offset;
         }
@@ -50,17 +50,17 @@ static void dyn_tex_cb(void *userData, const T3DMaterial *material,
     const uint32_t ref = material->textureA.texReference;
 
     for (int i = 0; i < ctx->count; i++) {
-        KilnTexAnim *a = &ctx->anims[i];
-        if (a->mode == KILN_TEXANIM_SCROLL || a->ref_id != ref) continue;
+        FigTexAnim *a = &ctx->anims[i];
+        if (a->mode == FIG_TEXANIM_SCROLL || a->ref_id != ref) continue;
 
         switch (a->mode) {
-        case KILN_TEXANIM_FLIPBOOK: {
+        case FIG_TEXANIM_FLIPBOOK: {
             const int f = frame_of(a->flipbook.time, a->flipbook.fps, a->flipbook.frame_count);
             surface_t s = sprite_get_pixels(a->flipbook.frames[f]);
             rdpq_tex_upload(tile, &s, tileParams);
             break;
         }
-        case KILN_TEXANIM_PALETTE: {
+        case FIG_TEXANIM_PALETTE: {
             const int f = frame_of(a->palette.time, a->palette.fps, a->palette.pal_count);
             rdpq_tex_upload(tile, a->palette.indices, tileParams);
             rdpq_tex_upload_tlut(a->palette.palettes[f], 0, a->palette.colors_per);
@@ -68,7 +68,7 @@ static void dyn_tex_cb(void *userData, const T3DMaterial *material,
             ctx->tlut = 1;
             break;
         }
-        case KILN_TEXANIM_OFFSCREEN:
+        case FIG_TEXANIM_OFFSCREEN:
             if (a->offscreen.surface) rdpq_tex_upload(tile, a->offscreen.surface, tileParams);
             break;
         default:
@@ -79,28 +79,28 @@ static void dyn_tex_cb(void *userData, const T3DMaterial *material,
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
-void kiln_texanim_update(KilnTexAnim *anims, int count, float dt)
+void fig_texanim_update(FigTexAnim *anims, int count, float dt)
 {
     for (int i = 0; i < count; i++) {
-        KilnTexAnim *a = &anims[i];
+        FigTexAnim *a = &anims[i];
         switch (a->mode) {
-        case KILN_TEXANIM_SCROLL:
+        case FIG_TEXANIM_SCROLL:
             a->scroll.s_offset += a->scroll.s_speed * dt;
             a->scroll.t_offset += a->scroll.t_speed * dt;
             break;
-        case KILN_TEXANIM_FLIPBOOK:
+        case FIG_TEXANIM_FLIPBOOK:
             a->flipbook.time += dt;
             break;
-        case KILN_TEXANIM_PALETTE:
+        case FIG_TEXANIM_PALETTE:
             a->palette.time += dt;
             break;
-        case KILN_TEXANIM_OFFSCREEN:
+        case FIG_TEXANIM_OFFSCREEN:
             break;
         }
     }
 }
 
-void kiln_texanim_draw(const T3DModel *model, KilnTexAnim *anims, int count)
+void fig_texanim_draw(const T3DModel *model, FigTexAnim *anims, int count)
 {
     if (!anims || count <= 0) {
         t3d_model_draw(model);
@@ -111,13 +111,13 @@ void kiln_texanim_draw(const T3DModel *model, KilnTexAnim *anims, int count)
 
     int has_tile = 0, has_dyn = 0;
     for (int i = 0; i < count; i++) {
-        if (anims[i].mode == KILN_TEXANIM_SCROLL) {
+        if (anims[i].mode == FIG_TEXANIM_SCROLL) {
             has_tile = 1;
         } else {
             /* rdpq's lookup slots, and so f3d's reference numbers, are 1..15;
              * 0 means "no texture" to Tiny3D. */
             assertf(anims[i].ref_id >= 1 && anims[i].ref_id <= 15,
-                    "kiln_texanim: ref_id %d is not a texture reference (1..15)", anims[i].ref_id);
+                    "fig_texanim: ref_id %d is not a texture reference (1..15)", anims[i].ref_id);
             has_dyn = 1;
         }
     }

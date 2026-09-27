@@ -3,7 +3,7 @@
  * forge.h — the editor's shared state.
  *
  * Forge is a voxel builder whose save button emits the content formats this
- * engine already consumes: Quake `.map` brushes for kiln_map/kiln_clip, and (as
+ * engine already consumes: Quake `.map` brushes for fig_map/fig_clip, and (as
  * the modes land) a PMCamKey table, entity epairs, a light rig and a CI4
  * texture atlas. It runs ON the console because that is where the judgements
  * are — fill rate, whether a corridor reads as a corridor, whether a palette
@@ -51,8 +51,8 @@
 #define FORGE_QUAD_SCRATCH 2048
 
 /* Collision boxes for WALK mode. Matches kiln_room.h's own
- * KILN_ROOM_MAX_CLIP_BRUSHES, and note the deliberate decision in forge_walk.c
- * not to enable kiln_clip's broadphase. */
+ * FIG_ROOM_MAX_CLIP_BRUSHES, and note the deliberate decision in forge_walk.c
+ * not to enable fig_clip's broadphase. */
 #define FORGE_MAX_BOXES 512
 
 /* Mode order is the authoring order: block it out, walk it, texture it, dress
@@ -63,7 +63,7 @@ typedef enum {
     FORGE_MODE_WALK,      /* drop into the level with real collision    */
     FORGE_MODE_PAINT,     /* the CI4 atlas: draw tiles, assign to types */
     FORGE_MODE_ENT,       /* classnames, origins, angles, epairs        */
-    FORGE_MODE_LIGHT,     /* key/fill/ambient/fog on KilnScene           */
+    FORGE_MODE_LIGHT,     /* key/fill/ambient/fog on FigScene           */
     FORGE_MODE_CAM,       /* keyframe a shot and validate it            */
     FORGE_MODE_COUNT,
 } ForgeMode;
@@ -89,7 +89,7 @@ typedef struct {
      * u16 epair[FORGE_EPAIRS] per entity) but the KEY of a slot depends on
      * the classname — forge_ent_epair_key(classname, slot). A slot whose key
      * is `required` is written to the .map even at 0; an optional slot at 0
-     * is omitted, because kiln_dict_get_int's default and an explicit 0 are
+     * is omitted, because fig_dict_get_int's default and an explicit 0 are
      * different intentions and only one of them was expressed. */
     int32_t   epair[FORGE_EPAIRS];
 } ForgeEnt;
@@ -110,17 +110,17 @@ typedef enum {
 
 typedef struct {
     /* ── World ─────────────────────────────────────────────────────────*/
-    KilnVoxelWorld   world;
-    KilnVoxAtlas     atlas;
-    KilnVoxMeshArena arena;
-    KilnVoxMesh      meshes[KILN_VOXEL_MAX_CHUNKS];
-    int             mesh_valid[KILN_VOXEL_MAX_CHUNKS];
+    FigVoxelWorld   world;
+    FigVoxAtlas     atlas;
+    FigVoxMeshArena arena;
+    FigVoxMesh      meshes[FIG_VOXEL_MAX_CHUNKS];
+    int             mesh_valid[FIG_VOXEL_MAX_CHUNKS];
 
     /* ── Camera ────────────────────────────────────────────────────────*/
-    KilnScene  scene;
+    FigScene  scene;
     fm_vec3_t fly_pos;
     float     fly_yaw, fly_pitch;
-    KilnFpsCam walk_cam;
+    FigFpsCam walk_cam;
 
     /* ── PAINT ─────────────────────────────────────────────────────────*/
     int paint_tile, paint_x, paint_y;
@@ -138,17 +138,17 @@ typedef struct {
     uint8_t key_level, fill_level, ambient;
 
     /* ── CAM ───────────────────────────────────────────────────────────*/
-    KilnCamKey    keys[FORGE_MAX_KEYS];
+    FigCamKey    keys[FORGE_MAX_KEYS];
     int          key_count, key_sel, key_full;
     float        cine_t, cine_duration;
     int          cine_loop, cine_playing, cine_frustum_hidden;
     uint32_t     cine_err;
-    KilnCamReport cine_report;
+    FigCamReport cine_report;
 
     /* ── Editing ───────────────────────────────────────────────────────*/
     ForgeMode   mode;
     uint8_t     block;         /* the type being placed, 1..15          */
-    KilnVoxelHit aim;           /* this frame's reticle result           */
+    FigVoxelHit aim;           /* this frame's reticle result           */
     int         drag_active;   /* Z held: a fill volume is being dragged */
     int         drag[3];       /* its anchor block                       */
 
@@ -157,15 +157,15 @@ typedef struct {
     int        arena_overflow;   /* the vertex arena ran out             */
     int        box_overflow;     /* greedy boxes exceeded FORGE_MAX_BOXES */
     int        fell;            /* WALK caught a fall out of the level    */
-    int        last_store;       /* KilnStoreStatus of the last save/load  */
+    int        last_store;       /* FigStoreStatus of the last save/load  */
     const char *last_action;     /* what that status belongs to           */
     uint32_t   boxes_used;
     uint32_t   quads_drawn;   /* merged surface quads across every chunk */
     float      fps;
 
     /* ── Scratch, here rather than on the stack ────────────────────────*/
-    KilnVoxelQuad quads[FORGE_QUAD_SCRATCH];
-    KilnBrush     boxes[FORGE_MAX_BOXES];
+    FigVoxelQuad quads[FORGE_QUAD_SCRATCH];
+    FigBrush     boxes[FORGE_MAX_BOXES];
 } Forge;
 
 /* The level name every artifact is written under. One name, so a session's
@@ -174,12 +174,12 @@ typedef struct {
 
 /* forge_cam.c */
 void forge_cam_init(Forge *f);
-void forge_cam_update(Forge *f, const KilnInput *in, float dt);
+void forge_cam_update(Forge *f, const FigInput *in, float dt);
 void forge_cam_apply(Forge *f);
 fm_vec3_t forge_cam_forward(const Forge *f);
 
 /* forge_geo.c */
-void forge_geo_update(Forge *f, const KilnInput *in);
+void forge_geo_update(Forge *f, const FigInput *in);
 void forge_geo_remesh(Forge *f);
 void forge_geo_draw(Forge *f);
 void forge_geo_draw_overlay(Forge *f);
@@ -187,14 +187,14 @@ void forge_geo_draw_overlay(Forge *f);
 /* forge_walk.c */
 void forge_walk_enter(Forge *f);
 fm_vec3_t forge_walk_spawn(const Forge *f);
-void forge_walk_update(Forge *f, const KilnInput *in, float dt);
+void forge_walk_update(Forge *f, const FigInput *in, float dt);
 
 /* forge_paint.c */
-void forge_paint_update(Forge *f, const KilnInput *in);
+void forge_paint_update(Forge *f, const FigInput *in);
 void forge_paint_draw(Forge *f);
 
 /* forge_ent.c */
-void forge_ent_update(Forge *f, const KilnInput *in);
+void forge_ent_update(Forge *f, const FigInput *in);
 void forge_ent_draw(Forge *f);
 void forge_ent_draw3d(Forge *f);
 int  forge_ent_emit(const Forge *f, char *out, int cap);
@@ -205,14 +205,14 @@ const char *forge_ent_epair_key(int cls, int i);
 int         forge_ent_epair_required(int cls, int i);
 
 /* forge_light.c */
-void forge_light_update(Forge *f, const KilnInput *in);
+void forge_light_update(Forge *f, const FigInput *in);
 void forge_light_apply(Forge *f);
 void forge_light_draw(Forge *f);
 void forge_light_draw3d(Forge *f);
 int  forge_light_emit(const Forge *f, char *out, int cap);
 
 /* forge_cine.c */
-void forge_cine_update(Forge *f, const KilnInput *in, float dt);
+void forge_cine_update(Forge *f, const FigInput *in, float dt);
 void forge_cine_validate(Forge *f);
 int  forge_cine_override_camera(Forge *f);
 void forge_cine_draw(Forge *f);

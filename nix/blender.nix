@@ -42,6 +42,10 @@ let
 
   engineScripts = ../tools/blender;
   f3dInject = ../tools/f3d_inject.py;
+  # Also the asset-budget measurer. Its `stats` subcommand reads the exported
+  # glTF, which is the only place the SHIPPED vertex count is legible — see
+  # below for why that is not the number kilnlib.report() can print.
+  assetBudget = ../tools/asset_budget.py;
 
   # ── Why a downstream script directory MERGES rather than replaces ──────
   # Every generator here — this repo's and a game's — opens with
@@ -217,6 +221,25 @@ rec {
         fi
         echo "  ${name}.t3dm: $raw bytes (uncompressed)"
 
+        # ── what the console will actually transform ──────────────────────
+        # Per-object emitted vertices, triangles and vertex-load batches, read
+        # off the glTF gltf_to_t3d just consumed.
+        #
+        # This is not the same number kilnlib.report() prints inside Blender,
+        # and the difference is the point: the exporter splits a vertex per
+        # distinct position/normal/colour/uv, so a flat-shaded mesh carrying
+        # per-face colours emits two to three times what Blender holds. report()
+        # estimates it from the arrays it was handed; this measures it. A mesh
+        # that overrides its normals after make_mesh (pm_meshy.py's custom split
+        # normals) is only measured here.
+        #
+        # `part` is the count of RSP vertex loads — ceil(verts / 70), where 70 is
+        # gltf_to_t3d's MAX_VERTEX_COUNT (structs.h:293). That, rather than the
+        # triangle count, is what a distant object costs to submit, which is why
+        # it is printed per object rather than summed away.
+        echo "── geometry ──"
+        python3 ${assetBudget} stats stage/assets/${name}.gltf
+
         ${lib.optionalString animated ''
           # Streamed animations land beside the .t3dm as .sdata sidecars, and
           # their rom:/ paths are derived by splitting the output path on
@@ -312,7 +335,7 @@ rec {
     });
 
   # ── Morph targets ───────────────────────────────────────────────────────
-  # gltf_to_t3d does not parse glTF morph targets, so the engine's kiln_morph
+  # gltf_to_t3d does not parse glTF morph targets, so the engine's fig_morph
   # module blends between sibling .t3dm models at runtime. This builder is a
   # thin wrapper over mkBlenderModel that documents the convention: the Blender
   # script must create N mesh objects with identical topology (same vertex and

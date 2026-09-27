@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT
  *
- * camlint — kiln_camlint over a camera shot written as JSON.
+ * camlint — fig_camlint over a camera shot written as JSON.
  *
  *     camlint <shot.json> [--json]
  *
- * kiln_camlint has run in two places: natively inside nix checks against tables
+ * fig_camlint has run in two places: natively inside nix checks against tables
  * compiled into the check, and on console. Neither lets someone ask "is THIS
  * shot valid" about a shot that exists as data — one exported from Forge's CAM
  * mode, drafted by an agent, or pasted from a cutscene table — and CLAUDE.md
@@ -277,7 +277,7 @@ int main(int argc, char **argv)
 
         g_input_err = NULL;
         int keys_n = member(shot, "keys");
-        static KilnCamKey keys[1024];
+        static FigCamKey keys[1024];
         int kc = 0;
         if (keys_n < 0 || g_nodes[keys_n].type != J_ARR) g_input_err = "keys";
         else {
@@ -287,14 +287,14 @@ int main(int argc, char **argv)
                     if (!g_input_err) g_input_err = "eye/look";
             }
         }
-        KilnCamShot cs = {
+        FigCamShot cs = {
             .keys = keys, .key_count = kc,
             .duration = num_or(shot, "duration", 0, 1),
             .near_z = num_or(shot, "near_z", 0, 1),
             .far_z = num_or(shot, "far_z", 0, 1),
             .loop = (int)num_or(shot, "loop", 0, 0),
         };
-        KilnCamBounds bounds = { .valid = 0 };
+        FigCamBounds bounds = { .valid = 0 };
         int b = member(shot, "bounds");
         if (b >= 0) bounds.valid = vec3(member(b, "mins"), &bounds.mins) && vec3(member(b, "maxs"), &bounds.maxs);
         if (g_input_err) {
@@ -302,16 +302,16 @@ int main(int argc, char **argv)
             return 2;
         }
 
-        KilnCamReport rep;
-        uint32_t err = kiln_camlint(&cs, bounds.valid ? &bounds : NULL, &rep);
+        FigCamReport rep;
+        uint32_t err = fig_camlint(&cs, bounds.valid ? &bounds : NULL, &rep);
         bad |= err != 0;
 
         if (!as_json) {
             printf("%-16s %s", name, err ? "FAIL" : "ok  ");
             for (int bit = 0; bit < 32; bit++)
-                if (err & (1u << bit)) printf("  %s", kiln_camlint_err_name(1u << bit));
+                if (err & (1u << bit)) printf("  %s", fig_camlint_err_name(1u << bit));
             for (int bit = 0; bit < 32; bit++)
-                if (rep.note & (1u << bit)) printf("  (%s)", kiln_camlint_note_name(1u << bit));
+                if (rep.note & (1u << bit)) printf("  (%s)", fig_camlint_note_name(1u << bit));
             printf("\n                 keys %d  overshoot %.2f  speed ratio %.2f  subject %.1f  tail %.2fs\n",
                    kc, rep.overshoot, rep.speed_ratio, rep.subject_dist, rep.tail);
             continue;
@@ -320,16 +320,16 @@ int main(int argc, char **argv)
         char code[64], msg[256], where[128];
         for (int bit = 0; bit < 32; bit++) {
             if (!(err & (1u << bit))) continue;
-            code_of("ERR_", kiln_camlint_err_name(1u << bit), code, sizeof code);
-            snprintf(msg, sizeof msg, "%s: %s", name, kiln_camlint_err_name(1u << bit));
+            code_of("ERR_", fig_camlint_err_name(1u << bit), code, sizeof code);
+            snprintf(msg, sizeof msg, "%s: %s", name, fig_camlint_err_name(1u << bit));
             if (rep.bad_key >= 0) snprintf(where, sizeof where, "%s key %d", name, rep.bad_key);
             else snprintf(where, sizeof where, "%s", name);
             finding(errs, &ee, code, msg, where);
         }
         for (int bit = 0; bit < 32; bit++) {
             if (!(rep.note & (1u << bit))) continue;
-            code_of("NOTE_", kiln_camlint_note_name(1u << bit), code, sizeof code);
-            snprintf(msg, sizeof msg, "%s: %s", name, kiln_camlint_note_name(1u << bit));
+            code_of("NOTE_", fig_camlint_note_name(1u << bit), code, sizeof code);
+            snprintf(msg, sizeof msg, "%s: %s", name, fig_camlint_note_name(1u << bit));
             snprintf(where, sizeof where, "%s", name);
             finding(notes, &ne, code, msg, where);
         }

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# The Kiln engine: a 3D layer on Tiny3D plus a 2D GUI layer on rdpq.
+# The Figulina: a 3D layer on Tiny3D plus a 2D GUI layer on rdpq.
 #
 # Shaped like Tiny3D's own Makefile so it installs into the same $N64_INST
 # layout and can be merged into one prefix (see nix/n64-inst.nix).
@@ -22,7 +22,7 @@ inc := $(addprefix $(SOURCE_DIR)/,$(addsuffix .h,$(MODULES))) \
 # gnu2x to match Tiny3D's own dialect (its headers use C23-isms).
 # -lstreamdb_emb is pulled in by a ROM's Makefile via streamdb.mk; the engine
 # archive only references streamdb_emb_* symbols, which resolve at the ROM's
-# final link. A ROM that doesn't use kiln_asset pays nothing for it —
+# final link. A ROM that doesn't use fig_asset pays nothing for it —
 # --gc-sections drops the unused object.
 N64_CFLAGS += -std=gnu2x -Os -Isrc -Wall -Wextra -Wno-error \
               -DSTREAMDB_EMB_BACKEND_DFS=1
@@ -48,9 +48,9 @@ OBJ = $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(MODULES)))
 $(BUILD_DIR)/kiln_soft3d.o: N64_CFLAGS += -fno-fast-math -Werror -Wno-unused-function -Wno-error=type-limits
 $(BUILD_DIR)/kiln_soft3d.o: src/kiln/gen/signaculum_mips64.gen.c src/kiln/gen/signaculum_x86_64.gen.c
 
-all: $(BUILD_DIR)/libkiln.a
+all: $(BUILD_DIR)/libfigulina.a
 
-$(BUILD_DIR)/libkiln.a: $(OBJ)
+$(BUILD_DIR)/libfigulina.a: $(OBJ)
 	@mkdir -p $(dir $@)
 	@echo "    [AR] $@"
 	$(N64_AR) rcs $@ $^
@@ -66,7 +66,12 @@ install: all
 	for file in $(inc); do \
 		install -Cv -m 0644 $$file $(INSTALLDIR)/$(N64_TARGET)/include/kiln; \
 	done
-	install -Cv -m 0644 $(BUILD_DIR)/libkiln.a $(INSTALLDIR)/$(N64_TARGET)/lib
+	install -Cv -m 0644 $(BUILD_DIR)/libfigulina.a $(INSTALLDIR)/$(N64_TARGET)/lib
+	# docs/NAMING.md section 9 step 3: "Keep a libkiln.a symlink for one
+	# train." A symlink rather than a second ar run, so the two names cannot
+	# ever be different archives — which is the failure a copy would allow and
+	# nobody would notice until a link picked the stale one.
+	ln -sf libfigulina.a $(INSTALLDIR)/$(N64_TARGET)/lib/libkiln.a
 
 clean:
 	rm -rf $(BUILD_DIR)

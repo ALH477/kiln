@@ -24,7 +24,7 @@ referencing an external file) — only `[ext_resource]` files Blender's own
 importers already understand. It does NOT import materials, physics
 shapes, lights, or scripts; non-mesh nodes are reported in the summary
 (same convention as quake_map.py's point entities) so a game can turn them
-into KilnActor spawns or kiln_room lights by hand, reading their type and
+into FigActor spawns or fig_room lights by hand, reading their type and
 origin from the report rather than this script guessing intent.
 
 ── Axes: Godot is Y-up, like glTF — NOT like Blender ───────────────────────

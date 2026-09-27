@@ -6,25 +6,25 @@
 #include "kiln_inventory.h"
 #include <stddef.h>
 
-void kiln_inventory_init(KilnInventory *inv)
+void fig_inventory_init(FigInventory *inv)
 {
-    for (int i = 0; i < KILN_INV_SLOTS; i++) {
+    for (int i = 0; i < FIG_INV_SLOTS; i++) {
         inv->slots[i].id = 0;
         inv->slots[i].count = 0;
     }
     inv->count = 0;
 }
 
-int kiln_inventory_add(KilnInventory *inv, uint16_t id, uint16_t count)
+int fig_inventory_add(FigInventory *inv, uint16_t id, uint16_t count)
 {
     if (id == 0) return 0;
-    for (int i = 0; i < KILN_INV_SLOTS; i++) {
+    for (int i = 0; i < FIG_INV_SLOTS; i++) {
         if (inv->slots[i].id == id) {
             inv->slots[i].count += count;
             return 1;
         }
     }
-    for (int i = 0; i < KILN_INV_SLOTS; i++) {
+    for (int i = 0; i < FIG_INV_SLOTS; i++) {
         if (inv->slots[i].id == 0) {
             inv->slots[i].id = id;
             inv->slots[i].count = count;
@@ -35,18 +35,18 @@ int kiln_inventory_add(KilnInventory *inv, uint16_t id, uint16_t count)
     return 0;
 }
 
-int kiln_inventory_has(const KilnInventory *inv, uint16_t id)
+int fig_inventory_has(const FigInventory *inv, uint16_t id)
 {
-    for (int i = 0; i < KILN_INV_SLOTS; i++) {
+    for (int i = 0; i < FIG_INV_SLOTS; i++) {
         if (inv->slots[i].id == id)
             return inv->slots[i].count;
     }
     return 0;
 }
 
-int kiln_inventory_consume(KilnInventory *inv, uint16_t id, uint16_t count)
+int fig_inventory_consume(FigInventory *inv, uint16_t id, uint16_t count)
 {
-    for (int i = 0; i < KILN_INV_SLOTS; i++) {
+    for (int i = 0; i < FIG_INV_SLOTS; i++) {
         if (inv->slots[i].id == id && inv->slots[i].count >= count) {
             inv->slots[i].count -= count;
             if (inv->slots[i].count == 0) {

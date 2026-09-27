@@ -4,19 +4,19 @@
  *
  * Four modes, all built on Tiny3D's draw-custom callbacks:
  *
- *   KILN_TEXANIM_SCROLL   Per-material UV offset via rdpq tile translate.
+ *   FIG_TEXANIM_SCROLL   Per-material UV offset via rdpq tile translate.
  *                        The tile callback modifies rdpq_texparms_t each frame.
  *                        Works with any textured .t3dm; no special authoring.
  *
- *   KILN_TEXANIM_FLIPBOOK N sprite frames, the current one uploaded as the
+ *   FIG_TEXANIM_FLIPBOOK N sprite frames, the current one uploaded as the
  *                        material's texture.
  *
- *   KILN_TEXANIM_PALETTE  A CI4/CI8 surface uploaded with one of N palettes,
+ *   FIG_TEXANIM_PALETTE  A CI4/CI8 surface uploaded with one of N palettes,
  *                        chosen by time: palette cycling.
  *
- *   KILN_TEXANIM_OFFSCREEN A caller-provided surface_t uploaded as the texture.
- *                        The caller renders into it before kiln_texanim_draw
- *                        (before kiln_frame_begin, with rdpq_attach_clear).
+ *   FIG_TEXANIM_OFFSCREEN A caller-provided surface_t uploaded as the texture.
+ *                        The caller renders into it before fig_texanim_draw
+ *                        (before fig_frame_begin, with rdpq_attach_clear).
  *
  * The last three need a material authored as a texture REFERENCE
  * (f3d_inject.py's useRef=1,refAddress=N,refSize=W:H), and match it by that
@@ -49,8 +49,8 @@
  * RGBA texture sampled through a TLUT is garbage and nothing else here would
  * reset it.
  */
-#ifndef KILN_TEXANIM_H
-#define KILN_TEXANIM_H
+#ifndef FIG_TEXANIM_H
+#define FIG_TEXANIM_H
 
 #include <t3d/t3dmodel.h>
 #include <libdragon.h>
@@ -60,21 +60,21 @@ extern "C" {
 #endif
 
 typedef enum {
-    KILN_TEXANIM_SCROLL   = 0,
-    KILN_TEXANIM_FLIPBOOK = 1,
-    KILN_TEXANIM_PALETTE  = 2,
-    KILN_TEXANIM_OFFSCREEN = 3,
-} KilnTexAnimMode;
+    FIG_TEXANIM_SCROLL   = 0,
+    FIG_TEXANIM_FLIPBOOK = 1,
+    FIG_TEXANIM_PALETTE  = 2,
+    FIG_TEXANIM_OFFSCREEN = 3,
+} FigTexAnimMode;
 
 typedef struct {
-    KilnTexAnimMode mode;
+    FigTexAnimMode mode;
 
     /** Not consulted: SCROLL applies to every textured material the model
      *  draws, and the reference modes match their material by `ref_id`. Kept
      *  so existing initialisers compile. */
     const char *material_name;
 
-    /* ── Scroll params (KILN_TEXANIM_SCROLL) ─────────────────────────── */
+    /* ── Scroll params (FIG_TEXANIM_SCROLL) ─────────────────────────── */
     struct {
         float s_speed;    /**< pixels per second */
         float t_speed;
@@ -82,7 +82,7 @@ typedef struct {
         float t_offset;
     } scroll;
 
-    /* ── Flipbook params (KILN_TEXANIM_FLIPBOOK) ────────────────────── */
+    /* ── Flipbook params (FIG_TEXANIM_FLIPBOOK) ────────────────────── */
     struct {
         sprite_t **frames;  /**< caller-owned array of loaded sprites */
         int frame_count;
@@ -95,7 +95,7 @@ typedef struct {
      *  that carries it; give each animated material its own. */
     uint8_t ref_id;
 
-    /* ── Palette params (KILN_TEXANIM_PALETTE) ─────────────────────── */
+    /* ── Palette params (FIG_TEXANIM_PALETTE) ─────────────────────── */
     struct {
         surface_t *indices;   /**< caller-owned FMT_CI4 / FMT_CI8 surface */
         uint16_t **palettes;  /**< caller-owned RGBA16 palettes, 8-byte aligned */
@@ -105,24 +105,24 @@ typedef struct {
         float time;
     } palette;
 
-    /* ── Offscreen params (KILN_TEXANIM_OFFSCREEN) ─────────────────── */
+    /* ── Offscreen params (FIG_TEXANIM_OFFSCREEN) ─────────────────── */
     struct {
         surface_t *surface;  /**< caller sets this each frame before draw */
     } offscreen;
-} KilnTexAnim;
+} FigTexAnim;
 
-/** Advance all animation timers. Call once per frame before kiln_texanim_draw.
+/** Advance all animation timers. Call once per frame before fig_texanim_draw.
  *  `dt` is seconds. */
-void kiln_texanim_update(KilnTexAnim *anims, int count, float dt);
+void fig_texanim_update(FigTexAnim *anims, int count, float dt);
 
 /** Draw a model with texture animation. Calls t3d_model_draw_custom with the
  *  appropriate callbacks. Must be called inside the 3D pass (between
- *  kiln_scene_begin and kiln_gui_begin) after the model's transform is pushed.
+ *  fig_scene_begin and fig_gui_begin) after the model's transform is pushed.
  *  `anims` may be NULL (draws without animation, equivalent to t3d_model_draw). */
-void kiln_texanim_draw(const T3DModel *model, KilnTexAnim *anims, int count);
+void fig_texanim_draw(const T3DModel *model, FigTexAnim *anims, int count);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_TEXANIM_H */
+#endif /* FIG_TEXANIM_H */

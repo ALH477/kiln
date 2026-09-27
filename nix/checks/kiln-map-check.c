@@ -4,11 +4,11 @@
  * renders it — the first time a level in this repo has been drawn anywhere but
  * a ROM.
  *
- * This is the payoff for the IO tier. kiln_map_load takes a DFS path, which on
+ * This is the payoff for the IO tier. fig_map_load takes a DFS path, which on
  * console reads a filesystem image appended to the ROM; here it resolves under
  * $KILN_HOST_DFS. The chain that matters is the one CLAUDE.md says cost
  * PetaByte Madness its entire PLAY screen: an asset builder's `name` IS the
- * filename the ROM opens, kiln_map_load returns non-zero instead of asserting,
+ * filename the ROM opens, fig_map_load returns non-zero instead of asserting,
  * and an empty clip world makes every trace report "nothing in the way". Every
  * layer degrades politely and the composition is silent. On the host that same
  * mismatch is a missing file with a path in the message.
@@ -28,7 +28,7 @@
  * ── This check used to pin two DEFECTS. It now pins their fix ───────────
  * Rendering a .map on the host is what made both visible, and both are fixed:
  *
- *   1. kiln_map_draw did not render the brush's FACES. A Quake .map gives
+ *   1. fig_map_draw did not render the brush's FACES. A Quake .map gives
  *      three points per face and those points define a PLANE — conventionally
  *      one unit apart, which is exactly what assets/quake_test.map uses.
  *      kiln_map.c read them as face corners and completed the parallelogram
@@ -51,7 +51,7 @@
  * collision box of -64..64, not -64..65.
  *
  * The AABB is the part worth a second look, because it is the field every
- * consumer actually uses — kiln_clip_set_world, kiln_room's brush install, a
+ * consumer actually uses — fig_clip_set_world, fig_room's brush install, a
  * game's PLAY screen — and until now it was the min/max of the plane POINTS,
  * so every collision box in every level here was a unit oversized on whichever
  * axes the plane-point convention pushed outward. Real vertices make it the
@@ -83,17 +83,17 @@ int main(int argc, char **argv)
 
     /* A missing map must be a LOUD miss, not a silent empty world. Prove the
      * negative first, because it is the failure mode that actually happened. */
-    KilnMap absent;
+    FigMap absent;
     memset(&absent, 0, sizeof absent);
-    CHECK(kiln_map_load(&absent, "rom:/definitely_not_here.map") != 0,
+    CHECK(fig_map_load(&absent, "rom:/definitely_not_here.map") != 0,
           "loading a nonexistent map returned success");
     CHECK(absent.brush_count == 0, "a failed load left %u brushes",
           absent.brush_count);
 
-    KilnMap m;
+    FigMap m;
     memset(&m, 0, sizeof m);
     const int rc = map_render_open(&m, map);
-    CHECK(rc == 0, "kiln_map_load('%s') returned %d", map, rc);
+    CHECK(rc == 0, "fig_map_load('%s') returned %d", map, rc);
     if (rc != 0) return 1;
 
     /* ── The brush reduction, pinned ─────────────────────────────────
@@ -172,29 +172,29 @@ int main(int argc, char **argv)
 
     CHECK(map_render_frame(&m, png) == 0, "could not write %s", png);
 
-    CHECK(kiln_clip_world_count() == m.brush_count,
-          "clip world has %d brushes, map has %u", kiln_clip_world_count(),
+    CHECK(fig_clip_world_count() == m.brush_count,
+          "clip world has %d brushes, map has %u", fig_clip_world_count(),
           m.brush_count);
 
-    const KilnHostT3DCounters *t = kiln_host_t3d_counters();
+    const FigHostT3DCounters *t = fig_host_t3d_counters();
     CHECK(t->tris_submitted > 0, "no geometry submitted");
     CHECK(t->tris_drawn > 0, "geometry submitted but nothing rasterised");
 
-    /* ── kiln_map_tint, read back ──────────────────────────────────────
+    /* ── fig_map_tint, read back ──────────────────────────────────────
      * After the capture, so the reference image is the untinted map. Every
      * class gets a distinct colour; the cube's top must carry `top` (floor_y
      * is far below it), its bottom `underside`, and each wall `wall_low` at
      * y = -64 and `wall_high` at y = 64 — the ends of the map's own height. */
     {
-        const KilnMapTint tint = {
+        const FigMapTint tint = {
             .floor = 0x111111FF, .floor_edge = 0x222222FF, .floor_y = -1000.0f, .floor_radius = 100.0f,
             .top = 0xE0C088FF, .wall_low = 0x402000FF, .wall_high = 0xC08040FF,
             .z_face_shade = 1.0f, .underside = 0x303030FF,
         };
-        kiln_map_tint(&m, &tint);
+        fig_map_tint(&m, &tint);
         int tops = 0, unders = 0, lows = 0, highs = 0, wrong = 0;
         for (int fi = 0; fi < m.face_count; fi++) {
-            const KilnMapFace *fc = &m.faces[fi];
+            const FigMapFace *fc = &m.faces[fi];
             for (int vi = 0; vi < fc->vert_count; vi++) {
                 const T3DVertPacked *e = &fc->verts[vi / 2];
                 const int16_t *p = (vi & 1) ? e->posB : e->posA;
@@ -211,14 +211,14 @@ int main(int argc, char **argv)
         printf("  tint: %d top, %d underside, %d wall-low, %d wall-high vertices, %d wrong\n",
                tops, unders, lows, highs, wrong);
         CHECK(tops == 4 && unders == 4 && lows == 8 && highs == 8,
-              "kiln_map_tint classified %d/%d/%d/%d vertices, expected 4/4/8/8",
+              "fig_map_tint classified %d/%d/%d/%d vertices, expected 4/4/8/8",
               tops, unders, lows, highs);
-        CHECK(wrong == 0, "kiln_map_tint wrote %d vertex colours that do not match their class", wrong);
+        CHECK(wrong == 0, "fig_map_tint wrote %d vertex colours that do not match their class", wrong);
         CHECK(m.faces[0].rgba == m.faces[0].verts[0].rgbaA,
-              "kiln_map_tint left a face's rgba out of step with its vertices");
+              "fig_map_tint left a face's rgba out of step with its vertices");
     }
 
-    kiln_map_free(&m);
+    fig_map_free(&m);
 
     /* ── One face wound backwards: the collision box must keep its volume ──
      * The same cube as quake_test.map with face 0's second and third points
@@ -230,10 +230,10 @@ int main(int argc, char **argv)
      * The fallback to the plane points must run instead, giving -64..65 in x
      * (the plane points' own box, a unit oversized, never empty). */
     {
-        KilnMap f;
+        FigMap f;
         memset(&f, 0, sizeof f);
-        const int frc = kiln_map_load(&f, "rom:/one_face_flipped.map");
-        CHECK(frc == 0, "kiln_map_load(one_face_flipped.map) returned %d", frc);
+        const int frc = fig_map_load(&f, "rom:/one_face_flipped.map");
+        CHECK(frc == 0, "fig_map_load(one_face_flipped.map) returned %d", frc);
         if (frc == 0) {
             CHECK(f.brush_count == 1, "one_face_flipped: %u brushes, expected 1",
                   f.brush_count);
@@ -243,7 +243,7 @@ int main(int argc, char **argv)
                       "(%g..%g) -- a player falls through this brush",
                       ax, (double)f.world_aabb_min.v[ax],
                       (double)f.world_aabb_max.v[ax]);
-            kiln_map_free(&f);
+            fig_map_free(&f);
         }
     }
 

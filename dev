@@ -50,7 +50,7 @@ usage() {
                            Kiln Studio: every game, builds and checks with live
                            logs, in one local web app (http://localhost:8420)
   cine-lint <shot.json> [--json]
-                           validate a camera shot with kiln_camlint (see
+                           validate a camera shot with fig_camlint (see
                            tools/camlint/camlint.c for the JSON shape)
   doctor [--json]          toolchain, libdragon, cart presence, versions
   new <name> [--in-repo] [--out DIR]
@@ -694,7 +694,7 @@ PY
 
     # The derived text artifacts. Each is optional: a level with no camera path
     # has no .KEY, and a save on the SRAM fallback has none of them at all
-    # (kiln_store_write_text is SD-only). Absent is normal, so it is reported
+    # (fig_store_write_text is SD-only). Absent is normal, so it is reported
     # rather than treated as an error.
     if [ -f "$dir/LEVEL.H" ]; then
       cp "$dir/LEVEL.H" "$REPO/assets/${name}_light.h"
@@ -706,7 +706,7 @@ PY
       cp "$dir/LEVEL.KEY" "$REPO/assets/${name}_keys.h"
       echo "cam:   assets/${name}_keys.h ($(grep -c '^    {' "$dir/LEVEL.KEY") keys)"
       echo "       paste the table into the shot's own .c — it is already"
-      echo "       validated by kiln_camlint, the same module Forge's CAM mode runs live"
+      echo "       validated by fig_camlint, the same module Forge's CAM mode runs live"
     else
       echo "cam:   none on the card (no keys, or the validator refused them —"
       echo "       check FORGE.LOG below)"
@@ -727,7 +727,7 @@ PY
     ;;
 
   cine-lint)
-    # kiln_camlint on a shot file: `./dev cine-lint shot.json [--json]`.
+    # fig_camlint on a shot file: `./dev cine-lint shot.json [--json]`.
     [ $# -ge 1 ] || die "usage: ./dev cine-lint <shot.json> [--json]"
     exec nix run "$REPO#camlint" -- "$@"
     ;;

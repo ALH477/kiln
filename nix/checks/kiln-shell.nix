@@ -10,7 +10,7 @@
 # ── Why ninety frames and not one ──────────────────────────────────────
 # One frame proves the linker found everything. Ninety proves the loop can
 # come back round, which is the property that was actually broken: until this
-# work `audio_can_write()` returned 1 forever, so kiln_audio_update's drain
+# work `audio_can_write()` returned 1 forever, so fig_audio_update's drain
 # loop never terminated and any host build of a real game hung on frame one.
 # Nothing caught it because no gate had ever run a game loop. This is the gate
 # that would have.

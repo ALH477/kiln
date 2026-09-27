@@ -27,8 +27,8 @@
  * obj->material, part->vert and part->vertLoadCount. Everything else the
  * drawing path needs is private to host_t3dmodel.c.
  */
-#ifndef KILN_HOST_T3DMODEL_H
-#define KILN_HOST_T3DMODEL_H
+#ifndef FIG_HOST_T3DMODEL_H
+#define FIG_HOST_T3DMODEL_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -52,7 +52,7 @@ typedef struct {
     char    *texPathA;
     char    *texPathB;
     /* The one field of Tiny3D's T3DMaterialTexture the engine reads:
-     * kiln_texanim matches a texture-reference material by it. The host reader
+     * fig_texanim matches a texture-reference material by it. The host reader
      * leaves it 0, which Tiny3D also reads as "not a reference", and the host
      * draw never calls a dynTextureCb anyway. */
     struct { uint32_t texReference; } textureA;
@@ -86,11 +86,35 @@ typedef struct {
     T3DObjectPart *parts;         /* numParts entries                        */
 } T3DObject;
 
-/* The bone and skeleton chunks are the console's layouts, copied from
- * Tiny3D's t3dmodel.h: kiln_skel reads `name` and `depth` to build bone
- * masks, and that code has to compile here to be in HOST_MODULES. Nothing on
- * the host parses them — no .t3dm skeleton is ever loaded (see
- * t3dskeleton.h). */
+/* ── The bone, skeleton and animation chunks ──────────────────────────────
+ * Copied from Tiny3D's t3dmodel.h, field for field. These are now PARSED by
+ * host_t3dmodel.c and handed to a real t3d_skeleton_create, so every member
+ * is load-bearing rather than decoration: fig_skel reads `name` and `depth`
+ * to build bone masks, t3d_skeleton_reset copies the SRT triple as one
+ * memcpy (so their ORDER and ADJACENCY are part of the contract), and
+ * t3d_skeleton_update walks `parentIdx`, treating 0xFFFF as "no parent".
+ *
+ * These are host-native structs filled by the parser, NOT the file's bytes
+ * reinterpreted. The file stores each pointer as a four-byte string-table
+ * offset, so casting the chunk would read every field after `name` from the
+ * wrong place — the same reason this file parses objects and materials
+ * instead of casting them (host_t3dmodel.c's preamble has the long version).
+ *
+ * T3DChunkAnim carried only its first three members until the parser landed,
+ * which was wrong in the way this file's own rule names: `channelsQuat`,
+ * `channelsScalar` and `filePath` exist on the console, and the chunk's size
+ * is 20 bytes plus 12 per (channelsQuat + channelsScalar) mapping — measured
+ * against centaur.t3dm, whose thirteen clips sit exactly 0x428 = 20 + 87*12
+ * bytes apart. A truncated copy made the stride unknowable.
+ */
+typedef struct {
+    uint16_t targetIdx;
+    uint8_t  targetType;
+    uint8_t  attributeIdx;
+    float    quantScale;
+    float    quantOffset;
+} T3DAnimChannelMapping;
+
 typedef struct {
     char    *name;
     uint16_t parentIdx;
@@ -110,6 +134,15 @@ typedef struct {
     char    *name;
     float    duration;
     uint32_t keyframeCount;
+    uint16_t channelsQuat;
+    uint16_t channelsScalar;
+    char    *filePath;
+    /* Upstream's flexible `channelMappings[]` is a pointer here: the parser
+     * allocates the mappings separately because the host struct is wider than
+     * the file's, so they cannot follow it in place. Nothing in the engine
+     * reads them yet; they are parsed so the keyframe stream has somewhere to
+     * land when host animation stops being bind-pose-only. */
+    T3DAnimChannelMapping *channelMappings;
 } T3DChunkAnim;
 
 typedef struct T3DModel T3DModel;
@@ -130,7 +163,7 @@ typedef struct {
     char            _chunkType;
 } T3DModelIter;
 
-/* Verbatim from Tiny3D, names included: kiln_texanim builds a
+/* Verbatim from Tiny3D, names included: fig_texanim builds a
  * T3DModelDrawConf with designated initialisers, so the FIELD names are part
  * of the contract, and filterCb returns bool rather than void. */
 typedef void (*T3DModelTileCb)(void *userData, rdpq_texparms_t *tileParams,
@@ -145,7 +178,11 @@ typedef struct {
     T3DModelTileCb       tileCb;
     T3DModelFilterCb     filterCb;
     T3DModelDynTextureCb dynTextureCb;
-    T3DMat4FP           *matrices;
+    /* const, as Tiny3D has it (t3dmodel.h:227). It was not, and a caller
+     * passing a `const T3DMat4FP *` — pm_veil.c:457 does — got a
+     * -Wdiscarded-qualifiers error under this tree's -Werror on the host and
+     * built fine for the console. Another copied definition that was not. */
+    const T3DMat4FP     *matrices;
 } T3DModelDrawConf;
 
 /* The parts of T3DModel the engine reads. The rest is opaque. */
@@ -169,6 +206,41 @@ void      t3d_model_free(T3DModel *model);
 
 void t3d_model_draw(const T3DModel *model);
 void t3d_model_draw_custom(const T3DModel *model, T3DModelDrawConf conf);
+/* ── Draw state ───────────────────────────────────────────────────────────
+ * Tiny3D threads this through a manual draw loop so consecutive objects do
+ * not re-send a material the RDP already has. The host's draw_material
+ * ignores it (its combiner is a set of named sentinels, not an RDP register
+ * encoding — see host_t3dmodel.c), so here it is only ever read back.
+ *
+ * It is still the real struct rather than an opaque blob, because callers
+ * read `lastVertFXFunc` to decide whether to clear the vertex-FX function on
+ * the way out. On the host nothing sets it, so that epilogue correctly never
+ * fires — which is the answer, not an omission. */
+typedef struct {
+    uint32_t lastTextureHashA;
+    uint32_t lastTextureHashB;
+    uint8_t  lastFogMode;
+    uint32_t lastRenderFlags;
+    uint64_t lastCC;
+    color_t  lastPrimColor;
+    color_t  lastEnvColor;
+    color_t  lastBlendColor;
+    uint8_t  lastVertFXFunc;
+    uint16_t lastUvGenParams[2];
+    uint64_t lastOtherMode;
+    uint32_t lastBlendMode;
+    void    *drawConf;
+} T3DModelState;
+
+static inline T3DModelState t3d_model_state_create(void) {
+    return (T3DModelState){
+        .lastFogMode = 0xFF,
+        .lastVertFXFunc = T3D_VERTEX_FX_NONE,
+        .lastOtherMode = 0xFF,
+        .lastBlendMode = 0xFFFFFFFF,
+    };
+}
+
 void t3d_model_draw_object(const T3DObject *object, const T3DMat4FP *boneMatrices);
 void t3d_model_draw_material(T3DMaterial *mat, void *state);
 void t3d_model_draw_skinned(const T3DModel *model, const T3DSkeleton *skeleton);
@@ -189,4 +261,4 @@ void t3d_tri_draw_strip_and_sync(int16_t *indexBuff, int count);
 void t3d_tri_draw_unindexed(int base, int count);
 void t3d_indexbuffer_convert(int16_t indices[], int count);
 
-#endif /* KILN_HOST_T3DMODEL_H */
+#endif /* FIG_HOST_T3DMODEL_H */

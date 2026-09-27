@@ -130,7 +130,84 @@ def measure_texture(path, fmt=None):
 
 
 # ── Model cost ─────────────────────────────────────────────────────────────
-def measure_model(root):
+# ── Detail tiers, and the vertex-load batch ────────────────────────────────
+# A model may carry LOD tiers as extra OBJECTS inside the one .t3dm, named
+# `foo`, `foo.lod1`, `foo.lod2` — see kiln_detail.h. Only one tier of a given
+# base is ever drawn, so the PER-FRAME cost of a model is its tier-0 objects
+# alone, while ROM and resident cost is all of them. A budget that summed every
+# tier would refuse a model that is cheaper on screen than the one it replaced,
+# which is exactly backwards.
+VERT_CACHE = 70   # gltf_to_t3d MAX_VERTEX_COUNT (structs.h:293)
+
+
+def tier_of(name):
+    """Detail tier from an object name: `foo.lod2` -> 2, anything else -> 0.
+
+    Deliberately strict. `foo.001` is Blender's own collision suffix and is
+    tier 0, not tier 1 — treating it as a tier would silently drop geometry
+    from the frame the moment two objects were given the same name.
+    """
+    if not name:
+        return 0
+    base, _, suffix = name.rpartition(".")
+    if not base or not suffix.startswith("lod"):
+        return 0
+    digits = suffix[3:]
+    if not digits or not digits.isdigit():
+        return 0
+    return int(digits)
+
+
+def parts_for(verts):
+    """Vertex-load batches an object is split into — one RSP load each."""
+    return max(1, -(-verts // VERT_CACHE))
+
+
+def gltf_objects(path):
+    """Per-object emitted geometry out of a glTF.
+
+    This is the only place the SHIPPED vertex count is legible: Blender's
+    len(mesh.vertices) is not it (the exporter splits a vertex per distinct
+    position/normal/colour/uv), and the .t3dm is inside a DCA container by the
+    time anyone could look. One entry per glTF PRIMITIVE, because that is one
+    T3DObject (gltf_importer parser.cpp:181-183).
+    """
+    j = json.load(open(path))
+    acc = j.get("accessors", [])
+    nodes = j.get("nodes", [])
+    mats = j.get("materials", [])
+
+    # A primitive's T3DObject takes the NODE's name, not the mesh's.
+    name_of_mesh = {}
+    for n in nodes:
+        if n.get("mesh") is not None and n.get("name"):
+            name_of_mesh.setdefault(n["mesh"], n["name"])
+
+    out = []
+    for mi, m in enumerate(j.get("meshes", [])):
+        name = name_of_mesh.get(mi) or m.get("name") or "mesh%d" % mi
+        for pr in m.get("primitives", []):
+            pos = (pr.get("attributes") or {}).get("POSITION")
+            verts = acc[pos]["count"] if pos is not None else 0
+            if "indices" in pr:
+                tris = acc[pr["indices"]]["count"] // 3
+            else:
+                tris = verts // 3
+            mi_ = pr.get("material")
+            out.append({
+                "name": name,
+                "material": (mats[mi_].get("name") if mi_ is not None
+                             and mi_ < len(mats) else None),
+                "verts": verts,
+                "tris": tris,
+                "parts": parts_for(verts),
+                "tier": tier_of(name),
+            })
+    out.sort(key=lambda o: (o["name"], o["material"] or ""))
+    return out
+
+
+def measure_model(root, objects=None):
     """Triangles, vertices and materials out of a model derivation.
 
     `root` is a built model's output directory. Two things are read:
@@ -157,26 +234,60 @@ def measure_model(root):
             "glTF (which is the only place the shipped triangle count is "
             "readable)" % root)
 
-    tris = verts = 0
+    found = []
     materials = set()
     animations = set()
     for g in gltfs:
+        found.extend(gltf_objects(g))
         j = json.load(open(g))
-        acc = j.get("accessors", [])
-        for m in j.get("meshes", []):
-            for pr in m.get("primitives", []):
-                if "indices" in pr:
-                    tris += acc[pr["indices"]]["count"] // 3
-                pos = (pr.get("attributes") or {}).get("POSITION")
-                if pos is not None:
-                    verts += acc[pos]["count"]
         materials.update(m.get("name") for m in j.get("materials", []))
         animations.update(a.get("name") for a in (j.get("animations") or []))
 
+    # ── What one instance submits ─────────────────────────────────────────
+    # Tier 0 only: a model's other tiers are ROM and resident cost, never
+    # drawn at the same time as tier 0.
+    #
+    # `objects` narrows it further, and exists because a model is not always
+    # drawn whole. PetaByte Madness' palms .t3dm is a prop ATLAS — sixteen
+    # objects, from which the flyover picks ten by name with
+    # t3d_model_get_object. Charging a scene for all sixteen would overstate it
+    # by more than a factor of two, and charging it for one would understate it
+    # tenfold; naming the objects is the only honest option.
+    drawn = [o for o in found if o["tier"] == 0]
+    if objects is not None:
+        have = {o["name"] for o in found}
+        missing = [n for n in objects if n not in have]
+        if missing:
+            die("%s: budget names object(s) %s, which this model does not "
+                "contain (it has: %s). An object that does not resolve would "
+                "otherwise count as zero triangles."
+                % (root, ", ".join(repr(n) for n in missing),
+                   ", ".join(sorted(have))))
+        want = set(objects)
+        drawn = [o for o in drawn if o["name"] in want]
+    tris = sum(o["tris"] for o in drawn)
+    verts = sum(o["verts"] for o in drawn)
+    parts = sum(o["parts"] for o in drawn)
+    tiers = {}
+    for o in found:
+        t = tiers.setdefault(str(o["tier"]),
+                             {"objects": 0, "tris": 0, "verts": 0, "parts": 0})
+        t["objects"] += 1
+        t["tris"] += o["tris"]
+        t["verts"] += o["verts"]
+        t["parts"] += o["parts"]
+
     return {
         "kind": "model", "path": root,
+        # tris/verts are what one instance submits in a frame: tier 0 only.
         "tris": tris, "verts": verts,
+        "parts": parts,
+        "objects": len(drawn),
         "verts_per_tri": round(verts / tris, 3) if tris else 0.0,
+        # Every tier, which is what the ROM holds.
+        "tris_all": sum(o["tris"] for o in found),
+        "verts_all": sum(o["verts"] for o in found),
+        "tiers": tiers,
         "materials": sorted(x for x in materials if x),
         "animations": sorted(x for x in animations if x),
         # The upper bound. See the module docstring on why file size.
@@ -233,8 +344,20 @@ def measure_any(kind, path, **kw):
 
 
 # ── The check ──────────────────────────────────────────────────────────────
-CEILING_KEYS = ("tris", "verts", "resident_bytes", "tmem_bytes",
-                "mixer_channels", "rom_bytes")
+# ── Per-frame cost versus resident cost ────────────────────────────────────
+# These two are summed differently and conflating them is how a budget ends up
+# describing a ROM nobody has.
+#
+# Per-frame keys scale with how many times a thing is DRAWN: the flyover puts
+# four bone idols on the island, so it pays four idols' worth of vertices. An
+# entry's `count` multiplies these.
+#
+# Resident keys are what the thing costs to HOLD, and that does not change with
+# the instance count — the same T3DModel is drawn from four matrices. So they
+# are counted once per distinct asset in a scene, however many entries name it.
+PER_FRAME_KEYS = ("tris", "verts", "parts", "objects")
+RESIDENT_KEYS = ("resident_bytes", "rom_bytes", "tmem_bytes", "mixer_channels")
+CEILING_KEYS = PER_FRAME_KEYS + RESIDENT_KEYS
 
 
 def check(budget, resolve, out=sys.stdout):
@@ -271,6 +394,7 @@ def check(budget, resolve, out=sys.stdout):
             continue
 
         totals = dict.fromkeys(CEILING_KEYS, 0)
+        counted_once = set()
         assets = scene.get("assets") or []
         if not assets:
             bad("%s lists no assets" % name)
@@ -286,7 +410,15 @@ def check(budget, resolve, out=sys.stdout):
                     % (name, kind, ref, path))
                 continue
             extra = {"fmt": a["format"]} if kind == "texture" and "format" in a else {}
+            if kind == "model" and a.get("objects"):
+                extra["objects"] = a["objects"]
             m = measure_any(kind, str(path), **extra)
+
+            count = a.get("count", 1)
+            if not isinstance(count, int) or count < 1:
+                bad("%s: %s %r has count %r — an instance count must be a "
+                    "positive integer" % (name, kind, ref, count))
+                continue
 
             # Per-asset invariants that do not depend on the scene.
             if kind == "texture":
@@ -305,9 +437,22 @@ def check(budget, resolve, out=sys.stdout):
                 print("        note: %s is STEREO and therefore takes TWO "
                       "adjacent mixer channels" % ref, file=out)
 
+            once_key = (kind, ref, a.get("format"))
             for k in CEILING_KEYS:
-                if m.get(k):
-                    totals[k] += m[k]
+                v = m.get(k)
+                if not v:
+                    continue
+                if k in PER_FRAME_KEYS:
+                    totals[k] += v * count
+                elif once_key not in counted_once:
+                    totals[k] += v
+            counted_once.add(once_key)
+            if count > 1 or a.get("objects"):
+                print("        note: %s x%d%s -> %d tri %d vert %d part"
+                      % (ref, count,
+                         (" " + ",".join(a["objects"])) if a.get("objects") else "",
+                         m.get("tris", 0) * count, m.get("verts", 0) * count,
+                         m.get("parts", 0) * count), file=out)
 
         # ── The sums ───────────────────────────────────────────────────────
         for k in sorted(ceil):
@@ -413,6 +558,100 @@ def selftest():
         expect(m["resident_bytes"] == 2048 and m["clip_bytes"] == 512,
                "resident bytes are the .t3dm; clips are the .sdata")
         expect(m["animations"] == ["idle"], "and it names its clips")
+
+        # ── Detail tiers ──────────────────────────────────────────────────
+        # `foo.001` is Blender's collision suffix, not tier 1. Reading it as a
+        # tier would drop real geometry out of the per-frame figure and the
+        # budget would go green by losing track of it.
+        want_tiers = {"foo": 0, "foo.lod1": 1, "foo.lod2": 2, "foo.lod10": 10,
+                      "foo.001": 0, "lod1": 0, "foo.lodX": 0, "foo.lod": 0,
+                      "": 0, "foo.bar.lod3": 3}
+        wrong = {n: tier_of(n) for n, w in want_tiers.items()
+                 if tier_of(n) != w}
+        expect(not wrong,
+               "tier_of reads .lodN and nothing else (%s)"
+               % ("all ok" if not wrong else wrong))
+
+        expect(parts_for(0) == 1 and parts_for(VERT_CACHE) == 1
+               and parts_for(VERT_CACHE + 1) == 2,
+               "a vertex load covers VERT_CACHE verts, and one more is two loads")
+
+        # A tiered model: 12 tris drawn, 20 in the ROM. The per-frame figure
+        # must be the tier-0 half, or a model that got CHEAPER on screen would
+        # be refused for the tiers that made it so.
+        tdir = os.path.join(d, "model-tier", "share", "gltf")
+        os.makedirs(tdir)
+        json.dump({
+            "accessors": [{"count": 36}, {"count": 20},
+                          {"count": 24}, {"count": 9}],
+            "nodes": [{"name": "hero", "mesh": 0},
+                      {"name": "hero.lod1", "mesh": 1}],
+            "meshes": [{"primitives": [{"indices": 0,
+                                        "attributes": {"POSITION": 1}}]},
+                       {"primitives": [{"indices": 2,
+                                        "attributes": {"POSITION": 3}}]}],
+            "materials": [{"name": "hero_mat"}],
+        }, open(os.path.join(tdir, "tier.gltf"), "w"))
+        tfs = os.path.join(d, "model-tier", "filesystem", "models")
+        os.makedirs(tfs)
+        open(os.path.join(tfs, "tier.t3dm"), "wb").write(b"\0" * 1024)
+
+        mt = measure_model(os.path.join(d, "model-tier"))
+        expect(mt["tris"] == 12 and mt["verts"] == 20,
+               "a tiered model's per-frame cost is its tier-0 objects alone")
+        expect(mt["tris_all"] == 20 and mt["verts_all"] == 29,
+               "while every tier counts towards what the ROM holds")
+        expect(mt["objects"] == 1 and sorted(mt["tiers"]) == ["0", "1"],
+               "and each tier is reported separately")
+
+        def resolve_tier(kind, ref):
+            return {"model": os.path.join(d, "model-tier")}.get(kind)
+
+        import io as _io
+        tiered = {
+            "platform": {"tmem_bytes": 4096, "mixer_channels": 16},
+            "all_assets": [{"kind": "model", "name": "tier"}],
+            "scenes": {"S": {"ceiling": {"tris": 12, "verts": 20},
+                             "assets": [{"kind": "model", "name": "tier"}]}},
+        }
+        expect(check(tiered, resolve_tier, out=_io.StringIO()) == 0,
+               "a scene passes on the drawn tier even though every tier "
+               "together would not fit")
+
+        # ── Instance count and object subsets ─────────────────────────────
+        # Four idols on the island cost four idols of vertices but one idol of
+        # RDRAM. A budget that scaled both, or neither, would be wrong in
+        # opposite directions.
+        four = json.loads(json.dumps(tiered))
+        four["scenes"]["S"]["assets"][0]["count"] = 4
+        four["scenes"]["S"]["ceiling"] = {"tris": 48, "verts": 80,
+                                          "resident_bytes": 1024}
+        expect(check(four, resolve_tier, out=_io.StringIO()) == 0,
+               "count multiplies per-frame cost but not resident bytes")
+
+        threes = json.loads(json.dumps(four))
+        threes["scenes"]["S"]["ceiling"]["tris"] = 47
+        expect(check(threes, resolve_tier, out=_io.StringIO()) > 0,
+               "and one triangle short of four instances still fails")
+
+        badcount = json.loads(json.dumps(tiered))
+        badcount["scenes"]["S"]["assets"][0]["count"] = 0
+        expect(check(badcount, resolve_tier, out=_io.StringIO()) > 0,
+               "a count of zero is rejected rather than silently free")
+
+        # Naming objects narrows a prop atlas to the ones actually drawn.
+        subset = json.loads(json.dumps(tiered))
+        subset["scenes"]["S"]["assets"][0]["objects"] = ["hero"]
+        expect(check(subset, resolve_tier, out=_io.StringIO()) == 0,
+               "naming a model's objects narrows it to what is drawn")
+
+        ghost = json.loads(json.dumps(tiered))
+        ghost["scenes"]["S"]["assets"][0]["objects"] = ["no_such_object"]
+        try:
+            check(ghost, resolve_tier, out=_io.StringIO())
+            expect(False, "an object the model does not contain fails")
+        except SystemExit:
+            expect(True, "an object the model does not contain fails")
 
         try:
             os.makedirs(os.path.join(d, "not-a-model"))
@@ -520,9 +759,28 @@ def main(argv=None):
 
     sub.add_parser("selftest", help="prove every assertion here fires")
 
+    ps = sub.add_parser("stats", help="per-object emitted geometry of a glTF")
+    ps.add_argument("gltf")
+
     a = ap.parse_args(argv)
     if a.cmd == "selftest":
         return selftest()
+    if a.cmd == "stats":
+        objs = gltf_objects(a.gltf)
+        tv = tt = tp = 0
+        for o in objs:
+            tv += o["verts"]
+            tt += o["tris"]
+            tp += o["parts"]
+            note = "  (%d vertex loads)" % o["parts"] if o["parts"] > 1 else ""
+            tier = "  lod%d" % o["tier"] if o["tier"] else ""
+            print("  [T3D] %-24s %5d vert %4d tri %3d part  %-16s%s%s"
+                  % (o["name"][:24], o["verts"], o["tris"], o["parts"],
+                     (o["material"] or "-")[:16], tier, note))
+        ratio = " (%.2f vert/tri)" % (tv / tt) if tt else ""
+        print("  [T3D] %-24s %5d vert %4d tri %3d part  %d object(s)%s"
+              % ("TOTAL", tv, tt, tp, len(objs), ratio))
+        return 0
     if a.cmd == "measure":
         kw = {"fmt": a.format} if a.kind == "texture" and a.format else {}
         print(json.dumps(measure_any(a.kind, a.path, **kw), indent=2,

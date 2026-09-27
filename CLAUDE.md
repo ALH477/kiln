@@ -16,7 +16,7 @@ the letters as a 3D wordmark, and `examples/interceptor-demo` still prints
 mupen64plus' plugin API and movie format, i.e. the dominant N64 emulator, on
 the same PC platform Kiln now targets; and it named one hardware target out of
 four (NUS-001, the M64, the ED64 Plus, and now the host). Everything is
-`kiln_*` / `Kiln*` / `KILN_*`, the archive is `libkiln.a`, the prefix header is
+`kiln_*` / `Kiln*` / `KILN_*`, the archive is `libfigulina.a`, the prefix header is
 `kiln.mk`, and `nix/checks/kiln-names.nix` fails the build if the old name
 comes back. The ModRetro console is still called the M64 and keeps a small
 allowlist in `nix/checks/kiln-names-allow.txt` — read its header before adding
@@ -115,7 +115,7 @@ summarises. Load the relevant one rather than rediscovering it:
   limit, the rig-JSON interchange, the three-layer convention proof, and the
   poser.
 - **`n64-verify`** — booting, capturing, the jump ROMs, the debug overlay and
-  `kiln_debugdraw`'s spatial layers, and how to read pixel statistics.
+  `fig_debugdraw`'s spatial layers, and how to read pixel statistics.
 - **`n64-forge`** — authoring levels ON the console: the voxel editor, its two
   reductions, the ED64 Plus SD-card loop, and where a test belongs.
 
@@ -130,7 +130,7 @@ nix/libdragon.nix   ONE native derivation that invokes the cross compiler for
                     part of its work (mirrors upstream's build.sh): host tools
                     with $(CC), target lib with $(N64_CC).
 nix/tiny3d.nix      Tiny3D, installed with libdragon's layout.
-nix/engine.nix      libkiln — the Kiln engine (3D on Tiny3D, 2D GUI on rdpq,
+nix/engine.nix      libfigulina — Figulina (3D on Tiny3D, 2D GUI on rdpq,
                     audio on libdragon's RSP mixer, actors/rooms/camera/
                     skeletal animation — see "Phase B" below).
 nix/n64-inst.nix    symlinkJoin of the above into ONE $N64_INST prefix.
@@ -165,7 +165,7 @@ plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     display surface, plus a deterministic PNG writer. Software
                     and not OpenGL on purpose — the gate has to run in the Nix
                     sandbox, and this pass draws rectangles. It also counts
-                    what it drew (kiln_host_counters), because pixels-written
+                    what it drew (fig_host_counters), because pixels-written
                     is the quantity the console actually spends. host_t3d.c
                     reimplements the Tiny3D API's semantics — vertex cache,
                     matrix stack, lights, fog, depth — and HONOURS the s16.16
@@ -174,7 +174,7 @@ plat/host/src/      the host 2D AND 3D passes: a SOFTWARE rasteriser (fill rect,
                     with it about exactly what precision decides. Every RSP
                     limit that is silent on hardware (the 70-vertex cache, the
                     matrix stack) is an assert. host_panic.c is the one place
-                    plat/host implements a kiln_* function, because kiln_panic
+                    plat/host implements a kiln_* function, because fig_panic
                     is a CPU exception handler and has no shared logic to
                     duplicate — on the host it is a SIGSEGV handler with a
                     backtrace. host_tex.c is TMEM: 4 KB, tracked, and asserted,
@@ -191,7 +191,7 @@ plat/host/src/       host_io.c is DragonFS over a real directory, the joypad,
                     eepromfs over one file with the console's 4/16 Kbit sizes
                     ENFORCED, sprite parsing, and libcart reporting no cart.
                     host_audio.c is the mixer's BOOKKEEPING and explicitly no
-                    samples: nearly all of kiln_audio is channel arithmetic —
+                    samples: nearly all of fig_audio is channel arithmetic —
                     a 32-channel budget partitioned into SFX and music ranges,
                     priority voice stealing, room crossfades — and none of it
                     needs PCM to be checkable. mixer_poll says "SILENCE" once
@@ -213,7 +213,7 @@ nix/host.nix        the host tier, built ONCE, for any toolchain. Owns the
                     and the four targets: native, wasm32 (emcc/node),
                     aarch64 and riscv64 (musl, static, qemu-user). Each
                     target carries its own hostMath, zlib and VADPCM build,
-                    a libkilnhost.a and a libkiln.a driven off
+                    a libfigulinahost.a and a libfigulina.a driven off
                     engine/modules.mk's HOST_MODULES, and mkCheck/mkProgram/
                     mkGame. -ffp-contract=off lives here and is load-bearing:
                     see "One renderer, four architectures" below.
@@ -239,7 +239,7 @@ Two prefixes, deliberately distinct: **`N64_GCCPREFIX`** is the toolchain,
 **`N64_INST`** is the library prefix. `n64.mk`'s `N64_GCCPREFIX ?= $(N64_INST)`
 override exists for exactly this case, so the compiler never has to be merged
 into the library tree. `N64_INST` itself *is* a symlinkJoin, because libdragon,
-Tiny3D and libkiln all expect to be installed into one prefix (Tiny3D's
+Tiny3D and libfigulina all expect to be installed into one prefix (Tiny3D's
 `t3d-inst.mk` literally does `-lt3d`, which only resolves if `libt3d.a` sits
 beside `libdragon.a`) and Nix store paths are immutable.
 
@@ -260,7 +260,7 @@ drift the single list existed to prevent. `print-modules`, `print-headers` and
 `print-host-modules` all live there too, so `make -f modules.mk <target>` works
 with no `N64_INST` in scope.
 
-There is also a **`HEADER_ONLY`** list, currently just `kiln_camkey`: a module
+There is also a **`HEADER_ONLY`** list, currently just `fig_camkey`: a module
 that is installed and contributes no object. It cannot live in `MODULES`, which
 drives `$(OBJS)` and would fail the archive with "No rule to make target". The
 installCheck asks for `make print-headers` (MODULES + HEADER_ONLY) so a
@@ -273,34 +273,34 @@ every listed module must compile, every unlisted one must not — so it cannot
 drift either way. The list grew as `plat/host/` did — 6 → 20 → 21 → 37 → 40 →
 49 → 51 as the math, system, 2D, texture, model, IO and streaming-pacer tiers
 landed, and every step was announced by the gate failing rather than noticed
-later — `kiln_stream` and `kiln_streamio` (below) both turned out to compile
-natively for free, once `kiln_asset`/`kiln_room`/`kiln_tile`/`kiln_cache` all
+later — `fig_stream` and `fig_streamio` (below) both turned out to compile
+natively for free, once `fig_asset`/`fig_room`/`fig_tile`/`fig_cache` all
 did, and `kiln-parity` is what caught that rather than leaving them
 unlisted. **Two are left out
-and both are principled:** `kiln_video` needs an MPEG1 decoder, and
-`kiln_panic` is a CPU exception handler — it reads VR4300 register state out of
+and both are principled:** `fig_video` needs an MPEG1 decoder, and
+`fig_panic` is a CPU exception handler — it reads VR4300 register state out of
 libdragon's `exception_t`, which has no host analogue, so
 `plat/host/src/host_panic.c` provides its two symbols over signals instead.
 
 | cluster | modules |
 |---|---|
-| frame + scene | `kiln_engine` (frame/scene/lights/fog/`kiln_scene_project`/`kiln_scene_depth`/transforms), `kiln_gui` (rect/panel/text/bar/line), `kiln_prim` (24-vertex flat-shaded boxes, checker floors, `kiln_prim_stage` key+rim+fog preset — what examples draw with instead of hand-packed cubes) |
-| runtime objects (Phase B) | `kiln_actor`, `kiln_room`, `kiln_camera`, `kiln_skel`, `kiln_pose` (the masked bone blend and quaternion ops, pure and host-checked) |
-| feel (Phase D) | `kiln_input`, `kiln_clip`, `kiln_dict`, `kiln_map`, `kiln_surface`, `kiln_sound`, `kiln_event`, `kiln_target`, `kiln_player` |
-| streaming (Phase C/E/F) | `kiln_asset`, `kiln_scratch`, `kiln_cache`, `kiln_tile`, `kiln_lod`, `kiln_twopass`, `kiln_stream`, `kiln_streamio` |
-| first person + shooting | `kiln_fpscam`, `kiln_weapon`, `kiln_weapons`, `kiln_projectile`, `kiln_inventory`, `kiln_trigger`, `kiln_context`, `kiln_dialogue` |
-| simulation | `kiln_physics`, `kiln_crater` |
-| visual effects | `kiln_texanim` (scroll/flipbook/palette/offscreen), `kiln_vanim` (RSP VFX, morph, deform) |
-| party game | `kiln_rng`, `kiln_dice`, `kiln_board`, `kiln_turn`, `kiln_char` |
-| screens + UI | `kiln_widget`, `kiln_splash`, `kiln_video` (MPEG1), `kiln_save` (eepromfs) |
-| audio | `kiln_audio` |
-| debug | `kiln_debugdraw` (lines/AABB/axes/path/text/**frustum**), `kiln_console`, `kiln_panic`, `kiln_prof` |
-| authoring (Forge) | `kiln_voxel` (block grid + the two reductions), `kiln_voxmesh` (quads → Tiny3D vertices, runtime CI4 atlas), `kiln_store` (SD / save chip / ROM) |
-| camera data | `kiln_camkey` (the keyframe + its Catmull-Rom, **header-only**), `kiln_camlint` (the static validator) |
+| frame + scene | `fig_engine` (frame/scene/lights/fog/`fig_scene_project`/`fig_scene_depth`/transforms), `fig_gui` (rect/panel/text/bar/line), `fig_prim` (24-vertex flat-shaded boxes, checker floors, `fig_prim_stage` key+rim+fog preset — what examples draw with instead of hand-packed cubes) |
+| runtime objects (Phase B) | `fig_actor`, `fig_room`, `fig_camera`, `fig_skel`, `fig_pose` (the masked bone blend and quaternion ops, pure and host-checked) |
+| feel (Phase D) | `fig_input`, `fig_clip`, `fig_dict`, `fig_map`, `fig_surface`, `fig_sound`, `fig_event`, `fig_target`, `fig_player` |
+| streaming (Phase C/E/F) | `fig_asset`, `fig_scratch`, `fig_cache`, `fig_tile`, `fig_lod`, `fig_twopass`, `fig_stream`, `fig_streamio` |
+| first person + shooting | `fig_fpscam`, `fig_weapon`, `fig_weapons`, `fig_projectile`, `fig_inventory`, `fig_trigger`, `fig_context`, `fig_dialogue` |
+| simulation | `fig_physics`, `fig_crater` |
+| visual effects | `fig_texanim` (scroll/flipbook/palette/offscreen), `fig_vanim` (RSP VFX, morph, deform) |
+| party game | `fig_rng`, `fig_dice`, `fig_board`, `fig_turn`, `fig_char` |
+| screens + UI | `fig_widget`, `fig_splash`, `fig_video` (MPEG1), `fig_save` (eepromfs) |
+| audio | `fig_audio` |
+| debug | `fig_debugdraw` (lines/AABB/axes/path/text/**frustum**), `fig_console`, `fig_panic`, `fig_prof` |
+| authoring (Forge) | `fig_voxel` (block grid + the two reductions), `fig_voxmesh` (quads → Tiny3D vertices, runtime CI4 atlas), `fig_store` (SD / save chip / ROM) |
+| camera data | `fig_camkey` (the keyframe + its Catmull-Rom, **header-only**), `fig_camlint` (the static validator) |
 
-**`kiln_debugdraw` is new and is the first thing to reach for on anything
+**`fig_debugdraw` is new and is the first thing to reach for on anything
 spatial.** World-space lines, AABBs, axis gizmos, polylines and labels, drawn in
-the 2D pass through `kiln_scene_project` so it cannot perturb the frame it
+the 2D pass through `fig_scene_project` so it cannot perturb the frame it
 describes. The engine had none of this: a clip brush, an actor's bounds, a
 trigger volume, a camera path and a trace normal were all reachable only as
 numbers printed by a HUD, and that gap is directly responsible for two of the
@@ -311,25 +311,25 @@ worst bugs this project has had. See the `n64-verify` skill.
 Worth stating, because absence is invisible and each of these gets proposed:
 
 - **No frustum culling anywhere.** `kiln_twopass.h:63` says so outright, and
-  `kiln_actor_draw_all` / `kiln_room_draw_all` draw everything unconditionally.
+  `fig_actor_draw_all` / `fig_room_draw_all` draw everything unconditionally.
   Tiny3D's `t3d_model_bvh_query_frustum` could do it — but every PetaByte
   Madness model is built `bvh = false`, so it is unavailable by construction
-  there. `kiln_lod_visible` is a distance cutoff, not a frustum test.
+  there. `fig_lod_visible` is a distance cutoff, not a frustum test.
 - **No occlusion culling, PVS or portals.** `kiln_map.h`: "No BSP / PVS /
   portals." Room streaming is residency, not visibility.
 - **No particle system**, no billboard/sprite-in-3D helper.
-- **No scene graph.** `KilnTransform` has no parent pointer. Bone sockets DO
-  exist now — `kiln_skel_bone_push` pushes a bone's matrix so a prop drawn next
+- **No scene graph.** `FigTransform` has no parent pointer. Bone sockets DO
+  exist now — `fig_skel_bone_push` pushes a bone's matrix so a prop drawn next
   rides it (camera-skel-demo's sword, oot-demo's sword and buckler) — but that
   is a draw-time push, not a hierarchy.
-- **No material / texture / light API.** Lighting is four fields on `KilnScene`
+- **No material / texture / light API.** Lighting is four fields on `FigScene`
   (max 4 of Tiny3D's 7 directional lights, no point or spot, no shadows).
-  "Material" exists only as `KilnSurfaceDef` (gameplay: friction + footstep SFX;
-  its `render_flags` byte is declared and never read) and `KilnTexAnim`.
-  `kiln_map` parses no texture or UV data at all.
-- **`kiln_prof` is CPU-only** — six COP0-TICKS zones. No RSP/RDP timing, no
+  "Material" exists only as `FigSurfaceDef` (gameplay: friction + footstep SFX;
+  its `render_flags` byte is declared and never read) and `FigTexAnim`.
+  `fig_map` parses no texture or UV data at all.
+- **`fig_prof` is CPU-only** — six COP0-TICKS zones. No RSP/RDP timing, no
   triangle or draw-call counters.
-- **No viewmodel** (first-person weapon mesh), and `kiln_dialogue` does no text
+- **No viewmodel** (first-person weapon mesh), and `fig_dialogue` does no text
   wrapping — both documented as deliberate.
 
 ## The engine's two layers (engine/, examples/engine)
@@ -337,13 +337,13 @@ Worth stating, because absence is invisible and each of these gets proposed:
 Two layers, one state transition per frame:
 
 ```
-kiln_frame_begin()          attach framebuffer + Z-buffer
-  kiln_scene_begin(&scene)  3D: Tiny3D, perspective, lit, depth-tested
+fig_frame_begin()          attach framebuffer + Z-buffer
+  fig_scene_begin(&scene)  3D: Tiny3D, perspective, lit, depth-tested
     ... draw geometry ...
-  kiln_gui_begin()          <- the seam: depth OFF, standard combiner
+  fig_gui_begin()          <- the seam: depth OFF, standard combiner
     ... panels/text/bars ...  2D: rdpq, screen-space
-  kiln_gui_end()
-kiln_frame_end()            present
+  fig_gui_end()
+fig_frame_end()            present
 ```
 
 The split is not cosmetic — the RDP is a state machine and the two passes want
@@ -370,10 +370,10 @@ The "runtime" half of the engine, on top of the 3D/GUI layer above: live
 game objects (`kiln_actor.h`), streamed world geometry (`kiln_room.h`), an
 OoT-style follow camera (`kiln_camera.h`), and skeletal animation
 (`kiln_skel.h`). Verified by `examples/actors-demo`, `examples/rooms-demo`,
-and `examples/camera-skel-demo` (camera + skel + `kiln_audio` together).
+and `examples/camera-skel-demo` (camera + skel + `fig_audio` together).
 Audio itself is documented separately below; the connective tissue between
-Phase B and audio is `kiln_room_current()` feeding
-`kiln_audio_set_room_music`/`update_rooms` (see "The audio layer").
+Phase B and audio is `fig_room_current()` feeding
+`fig_audio_set_room_music`/`update_rooms` (see "The audio layer").
 
 Each module is modelled on a specific piece of Ocarina of Time's engine, and
 each header's own comment says so and explains what was deliberately left
@@ -383,7 +383,7 @@ out. The summary, so it's in one place:
   pool (not malloc-per-actor), category-ordered update/draw lists (player
   before enemies before props, same reasoning OoT gets predictable draw
   order and cheap category queries from), one fixed-size inline state block
-  per instance sized to the largest actor type (`KILN_ACTOR_STATE_MAX`,
+  per instance sized to the largest actor type (`FIG_ACTOR_STATE_MAX`,
   override before including the header if 64 bytes is too small — this is
   OoT's "instance struct sized to the overlay's max" idea), and
   handle+generation instead of raw pointers so a stale reference resolves to
@@ -407,10 +407,10 @@ out. The summary, so it's in one place:
   swings the camera around over several frames instead of snapping it (see
   `Camera_Normal1` in the OoT decomp for the shape of this). Phase 5 grew
   the two things Phase B deliberately left out: a **mode stack**
-  (`kiln_camera_push`/`pop`, `KILN_CAM_NORMAL`/`TARGETING`/`CUTSCENE`,
+  (`fig_camera_push`/`pop`, `FIG_CAM_NORMAL`/`TARGETING`/`CUTSCENE`,
   fixed 4-deep, restores mode + smoothed state together) and a
-  **collision-aware boom** (`kiln_camera_set_collision` opt-in; the boom is
-  `kiln_clip_ray`'d against the world each frame and pulled in on a hit).
+  **collision-aware boom** (`fig_camera_set_collision` opt-in; the boom is
+  `fig_clip_ray`'d against the world each frame and pulled in on a hit).
   Both are opt-in and default-OFF so Phase B examples link and behave
   unchanged. Also a deliberate engine-wide departure: damping is
   linear-per-frame (`t = min(1, speed*dt)`), not `expf(-t)` — same
@@ -437,14 +437,14 @@ out. The summary, so it's in one place:
   `JOINTS_0`/`WEIGHTS_0` mesh attributes; that generator is the reference
   for what a hand-built (non-Blender) skinned test asset needs to contain.
   **Three slots now, and a clip cache.** BASE and BLEND are the locomotion
-  pair above; `KILN_SKEL_OVERLAY` is a third pose-only clone blended over the
-  result for a bone mask (`kiln_skel_mask_bone("torso")`), because a one-shot
+  pair above; `FIG_SKEL_OVERLAY` is a third pose-only clone blended over the
+  result for a bone mask (`fig_skel_mask_bone("torso")`), because a one-shot
   over a walk — a sword swing at a run — cannot live in two slots: putting it in
   BLEND stops the legs. The masked blend is the engine's own arithmetic, in the
-  pure `kiln_pose` module that `nix/checks/kiln-pose.nix` runs natively over the
-  console's own `T3DBone` layout. Also: `kiln_skel_crossfade` (into the lighter
+  pure `fig_pose` module that `nix/checks/kiln-pose.nix` runs natively over the
+  console's own `T3DBone` layout. Also: `fig_skel_crossfade` (into the lighter
   slot), per-slot `set_speed`/`time`/`length`/`set_phase` (phase-matching a run
-  to the walk it replaces), `kiln_skel_bone_rotate` (look-at), and sockets.
+  to the walk it replaces), `fig_skel_bone_rotate` (look-at), and sockets.
   Clips are created once and re-attached on a swap, because `t3d_anim_create`
   opens the `.sdata` sidecar. A one-shot overlay fades out BEFORE its end:
   Tiny3D stops a finished clip without applying its last pose.
@@ -452,17 +452,17 @@ out. The summary, so it's in one place:
 Verified: `nix build .#camera-skel-demo` links clean (300 KB text, matching
 the other actor-system demos' size class) and passes the `audioRate = 32000`
 check. It captures in Ares: the goblin walks, runs, jumps and swings a
-socketed sword over the torso-masked overlay in a `kiln_prim` courtyard, with
+socketed sword over the torso-masked overlay in a `fig_prim` courtyard, with
 an inspector (`camera-skel-demo-insp`) showing every slot's clip, weight and
 playhead; the hand-built 2-bone rig above lives on as `camera-skel-demo-rig`.
 
-## Phase C — runtime asset streaming (engine/src/kiln/kiln_asset.*, examples/streamdb-demo)
+## Phase C — runtime asset streaming (engine/src/kiln/fig_asset.*, examples/streamdb-demo)
 
 `kiln_asset.h` is the runtime half of a gap CLAUDE.md itself used to describe:
 `nix/assets.nix`'s build-side pipeline (`mkModel`/`mkSprite`/...) already
-produced converted assets, but nothing in `libkiln` opened a StreamDB
+produced converted assets, but nothing in `libfigulina` opened a StreamDB
 container at runtime — every ROM that wanted an asset loaded it by hand
-with `t3d_model_load`/`sprite_load` against a DFS path. `kiln_asset` closes
+with `t3d_model_load`/`sprite_load` against a DFS path. `fig_asset` closes
 that gap for the two things worth indexing rather than just listing as
 loose files.
 
@@ -477,19 +477,19 @@ loose files.
   format sized for 4 MB RDRAM rather than upstream's pthreads/flock/fsync
   host implementation) read straight out of ROM, for content that
   benefits from being indexed rather than named: level layouts, dialogue
-  tables, actor params, and — via `kiln_asset_model`/`kiln_asset_sprite` —
+  tables, actor params, and — via `fig_asset_model`/`fig_asset_sprite` —
   any model or sprite a game wants to find by suffix scan ("every `.t3dm`
   in this DB") instead of a hardcoded path per asset.
 
-**One arena, caller-owned, no cache.** `kiln_asset_open` takes a caller-sized
-arena (`kiln_asset_probe_size` sizes it); a heap failure mid-level is not
+**One arena, caller-owned, no cache.** `fig_asset_open` takes a caller-sized
+arena (`fig_asset_probe_size` sizes it); a heap failure mid-level is not
 recoverable on this console, so sizing happens at boot, not lazily.
-`kiln_asset_model`/`kiln_asset_sprite` malloc and return — the caller holds
+`fig_asset_model`/`fig_asset_sprite` malloc and return — the caller holds
 the pointer, same contract as `t3d_model_load`. No cache table; a bounded
 one is a same-day follow-up if an actor type ever needs on-demand loading,
 not needed by anything built so far.
 
-**`kiln_asset_model` needs `t3d_model_load_buf`,** which Tiny3D upstream does
+**`fig_asset_model` needs `t3d_model_load_buf`,** which Tiny3D upstream does
 not expose (`t3d_model_load(path)` only) — `nix/patches/tiny3d-load-buf.patch`
 adds it as a pure refactor (extracts `t3d_model_load`'s body into
 `t3d_model_load_buf(buf, sz)`) so a `.t3dm` already read out of a StreamDB
@@ -497,13 +497,13 @@ payload can be parsed without a round-trip through DFS. `nix flake check`
 fails loudly here, not silently at runtime, if a Tiny3D bump ever makes the
 patch stop applying.
 
-**`kiln_asset_wav64` is deliberately NOT provided** — see "Not yet built".
+**`fig_asset_wav64` is deliberately NOT provided** — see "Not yet built".
 
 ### Datafiles: StreamDB vs loose DFS — the actual decision framework
 
 Kiln's answer to "the engine consumes data files, the way id Tech 4 does" is
 StreamDB — it is this platform's closest analogue to a `.pk4` pak, and it is
-what `kiln_stream`/`kiln_streamio` (Phase F, below) pace loads through. But
+what `fig_stream`/`fig_streamio` (Phase F, below) pace loads through. But
 "always use StreamDB" is false today, for a concrete, structural reason, not
 a style preference:
 
@@ -518,7 +518,7 @@ a style preference:
   builder's `name` being the filename).
 - **Use loose DFS** for anything an engine loader only knows how to open by
   hardcoded path with no in-memory variant. Audio is the standing example —
-  `wav64_open` has no buffer form, so `kiln_asset_wav64` cannot exist until
+  `wav64_open` has no buffer form, so `fig_asset_wav64` cannot exist until
   libdragon grows `wav64_open_buf` — but it is not the only one: an
   **animated** model isn't actually single-file either. Tiny3D's
   `t3danim.c` streams clip data from sidecar `.N.sdata` files via
@@ -529,7 +529,7 @@ a style preference:
   try to open them by DFS path regardless of where the `.t3dm` itself came
   from.
 - **Realistic scope on a fixed ROM cartridge:** there is no writable general
-  filesystem at runtime (SD via `kiln_store` is real, but it is Forge's
+  filesystem at runtime (SD via `fig_store` is real, but it is Forge's
   editor-save path, not a game-content mod directory) — so "id-Tech-4-style"
   here means "one build-time-baked pak instead of scattered hardcoded DFS
   paths," not runtime `fs_game`-style directory swapping.
@@ -539,9 +539,9 @@ sprite through StreamDB, audio (and any animated model) through loose DFS in
 the same ROM — not an all-StreamDB or all-loose-DFS choice.
 
 Verified by `examples/streamdb-demo` (one `.streamdb` packing a model, a
-sprite, and a raw level-layout blob — `kiln_asset_model`'s patched
-load-from-buffer path, `kiln_asset_sprite`, `kiln_asset_load` on the raw
-blob, and `kiln_asset_find_suffix`), `examples/assets-demo` and
+sprite, and a raw level-layout blob — `fig_asset_model`'s patched
+load-from-buffer path, `fig_asset_sprite`, `fig_asset_load` on the raw
+blob, and `fig_asset_find_suffix`), `examples/assets-demo` and
 `examples/openworld-demo` (the realistic mixed pattern: `mkAssetPak`-built
 StreamDB for models/sprites, loose DFS for the `.wav64`), and
 `examples/camera-skel-demo` (the animated-model case that stays loose DFS
@@ -567,16 +567,16 @@ left out. Verified by `examples/clip-demo`, `examples/map-demo`,
   flat array of brush AABBs per loaded room (no BSP — overkill for OoT-room
   counts on a 4 MB console). Slab-method swept AABB vs AABB, single
   precision with a 1e-3 epsilon (s16.16 world scale; 1e-4 produces visible
-  contact jitter). `kiln_clip_slide` is the iterative clip-and-retry
+  contact jitter). `fig_clip_slide` is the iterative clip-and-retry
   SlideMove shape (Doom 3's `idPhysics_Player::SlideMove`) — what makes a
   player slide along a wall instead of stopping dead. No rotation traces,
   no contents test, no contact-point list — those are layered on top by a
   game that needs them.
 - **`kiln_dict.h`** — idDict analogue. Module-global interned key table
-  (256 caps, one boot allocation); per-instance `KilnDict` is a fixed
+  (256 caps, one boot allocation); per-instance `FigDict` is a fixed
   16-slot array of `{key_id, type, union{int,float,fm_vec3_t,str_id}}`.
-  Embedded in `KilnRoomSpawn` so spawn args ride with the spawn template.
-  `kiln_dict_set_auto` parses "0 0 0" as vec3, "5.5" as float, "5" as int,
+  Embedded in `FigRoomSpawn` so spawn args ride with the spawn template.
+  `fig_dict_set_auto` parses "0 0 0" as vec3, "5.5" as float, "5" as int,
   else string — the auto-typing idDict's `Set` does on text input.
 - **`kiln_map.h`** — idMapFile analogue. Parses the existing Quake `.map`
   text format (`assets/quake_test.map`, `assets/oot_test.map`). One-pass
@@ -586,57 +586,57 @@ left out. Verified by `examples/clip-demo`, `examples/map-demo`,
   `tools/blender/quake_map.py` uses. The AABB comes from those vertices, with
   the old plane-point box as a fallback for a brush whose winding is inside-out
   and which therefore yields no polygons at all.
-  `classname` → `profile_id` via `kiln_map_register_classname`. One `.map`
+  `classname` → `profile_id` via `fig_map_register_classname`. One `.map`
   = one room for the demo; multi-room games load several `.map` files and
   connect them via `target_room` epairs later.
-- **`kiln_surface.h`** — surface-prop table analogue. `KilnSurfaceDef[256]`
+- **`kiln_surface.h`** — surface-prop table analogue. `FigSurfaceDef[256]`
   of `{ friction, footstep_sfx, render_flags }`, indexed by
-  `KilnTrace.hitsurface`. A real Doom 3 binds materials to textures with
+  `FigTrace.hitsurface`. A real Doom 3 binds materials to textures with
   surface flags (metal, flesh, stone); on an N64 with no programmable
   pixel pipeline the "material" layer is one small fixed table the gameplay
   code reads, separate from the rdpq combiner the renderer uses.
 - **`kiln_sound.h`** — sound-shader analogue, separate from `kiln_audio.h`
-  for clarity. `KilnSoundShader { name, wav64_path, base_vol,
-  falloff_radius, loop }`; `kiln_sound_play(name, world_pos, pitch)`
+  for clarity. `FigSoundShader { name, wav64_path, base_vol,
+  falloff_radius, loop }`; `fig_sound_play(name, world_pos, pitch)`
   computes distance→volume and listener-facing→pan (stereo only — no HRTF
-  on a 93.75 MHz VR4300) and triggers `kiln_sfx_play_ex`. One
-  `kiln_sound_update_listener` per frame; looping positional shaders
+  on a 93.75 MHz VR4300) and triggers `fig_sfx_play_ex`. One
+  `fig_sound_update_listener` per frame; looping positional shaders
   (torches, machines) recompute vol/pan from it.
 - **`kiln_event.h`** — idEvent analogue. One flat pool of 256 slots (~7 KB)
-  and a single `kiln_event_process` per frame — per-actor queues would mean
+  and a single `fig_event_process` per frame — per-actor queues would mean
   per-actor malloc, which the engine deliberately never does (see
-  `kiln_actor.h`'s flat-pool rationale). `kiln_event_post(handle, event_id,
-  delay_ms, args, argc)`; `kiln_event_process(dt)` runs BEFORE
-  `kiln_actor_update_all` so events land before the actor's own update.
+  `kiln_actor.h`'s flat-pool rationale). `fig_event_post(handle, event_id,
+  delay_ms, args, argc)`; `fig_event_process(dt)` runs BEFORE
+  `fig_actor_update_all` so events land before the actor's own update.
   Pool-full policy: a new event with priority higher than the
   lowest-priority queued event evicts that one (debugf'd); otherwise the
   new event is dropped (debugf'd). Stale targets (despawned before fire)
   are dropped silently — a queued "play idle" event for a killed actor is
   not a warning worth spoiling real bugs with. Dispatched via
-  `KilnActorEventFn` on `KilnActorProfile` (NULL = ignore).
+  `FigActorEventFn` on `FigActorProfile` (NULL = ignore).
 - **`kiln_target.h`** — Z-targeting. Cone + range query over the ENEMY and
-  NPC category lists (reuses `kiln_actor_first/next` — no spatial index, no
+  NPC category lists (reuses `fig_actor_first/next` — no spatial index, no
   kd-tree; at OoT enemy counts per room the linear walk is cheaper than
-  maintaining a structure). `kiln_target_acquire` picks the smallest-angle
-  candidate in the forward cone; `kiln_target_switch` cycles by stick
-  direction; `kiln_target_draw_reticle` projects the locked actor's world
+  maintaining a structure). `fig_target_acquire` picks the smallest-angle
+  candidate in the forward cone; `fig_target_switch` cycles by stick
+  direction; `fig_target_draw_reticle` projects the locked actor's world
   position through the scene's view basis and draws four corner brackets
-  via `kiln_gui`, clamping to the nearer screen edge when the target is
+  via `fig_gui`, clamping to the nearer screen edge when the target is
   behind the camera.
 - **`kiln_player.h`** — the player locomotion state machine. A helper, not
   an actor profile: the player IS an actor (category PLAYER), and its
-  profile update/draw call into `kiln_player_*` which owns the
-  IDLE/WALK/RUN/ROLL/ATTACK/JUMP/FALL machine. Reads `kiln_input_get(port)`,
-  integrates velocity against `kiln_clip_slide`, probes ground with
-  `kiln_clip_ground`, and posts `KILN_EV_PLAYER_FOOTSTEP` events at a
-  cadence proportional to speed — the actor's `KilnActorEventFn` dispatches
-  to `kiln_sound_play` keyed by the underfoot surface. Camera-relative
-  movement basis set each frame via `kiln_player_set_camera_basis`.
+  profile update/draw call into `fig_player_*` which owns the
+  IDLE/WALK/RUN/ROLL/ATTACK/JUMP/FALL machine. Reads `fig_input_get(port)`,
+  integrates velocity against `fig_clip_slide`, probes ground with
+  `fig_clip_ground`, and posts `FIG_EV_PLAYER_FOOTSTEP` events at a
+  cadence proportional to speed — the actor's `FigActorEventFn` dispatches
+  to `fig_sound_play` keyed by the underfoot surface. Camera-relative
+  movement basis set each frame via `fig_player_set_camera_basis`.
 
 **Existing modules extended (additively, backward-compatible):**
-- **`kiln_actor.h`** — `KilnActorProfile` gained `KilnActorEventFn event` and
-  `kiln_actor_dispatch_event` (used by `kiln_event_process`). `kiln_actor_spawn`
-  takes a `const KilnDict *dict` (may be NULL) the profile's `init` reads
+- **`kiln_actor.h`** — `FigActorProfile` gained `FigActorEventFn event` and
+  `fig_actor_dispatch_event` (used by `fig_event_process`). `fig_actor_spawn`
+  takes a `const FigDict *dict` (may be NULL) the profile's `init` reads
   spawn args from. Old examples pass NULL and behave as before.
 - **`kiln_camera.h`** — mode stack + collision-aware boom (see Phase B
   bullet above). Both default-OFF; Phase B examples link and behave
@@ -651,70 +651,70 @@ that ships two assets in the same subdir; `clip-demo` (`[ demoSound
 stepSound ]`) was the first to hit it.
 
 Verified by `examples/oot-demo`: a player actor walks `assets/oot_test.map`
-(sliding via `kiln_clip`), Z-targets two orbiting enemies (camera pushes
-`KILN_CAM_TARGETING`, reticle projects through the scene), emits footstep
-SFX via `kiln_event` + `kiln_sound`, and gets a 1.5 s `KILN_CAM_CUTSCENE`
+(sliding via `fig_clip`), Z-targets two orbiting enemies (camera pushes
+`FIG_CAM_TARGETING`, reticle projects through the scene), emits footstep
+SFX via `fig_event` + `fig_sound`, and gets a 1.5 s `FIG_CAM_CUTSCENE`
 pan on boot that pops back to NORMAL — every Phase D module in one frame.
 `nix build .#oot-demo` and `nix flake check` are green (32 checks).
 
-## Phase F — a priority/budget pacer for room+tile streaming (kiln_stream, kiln_streamio)
+## Phase F — a priority/budget pacer for room+tile streaming (fig_stream, fig_streamio)
 
-Closes a gap Phase C/E left open: `kiln_room`, `kiln_tile`, `kiln_asset` and
-`kiln_cache` were four independent systems — no example ever wired real asset
-loading into room/tile streaming, `kiln_room` had **no per-frame load budget
+Closes a gap Phase C/E left open: `fig_room`, `fig_tile`, `fig_asset` and
+`fig_cache` were four independent systems — no example ever wired real asset
+loading into room/tile streaming, `fig_room` had **no per-frame load budget
 at all** (a whole cross-shaped set can load synchronously in one frame), and
-`kiln_tile`'s only budget (`load_budget`) was a flat count serviced in
+`fig_tile`'s only budget (`load_budget`) was a flat count serviced in
 slot-scan order, not by distance or urgency. This is **not** an async I/O
 system — nothing in this engine or platform does background/threaded I/O,
-and every `kiln_asset_model`/`kiln_asset_sprite` call stays a single
+and every `fig_asset_model`/`fig_asset_sprite` call stays a single
 blocking call. What it adds is a **pacer**: which of the currently
 outstanding requests gets that blocking call issued *this frame*, in
 priority order, under a real byte/count budget, deferring the rest exactly
-the way `kiln_tile`'s existing `TILE_PENDING` already did for its narrower,
+the way `fig_tile`'s existing `TILE_PENDING` already did for its narrower,
 FIFO-only case.
 
 - **`kiln_stream.h/.c`** — pure admission policy. A flat pool
-  (`KILN_STREAM_MAX_PENDING`, default 64) of `(key, urgency, rank, byte_cost,
-  tag)` requests, generation-counted handles packed like `KilnCacheHandle`
+  (`FIG_STREAM_MAX_PENDING`, default 64) of `(key, urgency, rank, byte_cost,
+  tag)` requests, generation-counted handles packed like `FigCacheHandle`
   (index biased +1 so slot 0/gen 0 can't collide with `INVALID == 0` — the
-  exact bug `kiln_cache`'s handle packing once had, not reintroduced here).
-  Pool-full eviction is deliberately `kiln_event_post`'s exact rule (evict
+  exact bug `fig_cache`'s handle packing once had, not reintroduced here).
+  Pool-full eviction is deliberately `fig_event_post`'s exact rule (evict
   the lowest-priority PENDING slot only if the newcomer strictly outranks
   it, else drop + `debugf`) — a scarce flat pool under contention is the
-  same problem there and here. `kiln_stream_frame_begin` admits the
+  same problem there and here. `fig_stream_frame_begin` admits the
   highest-`(urgency, rank)` PENDING requests that fit `max_bytes_per_frame`
   and `max_admits_per_frame`, stopping at the first one that doesn't fit
   rather than bin-packing smaller lower-priority ones around it — except a
   single request bigger than the whole per-frame budget is forced through
   when nothing else has been admitted yet, or it would starve forever. Knows
-  nothing about `KilnAsset`/`KilnCache`/`KilnRoom`/`KilnTileSlot` — same
-  pure-logic-vs-console-glue split as `kiln_voxel`/`kiln_voxmesh` — so it
+  nothing about `FigAsset`/`FigCache`/`FigRoom`/`FigTileSlot` — same
+  pure-logic-vs-console-glue split as `fig_voxel`/`fig_voxmesh` — so it
   sits in `HOST_MODULES` and is asserted on by `nix/checks/kiln-logic.nix`.
-- **`kiln_streamio.h/.c`** — binds one `KilnStream` to a real `KilnAsset*` +
-  `KilnCache*`, and provides `kiln_streamio_room_on_load`/`_on_unload` and
-  `kiln_streamio_tile_on_load`/`_on_unload` — **literal**
-  `KilnRoomLoadFn`/`UnloadFn` and `KilnTileLoadFn`/`UnloadFn` implementations,
+- **`kiln_streamio.h/.c`** — binds one `FigStream` to a real `FigAsset*` +
+  `FigCache*`, and provides `fig_streamio_room_on_load`/`_on_unload` and
+  `fig_streamio_tile_on_load`/`_on_unload` — **literal**
+  `FigRoomLoadFn`/`UnloadFn` and `FigTileLoadFn`/`UnloadFn` implementations,
   not a new callback contract, so a game opts in by pointing its existing
-  `kiln_room_system_init`/`kiln_tile_init` function-pointer slots at these
+  `fig_room_system_init`/`fig_tile_init` function-pointer slots at these
   instead of hand-writing its own. `on_load` does no I/O — it only calls
-  `kiln_stream_request` and returns — so `kiln_tile`'s own `load_budget` must
+  `fig_stream_request` and returns — so `fig_tile`'s own `load_budget` must
   be set to 255 (its documented "synchronous, load-all-immediately" escape
-  hatch) to disable `kiln_tile`'s own throttling; `kiln_stream` becomes the
-  sole budget authority. `kiln_streamio_pump`, called once per frame after
-  residency update and before draw, issues the real `kiln_cache_acquire`
-  (internally `kiln_asset_model`/`kiln_asset_sprite`) for every request
-  `kiln_stream` admitted, and writes the result into `room->user_mesh` or
+  hatch) to disable `fig_tile`'s own throttling; `fig_stream` becomes the
+  sole budget authority. `fig_streamio_pump`, called once per frame after
+  residency update and before draw, issues the real `fig_cache_acquire`
+  (internally `fig_asset_model`/`fig_asset_sprite`) for every request
+  `fig_stream` admitted, and writes the result into `room->user_mesh` or
   the tile slot's `user_data` — both already documented as engine-never-
   dereferences, read only by the caller's own null-checking draw callback,
   so writing them asynchronously after the triggering `on_load` returned is
   safe. Turned out to compile natively too (every module it touches already
-  does), so it sits in `HOST_MODULES` alongside `kiln_stream` — though its
-  own `kiln_asset`/`kiln_cache` round-trip needs real StreamDB content to
+  does), so it sits in `HOST_MODULES` alongside `fig_stream` — though its
+  own `fig_asset`/`fig_cache` round-trip needs real StreamDB content to
   exercise, which is a heavier follow-on check, not required for this to
   land.
 - Two health gauges, meant to read 0 in a healthy frame:
-  `kiln_stream_dropped_total` (pool full, nothing lower-priority to evict —
-  a capacity/tuning problem) and `kiln_streamio_fail_total` (an admitted
+  `fig_stream_dropped_total` (pool full, nothing lower-priority to evict —
+  a capacity/tuning problem) and `fig_streamio_fail_total` (an admitted
   request's asset call returned NULL — a content problem, the same
   "missing map / wrong asset filename" failure class that has already cost
   this project a whole PLAY screen once). Distinct counters on purpose, per
@@ -723,12 +723,12 @@ FIFO-only case.
 Verified by `examples/openworld-demo`: a 32×32 island of terraced tiles in
 four biomes, streamed from `openworld.streamdb` as twelve models keyed by
 biome and LOD (`tools/blender/ow_tile.py`), through
-`kiln_stream`→`kiln_streamio`→`kiln_cache`→`kiln_asset` over a 7×7 window.
+`fig_stream`→`fig_streamio`→`fig_cache`→`fig_asset` over a 7×7 window.
 LOD is chosen by distance from the camera, tiles still pending draw a
 placeholder block rather than a hole, fog and a sea plane hide the window's
 edge, and the HUD's pacer gauges go amber/red at the values that mean trouble
 (Ares, `openworld-demo-fast`: pending 14/64, 0 dropped, 0 failed). One thing
-the demo had to learn: `kiln_tile_first`/`kiln_tile_next` still yield tiles
+the demo had to learn: `fig_tile_first`/`fig_tile_next` still yield tiles
 queued for unload, so a count of residents must skip them.
 
 **Getting that screenshot found four pre-existing, previously-unverified
@@ -738,42 +738,42 @@ been booted rather than just built:
 1. `streamdb_emb_io_dfs()` (`streamdb-embedded/src/streamdb_io_dfs.c`) called
    `dfs_open()` with the `"rom:/"`-prefixed path `kiln_asset.h`'s own doc
    comment tells every caller to pass — but `dfs_open` wants the prefix
-   stripped, exactly the mismatch `kiln_map_load` already found and fixed
+   stripped, exactly the mismatch `fig_map_load` already found and fixed
    once (see its comment). Invisible to `nix/checks/kiln-asset.nix` because
    that check builds `kiln_asset.c` against a host stdio stub, never the
    real DFS backend.
-2. `examples/streamdb-demo/main.c`'s `kiln_asset_model` call passed a
+2. `examples/streamdb-demo/main.c`'s `fig_asset_model` call passed a
    hardcoded key length of `17` for `"models/cube.t3dm"`, which is 16 bytes
    — an off-by-one that made the lookup miss every time, never caught
    because nothing exercises `streamdb_emb_find` against real key lengths
    outside a booted ROM.
-3. `openworld-demo`'s `kiln_tile_init` passed `NULL` as `user_ctx`, which
-   `kiln_lod_selector_cb` dereferences as a `KilnLODConfig*` — every tile's
+3. `openworld-demo`'s `fig_tile_init` passed `NULL` as `user_ctx`, which
+   `fig_lod_selector_cb` dereferences as a `FigLODConfig*` — every tile's
    distance compare read off a null config, came back "beyond the last
-   threshold," and no tile was ever marked resident. (kiln_streamio's own
+   threshold," and no tile was ever marked resident. (fig_streamio's own
    `user_ctx` need — `&g_tile_binding` — is what forced this one into the
    open: the demo now reads `lod_cfg` from a module-global directly instead.)
 4. `openworld-demo`'s draw callback translated each tile by `tile_center -
-   cam_pos` while `kiln_scene_update`'s `t3d_viewport_look_at` already takes
+   cam_pos` while `fig_scene_update`'s `t3d_viewport_look_at` already takes
    `cam_pos` as an absolute world position — double-subtracting the camera
    offset and pushing every tile off the far plane. Tiles now draw at their
    actual world coordinates.
 
 All four are content/wiring bugs in example code and a sibling library, not
-in `kiln_stream`/`kiln_streamio` themselves, but the project's own precedent
+in `fig_stream`/`fig_streamio` themselves, but the project's own precedent
 (`kiln-map`, `kiln-parity`, `kiln-logic`'s first runs) is that a check which
 has never actually been exercised end to end is a check that might not be
 checking anything — this is that lesson recurring one level up, at "has this
 ROM ever been booted" rather than "has this gate ever fired."
 
-## The audio layer (engine/src/kiln/kiln_audio.*, examples/audio, examples/live-voice, examples/music)
+## The audio layer (engine/src/kiln/fig_audio.*, examples/audio, examples/live-voice, examples/music)
 
 Three audio paths, all first-class:
 
 ```
 Baked instruments (report Stage 1, recommended 80-90%):
   .dsp → mkBakedInstrument → host render (-double) → audioconv64 → .wav64
-       → mkN64Rom `assets` → DragonFS → kiln_sfx_load/play → RSP mixer
+       → mkN64Rom `assets` → DragonFS → fig_sfx_load/play → RSP mixer
 
 Live Faust voices (report Stage 2):
   .dsp → mkFaustVoice → faust -lang c -single -os → VR4300 object
@@ -782,26 +782,26 @@ Live Faust voices (report Stage 2):
 
 Tracker music:
   .xm/.ym → mkMusic → audioconv64 → .xm64/.ym64
-         → mkN64Rom `assets` → DragonFS → kiln_music_load/play → RSP mixer
+         → mkN64Rom `assets` → DragonFS → fig_music_load/play → RSP mixer
 ```
 
 The engine audio layer (`kiln_audio.h`) wraps libdragon's RSP mixer with:
-- `kiln_audio_init/update/close` — init, per-frame pump, teardown
-- `kiln_sfx_load/play/play_ex/stop` — SFX with priority-based voice stealing
-- `kiln_sfx_set_vol_pan/set_freq/set_pitch` — `set_freq` is absolute Hz,
+- `fig_audio_init/update/close` — init, per-frame pump, teardown
+- `fig_sfx_load/play/play_ex/stop` — SFX with priority-based voice stealing
+- `fig_sfx_set_vol_pan/set_freq/set_pitch` — `set_freq` is absolute Hz,
   `set_pitch` a ratio of the asset's encoded rate
-- `kiln_music_load/play/stop/set_volume/set_loop/playing` — XM64/YM64 tracker
-  music; `kiln_music_tell/seek/num_channels/first_channel` for visualisers
-- `kiln_audio_set_tap` — a read-only callback on every mixed buffer, for
+- `fig_music_load/play/stop/set_volume/set_loop/playing` — XM64/YM64 tracker
+  music; `fig_music_tell/seek/num_channels/first_channel` for visualisers
+- `fig_audio_set_tap` — a read-only callback on every mixed buffer, for
   meters and scopes that show what was mixed rather than a model of it
-- `kiln_audio_set_room_music/update_rooms` — room-based music crossfading
+- `fig_audio_set_room_music/update_rooms` — room-based music crossfading
 
 **A stereo wav64 occupies two mixer channels**, the one returned and the next;
 the allocator finds or steals a pair and routes calls on the second half to
 the first. Stealing only one half used to hit a CPU assert in Ares. Bake mono
 (`mono = true`) when both sides are the same signal. **Pitching above the
 output rate asserts** in libdragon's mixer unless `mixer_ch_set_limits` raised
-that channel's limit first; `kiln_sfx_set_pitch` documents it and leaves the
+that channel's limit first; `fig_sfx_set_pitch` documents it and leaves the
 choice to the caller, because a higher limit grows the channel's buffer. The
 host mixer asserts on both, the same way.
 
@@ -842,22 +842,22 @@ palette still separates once the veil discards hue, whether a corridor reads as
 a corridor.
 
 - **The voxel grid is not a style choice.** A greedy-merged run of blocks IS an
-  axis-aligned box, which is exactly `KilnBrush`, exactly what
+  axis-aligned box, which is exactly `FigBrush`, exactly what
   `tools/mapmaker/src/mapio.js` emits, and exactly what `kiln_map.c` reduces its
-  six planes back down to. One algorithm (`kiln_voxel_boxes`), three consumers:
+  six planes back down to. One algorithm (`fig_voxel_boxes`), three consumers:
   the clip world, the `.map` export, and WALK mode.
-- **Two reductions, and they are NOT the same answer.** `kiln_voxel_boxes` is a
-  volume partition (collision, export); `kiln_voxel_quads` is a greedy surface
+- **Two reductions, and they are NOT the same answer.** `fig_voxel_boxes` is a
+  volume partition (collision, export); `fig_voxel_quads` is a greedy surface
   extraction over exposed faces only (rendering). Drawing the boxes would draw
   the faces where two boxes meet, and on this hardware wasted fill is the
   expensive mistake. A 480-block room is 3 boxes and 26 quads.
 - **The pure half is host-tested, the Tiny3D half is not, and that seam is
-  deliberate.** `kiln_voxel` includes only `<stdint.h>` and `<t3d/t3dmath.h>`, so
+  deliberate.** `fig_voxel` includes only `<stdint.h>` and `<t3d/t3dmath.h>`, so
   it compiles against `nix/checks/stub/` and is asserted on in `kiln-logic`;
-  `kiln_voxmesh` includes `<t3d/t3d.h>` and cannot be. The vertex packing was
+  `fig_voxmesh` includes `<t3d/t3d.h>` and cannot be. The vertex packing was
   split out of the mesher for exactly this reason.
-- **`kiln_voxmesh` batches 68 vertices per `t3d_vert_load`** — 17 quads per RSP
-  DMA, against `kiln_map_draw`'s one load per 8-vertex face. 68 and not 70
+- **`fig_voxmesh` batches 68 vertices per `t3d_vert_load`** — 17 quads per RSP
+  DMA, against `fig_map_draw`'s one load per 8-vertex face. 68 and not 70
   because a quad is 4 vertices and no quad may straddle a load boundary.
 - **The atlas is CI4 by design, not to save space.** 16 tiles of 16×16 in a
   64×64 surface, 2 KB against a 4 KB TMEM (`kiln-voxmesh` asserts that number).
@@ -865,31 +865,31 @@ a corridor.
   veil-capable by construction. The 16-colour palette is also why block types
   cap at 15.
 - **The atlas reaches the screen now, and it took a combiner to get there.**
-  `kiln_voxmesh` puts the block TYPE only in the UVs (`:103-106`); vertex colour
+  `fig_voxmesh` puts the block TYPE only in the UVs (`:103-106`); vertex colour
   is `DIR_SHADE[dir]`, greyscale per-face brightness carrying no type at all
   (`:108`). `forge_geo.c` sets `T3D_FLAG_TEXTURED`, so the RSP emits texture
   coordinates — but the **combiner** decides whether the texel survives, and for
-  a long time it was `RDPQ_COMBINER_SHADE` from `kiln_scene_begin`
+  a long time it was `RDPQ_COMBINER_SHADE` from `fig_scene_begin`
   (`kiln_engine.c:126`), which outputs vertex colour and discards the texel.
   Tiny3D's `t3d_state_set_drawflags` does not touch the combiner (`t3d.c:300`)
   and nothing in `Forge/src` set one. So PAINT mode's authored palette never
   appeared and `Z`'s veiled preview could not change the geometry it was
   previewing — ~83,000 texels sampled and thrown away in one frame.
   `begin_voxel_state` now sets `rdpq_mode_combiner(RDPQ_COMBINER_TEX_SHADE)`,
-  **in Forge and not the engine**, because `kiln_voxmesh_draw`'s own comment
+  **in Forge and not the engine**, because `fig_voxmesh_draw`'s own comment
   says "Sets NO render state: the caller has already chosen the combiner" and
   `SHADE` is right as the engine's untextured default. The atlas bind follows
   `Z` too, so the veiled preview finally previews something. Nothing restores
-  it: `kiln_gui_begin`'s `rdpq_set_mode_standard` resets combiner, SOM and TLUT
-  wholesale, and `kiln_scene_begin` re-arms `SHADE` next frame.
+  it: `fig_gui_begin`'s `rdpq_set_mode_standard` resets combiner, SOM and TLUT
+  wholesale, and `fig_scene_begin` re-arms `SHADE` next frame.
   `nix/checks/kiln-voxmesh.nix` keeps both captures — `-shade` is now the
   counter-example rather than the status quo — and **greps `forge_geo.c`**,
   because it sets both combiners itself and so the pixels alone cannot tell
   which one Forge picks. Whether the palettes still read once the veil discards
   hue is still a judgement only hardware settles.
 - **WALK mode installs the greedy boxes and hands the pad to the real
-  `kiln_fpscam`**, so a doorway's width is judged by walking through it. It
-  leaves `kiln_clip`'s broadphase **off** on purpose: the grid is 16×16 in XZ with
+  `fig_fpscam`**, so a doorway's width is judged by walking through it. It
+  leaves `fig_clip`'s broadphase **off** on purpose: the grid is 16×16 in XZ with
   Y ignored and its placement pass `assertf`s at 512 brush×cell entries, which a
   floor slab trips, and that assert is a hard crash.
 - **Every capacity has a gauge and every gauge goes red at the value that means
@@ -908,7 +908,7 @@ mode reached only by a chord can only be verified by hand.
 | mode | what it authors | out |
 |---|---|---|
 | GEO | blocks: place, dig, drag-fill, 15 types | the brushes |
-| WALK | nothing — you stand in it under real `kiln_fpscam` | — |
+| WALK | nothing — you stand in it under real `fig_fpscam` | — |
 | PAINT | the CI4 atlas: 16 tiles of 16×16, 16 colours, `Z` previews the **veiled** palette | `.FRG` |
 | ENT | classname + origin + angle + numeric epairs | `.map` point entities |
 | LIGHT | key/fill direction and level, ambient, fog range, clear colour | a generated header |
@@ -917,7 +917,7 @@ mode reached only by a chord can only be verified by hand.
 - **PAINT exists because the veil discards hue.** Whether a 16-colour ramp still
   separates once the TLUT swaps is a judgement about a CRT, and no host preview
   settles it — `Z` flips cold/veiled with the geometry still on screen.
-- **CAM validates before it saves, using `kiln_camlint`** — the same module
+- **CAM validates before it saves, using `fig_camlint`** — the same module
   `./dev cine-lint` runs. A table with a hard failure is refused and logged
   rather than written, because `eye == look` halts the VR4300 inside
   `t3d_viewport_attach`, several layers from the table that caused it.
@@ -928,7 +928,7 @@ mode reached only by a chord can only be verified by hand.
 - **PAINT and LIGHT do not move the camera.** The D-pad is a texel cursor or a
   light aim, and holding the view still is what makes the judgement possible.
 
-### `kiln_camkey` and `kiln_camlint` moved into the engine when a second consumer arrived
+### `fig_camkey` and `fig_camlint` moved into the engine when a second consumer arrived
 
 Both were originally local to PetaByte Madness (`pm_camkey.h`, `pm_cine_lint.*`)
 and were promoted into the engine proper once Forge needed the same curve
@@ -966,7 +966,7 @@ EverDrive 2.5-class boards outright, so `debugf`, `./dev deploy`, `./dev debug`
 and UNFLoader see nothing. Every diagnostic is on screen or in
 `FORGE/FORGE.LOG` on the card.
 
-`kiln_store` walks SD → 32 KB save chip → read-only `rom:/`, reports which it
+`fig_store` walks SD → 32 KB save chip → read-only `rom:/`, reports which it
 got, and is red on the HUD when it is not writable. Two probe ROMs, because a
 gate should fire in both directions: `forge-selftest` must report *no writable
 backend* under an emulator, `forge-selftest-sram` must round-trip 8 KB.
@@ -1041,7 +1041,7 @@ the frame; `plat/shell` hands the finished RGBA8888 buffer to an SDL streaming
 texture or a canvas `ImageData`. That is a deliberate refusal of the obvious
 speed win, and the reason is `nix/checks/kiln-widget.nix`: `tools/uipreview`
 once drew its own rectangles and disagreed with the console about panel edge
-order, bar inset, and whether `kiln_gui_rect` blends alpha. A launcher that
+order, bar inset, and whether `fig_gui_rect` blends alpha. A launcher that
 rasterises is a second implementation of the thing the gates check, and what
 is on screen stops being evidence about the ROM.
 
@@ -1073,7 +1073,7 @@ cleanly for `qemu-user`, but mainly because musl has no `<execinfo.h>`:
 thing in the tree that notices if the guard comes back off.
 
 **No example was edited to make any of this run.** A game is compiled with
-`-Dmain=kiln_game_main`, so `examples/<x>/main.c` stays a ROM's `int
+`-Dmain=fig_game_main`, so `examples/<x>/main.c` stays a ROM's `int
 main(void)` with its own blocking `for(;;)`. In the browser that loop is legal
 because of **ASYNCIFY**, not because control was inverted: the yield goes in
 the `vsync` hook, which is called from `display_get` — the exact function the
@@ -1082,14 +1082,14 @@ where the console waits. `emscripten_set_main_loop` would have meant editing
 22 example files into a host-only shape, because `kiln_engine.c` deliberately
 owns the frame bracket and not the loop.
 
-**The seam is five function pointers.** `kiln_host.h`'s `KilnHostHooks` —
+**The seam is five function pointers.** `kiln_host.h`'s `FigHostHooks` —
 `present`, `vsync`, `audio_free`, `audio_submit`, `ctx` — all NULL by default,
 so a check's pixels and buffer counts are unchanged *by construction* rather
 than by remembering to switch something off. `plat/shell` may set those five
-and call `kiln_host_pad_set`, and that is its entire licence.
+and call `fig_host_pad_set`, and that is its entire licence.
 
 **One thing found by running a game loop that no gate had ever run:**
-`audio_can_write()` returned `1`, forever. `kiln_audio_update` is
+`audio_can_write()` returned `1`, forever. `fig_audio_update` is
 `while (audio_can_write())`, draining until the device says full, so a device
 that is never full never lets the frame end — every host build of a real game
 hung on frame one. The host now models a real device's occupancy and credits
@@ -1121,7 +1121,7 @@ screenshots and a JSON report in `.webverify/`. A dev command and not a gate,
 for the reason `./dev shot` is one: Chromium is a 150 MB dependency.
 
 It asserts on **two** observables, and the reason is a trap worth knowing.
-`Module.kiln.pad` — published by `shell_web.c` the way `kiln_host_counters()`
+`Module.kiln.pad` — published by `shell_web.c` the way `fig_host_counters()`
 is published by the renderer — says what the launcher pushed into the engine,
 which is the input path end to end. The pixels say the engine did something
 with it. The first version asserted only on the horizontal centre of mass of
@@ -1189,7 +1189,7 @@ is ever going into a golden-image test.
   `nix/blender.nix`'s `mkBlenderModel` passes `--base-scale=64` by default —
   Tiny3D stores vertex positions as integers, so a 1-Blender-unit model needs
   this to survive quantisation at all — and `kiln_splash.c`'s runtime
-  `KilnTransform.scale` is unrelated: it stays near 1.0 (0.55→1.0 during the
+  `FigTransform.scale` is unrelated: it stays near 1.0 (0.55→1.0 during the
   assemble), because the 64× is already baked into the model's own vertex
   data by the time the ROM sees it. Setting a runtime transform's scale to 64
   "to match baseScale" applies it a second time, and the result is not a
@@ -1204,7 +1204,7 @@ is ever going into a golden-image test.
   when nothing before `tools/blender/kiln_logo.py` had a front/back to get
   backwards. Settled by rendering all four quarter-turns through the host
   backend and looking, not by reasoning about axis conventions.
-- **`kiln_map_draw` did not render the brush's faces, and for a long time
+- **`fig_map_draw` did not render the brush's faces, and for a long time
   nobody could tell.** A Quake `.map` gives three points per face, and those
   points define a **plane** — conventionally one unit apart, which is what
   `assets/quake_test.map` uses. The old code treated them as face corners and
@@ -1237,7 +1237,7 @@ is ever going into a golden-image test.
   and plain arithmetic, so the vertex ORDER is identical on every architecture
   sharing one reference image.
   Still true: the faces carry **no texture coordinates** and draw white.
-  `kiln_map` parses no UV data. `kiln_map_tint` is the cheap answer until it
+  `fig_map` parses no UV data. `fig_map_tint` is the cheap answer until it
   does: one pass at load writes per-vertex colours by normal and height
   (floor, raised tops, walls dark at the foot, undersides), and `kiln-map`
   reads them back after its capture so the reference image stays untinted.
@@ -1273,7 +1273,7 @@ is ever going into a golden-image test.
   cheaper than the `6` and `4` they replaced); `'M64S'` and `'M6'` are **4- and
   2-byte on-disk magics** whose comments the sweep rewrote while leaving the
   hex, so the comment lied about the constant; and a 4-char test-corpus magic
-  `"M64L"` became 5-char `"KilnL"`, which grew a blob from 24 to 25 bytes and
+  `"M64L"` became 5-char `"FigL"`, which grew a blob from 24 to 25 bytes and
   was **masked by its own `memcmp(..., 4)`** in two places, one of which wrote a
   5-byte magic in front of a `<I` count nothing had got round to parsing yet.
   Grep for length-sensitive literals (`memcmp`, `sizeof("...")`, 3–4 char
@@ -1285,7 +1285,7 @@ is ever going into a golden-image test.
   and the build failed several steps later. `kiln-names` would have caught it
   in one run.
 - **`sram_detect()` aside, on-disk magics deserve a legacy arm.**
-  `KILN_STORE_MAGIC` became `'KLNS'` and `KILN_STORE_MAGIC_LEGACY` still
+  `FIG_STORE_MAGIC` became `'KLNS'` and `FIG_STORE_MAGIC_LEGACY` still
   accepts `'M64S'` on read, in the ROM and in `tools/forge/frg.py` both. A
   project rename must not strand a level already saved to a flashcart; the card
   round-trips forward but not back, which is the direction that matters since
@@ -1294,7 +1294,7 @@ is ever going into a golden-image test.
   `engine/Makefile` sets `-Wno-error` deliberately for third-party header
   noise. The first run of the widened host tier found a dead bounds check:
   `kiln_surface.c` opened both entry points with
-  `assertf(id < KILN_SURFACE_MAX)` where `id` is a `uint8_t` and the max is
+  `assertf(id < FIG_SURFACE_MAX)` where `id` is a `uint8_t` and the max is
   256, so the guard could never fire and had been reported to nobody for as
   long as the module existed. It is now a `_Static_assert` on the invariant
   that actually holds it — shrink the table below 256 and the build stops,
@@ -1320,16 +1320,16 @@ is ever going into a golden-image test.
   correctly, and content tuned on the host came out with every floor and box
   top at bare ambient on console — read for a long time as "the console is
   darker". Only an Ares A/B settled it. `kiln-prim` samples a floor pixel
-  under `kiln_prim_stage` so the sign cannot flip back unnoticed.
+  under `fig_prim_stage` so the sign cannot flip back unnoticed.
 - **libdragon's `fm_mat4_from_axis_angle` turns the other way from
   `fm_atan2f(x, z)`.** About +Y it maps -Z to (sin a, 0, -cos a) and +Z to
   (-sin a, 0, cos a) — measured natively against the host build of libdragon's
   own fast math. So a yaw from `fm_atan2f(dx, dz)` goes into
-  `KilnTransform.rot_angle` as `PI - yaw` for a model whose nose is -Z (every
+  `FigTransform.rot_angle` as `PI - yaw` for a model whose nose is -Z (every
   `tools/blender` character) and as `-yaw` for one whose front is +Z. `yaw + PI`
   and `yaw` are right ONLY along the Z axis, which is why nobody saw it: a demo
   walking straight looks correct, and one circling faces the camera.
-  camera-skel-demo, oot-demo (and `kiln_player` itself) and cinematic-demo's
+  camera-skel-demo, oot-demo (and `fig_player` itself) and cinematic-demo's
   `cine_yaw_to` all had it; actors-demo, debug-demo, fps, physics-demo,
   event-demo and board-demo still set `rot_angle` from an atan2 and have not
   been checked.
@@ -1346,15 +1346,15 @@ is ever going into a golden-image test.
   the ucode's push is `previous * new`. A single push cannot tell. `kiln-prim`
   draws a box offset under a parent turned 180 degrees and samples both
   candidate positions.
-- **`kiln_fpscam` was mirrored on console too.** Tiny3D's look-at builds
+- **`fig_fpscam` was mirrored on console too.** Tiny3D's look-at builds
   screen-right as forward × up, so an eye looking down +Z has screen-right at
-  −X; `kiln_fpscam` called +X right and turned left on C-right. `kiln-fpscam`
+  −X; `fig_fpscam` called +X right and turned left on C-right. `kiln-fpscam`
   asks the look-at matrix where screen-right is at four headings.
 - **A `rom:/` load before `dfs_init(DFS_DEFAULT_LOCATION)` asserts on console**
   ("File not found") and used to succeed on the host, whose directory is
   always there. Two demos shipped that way. `dfs_open` on the host now
   asserts the same way.
-- **`kiln_actor_draw_all` already pushes `actor->xform`.** A draw callback
+- **`fig_actor_draw_all` already pushes `actor->xform`.** A draw callback
   that pushes it again squares the scale and doubles the offset.
 - **An f3d_inject material built with the default `fog=False` turns the RSP's
   fog off for everything drawn after it**, not just that model. Build scene
@@ -1410,14 +1410,14 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   symptom. The fix belongs in the exporter (rebase the mesh onto the root
   pivot, once), with the origin height published by the generator and a check
   asserting a call site still agrees with it — not an offset re-derived at
-  each call site. Note `kiln_transform_push` rotates about the model origin
+  each call site. Note `fig_transform_push` rotates about the model origin
   with no pivot offset, so an origin at the feet also *fells* a body that
   pitches to lie down instead of laying it flat — the origin is not only an
   offset.
 - **An asset builder's `name` is the FILENAME the ROM must open.** It is not a
   label. `mkRawAsset { name = "foo"; dest = "maps"; }` produces
   `maps/foo.map`, and a ROM asking for `rom:/maps/foo_bar.map` gets nothing.
-  Every layer below is written to survive a missing asset — `kiln_map_load`
+  Every layer below is written to survive a missing asset — `fig_map_load`
   returns non-zero instead of asserting, an empty clip world makes every
   trace report "nothing in the way" — so the composition is silent instead of
   a build failure. This has cost a downstream game an entire screen once
@@ -1430,7 +1430,7 @@ Each cost real build time to discover. `nix/toolchain.nix` documents them inline
   `-Wmacro-redefined` warning invisible in a build that ships `-Wno-error`.
   A generated header is a namespace, not just a file — name it like one.
 - **A module compiled out under `KILN_DEBUG` breaks every debug ROM's link.**
-  `nix/engine.nix` builds `libkiln.a` exactly ONCE, without `KILN_DEBUG`, so a
+  `nix/engine.nix` builds `libfigulina.a` exactly ONCE, without `KILN_DEBUG`, so a
   `.c` wrapped in `#ifdef KILN_DEBUG` contributes no symbols — and a ROM built
   with `debugConsole = true` then fails to link against the header's real
   declarations. The house pattern (`kiln_console.h` states it, `kiln_debugdraw.h`
@@ -1529,7 +1529,7 @@ asserts it is contiguous from 0.
 `mapio.js`, `validate.py`, `frg.py` and a `snprintf` format string in
 `forge_io.c`. The C copy moved to `Forge/src/forge_map.c`, which includes only
 `<stdio.h>` and the generated header so it **compiles natively** — the same
-split `kiln_voxmesh`'s vertex packing got, and for the same reason. The check
+split `fig_voxmesh`'s vertex packing got, and for the same reason. The check
 emits one probe brush through all four and diffs them, then puts it through
 `quake_map.py`'s CSG and requires 6 surviving faces. A diff of a data file
 cannot catch a correct table used incorrectly; that probe can.
@@ -1607,7 +1607,7 @@ worth knowing by name:
   a line carrying both that and a stray `kiln_`-should-be still fails.
 - **`kiln-parity`** holds `HOST_MODULES` exact, above. Self-verifying: there is
   no way to make it pass by weakening it. It earned itself the day the 2D tier
-  landed, failing with *"kiln_gui compiles natively but is NOT in
+  landed, failing with *"fig_gui compiles natively but is NOT in
   HOST_MODULES"* — a module that had just become host-clean and would otherwise
   have gone a year without `-Werror`.
 - **`kiln-map`** loads `assets/quake_test.map` through the real `kiln_map.c`
@@ -1615,7 +1615,7 @@ worth knowing by name:
   first time a level here has been drawn outside a ROM. It proves the NEGATIVE
   first, because that is the failure this project actually had: a missing map
   must be a loud miss, not a silent empty world. It found two defects in
-  `kiln_map` and pins both; see the hard-won facts.
+  `fig_map` and pins both; see the hard-won facts.
 - **`kiln-model`** converts `assets/cube.gltf` with the SAME `gltf_to_t3d` the
   ROM build uses, then parses and renders the result on the host. The `.t3dm`
   is deliberately not committed — it would go stale the first time the
@@ -1625,18 +1625,18 @@ worth knowing by name:
 - **`kiln-voxmesh`** renders a real voxel mesh with two different combiners and
   keeps both captures, which is how "Forge's atlas is never sampled" stopped
   being an inference and became a picture. See the Forge section above.
-- **`kiln-splash`** runs the real `kiln_splash_init/update/apply/draw3d/draw2d`
+- **`kiln-splash`** runs the real `fig_splash_init/update/apply/draw3d/draw2d`
   sequence — the engine's actual boot splash, not a stand-in — against a
   `.t3dm` converted from `tools/blender/kiln_logo.py`'s own generated glTF,
   and holds the settled frame (kiln, flame, and the flame-lit publisher line
   all on screen at once) to a reference. Asserts the three named objects
   (`"kiln"`, `"flame"`, `"plate"`) are found *before* diffing pixels: a
-  lookup miss makes `kiln_splash_draw3d` fall back to drawing the model as
+  lookup miss makes `fig_splash_draw3d` fall back to drawing the model as
   one rigid piece, which is correct for a foreign model and silently wrong
   for this one, and a bare pixel diff could only ever report "the frame
   changed" for that failure, not why.
-- **`kiln-scene`** is the whole-frame gate: `kiln_frame_begin` →
-  `kiln_scene_begin` → geometry → `kiln_gui_begin` → HUD → `kiln_frame_end`,
+- **`kiln-scene`** is the whole-frame gate: `fig_frame_begin` →
+  `fig_scene_begin` → geometry → `fig_gui_begin` → HUD → `fig_frame_end`,
   run by the real `kiln_engine.c`. Before it, nothing outside a ROM on hardware
   had ever executed that bracket. It caught its own reason for existing on the
   first run: the cubes rendered inside-out, which looked exactly like a broken
@@ -1644,7 +1644,7 @@ worth knowing by name:
   shim — **nothing in `kiln_engine.c` calls it, because Tiny3D's own
   `t3d_frame_start` does** (`t3d.c:176`). `T3D_FLAG_DEPTH` is the RSP's half of
   depth; `rdpq_mode_zbuf` is the RDP's, and only one of them is visible in
-  engine code. Same two-halves shape `kiln_scene_begin`'s comment describes for
+  engine code. Same two-halves shape `fig_scene_begin`'s comment describes for
   fog.
 - **`kiln-gui`** is the 2D frame gate: the real `kiln_gui.c`, rendered through the
   host rasteriser, diffed against a committed capture AND a text manifest. Two
@@ -1652,14 +1652,14 @@ worth knowing by name:
   manifest catches the thing a pixel diff reports worst. A one-pixel baseline
   shift lights up every glyph in an image diff and says only "text changed";
   the manifest says *which label moved and where*. Verified firing on both.
-- **`kiln-widget`** renders `kiln_widget`'s five screens through the same host
+- **`kiln-widget`** renders `fig_widget`'s five screens through the same host
   backend (`tools/uipreview`) and diffs them. It exists because that harness
-  used to implement `kiln_gui`'s primitives ITSELF, over a private
+  used to implement `fig_gui`'s primitives ITSELF, over a private
   `<libdragon.h>` shim and a hand-rolled 3x5 font — so the tool whose whole job
   was judging layout disagreed with the console about panel edge order, bar
-  inset, and whether `kiln_gui_rect` blends alpha at all. **It does not:** with
-  the blender off, which is where `kiln_gui_begin` leaves it, the RDP ignores
-  source alpha and writes opaque, so `kiln_widget`'s translucent background
+  inset, and whether `fig_gui_rect` blends alpha at all. **It does not:** with
+  the blender off, which is where `fig_gui_begin` leaves it, the RDP ignores
+  source alpha and writes opaque, so `fig_widget`'s translucent background
   "motes" are solid squares on hardware. A preview that draws its own pixels is
   a second implementation of the thing it is previewing.
 - **`kiln-font`** regenerates `plat/host/include/kiln_host_font.h` from
@@ -1704,7 +1704,7 @@ worth knowing by name:
   the *other* naming, for tests that genuinely need a live Blender and are
   deliberately excluded.
 - **`forge-roundtrip`** runs `tools/forge/frg.py`'s selftest — the host mirror of
-  `kiln_voxel_boxes`, asserted to partition the solid set exactly once — then
+  `fig_voxel_boxes`, asserted to partition the solid set exactly once — then
   imports a committed `.map`, re-emits it twice for byte-equal idempotency, and
   passes the result through `quake_map.py`'s **strict** CSG. That last step is
   the one that matters: the console parser componentwise min/max's plane points
@@ -1727,15 +1727,15 @@ worth knowing by name:
   every `.map` consumer depends on is gated directly rather than incidentally
   through two round-trip checks. Its floor went 3 → 4; a stale floor is a
   loosened guard.
-- **`kiln-logic`** compiles `kiln_clip`, `kiln_dict`, `kiln_cache`, `kiln_lod`,
-  `kiln_rng` and `kiln_voxel` **natively at `-Werror`** against `nix/checks/stub/` and asserts on
+- **`kiln-logic`** compiles `fig_clip`, `fig_dict`, `fig_cache`, `fig_lod`,
+  `fig_rng` and `fig_voxel` **natively at `-Werror`** against `nix/checks/stub/` and asserts on
   them. Put a new module's pure logic here. On its first run it found two real
-  bugs `nix build` had been passing for months: `kiln_cache`'s handle 0 being
+  bugs `nix build` had been passing for months: `fig_cache`'s handle 0 being
   both "slot 0" and "invalid" (so the first asset acquired looked like a load
-  failure) and `kiln_clip`'s broadphase populating grid cells with the wrong
+  failure) and `fig_clip`'s broadphase populating grid cells with the wrong
   brushes (so a player walked through two of four walls). Compiling natively at
   `-Werror` is also a free second opinion on the engine's own `-Wno-error`.
-- **`kiln-pose`** runs `kiln_pose` — kiln_skel's masked overlay blend, subtree
+- **`kiln-pose`** runs `fig_pose` — fig_skel's masked overlay blend, subtree
   masks and quaternion ops — natively over the console's `T3DBone` layout. The
   host cannot run a skeleton; it can run this. Verified firing on three
   mutations (a subtree boundary, a dropped short-path negation, unmasked bones
@@ -1750,7 +1750,7 @@ worth knowing by name:
 the cycle budget both have been (a clean voice passes, a voice using `ma.tanh`
 or emitting a double-precision instruction fails with an actionable message);
 a check that has only ever been seen to pass is a check that might not be
-checking anything. `kiln_camlint` and `kiln_camkey` (the generated-header/
+checking anything. `fig_camlint` and `fig_camkey` (the generated-header/
 generator-agreement pattern, and the camera-curve invariant checks) were
 proved out this way against a downstream game's content before either module
 moved into the engine proper — the pattern is reusable by any game shipping
@@ -1801,28 +1801,28 @@ fixed point.
   out of scope by design. M4's budget numbers are the evidence for whether
   Stage 3 is needed at all. (Note Tiny3D ships its own RSPL microcode, and its
   `.rspl` sources are the model to study if Stage 3 ever happens.)
-- **The engine runtime has no model/asset loading yet** (no `kiln_object`
+- **The engine runtime has no model/asset loading yet** (no `fig_object`
   layer). The asset *pipeline* is built (`nix/assets.nix`, verified by
-  `examples/assets-demo`), and `kiln_asset` provides StreamDB loading for
-  models and sprites — but nothing in `libkiln` auto-loads assets. A ROM
+  `examples/assets-demo`), and `fig_asset` provides StreamDB loading for
+  models and sprites — but nothing in `libfigulina` auto-loads assets. A ROM
   that wants a model loads it by hand with `t3d_model_load` or
-  `kiln_asset_model`, as `examples/assets-demo/main.c` does.
+  `fig_asset_model`, as `examples/assets-demo/main.c` does.
 - **No collision system of any kind.** *(Phase D built one — `kiln_clip.h`'s
-  slab-method swept-AABB + SlideMove, plus `kiln_player`'s locomotion state
-  machine and `kiln_camera`'s collision-aware boom that raycasts against it.
+  slab-method swept-AABB + SlideMove, plus `fig_player`'s locomotion state
+  machine and `fig_camera`'s collision-aware boom that raycasts against it.
   This entry kept for the historical record of what Phase B left out; see
   Phase D above for what's there now.)* What's still missing: no
   rotation/contents/contact-point traces (Doom 3's `Rotation`/`Contents`/
   `Contacts`), no capsule with hemispherical caps (only AABB), and
-  `kiln_room`'s `user_mesh` is still drawn but never auto-queried — a room
+  `fig_room`'s `user_mesh` is still drawn but never auto-queried — a room
   has to install its brushes into the clip world itself (as
-  `examples/oot-demo` does at boot). A future `kiln_room` integration would
+  `examples/oot-demo` does at boot). A future `fig_room` integration would
   concatenate loaded rooms' brush arrays into one module-static buffer on
-  load/unload, so `kiln_clip_set_world` call sites stop being per-ROM.
-- **`kiln_asset_wav64` is not provided** — libdragon's `wav64_open` is
+  load/unload, so `fig_clip_set_world` call sites stop being per-ROM.
+- **`fig_asset_wav64` is not provided** — libdragon's `wav64_open` is
   path-only with no in-memory variant, so audio assets must use DFS
   (`rom:/` paths), not StreamDB. Lands when `wav64_open_buf` lands upstream.
-- **XM64 / YM64 tracker playback is bookkeeping on the host.** `kiln_music_*`
+- **XM64 / YM64 tracker playback is bookkeeping on the host.** `fig_music_*`
   reserves and reports channels correctly and produces no notes: libdragon's
   XM player is not separable from the RSP mixer the way the VADPCM codec is.
   SFX are real (see "One renderer, four architectures").

@@ -2,7 +2,7 @@
 #
 # A Kiln game's build: libdragon's n64.mk, then Tiny3D's t3d.mk, then Kiln's
 # kiln.mk. Each prepends its own -l, so the last included ends up leftmost on
-# the link line — libkiln calls Tiny3D, which calls libdragon.
+# the link line — libfigulina calls Tiny3D, which calls libdragon.
 #
 # N64_INST and N64_GCCPREFIX come from mkN64Rom (or `nix develop` in Kiln).
 BUILD_DIR = build

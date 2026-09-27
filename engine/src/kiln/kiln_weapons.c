@@ -6,13 +6,13 @@
 #include "kiln_weapons.h"
 #include <string.h>
 
-void kiln_weapons_init(KilnWeaponSet *ws, const KilnWeaponDef *defs, int count)
+void fig_weapons_init(FigWeaponSet *ws, const FigWeaponDef *defs, int count)
 {
     memset(ws, 0, sizeof(*ws));
-    if (count > KILN_WEAPON_SLOTS) count = KILN_WEAPON_SLOTS;
+    if (count > FIG_WEAPON_SLOTS) count = FIG_WEAPON_SLOTS;
     for (int i = 0; i < count; i++) {
         ws->defs[i] = defs[i];
-        kiln_weapon_init(&ws->state[i], defs[i].magazine_size,
+        fig_weapon_init(&ws->state[i], defs[i].magazine_size,
                         defs[i].fire_cooldown, defs[i].reload_time);
     }
     ws->slot_count = count;
@@ -20,7 +20,7 @@ void kiln_weapons_init(KilnWeaponSet *ws, const KilnWeaponDef *defs, int count)
     ws->switch_timer = 0.0f;
 }
 
-int kiln_weapons_switch(KilnWeaponSet *ws, int slot)
+int fig_weapons_switch(FigWeaponSet *ws, int slot)
 {
     if (slot < 0 || slot >= ws->slot_count) return 0;
     if (slot == ws->active_slot) return 0;
@@ -29,50 +29,50 @@ int kiln_weapons_switch(KilnWeaponSet *ws, int slot)
     return 1;
 }
 
-int kiln_weapons_next(KilnWeaponSet *ws)
+int fig_weapons_next(FigWeaponSet *ws)
 {
     int s = (ws->active_slot + 1) % ws->slot_count;
-    return kiln_weapons_switch(ws, s);
+    return fig_weapons_switch(ws, s);
 }
 
-int kiln_weapons_prev(KilnWeaponSet *ws)
+int fig_weapons_prev(FigWeaponSet *ws)
 {
     int s = (ws->active_slot - 1 + ws->slot_count) % ws->slot_count;
-    return kiln_weapons_switch(ws, s);
+    return fig_weapons_switch(ws, s);
 }
 
-int kiln_weapons_fire(KilnWeaponSet *ws)
+int fig_weapons_fire(FigWeaponSet *ws)
 {
-    if (!kiln_weapons_can_fire(ws)) return 0;
-    return kiln_weapon_fire(&ws->state[ws->active_slot]);
+    if (!fig_weapons_can_fire(ws)) return 0;
+    return fig_weapon_fire(&ws->state[ws->active_slot]);
 }
 
-int kiln_weapons_reload(KilnWeaponSet *ws)
+int fig_weapons_reload(FigWeaponSet *ws)
 {
-    return kiln_weapon_reload(&ws->state[ws->active_slot]);
+    return fig_weapon_reload(&ws->state[ws->active_slot]);
 }
 
-void kiln_weapons_update(KilnWeaponSet *ws, float dt)
+void fig_weapons_update(FigWeaponSet *ws, float dt)
 {
     if (ws->switch_timer > 0.0f) ws->switch_timer -= dt;
     for (int i = 0; i < ws->slot_count; i++)
-        kiln_weapon_update(&ws->state[i], dt);
+        fig_weapon_update(&ws->state[i], dt);
 }
 
-const KilnWeaponDef *kiln_weapons_active_def(const KilnWeaponSet *ws)
+const FigWeaponDef *fig_weapons_active_def(const FigWeaponSet *ws)
 {
     if (ws->active_slot < 0 || ws->active_slot >= ws->slot_count) return NULL;
     return &ws->defs[ws->active_slot];
 }
 
-KilnWeapon *kiln_weapons_active_state(KilnWeaponSet *ws)
+FigWeapon *fig_weapons_active_state(FigWeaponSet *ws)
 {
     if (ws->active_slot < 0 || ws->active_slot >= ws->slot_count) return NULL;
     return &ws->state[ws->active_slot];
 }
 
-int kiln_weapons_can_fire(const KilnWeaponSet *ws)
+int fig_weapons_can_fire(const FigWeaponSet *ws)
 {
     if (ws->switch_timer > 0.0f) return 0;
-    return kiln_weapon_can_fire(&ws->state[ws->active_slot]);
+    return fig_weapon_can_fire(&ws->state[ws->active_slot]);
 }

@@ -50,9 +50,31 @@ SETTLE="${4:-6}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for tool in hyprctl grim python3; do
+# ── Which python ───────────────────────────────────────────────────────
+# n64-input.py needs evdev to open a uinput gamepad, and this script is run
+# with plain `bash` rather than through `nix develop` — so a bare `python3`
+# here is whatever the HOST has, which on a machine without evdev meant the
+# virtual pad never came up and nothing reached the ROM.
+#
+# N64_PYTHON lets the caller name the interpreter instead. `./dev` sets it
+# from the flake's `capture-python` package, which is the same derivation the
+# devShell puts on PATH, so the two cannot disagree. Unset, this behaves
+# exactly as it always did.
+PY_BIN="${N64_PYTHON:-python3}"
+
+for tool in hyprctl grim; do
   command -v "$tool" >/dev/null || { echo "n64-drive: '$tool' not found (needs Hyprland + grim)" >&2; exit 1; }
 done
+command -v "$PY_BIN" >/dev/null || { echo "n64-drive: '$PY_BIN' not found" >&2; exit 1; }
+# Checked HERE rather than left to fail inside n64-input.py, because that
+# failure happens after ares has been launched and the window is up: the
+# symptom is a capture that looks like the ROM ignoring the controller.
+"$PY_BIN" -c 'import evdev' 2>/dev/null || {
+  echo "n64-drive: $PY_BIN has no evdev, so no virtual pad can be created." >&2
+  echo "  Run this through ./dev (which sets N64_PYTHON), or set it yourself:" >&2
+  echo "    N64_PYTHON=\$(nix build --no-link --print-out-paths <kiln>#capture-python)/bin/python3" >&2
+  exit 1
+}
 [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] || { echo "n64-drive: not inside a Hyprland session" >&2; exit 1; }
 [ -f "$SCRIPT" ] || { echo "n64-drive: no such input script: $SCRIPT" >&2; exit 1; }
 
@@ -79,7 +101,7 @@ mkdir -p "$OUTDIR"
 export SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1
 
 # ── 1. The pad, and the bindings for it ───────────────────────────────
-python3 "$HERE/n64-input.py" serve "$SCRIPT" \
+"$PY_BIN" "$HERE/n64-input.py" serve "$SCRIPT" \
         --bml "$WORK/settings.bml" \
         --ready "$WORK/ready" --start "$WORK/start" \
         --outdir "$OUTDIR" &
@@ -102,7 +124,7 @@ fi
 EMU_PID=$!
 
 find_ares_geom() {
-  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" python3 -c '
+  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" "$PY_BIN" -c '
 import json, os, sys
 try:
     clients = json.load(sys.stdin)
@@ -126,7 +148,7 @@ if match:
 ' 2>/dev/null || true
 }
 ares_ws() {
-  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" python3 -c '
+  hyprctl clients -j 2>/dev/null | EMU_PID="$EMU_PID" "$PY_BIN" -c '
 import json, os, sys
 try: clients = json.load(sys.stdin)
 except Exception: sys.exit()
@@ -137,7 +159,7 @@ for c in clients:
 ' 2>/dev/null || true
 }
 active_ws() {
-  hyprctl monitors -j 2>/dev/null | python3 -c '
+  hyprctl monitors -j 2>/dev/null | "$PY_BIN" -c '
 import json, sys
 for m in json.load(sys.stdin):
     if m.get("focused"): print(m["activeWorkspace"]["id"]); break

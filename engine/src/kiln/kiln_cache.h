@@ -20,10 +20,10 @@
  * which is 128 strcmp calls per cache lookup — under 1 ms on a VR4300.
  *
  * ── Generation counters ───────────────────────────────────────────────
- * A `KilnCacheHandle` packs the entry index and a generation counter into a
+ * A `FigCacheHandle` packs the entry index and a generation counter into a
  * uint32_t. If an entry is freed and its slot is reused, the generation
  * increments, so a stale handle from a previous occupant resolves to NULL
- * instead of a dangling pointer. This is the same pattern as KilnActorHandle.
+ * instead of a dangling pointer. This is the same pattern as FigActorHandle.
  *
  * ── What this is NOT ──────────────────────────────────────────────────
  * Not an LRU cache. Not a streaming cache. Not aware of StreamDB or DFS.
@@ -37,8 +37,8 @@
  * generation-counted handles instead of raw pointers, and a load callback
  * instead of hardcoded asset_fopen.
  */
-#ifndef KILN_CACHE_H
-#define KILN_CACHE_H
+#ifndef FIG_CACHE_H
+#define FIG_CACHE_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -47,82 +47,82 @@
 extern "C" {
 #endif
 
-#ifndef KILN_CACHE_MAX_ENTRIES
+#ifndef FIG_CACHE_MAX_ENTRIES
 /** Maximum simultaneously-cached resources. 128 covers a large overworld
  *  with shared meshes and materials. Override before including the header. */
-#define KILN_CACHE_MAX_ENTRIES 128
+#define FIG_CACHE_MAX_ENTRIES 128
 #endif
 
 /** Maximum key length. Keys are null-terminated strings (e.g. DFS paths
  *  or StreamDB keys). 63 chars covers "tiles/12_34/lod0.geom" comfortably. */
-#define KILN_CACHE_MAX_KEY_LEN 64
+#define FIG_CACHE_MAX_KEY_LEN 64
 
 /** A handle that survives entry reuse. Pack index + generation into a
  *  uint32_t: bits 0–15 = index, bits 16–23 = generation. */
-typedef uint32_t KilnCacheHandle;
+typedef uint32_t FigCacheHandle;
 
-#define KILN_CACHE_HANDLE_INVALID 0u
+#define FIG_CACHE_HANDLE_INVALID 0u
 
 /** One cache entry. */
 typedef struct {
-    char     key[KILN_CACHE_MAX_KEY_LEN];
+    char     key[FIG_CACHE_MAX_KEY_LEN];
     void    *resource;       /**< the loaded asset, or NULL if free       */
     uint16_t refcount;       /**< 0 means the slot is free                 */
     uint8_t  generation;    /**< incremented on each reuse               */
     uint8_t  _pad;
-} KilnCacheEntry;
+} FigCacheEntry;
 
 /** The cache. Embed by value. */
 typedef struct {
-    KilnCacheEntry entries[KILN_CACHE_MAX_ENTRIES];
+    FigCacheEntry entries[FIG_CACHE_MAX_ENTRIES];
     uint16_t count;          /**< high-water mark (entries ever used)      */
-} KilnCache;
+} FigCache;
 
 /** Load callback: the caller provides the actual loading. Receives the key
  *  and user_ctx; returns the loaded resource pointer, or NULL on failure.
  *  The cache takes ownership of the returned pointer — it will be freed via
  *  the release callback when refcount hits zero. */
-typedef void *(*KilnCacheLoadFn)(const char *key, void *user_ctx);
+typedef void *(*FigCacheLoadFn)(const char *key, void *user_ctx);
 
 /** Release callback: called when refcount reaches zero. The caller frees
  *  the resource (e.g. t3d_model_free, free, etc.). */
-typedef void (*KilnCacheReleaseFn)(void *resource, void *user_ctx);
+typedef void (*FigCacheReleaseFn)(void *resource, void *user_ctx);
 
 /** Initialise the cache (zero all entries). */
-void kiln_cache_init(KilnCache *cache);
+void fig_cache_init(FigCache *cache);
 
 /** Look up or load a resource by key. If the key is already cached, bumps
  *  the refcount and returns the existing handle. If not, calls load_fn to
  *  create the resource, stores it, and returns a new handle. Returns
- *  KILN_CACHE_HANDLE_INVALID if the cache is full or load_fn returned NULL.
+ *  FIG_CACHE_HANDLE_INVALID if the cache is full or load_fn returned NULL.
  *
  *  `user_ctx` is passed through to load_fn and release_fn unchanged. */
-KilnCacheHandle kiln_cache_acquire(KilnCache *cache,
+FigCacheHandle fig_cache_acquire(FigCache *cache,
                                  const char *key,
-                                 KilnCacheLoadFn load_fn,
-                                 KilnCacheReleaseFn release_fn,
+                                 FigCacheLoadFn load_fn,
+                                 FigCacheReleaseFn release_fn,
                                  void *user_ctx);
 
 /** Release a reference. Decrements the refcount; if it reaches zero, calls
  *  release_fn on the resource and frees the slot. Returns 1 if the resource
  *  was freed, 0 if other references remain. Returns -1 if the handle is
  *  invalid (stale or never acquired). */
-int kiln_cache_release(KilnCache *cache,
-                      KilnCacheHandle handle,
-                      KilnCacheReleaseFn release_fn,
+int fig_cache_release(FigCache *cache,
+                      FigCacheHandle handle,
+                      FigCacheReleaseFn release_fn,
                       void *user_ctx);
 
 /** Resolve a handle to a resource pointer. Returns NULL if the handle is
  *  stale (generation mismatch) or the slot is free. */
-void *kiln_cache_resolve(const KilnCache *cache, KilnCacheHandle handle);
+void *fig_cache_resolve(const FigCache *cache, FigCacheHandle handle);
 
 /** Get the current refcount for a handle (0 if invalid). */
-uint16_t kiln_cache_refcount(const KilnCache *cache, KilnCacheHandle handle);
+uint16_t fig_cache_refcount(const FigCache *cache, FigCacheHandle handle);
 
 /** Number of entries currently in use. */
-static inline uint16_t kiln_cache_count(const KilnCache *cache) {
+static inline uint16_t fig_cache_count(const FigCache *cache) {
     uint16_t n = 0;
-    for (int i = 0; i < KILN_CACHE_MAX_ENTRIES; i++)
+    for (int i = 0; i < FIG_CACHE_MAX_ENTRIES; i++)
         if (cache->entries[i].refcount > 0) n++;
     return n;
 }
@@ -131,4 +131,4 @@ static inline uint16_t kiln_cache_count(const KilnCache *cache) {
 }
 #endif
 
-#endif /* KILN_CACHE_H */
+#endif /* FIG_CACHE_H */

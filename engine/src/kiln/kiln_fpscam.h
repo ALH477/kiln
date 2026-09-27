@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: MIT
  *
  * kiln_fpscam.h — first-person camera. A Quake/Doom-style eye camera with
- * yaw + pitch, not the OoT spring-arm follow that kiln_camera implements.
+ * yaw + pitch, not the OoT spring-arm follow that fig_camera implements.
  *
- * ── Why a separate module, not a new kiln_camera mode ───────────────────
- * kiln_camera's entire geometry is built around a boom behind a target
+ * ── Why a separate module, not a new fig_camera mode ───────────────────
+ * fig_camera's entire geometry is built around a boom behind a target
  * actor: distance, height, look_height, spring-arm damping, collision
  * ray on the boom. A first-person camera has none of those — the camera
  * IS the player, there is no boom, and the look direction comes from
- * yaw + pitch (kiln_camera is yaw-only). Bolting FPS onto kiln_camera
+ * yaw + pitch (fig_camera is yaw-only). Bolting FPS onto fig_camera
  * would leave most of its struct unused and its update logic bypassed,
  * which is harder to read than a 60-line module that does the one job.
  *
@@ -20,9 +20,9 @@
  * and the right vector becomes undefined.
  *
  * ── Movement: horizontal slide + vertical gravity ──────────────────────
- * Horizontal movement is kiln_clip_slide with the player's AABB, same
+ * Horizontal movement is fig_clip_slide with the player's AABB, same
  * as before. Vertical movement is integrated separately: gravity pulls
- * vy down each frame, jump sets vy to jump_speed, and a kiln_clip_ground
+ * vy down each frame, jump sets vy to jump_speed, and a fig_clip_ground
  * probe detects the floor. The split keeps wall sliding and floor
  * landing from interfering — a single combined slide would let the
  * player slide up walls when jumping beside them.
@@ -33,13 +33,13 @@
  * an FPS since it's not used for aiming (C-stick handles that).
  *
  * ── No mode stack ──────────────────────────────────────────────────────
- * Unlike kiln_camera, there is no mode stack. A first-person game that
- * wants a cutscene or a third-person moment can use kiln_camera
- * alongside this module and switch which one writes to KilnScene, or
- * simply override KilnScene fields directly for the duration.
+ * Unlike fig_camera, there is no mode stack. A first-person game that
+ * wants a cutscene or a third-person moment can use fig_camera
+ * alongside this module and switch which one writes to FigScene, or
+ * simply override FigScene fields directly for the duration.
  */
-#ifndef KILN_FPSCAM_H
-#define KILN_FPSCAM_H
+#ifndef FIG_FPSCAM_H
+#define FIG_FPSCAM_H
 
 #include <stdint.h>
 #include <t3d/t3dmath.h>
@@ -52,7 +52,7 @@ extern "C" {
 #endif
 
 /** Pitch clamp in radians (~84 degrees). Prevents gimbal-flip. */
-#define KILN_FPSCAM_PITCH_LIMIT 1.47f
+#define FIG_FPSCAM_PITCH_LIMIT 1.47f
 
 typedef struct {
     fm_vec3_t pos;         /**< eye position (world space)                    */
@@ -66,12 +66,12 @@ typedef struct {
     float     gravity;     /**< vertical acceleration, units/sec^2 (0=none)  */
     float     jump_speed;  /**< initial vy on jump                            */
     float     vy;          /**< current vertical velocity                      */
-    uint8_t   on_ground;   /**< kiln_clip_ground hit last frame                 */
+    uint8_t   on_ground;   /**< fig_clip_ground hit last frame                 */
     uint8_t   last_surf;   /**< hitsurface underfoot                          */
     fm_vec3_t mins;        /**< player AABB mins (relative to center)        */
     fm_vec3_t maxs;        /**< player AABB maxs (relative to center)        */
 
-    /** Which buttons sprint and jump. KILN_BTN_* masks, or 0 to disable that
+    /** Which buttons sprint and jump. FIG_BTN_* masks, or 0 to disable that
      *  action entirely.
      *
      *  These were hardcoded to R and B, which is fine until a game wants
@@ -80,41 +80,41 @@ typedef struct {
      *  melee). A camera module has no business owning two of the four face
      *  buttons on everyone's behalf.
      *
-     *  kiln_fpscam_init sets them to R and B, so a caller that ignores these
+     *  fig_fpscam_init sets them to R and B, so a caller that ignores these
      *  fields behaves exactly as before; overriding them after init is the
      *  whole interface. Two masks rather than a full binding table because
      *  these are the only two buttons this module reads — anything else a
      *  game binds, it binds itself, where it can see its own context. */
     uint32_t  btn_run;
     uint32_t  btn_jump;
-} KilnFpsCam;
+} FigFpsCam;
 
 /** Sane FPS defaults: 80 u/s walk, 140 u/s run, 0.05 rad/look,
  *  3-unit eye height, gravity 540, jump 180, AABB 8×8×24.
  *  Does NOT set pos/yaw/pitch — set those after init. */
-void kiln_fpscam_init(KilnFpsCam *cam);
+void fig_fpscam_init(FigFpsCam *cam);
 
 /** Snap position + angles directly (no damping — there is no damper).
  *  Use on level load and after respawn/teleport. */
-void kiln_fpscam_snap(KilnFpsCam *cam, fm_vec3_t pos, float yaw, float pitch);
+void fig_fpscam_snap(FigFpsCam *cam, fm_vec3_t pos, float yaw, float pitch);
 
 /** Advance the camera one frame: read the C-stick for look, the main
- *  stick for movement, integrate via kiln_clip_slide. `dt` is seconds.
- *  `in` is the joypad state for this frame (from kiln_input_get). */
-void kiln_fpscam_update(KilnFpsCam *cam, const KilnInput *in, float dt);
+ *  stick for movement, integrate via fig_clip_slide. `dt` is seconds.
+ *  `in` is the joypad state for this frame (from fig_input_get). */
+void fig_fpscam_update(FigFpsCam *cam, const FigInput *in, float dt);
 
 /** Write eye + look-at into the scene's camera fields. Does not call
- *  kiln_scene_update — the caller still owns when matrices rebuild. */
-void kiln_fpscam_apply(const KilnFpsCam *cam, KilnScene *scene);
+ *  fig_scene_update — the caller still owns when matrices rebuild. */
+void fig_fpscam_apply(const FigFpsCam *cam, FigScene *scene);
 
 /** Compute the forward (look) direction from yaw + pitch. */
-fm_vec3_t kiln_fpscam_forward(const KilnFpsCam *cam);
+fm_vec3_t fig_fpscam_forward(const FigFpsCam *cam);
 
 /** Compute the right (strafe) vector from yaw (horizontal only). */
-fm_vec3_t kiln_fpscam_right(const KilnFpsCam *cam);
+fm_vec3_t fig_fpscam_right(const FigFpsCam *cam);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_FPSCAM_H */
+#endif /* FIG_FPSCAM_H */

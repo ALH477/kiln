@@ -38,7 +38,7 @@ typedef struct {
     SDL_GameController *pad;
     int              tw, th;
     int              quit;
-    KilnShellOpts    opt;
+    FigShellOpts    opt;
 
     /* audio: one ring of stereo frames, filled by the mixer, drained by the
      * device callback. Sized to a quarter second, which is well past any
@@ -50,7 +50,7 @@ typedef struct {
     int              head, tail;    /* head writes, tail reads    */
     SDL_atomic_t     used;          /* stereo frames queued       */
 
-    unsigned char    keys[KILN_KEY_COUNT];
+    unsigned char    keys[FIG_KEY_COUNT];
 } Shell;
 
 static Shell g;
@@ -121,7 +121,7 @@ static void present(void *ctx, const void *rgba8, int w, int h)
     SDL_RenderClear(g.ren);
     SDL_RenderCopy(g.ren, g.tex, NULL, NULL);
     SDL_RenderPresent(g.ren);
-    kiln_shell_presented();
+    fig_shell_presented();
 }
 
 /* ── input ─────────────────────────────────────────────────────────── */
@@ -129,17 +129,17 @@ static void present(void *ctx, const void *rgba8, int w, int h)
 static int key_index(SDL_Keycode k)
 {
     switch (k) {
-    case SDLK_w: return KILN_KEY_UP;      case SDLK_s: return KILN_KEY_DOWN;
-    case SDLK_a: return KILN_KEY_LEFT;    case SDLK_d: return KILN_KEY_RIGHT;
-    case SDLK_UP: return KILN_KEY_DUP;    case SDLK_DOWN: return KILN_KEY_DDOWN;
-    case SDLK_LEFT: return KILN_KEY_DLEFT; case SDLK_RIGHT: return KILN_KEY_DRIGHT;
-    case SDLK_SPACE: case SDLK_PERIOD: return KILN_KEY_A;
-    case SDLK_COMMA: return KILN_KEY_B;
-    case SDLK_LSHIFT: case SDLK_RSHIFT: return KILN_KEY_Z;
-    case SDLK_q: return KILN_KEY_L;       case SDLK_e: return KILN_KEY_R;
-    case SDLK_RETURN: return KILN_KEY_START;
-    case SDLK_i: return KILN_KEY_CUP;     case SDLK_k: return KILN_KEY_CDOWN;
-    case SDLK_j: return KILN_KEY_CLEFT;   case SDLK_l: return KILN_KEY_CRIGHT;
+    case SDLK_w: return FIG_KEY_UP;      case SDLK_s: return FIG_KEY_DOWN;
+    case SDLK_a: return FIG_KEY_LEFT;    case SDLK_d: return FIG_KEY_RIGHT;
+    case SDLK_UP: return FIG_KEY_DUP;    case SDLK_DOWN: return FIG_KEY_DDOWN;
+    case SDLK_LEFT: return FIG_KEY_DLEFT; case SDLK_RIGHT: return FIG_KEY_DRIGHT;
+    case SDLK_SPACE: case SDLK_PERIOD: return FIG_KEY_A;
+    case SDLK_COMMA: return FIG_KEY_B;
+    case SDLK_LSHIFT: case SDLK_RSHIFT: return FIG_KEY_Z;
+    case SDLK_q: return FIG_KEY_L;       case SDLK_e: return FIG_KEY_R;
+    case SDLK_RETURN: return FIG_KEY_START;
+    case SDLK_i: return FIG_KEY_CUP;     case SDLK_k: return FIG_KEY_CDOWN;
+    case SDLK_j: return FIG_KEY_CLEFT;   case SDLK_l: return FIG_KEY_CRIGHT;
     default: return -1;
     }
 }
@@ -147,7 +147,7 @@ static int key_index(SDL_Keycode k)
 static int8_t axis_to_stick(Sint16 v)
 {
     /* SDL's ±32767 into the console's ±90, with a small dead centre so a worn
-     * stick does not creep. kiln_input applies the real (radial) deadzone; a
+     * stick does not creep. fig_input applies the real (radial) deadzone; a
      * second one here would compound with it, so this is only enough to stop
      * hardware noise. */
     if (v > -3000 && v < 3000) return 0;
@@ -185,8 +185,8 @@ static void pump(void)
         }
     }
 
-    KilnShellPad p;
-    kiln_shell_pad_from_keys(g.keys, &p);
+    FigShellPad p;
+    fig_shell_pad_from_keys(g.keys, &p);
 
     if (g.pad) {
         /* The gamepad ORs into the keyboard rather than replacing it: a
@@ -219,21 +219,21 @@ static void pump(void)
         p.c_up    |= cy < -12000;  p.c_down  |= cy > 12000;
     }
 
-    kiln_shell_pad(&p);
+    fig_shell_pad(&p);
 }
 
 static void vsync(void *ctx)
 {
     (void)ctx;
     pump();
-    kiln_shell_tick();
+    fig_shell_tick();
     if (g.quit) {
         /* The game loop is a for(;;) in the ROM's own main and has no exit —
          * correctly, because on console there is nothing to exit to. So the
          * launcher leaves from here. SDL_Quit runs from atexit. */
         exit(0);
     }
-    const uint32_t wait = kiln_shell_pace(SDL_GetTicks(), g.opt.fps);
+    const uint32_t wait = fig_shell_pace(SDL_GetTicks(), g.opt.fps);
     if (wait) SDL_Delay(wait);
 }
 
@@ -288,7 +288,7 @@ static void audio_open(void)
 static int audio_free(void *ctx)
 {
     (void)ctx;
-    /* Latched. audio_free is called once per iteration of kiln_audio_update's
+    /* Latched. audio_free is called once per iteration of fig_audio_update's
      * drain loop — three or more times a frame, forever — so retrying an open
      * that failed meant calloc'ing a 64 KB ring, calling SDL_OpenAudioDevice
      * and printing "running silent" several hundred times a second for the
@@ -298,7 +298,7 @@ static int audio_free(void *ctx)
         /* No device, and the game still has to make progress. Three buffers
          * of 512 at 32 kHz is about a frame's worth of audio, which is what a
          * real device would take — and the mixer's channel bookkeeping, which
-         * is what kiln_audio is almost entirely made of, runs exactly as it
+         * is what fig_audio is almost entirely made of, runs exactly as it
          * would with a speaker attached. */
         static int credit;
         if (++credit >= 4) { credit = 0; return 0; }
@@ -327,16 +327,16 @@ static void audio_submit(void *ctx, const short *stereo, int nsamples)
 
 static void shutdown_sdl(void) { SDL_Quit(); }
 
-/* The game is compiled with -Dmain=kiln_game_main; this file is compiled in
+/* The game is compiled with -Dmain=fig_game_main; this file is compiled in
  * the same command, so the macro reaches here too and would rename the
  * launcher's own entry point along with the game's. */
 #undef main
 
 int main(int argc, char **argv)
 {
-    const int r = kiln_shell_args(argc, argv, &g.opt);
+    const int r = fig_shell_args(argc, argv, &g.opt);
     if (r) return r < 0 ? 2 : 0;
-    kiln_shell_env(&g.opt);
+    fig_shell_env(&g.opt);
 
     /* A stable, predictable window identity, set before SDL_Init because SDL
      * reads these when it connects to the display server.
@@ -365,15 +365,15 @@ int main(int argc, char **argv)
     }
     atexit(shutdown_sdl);
 
-    const KilnHostHooks hooks = {
+    const FigHostHooks hooks = {
         .present      = present,
         .vsync        = vsync,
         .audio_free   = g.opt.mute ? NULL : audio_free,
         .audio_submit = g.opt.mute ? NULL : audio_submit,
         .ctx          = NULL,
     };
-    kiln_host_set_hooks(&hooks);
-    kiln_shell_pace_reset(SDL_GetTicks());
+    fig_host_set_hooks(&hooks);
+    fig_shell_pace_reset(SDL_GetTicks());
 
-    return kiln_game_main();
+    return fig_game_main();
 }

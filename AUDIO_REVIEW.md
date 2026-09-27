@@ -62,7 +62,7 @@ Correct N64-specific decisions:
 
 ### Gap 1: Zero Engine Audio Layer
 
-`libkiln` has no audio code. The `engine/Makefile` compiles 5 source files —
+`libfigulina` has no audio code. The `engine/Makefile` compiles 5 source files —
 none audio-related. Every ROM calls raw libdragon APIs directly.
 
 ### Gap 2: Live Voice Path Has No Mixer Integration
@@ -165,7 +165,7 @@ declared audio rate.
 
 **Status**: Complete
 
-**Goal**: Add `kiln_audio.h` / `kiln_audio.c` to `libkiln` providing init,
+**Goal**: Add `kiln_audio.h` / `kiln_audio.c` to `libfigulina` providing init,
 per-frame pump, SFX with priority voice stealing, and music (XM64/YM64).
 
 **Files created**:
@@ -183,7 +183,7 @@ per-frame pump, SFX with priority voice stealing, and music (XM64/YM64).
 - Default config: 32000 Hz, 16 SFX + 10 music = 26 channels (max 32)
 - SFX auto-allocation: walks SFX range for free channel, or steals lowest-priority
 - Music: XM64/YM64 detected by extension, channels assigned from music range
-- `kiln_audio_update()` drains `audio_can_write` / `mixer_poll` per frame
+- `fig_audio_update()` drains `audio_can_write` / `mixer_poll` per frame
 - No malloc in audio path; SFX table is fixed-size, loaded at boot
 
 **Verified**: `nix build .#engine`, `.#audio`, `.#assets-demo`, `.#engine-demo` all pass.
@@ -219,7 +219,7 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 **Status**: Complete
 
 **Goal**: An example ROM that plays tracker music via `mkMusic` + the
-`kiln_music_*` API.
+`fig_music_*` API.
 
 **Files created**:
 - `tools/gen_xm.py` — generates a minimal 4-channel, 8-row looping XM
@@ -235,24 +235,24 @@ an example ROM that links and plays a live voice mixed with the RSP mixer.
 
 **Status**: Complete
 
-**Goal**: Wire `kiln_room_current()` to music crossfading.
+**Goal**: Wire `fig_room_current()` to music crossfading.
 
 **Changes**:
-- `engine/src/kiln/kiln_audio.h`: Added `kiln_audio_set_room_music(room_id, handle)`
-  and `kiln_audio_update_rooms(void *room_sys)` (void* to avoid typedef
-  forward-declaration issue with KilnRoomSystem's anonymous struct)
+- `engine/src/kiln/kiln_audio.h`: Added `fig_audio_set_room_music(room_id, handle)`
+  and `fig_audio_update_rooms(void *room_sys)` (void* to avoid typedef
+  forward-declaration issue with FigRoomSystem's anonymous struct)
 - `engine/src/kiln/kiln_audio.c`: Room music table (64 entries), linear gain
   ramp crossfade (~0.5s at 32000 Hz). Same-track = no restart. Fade out old
   → switch → fade in new.
 
 **API usage**:
 ```c
-kiln_audio_set_room_music(0, music_a);  // room 0 plays track A
-kiln_audio_set_room_music(1, music_b);  // room 1 plays track B
+fig_audio_set_room_music(0, music_a);  // room 0 plays track A
+fig_audio_set_room_music(1, music_b);  // room 1 plays track B
 // Per frame:
-kiln_room_system_update(&sys, cam_pos);
-kiln_audio_update_rooms(&sys);  // crossfades on room change
-kiln_audio_update();            // pumps the mixer
+fig_room_system_update(&sys, cam_pos);
+fig_audio_update_rooms(&sys);  // crossfades on room change
+fig_audio_update();            // pumps the mixer
 ```
 
 ### Phase 7: Update CLAUDE.md ✏️
@@ -290,5 +290,5 @@ kiln_audio_update();            // pumps the mixer
 | 2026-08-02 | Phase 1 | Engine audio layer: kiln_audio.h/kiln_audio.c with SFX (priority voice stealing) + music (XM64/YM64). All ROMs build clean. |
 | 2026-08-02 | Phase 2 | Live voice mixer: accumulate mode in libdragon_mixer.c + _set_gain. examples/live-voice ROM builds and links ks-voice. |
 | 2026-08-02 | Phase 6 | XM64 music example: generated test XM, examples/music ROM, mkMusic pipeline verified end-to-end. |
-| 2026-09-26 | Gap 7 | Closed by `kiln_sdbfs` — a StreamDB container mounted as a filesystem, answering `IODFS_GET_ROM_BASE` so wav64 keeps its async-DMA path. `wav64_open_buf` was never the blocker. Plus `streamdb_emb_read_range` / `streamdb_emb_doc_rom_base`. First consumer: PetaByte Madness' intro, streaming a 6.98 MB cue. |
-| 2026-08-02 | Phase 5 | Room-based audio routing: kiln_audio_set_room_music + kiln_audio_update_rooms with ~0.5s linear crossfade. |
+| 2026-09-26 | Gap 7 | Closed by `fig_sdbfs` — a StreamDB container mounted as a filesystem, answering `IODFS_GET_ROM_BASE` so wav64 keeps its async-DMA path. `wav64_open_buf` was never the blocker. Plus `streamdb_emb_read_range` / `streamdb_emb_doc_rom_base`. First consumer: PetaByte Madness' intro, streaming a 6.98 MB cue. |
+| 2026-08-02 | Phase 5 | Room-based audio routing: fig_audio_set_room_music + fig_audio_update_rooms with ~0.5s linear crossfade. |

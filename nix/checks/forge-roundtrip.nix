@@ -16,7 +16,7 @@
 #      quietly changes every time it is opened.
 #
 #   2. **The greedy box reduction, twice.** tools/forge/frg.py mirrors
-#      kiln_voxel_boxes in Python, and the mirror is asserted to produce a
+#      fig_voxel_boxes in Python, and the mirror is asserted to produce a
 #      partition that covers the solid set exactly once. The C side is asserted
 #      the same way in nix/checks/kiln-logic.nix. Two independent statements of
 #      one algorithm is the point: this is the code that becomes the collision

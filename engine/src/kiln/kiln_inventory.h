@@ -16,8 +16,8 @@
  * module generic across Doom (keycards, armor, megahealth), OoT (small
  * keys, boss keys, magic, arrows) and HL (HEV suit, medkits, ammo).
  */
-#ifndef KILN_INVENTORY_H
-#define KILN_INVENTORY_H
+#ifndef FIG_INVENTORY_H
+#define FIG_INVENTORY_H
 
 #include <stdint.h>
 
@@ -25,32 +25,32 @@
 extern "C" {
 #endif
 
-#define KILN_INV_SLOTS 32
+#define FIG_INV_SLOTS 32
 
 typedef struct {
     uint16_t id;
     uint16_t count;
-} KilnInvSlot;
+} FigInvSlot;
 
 typedef struct {
-    KilnInvSlot slots[KILN_INV_SLOTS];
+    FigInvSlot slots[FIG_INV_SLOTS];
     uint8_t count;
-} KilnInventory;
+} FigInventory;
 
-void kiln_inventory_init(KilnInventory *inv);
+void fig_inventory_init(FigInventory *inv);
 
 /** Add `count` of item `id`. If the item exists, stacks; if not, claims
  *  a new slot. Returns 1 if added, 0 if the inventory is full. */
-int kiln_inventory_add(KilnInventory *inv, uint16_t id, uint16_t count);
+int fig_inventory_add(FigInventory *inv, uint16_t id, uint16_t count);
 
 /** Returns the count of item `id` (0 if not present). */
-int kiln_inventory_has(const KilnInventory *inv, uint16_t id);
+int fig_inventory_has(const FigInventory *inv, uint16_t id);
 
 /** Consume `count` of item `id`. Returns 1 if consumed, 0 if not enough. */
-int kiln_inventory_consume(KilnInventory *inv, uint16_t id, uint16_t count);
+int fig_inventory_consume(FigInventory *inv, uint16_t id, uint16_t count);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* KILN_INVENTORY_H */
+#endif /* FIG_INVENTORY_H */

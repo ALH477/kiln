@@ -20,11 +20,11 @@
  * this file is untouched. */
 #include "kiln_levelvocab.h"
 
-#define MAX_CLASSNAMES KILN_LEVEL_MAX_CLASSNAMES
-#define MAX_BRUSHES    KILN_LEVEL_MAX_BRUSHES
-#define MAX_FACES      KILN_LEVEL_MAX_FACES
-#define MAX_SPAWNS     KILN_LEVEL_MAX_SPAWNS
-#define MAX_ENTITIES   KILN_LEVEL_MAX_ENTITIES
+#define MAX_CLASSNAMES FIG_LEVEL_MAX_CLASSNAMES
+#define MAX_BRUSHES    FIG_LEVEL_MAX_BRUSHES
+#define MAX_FACES      FIG_LEVEL_MAX_FACES
+#define MAX_SPAWNS     FIG_LEVEL_MAX_SPAWNS
+#define MAX_ENTITIES   FIG_LEVEL_MAX_ENTITIES
 
 typedef struct {
     const char *name;
@@ -34,15 +34,15 @@ typedef struct {
 static ClassnameReg g_classes[MAX_CLASSNAMES];
 static int          g_class_count;
 
-/* Brushes discarded because MAX_BRUSHES was reached. Reset by kiln_map_load,
- * reported by it. kiln_map_load is not reentrant, so a file-static is the
+/* Brushes discarded because MAX_BRUSHES was reached. Reset by fig_map_load,
+ * reported by it. fig_map_load is not reentrant, so a file-static is the
  * whole mechanism. */
 static int          g_dropped_brushes;
 
-void kiln_map_register_classname(const char *classname, uint16_t profile_id)
+void fig_map_register_classname(const char *classname, uint16_t profile_id)
 {
     if (g_class_count >= MAX_CLASSNAMES) {
-        debugf("kiln_map: classname table full, ignoring '%s'\n", classname);
+        debugf("fig_map: classname table full, ignoring '%s'\n", classname);
         return;
     }
     size_t n = strlen(classname);
@@ -193,8 +193,8 @@ static void update_aabb(fm_vec3_t *minv, fm_vec3_t *maxv, fm_vec3_t pt)
  * MAX_BRUSHES is: tools/mapmaker/mapfmt.py refuses a brush past either, so a
  * brush this parser would silently truncate never reaches a ROM. They were
  * literals here when real CSG landed, which AGENTS.md forbids. */
-#define MAX_BRUSH_PLANES KILN_LEVEL_MAX_BRUSH_PLANES
-#define MAX_FACE_VERTS   KILN_LEVEL_MAX_FACE_VERTS
+#define MAX_BRUSH_PLANES FIG_LEVEL_MAX_BRUSH_PLANES
+#define MAX_FACE_VERTS   FIG_LEVEL_MAX_FACE_VERTS
 
 #define CSG_EPS_INSIDE   0.03125f   /* 1/32 unit: "on or behind" a plane      */
 #define CSG_EPS_ONPLANE  0.03125f   /* 1/32 unit: this vertex lies on it      */
@@ -206,11 +206,11 @@ typedef struct {
     float     d;    /* n . x = d           */
 } MapPlane;
 
-/* Per-brush scratch. kiln_map_load is not reentrant (see g_dropped_brushes),
+/* Per-brush scratch. fig_map_load is not reentrant (see g_dropped_brushes),
  * so one heap block for the whole load, freed with the parse -- ~7 KB, and
  * none of it resident afterwards. A stack local of this size is not safe on
  * this console and a file-static of it would be 7 KB of BSS in every ROM that
- * links kiln_map, whether or not it ever loads a map. */
+ * links fig_map, whether or not it ever loads a map. */
 typedef struct {
     MapPlane  planes[MAX_BRUSH_PLANES];
     fm_vec3_t verts[MAX_BRUSH_PLANES][MAX_FACE_VERTS];
@@ -348,7 +348,7 @@ static int16_t to_i16(float f)
     return (int16_t)r;
 }
 
-static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
+static int parse_brush(const char **p, FigBrush *brush, FigMapFace *faces,
                        int *face_idx, int max_faces)
 {
     if (!expect_token(p, "{")) return -1;
@@ -401,14 +401,14 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
 
         MapPlane pl;
         if (plane_from_points(pts, &pl) < 0) {
-            debugf("kiln_map: degenerate plane (collinear points), skipped\n");
+            debugf("fig_map: degenerate plane (collinear points), skipped\n");
             continue;
         }
         w->planes[w->plane_count++] = pl;
     }
 
     if (w->dropped_planes)
-        debugf("kiln_map: brush has more than MAX_BRUSH_PLANES (%d) planes; "
+        debugf("fig_map: brush has more than MAX_BRUSH_PLANES (%d) planes; "
                "%d dropped, so this solid is open and you can walk out of it\n",
                MAX_BRUSH_PLANES, w->dropped_planes);
 
@@ -437,7 +437,7 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
     }
 
     if (w->dropped_verts)
-        debugf("kiln_map: a brush face has more than MAX_FACE_VERTS (%d) "
+        debugf("fig_map: a brush face has more than MAX_FACE_VERTS (%d) "
                "vertices; %d dropped, so that face is missing a corner\n",
                MAX_FACE_VERTS, w->dropped_verts);
 
@@ -451,7 +451,7 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
         if (nv < 3) continue;           /* plane never reaches the surface */
 
         if (*face_idx >= max_faces) {
-            debugf("kiln_map: MAX_FACES (%d) reached; the load is abandoned\n",
+            debugf("fig_map: MAX_FACES (%d) reached; the load is abandoned\n",
                    max_faces);
             return -1;
         }
@@ -497,8 +497,8 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
     }
 
     /* ── The AABB, and the one place this still falls back ──────────────────
-     * The AABB is what every consumer actually uses -- kiln_clip_set_world,
-     * kiln_room's brush install, a game's PLAY screen -- so it is the field
+     * The AABB is what every consumer actually uses -- fig_clip_set_world,
+     * fig_room's brush install, a game's PLAY screen -- so it is the field
      * that must never come back empty.
      *
      * With real CSG there are real vertices, so the box is the box: an
@@ -538,7 +538,7 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
         brush->mins = mins;
         brush->maxs = maxs;
     } else {
-        debugf("kiln_map: a brush produced no solid (%d planes, %d "
+        debugf("fig_map: a brush produced no solid (%d planes, %d "
                "vertices) -- a face wound inside-out or a plane missing; its "
                "collision box falls back to the plane points and it may not "
                "render whole. Run ./dev map-canon on this file.\n",
@@ -551,14 +551,14 @@ static int parse_brush(const char **p, KilnBrush *brush, KilnMapFace *faces,
     return 0;
 }
 
-static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
+static int parse_entity(const char **p, FigDict *epairs, FigBrush *brushes,
                         int *brush_idx, int max_brushes,
-                        KilnMapFace *faces, int *face_idx, int max_faces,
-                        KilnRoomSpawn *spawn_out, int *has_spawn)
+                        FigMapFace *faces, int *face_idx, int max_faces,
+                        FigRoomSpawn *spawn_out, int *has_spawn)
 {
     if (!expect_token(p, "{")) return -1;
 
-    kiln_dict_init(epairs);
+    fig_dict_init(epairs);
     *has_spawn = 0;
 
     while (1) {
@@ -566,7 +566,7 @@ static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
         if (**p == '}') { (*p)++; break; }
 
         if (**p == '{') {
-            KilnBrush b;
+            FigBrush b;
             if (parse_brush(p, &b, faces, face_idx, max_faces) < 0) return -1;
             if (brushes && *brush_idx < max_brushes) {
                 brushes[*brush_idx] = b;
@@ -576,7 +576,7 @@ static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
                  * GEOMETRY: the brush is gone from the render AND from the
                  * clip world, so the wall is invisible and you walk through
                  * it. Counted rather than logged per brush, and reported once
-                 * by kiln_map_load -- and NOT by advancing *brush_idx, which
+                 * by fig_map_load -- and NOT by advancing *brush_idx, which
                  * would push brush_count past the array the world-AABB loop
                  * then walks. */
                 g_dropped_brushes++;
@@ -587,16 +587,16 @@ static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
         char key[64], val[256];
         if (!read_token(p, key, sizeof(key))) return -1;
         if (!read_token(p, val, sizeof(val))) return -1;
-        kiln_dict_set_auto(epairs, key, val);
+        fig_dict_set_auto(epairs, key, val);
     }
 
-    const char *cn = kiln_dict_get_str(epairs, "classname", NULL);
+    const char *cn = fig_dict_get_str(epairs, "classname", NULL);
     if (!cn) return 0; /* malformed entity, but not fatal */
 
     uint16_t pid = profile_for_classname(cn);
     if (pid != 0xFFFFu) {
-        fm_vec3_t origin = kiln_dict_get_vec3(epairs, "origin", (fm_vec3_t){{0,0,0}});
-        float yaw = (float)kiln_dict_get_int(epairs, "angle", 0);
+        fm_vec3_t origin = fig_dict_get_vec3(epairs, "origin", (fm_vec3_t){{0,0,0}});
+        float yaw = (float)fig_dict_get_int(epairs, "angle", 0);
         spawn_out->profile_id = pid;
         spawn_out->pos = origin;
         spawn_out->yaw = yaw * (M_PI / 180.0f);
@@ -608,7 +608,7 @@ static int parse_entity(const char **p, KilnDict *epairs, KilnBrush *brushes,
     return 0;
 }
 
-int kiln_map_load(KilnMap *out, const char *dfs_path)
+int fig_map_load(FigMap *out, const char *dfs_path)
 {
     memset(out, 0, sizeof(*out));
 
@@ -623,7 +623,7 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
 
     int fh = dfs_open(native_path);
     if (fh < 0) {
-        debugf("kiln_map: dfs_open(%s) failed\n", dfs_path);
+        debugf("fig_map: dfs_open(%s) failed\n", dfs_path);
         return -1;
     }
     uint32_t sz = dfs_size(fh);
@@ -636,9 +636,9 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
     dfs_close(fh);
     buf[sz] = '\0';
 
-    KilnBrush  *brushes  = malloc(sizeof(KilnBrush)  * MAX_BRUSHES);
-    KilnMapFace *faces    = malloc(sizeof(KilnMapFace) * MAX_FACES);
-    KilnRoomSpawn *spawns = malloc(sizeof(KilnRoomSpawn) * MAX_SPAWNS);
+    FigBrush  *brushes  = malloc(sizeof(FigBrush)  * MAX_BRUSHES);
+    FigMapFace *faces    = malloc(sizeof(FigMapFace) * MAX_FACES);
+    FigRoomSpawn *spawns = malloc(sizeof(FigRoomSpawn) * MAX_SPAWNS);
     /* The CSG scratch, ~7 KB, alive only for the duration of the parse. */
     g_work = malloc(sizeof(BrushWork));
     if (!brushes || !faces || !spawns || !g_work) {
@@ -661,20 +661,20 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
         skip_ws_and_comments(&p);
         if (*p == '\0') break;
         if (*p != '{') {
-            debugf("kiln_map: %s:%d: expected '{', got '%c'\n",
+            debugf("fig_map: %s:%d: expected '{', got '%c'\n",
                    dfs_path, line_of(buf, p), *p);
             break;
         }
 
         const char *entity_start = p;
         int brush_count_before = brush_count;
-        KilnDict epairs;
-        KilnRoomSpawn spawn;
+        FigDict epairs;
+        FigRoomSpawn spawn;
         int has_spawn = 0;
         if (parse_entity(&p, &epairs, brushes, &brush_count, MAX_BRUSHES,
                          faces, &face_count, MAX_FACES,
                          &spawn, &has_spawn) < 0) {
-            debugf("kiln_map: %s:%d: failed to parse entity\n",
+            debugf("fig_map: %s:%d: failed to parse entity\n",
                    dfs_path, line_of(buf, entity_start));
             break;
         }
@@ -685,7 +685,7 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
             update_aabb(&world_min, &world_max, brushes[i].maxs);
         }
 
-        const char *cn = kiln_dict_get_str(&epairs, "classname", "");
+        const char *cn = fig_dict_get_str(&epairs, "classname", "");
         if (strcmp(cn, "worldspawn") != 0 && has_spawn) {
             if (spawn_count < MAX_SPAWNS) {
                 spawns[spawn_count++] = spawn;
@@ -694,14 +694,14 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
                  * and nobody finds out until someone notices a door that never
                  * opens. Every other capacity in this file reports; this one
                  * did not. */
-                debugf("kiln_map: %s: MAX_SPAWNS (%d) reached, dropping '%s'\n",
+                debugf("fig_map: %s: MAX_SPAWNS (%d) reached, dropping '%s'\n",
                        dfs_path, MAX_SPAWNS, cn);
             }
         }
     }
 
     if (g_dropped_brushes)
-        debugf("kiln_map: %s: MAX_BRUSHES (%d) reached; %d brush(es) dropped "
+        debugf("fig_map: %s: MAX_BRUSHES (%d) reached; %d brush(es) dropped "
                "from both the mesh and the clip world\n",
                dfs_path, MAX_BRUSHES, g_dropped_brushes);
 
@@ -720,7 +720,7 @@ int kiln_map_load(KilnMap *out, const char *dfs_path)
     return 0;
 }
 
-void kiln_map_free(KilnMap *m)
+void fig_map_free(FigMap *m)
 {
     if (!m) return;
     for (int i = 0; i < m->face_count; i++) {
@@ -734,7 +734,7 @@ void kiln_map_free(KilnMap *m)
     m->spawns = NULL;
 }
 
-void kiln_map_draw(const KilnMap *m)
+void fig_map_draw(const FigMap *m)
 {
     if (!m) return;
     for (int i = 0; i < m->face_count; i++) {
@@ -744,7 +744,7 @@ void kiln_map_draw(const KilnMap *m)
         /* One t3d_vert_load per face, as before -- but of the polygon's own
          * vertex count rounded up to the pair the DMA moves, not a fixed 8.
          * MAX_FACE_VERTS is 16, comfortably inside the 70-entry vertex cache,
-         * so no face can straddle a load the way kiln_voxmesh's quads can. */
+         * so no face can straddle a load the way fig_voxmesh's quads can. */
         t3d_vert_load(m->faces[i].verts, 0, (uint32_t)((nv + 1) & ~1));
 
         /* Triangle fan about vertex 0. The ring is wound counter-clockwise as
@@ -779,7 +779,7 @@ static uint32_t tint_lerp(uint32_t a, uint32_t b, float k, float scale)
     return out;
 }
 
-void kiln_map_tint(KilnMap *m, const KilnMapTint *t)
+void fig_map_tint(FigMap *m, const FigMapTint *t)
 {
     if (!m || !t) return;
     const float y0 = m->world_aabb_min.v[1];
@@ -788,7 +788,7 @@ void kiln_map_tint(KilnMap *m, const KilnMapTint *t)
     const float inv_r2 = t->floor_radius > 1e-3f ? 1.0f / (t->floor_radius * t->floor_radius) : 0.0f;
 
     for (int f = 0; f < m->face_count; f++) {
-        KilnMapFace *face = &m->faces[f];
+        FigMapFace *face = &m->faces[f];
         if (!face->verts || face->vert_count < 3) continue;
         const int pairs = (face->vert_count + 1) / 2;
         for (int vi = 0; vi < pairs * 2; vi++) {

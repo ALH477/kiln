@@ -127,7 +127,7 @@ def anim_idle(armature):
     """Standing its ground: a slow sway and a head that tracks a little from
     side to side. The cinematic blends this against Approach by how fast the
     alien is moving, so a creature that stops does not keep bobbing like it is
-    still walking (kiln_skel's two slots are exactly that locomotion blend).
+    still walking (fig_skel's two slots are exactly that locomotion blend).
     Loops cleanly: every channel returns to bind pose at frame 90.
     """
     m.make_action(armature, "Idle", {

@@ -16,7 +16,7 @@ struct T3DModel { uint8_t _opaque; };
 extern void *g_last_model_buf;
 extern int   g_last_model_sz;
 
-/* Returns `buf` as a T3DModel* so kiln_asset_model's "free via
+/* Returns `buf` as a T3DModel* so fig_asset_model's "free via
  * t3d_model_free" contract holds in the host test. A real t3d_model_load_buf
  * would parse the buffer; the ROM demo on Ares covers that path. */
 static inline T3DModel *t3d_model_load_buf(void *buf, int sz) {

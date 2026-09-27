@@ -14,13 +14,13 @@
  * without being perceptible to a player. See the header comment. */
 #define CLIP_EPS (1e-3f)
 
-static const KilnBrush *g_brushes;
+static const FigBrush *g_brushes;
 static uint16_t g_brush_count;
 
 /* ── Broadphase grid ────────────────────────────────────────────────────
  *
  * A 2D XZ uniform grid over the installed brushes. Built fresh on every
- * kiln_clip_set_world call when g_broadphase is on; freed when it's off or
+ * fig_clip_set_world call when g_broadphase is on; freed when it's off or
  * when the world is cleared. Storage is two fixed static arrays so there is
  * no allocation on a 4 MB console — the cell headers are 256 entries of
  * {offset,count} and the brush-index pool is 512 entries. A brush that
@@ -40,9 +40,9 @@ static uint16_t g_brush_count;
 typedef struct {
     uint16_t offset;
     uint16_t count;
-} KilnClipCell;
+} FigClipCell;
 
-static KilnClipCell g_cell[CLIP_GRID_CELLS];
+static FigClipCell g_cell[CLIP_GRID_CELLS];
 static uint16_t    g_cell_pool[CLIP_GRID_POOL];
 static uint16_t    g_cell_pool_count;
 
@@ -59,12 +59,12 @@ static uint16_t g_trace_stamp = 0;
 /* Debug counter for the physics-demo HUD. */
 static uint16_t g_last_trace_brushes;
 
-void kiln_clip_set_broadphase(int enabled)
+void fig_clip_set_broadphase(int enabled)
 {
     g_broadphase = enabled ? 1 : 0;
     /* Rebuild (or clear) the grid against the currently-installed world. */
     if (g_broadphase) {
-        kiln_clip_set_world(g_brushes, g_brush_count);
+        fig_clip_set_world(g_brushes, g_brush_count);
     } else {
         g_cell_pool_count = 0;
         for (uint16_t i = 0; i < CLIP_GRID_CELLS; i++) {
@@ -74,12 +74,12 @@ void kiln_clip_set_broadphase(int enabled)
     }
 }
 
-uint16_t kiln_clip_last_trace_brushes(void)
+uint16_t fig_clip_last_trace_brushes(void)
 {
     return g_last_trace_brushes;
 }
 
-uint16_t kiln_clip_world_count(void)
+uint16_t fig_clip_world_count(void)
 {
     return g_brush_count;
 }
@@ -93,12 +93,12 @@ static inline int cell_index_for(float x, float z)
     return cz * CLIP_GRID_SIDE + cx;
 }
 
-/* Build the grid from the installed brushes. Called from kiln_clip_set_world
+/* Build the grid from the installed brushes. Called from fig_clip_set_world
  * when g_broadphase is on. Cell size = max(world_extent_x, world_extent_z)/8,
  * clamped to [32, 256] — small worlds get small cells (more selective), big
  * worlds get big cells (so 16x16 still covers them). Origin is the world
  * min corner so brush coordinates map cleanly into [0, side). */
-static void build_grid(const KilnBrush *brushes, uint16_t count)
+static void build_grid(const FigBrush *brushes, uint16_t count)
 {
     g_cell_pool_count = 0;
     for (uint16_t i = 0; i < CLIP_GRID_CELLS; i++) {
@@ -146,7 +146,7 @@ static void build_grid(const KilnBrush *brushes, uint16_t count)
         g_cell[i].count = 0; /* reset for the placement pass */
     }
     assertf(acc <= CLIP_GRID_POOL,
-            "kiln_clip: broadphase pool overflow %u > %u — world too dense "
+            "fig_clip: broadphase pool overflow %u > %u — world too dense "
             "for the 16x16 grid, raise CLIP_GRID_POOL or disable broadphase",
             acc, CLIP_GRID_POOL);
     /* `acc` is used below to set g_cell_pool_count, so it is no longer just an
@@ -175,19 +175,19 @@ static void build_grid(const KilnBrush *brushes, uint16_t count)
         int cmax = cell_index_for(brushes[i].maxs.v[0], brushes[i].maxs.v[2]);
         for (int cz = cmin / CLIP_GRID_SIDE; cz <= cmax / CLIP_GRID_SIDE; cz++) {
             for (int cx = cmin % CLIP_GRID_SIDE; cx <= cmax % CLIP_GRID_SIDE; cx++) {
-                KilnClipCell *c = &g_cell[cz * CLIP_GRID_SIDE + cx];
+                FigClipCell *c = &g_cell[cz * CLIP_GRID_SIDE + cx];
                 g_cell_pool[c->offset + c->count] = i;
                 c->count++;
             }
         }
     }
     /* The pool is exactly as full as the compaction pass predicted. Tracked
-     * because kiln_clip_set_broadphase(0) zeroes it as its "grid is not built"
+     * because fig_clip_set_broadphase(0) zeroes it as its "grid is not built"
      * marker. */
     g_cell_pool_count = acc;
 }
 
-void kiln_clip_set_world(const KilnBrush *brushes, uint16_t count)
+void fig_clip_set_world(const FigBrush *brushes, uint16_t count)
 {
     g_brushes = brushes;
     g_brush_count = count;
@@ -206,7 +206,7 @@ static inline void slab_test_brush(uint16_t i,
                                    float *best_t, fm_vec3_t *best_n,
                                    uint8_t *best_surf)
 {
-    const KilnBrush *b = &g_brushes[i];
+    const FigBrush *b = &g_brushes[i];
 
     /* Minkowski-expand the brush by the box: emins = b.mins - box.maxs,
      * emaxs = b.maxs - box.mins. The box's center then traces a ray
@@ -234,8 +234,8 @@ static inline void slab_test_brush(uint16_t i,
              * used to widen the slab by CLIP_EPS instead of narrowing it, so
              * resting contact counted as overlap. The moving axes then all
              * entered at t <= 0, which left tmin at 0 and the normal at zero:
-             * a fraction-0 hit that kiln_clip_slide cannot clip anything off,
-             * so a box on a floor could not move along it at all. kiln_fpscam
+             * a fraction-0 hit that fig_clip_slide cannot clip anything off,
+             * so a box on a floor could not move along it at all. fig_fpscam
              * lands with a vertical slide and walks with a flat one, so the
              * fps player could turn but never take a step. kiln-logic pins it. */
             if (start.v[a] <= emins.v[a] + CLIP_EPS ||
@@ -276,10 +276,10 @@ static inline void slab_test_brush(uint16_t i,
  * the flat brush array (broadphase off) or the grid cells overlapped by the
  * swept AABB's XZ footprint (broadphase on). The grid path dedups brushes
  * that straddle cell boundaries via g_tested[]. */
-static KilnTrace sweep_box(fm_vec3_t start, fm_vec3_t end,
+static FigTrace sweep_box(fm_vec3_t start, fm_vec3_t end,
                           fm_vec3_t mins, fm_vec3_t maxs)
 {
-    KilnTrace tr;
+    FigTrace tr;
     tr.fraction = 1.0f;
     tr.endpos = end;
     tr.normal = (fm_vec3_t){ { 0, 0, 0 } };
@@ -314,7 +314,7 @@ static KilnTrace sweep_box(fm_vec3_t start, fm_vec3_t end,
 
         for (int cz = cz0; cz <= cz1; cz++) {
             for (int cx = cx0; cx <= cx1; cx++) {
-                KilnClipCell *c = &g_cell[cz * CLIP_GRID_SIDE + cx];
+                FigClipCell *c = &g_cell[cz * CLIP_GRID_SIDE + cx];
                 for (uint16_t k = 0; k < c->count; k++) {
                     uint16_t i = g_cell_pool[c->offset + k];
                     if (g_tested[i] == g_trace_stamp) continue;
@@ -346,13 +346,13 @@ static KilnTrace sweep_box(fm_vec3_t start, fm_vec3_t end,
     return tr;
 }
 
-KilnTrace kiln_clip_box(fm_vec3_t start, fm_vec3_t end,
+FigTrace fig_clip_box(fm_vec3_t start, fm_vec3_t end,
                       fm_vec3_t mins, fm_vec3_t maxs)
 {
     return sweep_box(start, end, mins, maxs);
 }
 
-KilnTrace kiln_clip_ray(fm_vec3_t start, fm_vec3_t end)
+FigTrace fig_clip_ray(fm_vec3_t start, fm_vec3_t end)
 {
     /* Rays always flat-walk, even with broadphase on — see the header comment
      * in kiln_clip.h: rays are 1/frame (camera boom, line-of-sight) and grid-
@@ -361,12 +361,12 @@ KilnTrace kiln_clip_ray(fm_vec3_t start, fm_vec3_t end)
     fm_vec3_t zero = (fm_vec3_t){ { 0, 0, 0 } };
     int saved = g_broadphase;
     g_broadphase = 0;
-    KilnTrace tr = sweep_box(start, end, zero, zero);
+    FigTrace tr = sweep_box(start, end, zero, zero);
     g_broadphase = saved;
     return tr;
 }
 
-fm_vec3_t kiln_clip_slide(fm_vec3_t pos, fm_vec3_t vel,
+fm_vec3_t fig_clip_slide(fm_vec3_t pos, fm_vec3_t vel,
                          fm_vec3_t mins, fm_vec3_t maxs,
                          int max_iter)
 {
@@ -388,7 +388,7 @@ fm_vec3_t kiln_clip_slide(fm_vec3_t pos, fm_vec3_t vel,
         end.v[1] = cur.v[1] + remaining.v[1];
         end.v[2] = cur.v[2] + remaining.v[2];
 
-        KilnTrace tr = sweep_box(cur, end, mins, maxs);
+        FigTrace tr = sweep_box(cur, end, mins, maxs);
         cur = tr.endpos;
 
         if (tr.fraction >= 1.0f) break; /* clean full move */
@@ -419,7 +419,7 @@ fm_vec3_t kiln_clip_slide(fm_vec3_t pos, fm_vec3_t vel,
     return cur;
 }
 
-KilnTrace kiln_clip_ground(fm_vec3_t pos, fm_vec3_t mins, fm_vec3_t maxs)
+FigTrace fig_clip_ground(fm_vec3_t pos, fm_vec3_t mins, fm_vec3_t maxs)
 {
     fm_vec3_t down = (fm_vec3_t){ {
         pos.v[0], pos.v[1] - 2.0f, pos.v[2],

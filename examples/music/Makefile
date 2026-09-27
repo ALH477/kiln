@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# Two tracks through kiln_audio — an XM64 module on the RSP mixer and a looping
+# Two tracks through fig_audio — an XM64 module on the RSP mixer and a looping
 # VADPCM bed — under a visualiser of what the mixer is actually doing.
 #
 # Both are staged into filesystem/ by mkN64Rom's `assets` argument (mkMusic

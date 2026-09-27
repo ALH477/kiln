@@ -33,8 +33,8 @@ int main(int argc, char **argv)
     const char *path = argc > 1 ? argv[1] : "cube.t3dm";
     const char *png  = argc > 2 ? argv[2] : "model.png";
 
-    kiln_engine_init(RESOLUTION_320x240);
-    kiln_gui_init();
+    fig_engine_init(RESOLUTION_320x240);
+    fig_gui_init();
 
     T3DModel *model = t3d_model_load(path);
     CHECK(model != NULL, "t3d_model_load returned NULL");
@@ -84,8 +84,8 @@ int main(int argc, char **argv)
           indexed);
     CHECK(strip_indices == 24, "%d strip indices, expected 24", strip_indices);
 
-    KilnScene scene;
-    kiln_scene_init(&scene);
+    FigScene scene;
+    fig_scene_init(&scene);
     scene.cam_pos    = (fm_vec3_t){{ 105.0f, 86.0f, 132.0f }};
     scene.cam_target = (fm_vec3_t){{  0.0f,  0.0f,  0.0f }};
     scene.fov_deg    = 50.0f;
@@ -98,28 +98,28 @@ int main(int argc, char **argv)
     scene.light_color[2] = 0xD0; scene.light_color[3] = 0xFF;
     scene.light_dir = (fm_vec3_t){{ 0.5f, 0.75f, 0.4f }};
     scene.light_count = 1;
-    kiln_scene_update(&scene);
+    fig_scene_update(&scene);
 
-    KilnTransform xf;
-    kiln_transform_init(&xf);
+    FigTransform xf;
+    fig_transform_init(&xf);
     xf.rot_axis = (fm_vec3_t){{ 0.25f, 1.0f, 0.0f }};
     xf.rot_angle = 0.55f;
 
-    kiln_frame_begin();
-      kiln_scene_begin(&scene);
-        kiln_transform_push(&xf);
+    fig_frame_begin();
+      fig_scene_begin(&scene);
+        fig_transform_push(&xf);
           t3d_model_draw(model);
-        kiln_transform_pop();
-      kiln_gui_begin();
-        kiln_gui_rect(0, 0, 320, 12, RGBA32(0x10, 0x12, 0x18, 0xFF));
-        kiln_gui_text(6, 9, RGBA32(0x00, 0xF5, 0xD4, 0xFF), "KILN MODEL");
-        kiln_gui_text(6, 232, RGBA32(0xA0, 0xA0, 0xB0, 0xFF),
+        fig_transform_pop();
+      fig_gui_begin();
+        fig_gui_rect(0, 0, 320, 12, RGBA32(0x10, 0x12, 0x18, 0xFF));
+        fig_gui_text(6, 9, RGBA32(0x00, 0xF5, 0xD4, 0xFF), "KILN MODEL");
+        fig_gui_text(6, 232, RGBA32(0xA0, 0xA0, 0xB0, 0xFF),
                       "t3dm v%d  %u verts  24 strip idx", model->magic[3],
                       model->totalVertCount);
-      kiln_gui_end();
-    kiln_frame_end();
+      fig_gui_end();
+    fig_frame_end();
 
-    const KilnHostT3DCounters *t = kiln_host_t3d_counters();
+    const FigHostT3DCounters *t = fig_host_t3d_counters();
     printf("  drew: loads %u verts %u submitted %u drawn %u culled %u clipped %u\n",
            t->vert_loads, t->verts, t->tris_submitted, t->tris_drawn,
            t->tris_culled, t->tris_clipped);
@@ -133,8 +133,8 @@ int main(int argc, char **argv)
           "70-entry cache)", t->vert_loads);
     CHECK(t->tris_drawn >= 6, "only %u triangles produced pixels", t->tris_drawn);
 
-    kiln_host_stats(stdout, 5);
-    CHECK(kiln_host_capture(png) == 0, "could not write %s", png);
+    fig_host_stats(stdout, 5);
+    CHECK(fig_host_capture(png) == 0, "could not write %s", png);
 
     t3d_model_free(model);
 

@@ -22,7 +22,7 @@
 # engine/Makefile sets -Wno-error deliberately, for third-party header noise
 # on the cross build. Compiling the same sources natively at -Werror is a free
 # second opinion, and on its first run over the widened tier it found a dead
-# bounds check in kiln_surface.c: `assertf(id < KILN_SURFACE_MAX)` where id is
+# bounds check in kiln_surface.c: `assertf(id < FIG_SURFACE_MAX)` where id is
 # a uint8_t and the max is 256, so the guard could never fire. That warning had
 # been reported to nobody for as long as the module existed. See the
 # _Static_assert that replaced it.

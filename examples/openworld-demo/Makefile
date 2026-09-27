@@ -2,7 +2,7 @@
 #
 # Include order matters: n64.mk, then t3d.mk, then streamdb.mk, then
 # kiln.mk. Each prepends its own -l to N64_LDFLAGS, so the last one included
-# ends up leftmost on the link line — which is what we want, since libkiln's
+# ends up leftmost on the link line — which is what we want, since libfigulina's
 # kiln_asset.o (the streaming pacer's I/O half) calls into libstreamdb_emb,
 # and streamdb_io_dfs.o calls back into libdragon. Same order and reasoning
 # as examples/streamdb-demo/Makefile.

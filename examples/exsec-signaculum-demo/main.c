@@ -3,7 +3,7 @@
 // The Exsecutor logo, rasterized by Exsecutor code running on Kiln — the
 // signaculum pure core (examples/signaculum/forma.exsc, emitted as
 // engine/src/kiln/gen/signaculum_mips64.gen.c; PROVENANCE.md there has the
-// pin) behind the kiln_soft3d engine module, on a 49,152-byte kthread.
+// pin) behind the fig_soft3d engine module, on a 49,152-byte kthread.
 //
 // WHAT THIS ROM SHOWS:
 //
@@ -19,7 +19,7 @@
 //      difference that qemu's soft-fp hides, so AGREE here is earned on the
 //      VR4300, not inherited from the cross suite. debugf prints the verdict.
 //   3. The frame presented as the engine's built-in software 3D path:
-//      kiln_soft3d_present maps 256x256 RGB888 into the 320x240 RGBA5551
+//      fig_soft3d_present maps 256x256 RGB888 into the 320x240 RGBA5551
 //      display surface — 32 px letterbox each side, 8 rows cropped top and
 //      bottom — with the data-cache writeback scanout needs.
 //   4. The kthread's real high-water mark against the static -fstack-usage
@@ -57,7 +57,7 @@
  * xorout 0xFFFFFFFF) — the crc32_iso_hld below reproduces it bit by bit. */
 #define EXPECTED_CRC  0x2025C173u
 
-static uint8_t g_exsg[KILN_SOFT3D_EXSG_BYTES];
+static uint8_t g_exsg[FIG_SOFT3D_EXSG_BYTES];
 
 /* CRC-32/ISO-HDLC, bitwise. Table-free on purpose: this runs ONCE on a
  * finished render, and 196,608 bytes x 8 steps costs the console well under
@@ -83,7 +83,7 @@ _Noreturn void exsrt_abortus(unsigned kind)
 
 typedef struct {
     int      ran;        // the thread body executed before kthread_new returned
-    uint8_t  status;     // signaculum_pingue's KILN_SOFT3D_* code
+    uint8_t  status;     // signaculum_pingue's FIG_SOFT3D_* code
     uint32_t crc;        // CRC over the module's framebuffer
 } RenderResult;
 
@@ -111,9 +111,9 @@ static int render(void *arg)
     RenderResult *r = arg;
     paint_stack();
     r->ran = 1;
-    r->status = kiln_soft3d_render_frame();
-    if (r->status == KILN_SOFT3D_OK)
-        r->crc = crc32_iso_hldlc(kiln_soft3d_framebuffer(), KILN_SOFT3D_FB_BYTES);
+    r->status = fig_soft3d_render_frame();
+    if (r->status == FIG_SOFT3D_OK)
+        r->crc = crc32_iso_hldlc(fig_soft3d_framebuffer(), FIG_SOFT3D_FB_BYTES);
     else
         r->crc = 0;
     return 0;
@@ -122,7 +122,7 @@ static int render(void *arg)
 int main(void)
 {
     kernel_init();
-    kiln_engine_init(RESOLUTION_320x240);
+    fig_engine_init(RESOLUTION_320x240);
     debug_init_isviewer();
     joypad_init();
     dfs_init(DFS_DEFAULT_LOCATION);
@@ -133,9 +133,9 @@ int main(void)
     uint32_t len = (uint32_t)fread(g_exsg, 1, sizeof g_exsg, f);
     int more = fgetc(f);
     fclose(f);
-    assertf(more == EOF && len == KILN_SOFT3D_EXSG_BYTES,
-            "exsec-signaculum-demo: stream is not %u bytes", KILN_SOFT3D_EXSG_BYTES);
-    kiln_soft3d_init(g_exsg, len);
+    assertf(more == EOF && len == FIG_SOFT3D_EXSG_BYTES,
+            "exsec-signaculum-demo: stream is not %u bytes", FIG_SOFT3D_EXSG_BYTES);
+    fig_soft3d_init(g_exsg, len);
 
     // ---- the render, on a 48 KiB thread ----
     // Priority +1, ABOVE main, so the thread runs to completion inside
@@ -162,7 +162,7 @@ int main(void)
     }
     kthread_join(th);
 
-    const int agree = res.status == KILN_SOFT3D_OK && res.crc == EXPECTED_CRC;
+    const int agree = res.status == FIG_SOFT3D_OK && res.crc == EXPECTED_CRC;
     debugf("signaculum: %s status=%u crc=0x%08lx want=0x%08lx stack=%lu/%u\n",
            agree ? "AGREE" : "DISAGREE", res.status, (unsigned long)res.crc,
            (unsigned long)EXPECTED_CRC, (unsigned long)stack_peak, RENDER_STACK);
@@ -182,27 +182,27 @@ int main(void)
          * the lines out to RDRAM — VI and (below) the RDP read them. Order
          * matters: nothing CPU-side may write this surface again before
          * show. */
-        kiln_soft3d_present(surf);
+        fig_soft3d_present(surf);
 
         /* A 2D status pass over the same surface. No 3D pass, no
-         * t3d_frame_start — kiln_gui_begin is rdpq-only. */
+         * t3d_frame_start — fig_gui_begin is rdpq-only. */
         rdpq_attach(surf, NULL);
-        kiln_gui_begin();
+        fig_gui_begin();
 
-        kiln_gui_panel(4, 4, 312, 40, FILL, HEAD);
-        kiln_gui_text(10, 17, HEAD, "EXSECUTOR SIGNACULUM — KILN SOFT3D");
-        kiln_gui_text(10, 30, DIM, "%u verts, %u faces, f64 1/z, CPU", 1493u, 2981u);
-        kiln_gui_text(204, 30, agree ? GOOD : BAD, "%s  %08lx",
+        fig_gui_panel(4, 4, 312, 40, FILL, HEAD);
+        fig_gui_text(10, 17, HEAD, "EXSECUTOR SIGNACULUM — KILN SOFT3D");
+        fig_gui_text(10, 30, DIM, "%u verts, %u faces, f64 1/z, CPU", 1493u, 2981u);
+        fig_gui_text(204, 30, agree ? GOOD : BAD, "%s  %08lx",
                       agree ? "AGREE" : "DISAGREE", (unsigned long)res.crc);
 
-        kiln_gui_panel(4, 188, 312, 34, FILL, HEAD);
-        kiln_gui_text(10, 201, INK, "status %u   crc %08lx / %08lx", res.status,
+        fig_gui_panel(4, 188, 312, 34, FILL, HEAD);
+        fig_gui_text(10, 201, INK, "status %u   crc %08lx / %08lx", res.status,
                       (unsigned long)res.crc, (unsigned long)EXPECTED_CRC);
-        kiln_gui_text(10, 214, stack_peak > RENDER_STACK - 2048 ? BAD : DIM,
+        fig_gui_text(10, 214, stack_peak > RENDER_STACK - 2048 ? BAD : DIM,
                       "stack %lu/%u (static %u)", (unsigned long)stack_peak,
                       RENDER_STACK, STATIC_FRAME);
 
-        kiln_gui_end();
+        fig_gui_end();
         rdpq_detach_show();
     }
 }

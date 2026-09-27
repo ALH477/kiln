@@ -3,20 +3,20 @@
  * plat/host/include/libcart/cart.h — the host's <libcart/cart.h>.
  *
  * There is no flashcart. cart_init() reports failure and cart_type stays
- * CART_NULL, which is the honest answer and also the one kiln_store is already
+ * CART_NULL, which is the honest answer and also the one fig_store is already
  * written to handle: it walks SD -> save chip -> read-only ROM and reports
  * which backend it got. On the host it gets none of the three and falls
- * through to KILN_STORE_DFS over the host VFS.
+ * through to FIG_STORE_DFS over the host VFS.
  *
- * Reporting "no cart" rather than pretending is load-bearing. kiln_store's own
+ * Reporting "no cart" rather than pretending is load-bearing. fig_store's own
  * history is the argument: sram_detect() returning 0 instead of -1 meant the
  * SRAM backend was selected on machines with no chip at all, after which
  * writes went nowhere and reads came back as zeros — which parse as a valid
  * EMPTY directory. A backend that claims to work and does not is worse than
  * one that says no.
  */
-#ifndef KILN_HOST_LIBCART_H
-#define KILN_HOST_LIBCART_H
+#ifndef FIG_HOST_LIBCART_H
+#define FIG_HOST_LIBCART_H
 
 #include <stdint.h>
 
@@ -34,4 +34,4 @@ int cart_card_init(void);
 int cart_card_rd_dram(void *dram, uint32_t lba, uint32_t count);
 int cart_card_wr_dram(const void *dram, uint32_t lba, uint32_t count);
 
-#endif /* KILN_HOST_LIBCART_H */
+#endif /* FIG_HOST_LIBCART_H */
