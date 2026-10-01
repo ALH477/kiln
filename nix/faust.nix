@@ -75,6 +75,8 @@ let
     "fmod" "fmodf"
   ];
 
+  includeArgs = dirs: lib.concatMapStringsSep " " (d: "-I ${d}") dirs;
+
 in
 rec {
   # ── mkOfflineRenderer: the host-side, full-quality renderer ───────────
@@ -87,8 +89,13 @@ rec {
   # matters even offline: it is the reference behaviour the on-console build
   # has to approximate by hand, since VR4300 denormals are handled via
   # exception (report §4).
+  #
+  # `includes` are directories handed to faust as `-I`, which is how a .dsp
+  # finds a library of its own (dsp/lib/kiln.lib) — the source is copied into the
+  # store as a single file, so a relative `library("kiln.lib")` would not
+  # resolve without it.
   mkOfflineRenderer =
-    { name, src }:
+    { name, src, includes ? [ ] }:
     pkgs.stdenv.mkDerivation {
       pname = "faust-offline-${name}";
       version = "0.1.0";
@@ -100,6 +107,7 @@ rec {
       buildPhase = ''
         runHook preBuild
         faust -lang c -double -ftz ${ftzMode} \
+              ${includeArgs includes} \
               -cn ${name} \
               -a ${offlineArchFile} \
               $src -o render_${name}.c
@@ -147,9 +155,10 @@ rec {
     , loop ? false
     , loopOffset ? 0
     , mono ? false
+    , includes ? [ ]
     }:
     let
-      renderer = mkOfflineRenderer { inherit name src; };
+      renderer = mkOfflineRenderer { inherit name src includes; };
       paramArgs = lib.concatMap (k: [ "-p" "${k}=${toString params.${k}}" ])
         (builtins.attrNames params);
       gateArgs =
@@ -270,6 +279,7 @@ rec {
       # or move the inner loop to the RSP".
     , budget ? 500
     , faustFlags ? [ ]
+    , includes ? [ ]
     }:
     pkgs.stdenv.mkDerivation {
       pname = "faust-voice-${name}";
@@ -308,6 +318,7 @@ rec {
         # this matters on the VR4300, where denormals trap into an exception
         # handler — precisely the hazard behind libultra saving COP1 state.
         faust -lang c -single -os -ftz ${ftzMode} \
+              ${includeArgs includes} \
               -cn ${name} \
               -a ${archFile} \
               $src -o ${name}.c

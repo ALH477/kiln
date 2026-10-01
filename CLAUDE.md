@@ -1829,6 +1829,32 @@ moved into the engine proper — the pattern is reusable by any game shipping
 generated headers or authored camera curves, via the same `nix/checks/`
 convention `kiln-map`/`kiln-voxmesh`/`kiln-logic` already show below.
 
+## The instrument library (dsp/instruments/, dsp/lib/kiln.lib)
+
+47 MIT instruments (strings, keys, mallets, synths, **bass**, drums, SFX, ambient),
+each one `.dsp` usable baked (`.wav64`) or, for those marked `live`, linked as a
+VR4300 voice. `catalogue.json` is the one statement; `nix/instruments.nix` derives
+the baked assets, voices and checks from it. Read `dsp/instruments/README.md`.
+
+- **`kiln.lib` exists because `stdfaust.lib` is not live-safe.** `os.osc` fills a
+  table with `sinf` at init, `fi.svf`/`fi.lowpass` call `tanf`, `ba.tau2pole`
+  calls `expf`; the symbol gate reads the whole object, so "only at init" still
+  fails the build. `kiln.lib` is arithmetic and `no.noise` only (parabolic sine,
+  PolyBLEP, a polynomial-tan TPT SVF, one-pole envelopes). `check.py --lint`
+  names the mistake at the line; the nm gate remains the authority.
+- **The checks measure identity, not loudness.** `tools/instruments/check.py`:
+  autocorrelation pitch at `freq` and an octave up, spectrum scaling for
+  inharmonic ones, release, DC, and an aliasing canary. `instruments-live`
+  renders the single-precision one-sample build (`live_render.c`).
+- **`tools/instruments/dev.sh`** is the no-Nix loop; `--budget` is a *proxy*
+  for the cycle gate (measured 314 against the real 349 for `ks`), used to
+  decide `live` before a toolchain build. The MIPS gates were not run when the
+  library was written (no cross toolchain in that sandbox): run
+  `nix build .#instrument-voices` once and correct any `live` flag it rejects.
+- Every instrument's timing assumes a 20 ms gate for strikes: a catalogue entry
+  that gates a held-note instrument that briefly renders a release, not a note
+  (`fm_bass` did, and failed as "not a tone").
+
 ## Constraints that shape everything
 
 - **Single precision only.** No `-double` on-console. That flag is for offline
