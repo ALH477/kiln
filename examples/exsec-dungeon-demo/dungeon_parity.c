@@ -6,7 +6,7 @@
  * Four things, in order, and the order is the order they would be debugged in:
  *
  *   1. THE STREAM. exsec's tests/programs/dungeon/probatio.exsc runs a fixed
- *      scenario through the library and writes 17,840 bytes; its expected.out
+ *      scenario through the library and writes 18,200 bytes; its expected.out
  *      is written by prototypes/dungeon_oracle.py, an independent Python
  *      implementation, and is committed here as dungeon_expected.bin. This
  *      file is that scenario in C -- section for section, in the same order --
@@ -144,6 +144,24 @@ static void build_stream(void)
         put_u64(exs_desemina_furore(0, WORLDS[a]));
         put_u64(exs_desemina_furore(UINT64_C(0x9E3779B97F4A7C15), WORLDS[a]));
     }
+    /* G. the plane: seven points in two worlds -- seed, then the coordinates the
+     * inverse gives back -- and the pebibyte square */
+    static const uint32_t PUNCTA[7][2] = {
+        { 0, 0 }, { 1, 0 }, { 0, 1 }, { 524287, 524287 },
+        { 0xFFFFFFFFu, 0xFFFFFFFFu }, { 0x80000000u, 0x7FFFFFFFu }, { 0xFFFFFFFFu, 0 },
+    };
+    for (int a = 0; a < 2; a++)
+        for (int b = 0; b < 7; b++) {
+            uint32_t xy[2] = { 0, 0 };
+            const uint64_t sd = exs_semina_plano(WORLDS[a], PUNCTA[b][0], PUNCTA[b][1]);
+            exs_desemina_plano(sd, WORLDS[a], (unsigned char *)xy);
+            put_u64(sd);
+            put_u64(xy[0]);
+            put_u64(xy[1]);
+        }
+    put_u64(UINT64_C(524288));
+    put_u64(UINT64_C(524288) * UINT64_C(524288));
+    put_u64(UINT64_C(524288) * UINT64_C(524288) * 4096);
 }
 
 /* ---- 2. the golden header against the stream ---------------------------- */
@@ -302,6 +320,32 @@ int main(int argc, char **argv)
         CHECK(exs_demisce_furore(exs_misce_furore(UINT64_C(0xFFFFFFFFFFFFFFFF))) ==
               UINT64_C(0xFFFFFFFFFFFFFFFF), "demisce(misce(2^64-1))");
         printf("seed: %d (world, index) round trips through desemina_furore, indices spread over 2^64\n", rt);
+    }
+
+    /* the plane: the signed wrappers are bijections too, and agree with the
+     * linear form on (y << 32) | x -- on coordinates the scenario does not name */
+    {
+        int pl = 0;
+        for (int32_t y = -40; y <= 40; y += 8)
+            for (int32_t x = -40; x <= 40; x += 8) {
+                const uint64_t sd = exsec_semina_plano(UINT64_C(0xDEADBEEFCAFEF00D), x, y);
+                int32_t bx = 12345, by = 12345;
+                exsec_desemina_plano(sd, UINT64_C(0xDEADBEEFCAFEF00D), &bx, &by);
+                CHECK(bx == x && by == y, "plane round trip: (%d, %d) came back (%d, %d)", x, y, bx, by);
+                CHECK(sd == exs_semina_furore(UINT64_C(0xDEADBEEFCAFEF00D),
+                          ((uint64_t)(uint32_t)y << 32) | (uint32_t)x),
+                      "plane (%d, %d) disagrees with the linear form", x, y);
+                pl++;
+            }
+        /* no two of a small plane's chunks share a seed */
+        static uint64_t seen[64 * 64];
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) {
+                seen[y * 64 + x] = exs_semina_plano(0, (uint32_t)x, (uint32_t)y);
+                for (int k = 0; k < y * 64 + x; k++)
+                    if (seen[k] == seen[y * 64 + x]) { CHECK(0, "plane seeds collide at (%d, %d)", x, y); break; }
+            }
+        printf("plane: %d signed round trips, and 4096 seeds of a 64x64 plane all distinct\n", pl);
     }
 
     check_golden(want, wn);

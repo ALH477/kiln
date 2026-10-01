@@ -43,6 +43,32 @@ uint64_t exs_desemina_furore(uint64_t semen, uint64_t orbis);
 uint64_t exs_misce_furore(uint64_t z);
 uint64_t exs_demisce_furore(uint64_t z);
 
+/* The same, addressed by chunk COORDINATES: the index is (y << 32) | x, so every
+ * chunk of a 2^32 x 2^32 plane has its own seed. Coordinates are UNSIGNED. A
+ * signed chunk coordinate is passed as its uint32_t cast (-1 is 0xFFFFFFFF),
+ * which is a bijection; they are not int32_t so that no caller can hand the unit
+ * a sign-extended value it does not expect (the emitted C holds an iN
+ * sign-extended in its uint64_t carrier; a uN is zero-extended, which is what
+ * a uint32_t widens to). exsec_semina_plano below does the cast for you.
+ * 2^19 chunks a side is exactly one pebibyte. */
+uint64_t exs_semina_plano(uint64_t orbis, uint64_t x, uint64_t y);
+/* xy[0] = x, xy[1] = y of the chunk whose seed is `semen`; pass a uint32_t[2]. */
+uint64_t exs_desemina_plano(uint64_t semen, uint64_t orbis, unsigned char *xy);
+
+/* Signed convenience wrappers. */
+static inline uint64_t exsec_semina_plano(uint64_t orbis, int32_t x, int32_t y)
+{
+    return exs_semina_plano(orbis, (uint32_t)x, (uint32_t)y);
+}
+static inline void exsec_desemina_plano(uint64_t semen, uint64_t orbis, int32_t *x, int32_t *y)
+{
+    uint32_t xy[2];
+    exs_desemina_plano(semen, orbis, (unsigned char *)xy);
+    *x = (int32_t)xy[0];
+    *y = (int32_t)xy[1];
+}
+
+
 /* Fills work[0, 4096). stats[0..2] = stream draws, boundary tiles roughened,
  * floor tiles pruned. Returns the walkable tiles. Reads nothing it did not
  * write first: the caller owes it neither zeroed storage nor a previous chunk. */

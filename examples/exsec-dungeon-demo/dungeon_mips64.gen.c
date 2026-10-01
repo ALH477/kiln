@@ -365,6 +365,9 @@ uint64_t exs_misce_furore(uint64_t p0);
 uint64_t exs_demisce_furore(uint64_t p0);
 uint64_t exs_semina_furore(uint64_t p0, uint64_t p1);
 uint64_t exs_desemina_furore(uint64_t p0, uint64_t p1);
+uint64_t exs_compone_plano(uint64_t p0, uint64_t p1);
+uint64_t exs_semina_plano(uint64_t p0, uint64_t p1, uint64_t p2);
+uint64_t exs_desemina_plano(uint64_t p0, uint64_t p1, unsigned char *p2);
 uint64_t exs_xs(uint64_t p0);
 uint64_t exs_proximus(unsigned char *p0);
 uint64_t exs_infra(unsigned char *p0, uint64_t p1);
@@ -582,6 +585,79 @@ uint64_t exs_desemina_furore(uint64_t p0, uint64_t p1)
     v5 = v4 - v2;
     v6 = exs_multiplica_modulo(v5, v3);
     return v6;
+}
+
+uint64_t exs_compone_plano(uint64_t p0, uint64_t p1)
+{
+    uint64_t v1;
+    uint64_t v2;
+    uint64_t v3;
+    uint64_t v4;
+    uint64_t v5;
+    uint64_t v6;
+    uint64_t v7;
+    v1 = p0;
+    v2 = p1;
+    v3 = exsi_norm_u(v2, 32);
+    v4 = UINT64_C(32);
+    v5 = exsi_shl_u(v3, v4, 64);
+    v6 = exsi_norm_u(v1, 32);
+    v7 = v5 | v6;
+    return v7;
+}
+
+uint64_t exs_semina_plano(uint64_t p0, uint64_t p1, uint64_t p2)
+{
+    uint64_t v1;
+    uint64_t v2;
+    uint64_t v3;
+    uint64_t v4;
+    uint64_t v5;
+    v1 = p0;
+    v2 = p1;
+    v3 = p2;
+    v4 = exs_compone_plano(v2, v3);
+    v5 = exs_semina_furore(v1, v4);
+    return v5;
+}
+
+uint64_t exs_desemina_plano(uint64_t p0, uint64_t p1, unsigned char *p2)
+{
+    uint64_t v1;
+    uint64_t v2;
+    unsigned char *v3;
+    uint64_t v4;
+    uint64_t v5;
+    uint64_t v6;
+    uint64_t v7;
+    unsigned char *v9;
+    uint64_t v11;
+    uint64_t v12;
+    uint64_t v13;
+    uint64_t v14;
+    uint64_t v15;
+    unsigned char *v17;
+    uint64_t v19;
+    v1 = p0;
+    v2 = p1;
+    v3 = p2;
+    v4 = exs_desemina_furore(v1, v2);
+    v5 = exsi_norm_u(v4, 32);
+    v6 = UINT64_C(0);
+    v7 = UINT64_C(2);
+    if (v6 >= v7) exsrt_abortus(1);
+    v9 = (unsigned char *)((uintptr_t)v3 + (uintptr_t)v6 * 4);
+    exsi_st_n(v9 + 0, 4, v5);
+    v11 = UINT64_C(32);
+    v12 = exsi_shr_u(v4, v11, 64);
+    v13 = exsi_norm_u(v12, 32);
+    v14 = UINT64_C(1);
+    v15 = UINT64_C(2);
+    if (v14 >= v15) exsrt_abortus(1);
+    v17 = (unsigned char *)((uintptr_t)v3 + (uintptr_t)v14 * 4);
+    exsi_st_n(v17 + 0, 4, v13);
+    v19 = UINT64_C(0);
+    return v19;
 }
 
 uint64_t exs_xs(uint64_t p0)

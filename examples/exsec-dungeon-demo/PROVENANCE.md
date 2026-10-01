@@ -6,8 +6,9 @@ emitted together by the compiler's C backend as one unit per pointer width:
 
 - [`examples/dungeon/furor_petabytorum.exsc`](https://github.com/ALH477/exsecutor) —
   *Furor Petabytorum*, the seed module of PetaByte Madness: `semina_furore`,
-  `desemina_furore` (its inverse), `misce_furore`, `demisce_furore`. sha256
-  `ccd90790c5785892c77ba7c97178505a1712e74a293be840ecc8a0761af23eee`.
+  `desemina_furore` (its inverse), `misce_furore`, `demisce_furore`, and the
+  coordinate form `semina_plano`, `desemina_plano`. sha256
+  `33b9dca9218c9bb68362126524637f6ac73accbf367d3b44068480dfcecced35`.
 - `examples/dungeon/dungeon.exsc` — the chunk: `fig_dungeon_chunk`,
   `fig_dungeon_prune`, `fig_dungeon_crc32`. sha256
   `c791956ee11414ed5ef6cf40d34857dbc2d979b9e57b0e39b28a04a9194d4678`.
@@ -15,10 +16,10 @@ emitted together by the compiler's C backend as one unit per pointer width:
 | | x86_64 unit | mips64 unit |
 |---|---|---|
 | sources | the two above, in that order | same |
-| compiler | `exsc` at Exsecutor commit `da8b6f43fc74e48af470f5bc2c84acfcae097fd7` (512,240 bytes, sha256 `c238d44a70c927e4d4a081bfe04e9484a7c039fc9e4c5c68617f847aa6828613`) | same |
+| compiler | `exsc` at Exsecutor commit `d84cd2cfe12b8e004082869dfb5d47cf05c788af` (512,240 bytes, sha256 `c238d44a70c927e4d4a081bfe04e9484a7c039fc9e4c5c68617f847aa6828613`) | same |
 | row | `--hospes x86_64-linux --emitte c` | `--hospes mips64-none-o64 --emitte c` |
-| bytes | 86,038 | 87,091 |
-| sha256 | `65af443fad859562b0b1111f1b4960fd80ab77b575d39aab114c6cf4623b29a2` | `bfa298c0c986b96b19c4b00069b35900233a80b271c74321cf8633db0e01e10f` |
+| bytes | 87,814 | 88,867 |
+| sha256 | `f64207cdb656e0c6a9231a66d7af7302e0988c9c9f1d0be3ed0a1b47c90de8de` | `173a2149b1414fa71178ed28b9a9ec70012b2fd80ba4d3c0974665619fc08d39` |
 
 The ROM links the mips64 unit. The x86_64 unit exists only for
 `nix/checks/exsec-dungeon-parity.nix`, which compiles it natively.
@@ -53,17 +54,17 @@ inserted `exsi_norm_u(…, 32)`; or the consequence of a `mensura` array element
 becoming `[48]`), an element size in index arithmetic, and a load or store width.
 Measured 2026-10-01 over this exact pair of files; none is a behavioural edit. That
 is `mensura` narrowing, said many times. `nix/checks/exsec-dungeon-parity.nix`
-holds what must stay equal — the 20 exported prototypes — and nothing more.
+holds what must stay equal — the 23 exported prototypes — and nothing more.
 
 ## What it is certified against
 
 In the Exsecutor repository the same source, driven by `probatio.exsc`, writes a
-17,840-byte stream that is **byte-identical to `tests/programs/dungeon/expected.out`**,
+18,200-byte stream that is **byte-identical to `tests/programs/dungeon/expected.out`**,
 which `prototypes/dungeon_oracle.py` (an independent Python implementation) wrote.
 That holds on the reference backend, four C builds (gcc and clang, `-O0` and `-O2`,
 under UBSan or its trap mode) and a big-endian MIPS-III run under qemu-user — the
 **n32** ABI, as a proxy for this ROM's **o64** (spec §9.5; the o64 ABI itself is
-`[UNTESTED]`). Twenty-five mutants of the two sources are each caught at a stated byte
+`[UNTESTED]`). Thirty-two mutants of the two sources are each caught (a thirty-third, `sive` to `aut` in the coordinate pack, is equivalent: disjoint bits) at a stated byte
 (that directory's `TEST` header). The emitted C also ran over 2,000,000 chunks
 (`tests/c/dungeon_scan.c`) with no violation of tile codes, a solid border, or a
 single 4-connected component, and no duplicate layout.
