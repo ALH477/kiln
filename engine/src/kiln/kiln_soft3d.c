@@ -59,6 +59,16 @@ void fig_soft3d_init(const void *exsg_blob, uint32_t len)
     g_ready = 1;
 }
 
+void fig_soft3d_set_rotation(const void *m, uint32_t len)
+{
+    assertf(g_ready, "fig_soft3d_set_rotation before fig_soft3d_init");
+    assertf(m != NULL, "fig_soft3d_set_rotation: NULL matrix");
+    assertf(len == FIG_SOFT3D_ROT_BYTES,
+            "fig_soft3d_set_rotation: matrix is %lu bytes, the contract is %u",
+            (unsigned long)len, FIG_SOFT3D_ROT_BYTES);
+    memcpy(g_exsg + FIG_SOFT3D_ROT_OFFSET, m, FIG_SOFT3D_ROT_BYTES);
+}
+
 uint8_t fig_soft3d_render_frame(void)
 {
     assertf(g_ready, "fig_soft3d_render_frame before fig_soft3d_init");

@@ -37,9 +37,21 @@ nix run .#ares -- --system "Nintendo 64" --no-file-prompt --kiosk \
 grep -a "signaculum:" "$work/ares.log"
 ```
 
-or capture the window: `./dev shot result/exsec-signaculum-demo.z64 out.png`
-once the flake entry (below) exists — `nix/demos/exsec-signaculum-demo.nix`
-in this directory is the DRAFT of that entry, deliberately not wired.
+or capture the window. `./dev shot` takes a FLAKE ATTRIBUTE, never a path —
+`rom_path()` is an unconditional `nix build .#<name>`, so a `.z64` given to it
+dies with "does not provide attribute" (the same is true of `run`, `inspect`,
+`drive` and `deploy`, which share that resolver; `dev`'s own usage text writes
+`<rom>`, which is what makes this easy to get wrong). Until the flake entry
+below exists there is no attribute to name, so call the script `./dev shot`
+wraps:
+
+```sh
+ARES="$(nix build --no-link --print-out-paths .#ares-bin)/bin/ares" \
+  bash tools/n64-shot.sh exsec-signaculum-demo.z64 out.png 8
+```
+
+`nix/demos/exsec-signaculum-demo.nix` in this directory is the DRAFT of that
+entry, deliberately not wired.
 
 ## What AGREE certifies
 

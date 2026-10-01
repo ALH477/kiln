@@ -71,6 +71,22 @@ extern "C" {
 #define FIG_SOFT3D_FB_BYTES   196608u   /* 256 * 256 * 3     */
 #define FIG_SOFT3D_SIDE       256u      /* the source frame is square */
 
+/** Where the rotation matrix lives INSIDE the stream, from
+ *  prototypes/signaculum_mesh.py's format (EXSECUTOR):
+ *
+ *      offset  bytes  field
+ *           0      4  magic "EXSG"
+ *           4      8  2 x u32  vertex count, face count
+ *          12      8  2 x i32  q23(camera d), q23(camera f)
+ *          20     36  9 x i32  R = Rx(pitch) @ Ry(yaw), row-major, 2^-23
+ *          56    ...           vertices, then faces
+ *
+ *  Everything from 56 on is the mesh and its baked per-face colours --
+ *  44,745 of the 44,801 bytes, identical in every view. So an animation is a
+ *  36-byte patch per frame, not a stream per frame. */
+#define FIG_SOFT3D_ROT_OFFSET 20u
+#define FIG_SOFT3D_ROT_BYTES  36u
+
 /** signaculum_pingue's return codes (forma.exsc's own header comment). */
 enum {
     FIG_SOFT3D_OK             = 0,
@@ -95,6 +111,21 @@ _Noreturn void exsrt_abortus(unsigned kind);
  *  are belt-and-braces against a well-formed stream, not a size discovery
  *  protocol. Does not render. */
 void fig_soft3d_init(const void *exsg_blob, uint32_t len);
+
+/** Overwrite the stored stream's rotation matrix, for the next render.
+ *  `m` is FIG_SOFT3D_ROT_BYTES of 9 little-endian i32 on the 2^-23 grid,
+ *  row-major -- one frame of EXSECUTOR's tests/data/signaculum_rotations.bin.
+ *
+ *  This is the WHOLE of animating the logo. Nothing else in the stream moves,
+ *  so the core's magic and count checks still see a well-formed stream, and
+ *  every float it will hold still arrives as an integer -- the property that
+ *  makes the framebuffer bit-reproducible across x86-64, qemu-mips64 and the
+ *  VR4300. Patching here rather than re-init'ing also keeps the mesh copy out
+ *  of the per-frame cost: 36 bytes instead of 44,801.
+ *
+ *  Asserts that fig_soft3d_init has run; the matrix is a patch to a stream,
+ *  not a stream. Does not render -- call fig_soft3d_render_frame next. */
+void fig_soft3d_set_rotation(const void *m, uint32_t len);
 
 /** Rasterize the logo: clear fb/zb and draw the full mesh into the module's
  *  own storage. Returns signaculum_pingue's status (FIG_SOFT3D_OK on
