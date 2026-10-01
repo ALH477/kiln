@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // strings — a string-section pad: three detuned saws, two ensemble delays and a
 // slow bow.

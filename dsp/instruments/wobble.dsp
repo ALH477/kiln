@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // wobble — a saw bass with its filter moved by an LFO: the dubstep wub.
 //

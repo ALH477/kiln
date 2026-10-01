@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // clap — a handclap: several near-simultaneous noise bursts, then a tail.
 //

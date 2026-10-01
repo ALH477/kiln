@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // arc_coin — the coin-up chirp: one square wave that jumps a fourth.
 //

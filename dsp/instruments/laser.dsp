@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // laser — a falling zap: a band-limited saw whose pitch drops exponentially.
 //

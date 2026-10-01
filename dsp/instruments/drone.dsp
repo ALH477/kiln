@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // drone — three detuned sines and a breathing, filtered noise: a tonal bed.
 //

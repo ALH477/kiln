@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // dmx_growl — a monster growl: a low buzz through a moving vowel, torn by a 28 Hz tremolo.
 //

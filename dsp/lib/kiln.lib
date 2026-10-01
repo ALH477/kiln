@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // kiln.lib — the primitives the Kiln instrument library is built from.
 //
@@ -27,6 +27,9 @@
 //          0.25*SR where it is within 0.3% of tan
 //   rate   1 - e^-x taken as its first-order form; exact enough for any
 //          envelope longer than ~1 ms and it is the cost of one divide
+//
+// GPL-3.0-only (see COPYING in this directory). The rest of the repository is MIT;
+// the architecture files in dsp/arch/ that a voice is compiled against stay MIT.
 //
 // Written from scratch; nothing here is copied from the Faust libraries.
 // The algorithms (PolyBLEP, the topology-preserving SVF, Karplus-Strong,

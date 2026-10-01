@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // acid_bass — a resonant lowpass swept by a decaying envelope over a sawtooth:
 // the squelch.

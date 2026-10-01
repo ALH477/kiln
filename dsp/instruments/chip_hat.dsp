@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_hat — a console hi-hat: the fastest noise clock, a very short decay.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // pwm_pad — two pulse oscillators whose widths are moved by slow, unrelated
 // LFOs, through a lowpass and a chorus: the late-'70s string-machine pad.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // snes_pluck — a SNES plucked sample: a string, coarsely quantised and dulled.
 //

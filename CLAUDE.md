@@ -1831,7 +1831,7 @@ convention `kiln-map`/`kiln-voxmesh`/`kiln-logic` already show below.
 
 ## The instrument library (dsp/instruments/, dsp/lib/kiln.lib)
 
-85 MIT instruments (strings, keys, mallets, synths, **bass**, drums, SFX, ambient, **retro**),
+85 **GPL-3.0-only** instruments (strings, keys, mallets, synths, **bass**, drums, SFX, ambient, **retro**),
 each one `.dsp` usable baked (`.wav64`) or, for those marked `live`, linked as a
 VR4300 voice. `catalogue.json` is the one statement; `nix/instruments.nix` derives
 the baked assets, voices and checks from it. Read `dsp/instruments/README.md`.
@@ -1947,7 +1947,9 @@ engine-wide — see `LICENSE`. The one exception is `streamdb-embedded/`
 (LGPL-2.1-or-later, DeMoD's own library, source vendored unmodified under its
 own headers, unaffected by the relicense). libdragon (Unlicense) and
 SummerCart64 (GPLv3) are pulled in only as Nix flake inputs, never vendored,
-and packaged as separate programs — neither is linked into a ROM. Faust
+and packaged as separate programs — neither is linked into a ROM. The instrument library (`dsp/instruments/`, `dsp/lib/`) is the exception in the other direction:
+**GPL-3.0-only** (`COPYING` beside it), so a ROM linking one of its live voices is a
+combined work. Faust
 `.dsp` sources from `~/Documents/DeMoD/apps/terminus/patches/` are
 **PolyForm Shield 1.0.0, non-commercial** — reference them, do not vendor
 them into this tree. See `THIRD_PARTY_LICENSES.md` for the full breakdown.

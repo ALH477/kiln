@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // coin — the two-note pickup chirp: a short note, then a higher one that rings.
 //

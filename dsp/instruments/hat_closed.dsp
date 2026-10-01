@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // hat_closed — a closed hi-hat: six metal oscillators, filtered, and shut off.
 //

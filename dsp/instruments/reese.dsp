@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // reese — detuned saws beating through a lowpass: the drum-and-bass growl.
 //

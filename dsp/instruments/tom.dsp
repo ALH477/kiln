@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // tom — a tuned tom-tom: a membrane's pitch fall, longer and higher than a kick.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_tri — the NES triangle: a 4-bit staircase triangle, on or off.
 //

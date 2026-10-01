@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // choir — a sung vowel: a glottal-ish source through three formant filters.
 //

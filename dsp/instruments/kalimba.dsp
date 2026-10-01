@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // kalimba — steel tines on a hollow wooden box (the "thumb piano").
 //

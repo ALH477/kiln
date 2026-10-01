@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // jump — a rising chirp: a pulse wave swept upward and shut off.
 //

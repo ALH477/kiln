@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // harp — a gut-stringed harp: a soft pluck near the end of a long, bright
 // string, with a soundboard.

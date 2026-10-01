@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // arc_death — the player-lost wail: a falling pitch with a fast wobble.
 //

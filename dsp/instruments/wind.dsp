@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // wind — filtered noise with a slowly wandering cutoff and gusts.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // lead — a monophonic saw-and-pulse lead with glide and a late vibrato.
 //

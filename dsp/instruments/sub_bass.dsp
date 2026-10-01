@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // sub_bass — a sine with a touch of its octave and a soft clip: the weight
 // under a mix.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // hat_open — the open hi-hat: the same six oscillators, left to ring.
 //

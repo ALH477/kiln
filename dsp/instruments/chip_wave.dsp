@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_wave — a Game Boy wave channel: a 32-step, 4-bit wavetable.
 //

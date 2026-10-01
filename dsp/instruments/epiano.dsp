@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // epiano — a tine electric piano, by two-operator frequency modulation.
 //

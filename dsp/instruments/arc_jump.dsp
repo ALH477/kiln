@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // arc_jump — a platformer hop: a thin pulse rising about an octave.
 //

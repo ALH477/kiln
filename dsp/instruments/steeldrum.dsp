@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // steeldrum — a tenor pan: a tuned note pocket on a hammered steel pan.
 //

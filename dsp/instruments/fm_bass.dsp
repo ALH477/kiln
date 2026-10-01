@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // fm_bass — two-operator FM with a fast-falling index: the slap.
 //

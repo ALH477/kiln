@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // arc_hit — an impact: a burst of noise over a falling 4-bit triangle thump.
 //

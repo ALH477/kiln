@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // arc_laser — the arcade zap: a naive square swept down in pitch.
 //

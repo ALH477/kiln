@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // guitar — an acoustic steel-string: a plucked loop through a guitar body.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // pokey_buzz — an Atari POKEY "distortion": a pulse gated by a fixed bit pattern.
 //

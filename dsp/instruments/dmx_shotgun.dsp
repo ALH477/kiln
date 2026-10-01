@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // dmx_shotgun — a shotgun: a huge blast, then the pump.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // harpsichord — a quill plucking a bright string, and the jack's return click.
 //

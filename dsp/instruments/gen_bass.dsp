@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // gen_bass — the Mega Drive slap bass: FM with feedback, crunched.
 //

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // opl_bell — a bell: a high odd modulator ratio and a long ring.
 //

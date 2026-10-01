@@ -1,7 +1,7 @@
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 # The Kiln instrument library
 
-85 instruments, MIT-licensed, shipped with the engine: strings, keys, tuned
+85 instruments, **GPL-3.0-only** (see [License](#license)), shipped with the engine: strings, keys, tuned
 percussion, synths, **bass**, drums, sound effects, ambient beds and a **retro** family (see below). The table is
 [`INDEX.md`](INDEX.md) (generated).
 
@@ -65,7 +65,7 @@ library's −6 dBFS convention.
 
 `nix flake check` runs `instruments-lint`, `-index`, `-render` and `-live`:
 
-- every `.dsp` is in `catalogue.json` and vice versa; MIT SPDX line; standard
+- every `.dsp` is in `catalogue.json` and vice versa; GPL-3.0-only SPDX line; standard
   controls present; a `live` source touches only libm-free namespaces;
 - a **harmonic** instrument's measured pitch is within 3% of `freq` at the reference
   note *and* an octave up; an **inharmonic** one moves its whole spectrum with
@@ -99,3 +99,20 @@ emulator audio).
   loop them in the mixer with a crossfade of your own.
 - The MIPS cycle numbers in `catalogue.json` are *declared budgets*; the static
   estimate is not wall-clock. Profile with `TICKS`.
+
+## License
+
+The instruments (`dsp/instruments/*.dsp`) and their primitives library
+(`dsp/lib/kiln.lib`) are **GPL-3.0-only**; the licence text is `COPYING` in each
+directory. The engine, the architecture files in `dsp/arch/`, the build
+tooling and the other `.dsp` files in `dsp/` remain MIT, which is GPL-compatible,
+so the two coexist in one repository. What the GPL reaches:
+
+- **Linking a live voice into a ROM** compiles Faust's C output of a GPL `.dsp`
+  into the executable, which makes that ROM a combined work: it must be
+  distributed under the GPL with its source. The MIT engine does not change this.
+- **Baked `.wav64` assets** are *audio rendered by* the instrument, not a copy of
+  it. The GPL does not by itself reach a program's output, but a render is a
+  recording of a GPL-licensed synthesiser: if you want that to be unambiguous for
+  people shipping games, add an explicit output exception to `COPYING`.
+  That choice is the copyright holder's, and is not made here.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // gen_lead — the Mega Drive lead: bright FM with a growing vibrato.
 //

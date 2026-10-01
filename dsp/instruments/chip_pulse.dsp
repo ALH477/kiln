@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_pulse — a NES-style pulse channel: naive square, stepped volume, late vibrato.
 //

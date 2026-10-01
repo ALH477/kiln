@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_noise — the NES noise channel: one-bit noise at a chosen clock.
 //

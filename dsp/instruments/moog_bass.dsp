@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // moog_bass — saw, square and sub through a plucking lowpass: the analogue
 // mono bass.

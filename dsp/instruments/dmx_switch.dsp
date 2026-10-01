@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // dmx_switch — a wall switch: two quick mechanical clacks.
 //

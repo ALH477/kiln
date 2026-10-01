@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // chip_arp — a C64-style arpeggio: a chord faked by cycling its notes at 50 Hz.
 //

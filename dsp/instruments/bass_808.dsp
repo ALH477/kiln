@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // bass_808 — the long, tuned, saturated kick: the 808 bass.
 //

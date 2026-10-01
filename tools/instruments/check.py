@@ -86,8 +86,8 @@ def lint(cat_path, dsp_dir):
     for n in sorted(files & set(cat)):
         inst = cat[n]
         src = open(os.path.join(dsp_dir, n + ".dsp")).read()
-        if "SPDX-License-Identifier: MIT" not in src.split("\n", 3)[0]:
-            errs.append("%s.dsp: first line must be the MIT SPDX identifier" % n)
+        if "SPDX-License-Identifier: GPL-3.0-only" not in src.split("\n", 3)[0]:
+            errs.append("%s.dsp: first line must be the GPL-3.0-only SPDX identifier" % n)
         if not re.search(r"^// %s \u2014" % re.escape(n), src, re.M):
             errs.append("%s.dsp: header must start '// %s \u2014 <one line>' (INDEX.md reads it)" % (n, n))
         if inst["family"] not in FAMILIES:

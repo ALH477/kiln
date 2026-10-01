@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // opl_guitar — the overdriven metal guitar that opens E1M1.
 //

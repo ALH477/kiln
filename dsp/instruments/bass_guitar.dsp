@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // bass_guitar — a fingered electric bass: a magnetic pickup on a steel string.
 //

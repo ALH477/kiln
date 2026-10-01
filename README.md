@@ -120,7 +120,7 @@ pinned and why libgloss is excluded.
 
 ## Licence
 
-MIT, engine-wide — see `LICENSE`. The one exception is `streamdb-embedded/`
+MIT, engine-wide — see `LICENSE`. The exceptions are `dsp/instruments/` and `dsp/lib/` (the instrument library, **GPL-3.0-only**) and `streamdb-embedded/`
 (LGPL-2.1-or-later, DeMoD's own library, source vendored unmodified under its
 own headers). libdragon is Unlicense and SummerCart64 is GPLv3 — both are
 pulled in only as Nix flake inputs, never vendored, and neither is linked

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // dmx_plasma — the plasma rifle: a falling zzap with a noisy skin.
 //

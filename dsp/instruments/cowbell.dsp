@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // cowbell — two square waves a fifth-ish apart, bandpassed.
 //

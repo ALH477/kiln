@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // supersaw — five detuned band-limited sawtooth oscillators through a lowpass
 // that opens with the envelope: the trance/pop lead.

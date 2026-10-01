@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // snes_strings — a SNES string patch: detuned saws, 4-bit-ish, softened.
 //

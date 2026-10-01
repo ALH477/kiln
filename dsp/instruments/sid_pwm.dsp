@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // sid_pwm — a C64 SID pulse voice with its width swept: the classic PWM lead.
 //
