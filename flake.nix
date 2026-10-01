@@ -610,6 +610,11 @@
           sampleRate = 32000;
         };
 
+        # The shipped instrument library (dsp/instruments/, 85 instruments).
+        # catalogue.json is its one statement; nix/instruments.nix derives the
+        # baked assets, the live voices and every check from it.
+        instruments = import ./nix/instruments.nix { inherit pkgs faust; };
+
         # The same instrument taken down the OTHER path — rendered at full
         # quality on the host and VADPCM-encoded. Report §5's hybrid
         # recommendation is to bake most of the audio this way and reserve live
@@ -1658,6 +1663,10 @@
           figulina = kiln-engine;
           engine   = kiln-engine;
           host-math = hostMath;
+          # Every baked instrument in one filesystem/ — `nix build .#instruments`.
+          instruments = instruments.all;
+          # The live voices, through the no-libm / no-double / cycle gates.
+          instrument-voices = instruments.checks.instruments-voices;
           streamdb = streamdb-emb;
           inherit textures;
           inherit dev-image;
@@ -2308,7 +2317,10 @@
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a
         # chord is a mode nothing compiles unless something asks for it, and a
         # per-mode -D flag is exactly the sort of thing that rots unnoticed.
-        // forgeModeRoms;
+        // forgeModeRoms
+        # The instrument library: catalogue/source lint, generated index, every
+        # instrument measured, every live voice rendered in its shipped form.
+        // instruments.checks;
 
         apps = {
           # Iterate here. Per report §7, Ares is the reference emulator for

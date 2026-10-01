@@ -55,6 +55,19 @@ this repository. The `.dsp` files actually tracked here (`dsp/ks.dsp`,
 `dsp/kiln_jingle.dsp`) carry this repository's own MIT license and are not
 PolyForm-licensed content.
 
+The instrument library (`dsp/instruments/`, `dsp/lib/kiln.lib`) is
+**GPL-3.0-only**, not MIT: its licence text is `dsp/instruments/COPYING` and
+`dsp/lib/COPYING`, and every file carries the SPDX line. It is written from
+scratch; its algorithms (PolyBLEP, the topology-preserving state-variable
+filter, Karplus-Strong, Chowning FM, modal synthesis from published partial
+ratios) are textbook, and none of it is copied from the Faust libraries or any
+other instrument set. It `import`s Faust's standard libraries at build time
+(`stdfaust.lib`, from the `faust` package in nixpkgs) the way every `.dsp` here
+does; those are not vendored. The rest of the repository stays MIT, which is
+GPL-compatible. Consequence worth knowing: a ROM that links a live voice built
+from these sources is a combined work and must be distributed under the GPL;
+see `dsp/instruments/README.md`, "License".
+
 ## Tiny3D, N64-UNFLoader, and other flake inputs
 
 Every other dependency declared in `flake.nix`'s `inputs` (`tiny3d`,

@@ -32,3 +32,6 @@ archives/
 .meshy_key
 # Kiln Studio's runtime state: session token, job logs, worktrees
 .studio/
+
+# tools/instruments/dev.sh renders and live builds.
+.instruments/
