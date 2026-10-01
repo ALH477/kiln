@@ -360,8 +360,11 @@ static inline void exsi_st_le(unsigned char *p, unsigned k, uint64_t v)
 _Static_assert(sizeof(void *) == 4, "exsecutor: this hospes has 32-bit addresses");
 
 uint64_t exs_multiplica_modulo(uint64_t p0, uint64_t p1);
-uint64_t exs_fig_dungeon_mix(uint64_t p0);
-uint64_t exs_fig_dungeon_seed(uint64_t p0, uint64_t p1);
+uint64_t exs_inverte_dextrorsum(uint64_t p0, uint64_t p1);
+uint64_t exs_misce_furore(uint64_t p0);
+uint64_t exs_demisce_furore(uint64_t p0);
+uint64_t exs_semina_furore(uint64_t p0, uint64_t p1);
+uint64_t exs_desemina_furore(uint64_t p0, uint64_t p1);
 uint64_t exs_xs(uint64_t p0);
 uint64_t exs_proximus(unsigned char *p0);
 uint64_t exs_infra(unsigned char *p0, uint64_t p1);
@@ -440,7 +443,54 @@ uint64_t exs_multiplica_modulo(uint64_t p0, uint64_t p1)
     return v29;
 }
 
-uint64_t exs_fig_dungeon_mix(uint64_t p0)
+uint64_t exs_inverte_dextrorsum(uint64_t p0, uint64_t p1)
+{
+    uint64_t v1;
+    uint64_t v2;
+    uint64_t v3;
+    uint64_t v4;
+    uint64_t v6;
+    uint64_t v7;
+    uint64_t v9;
+    uint64_t v10;
+    uint64_t v11;
+    uint64_t v13;
+    uint64_t v14;
+    uint64_t t6;
+    uint64_t t9;
+    v1 = p0;
+    v2 = p1;
+    v3 = UINT64_C(0);
+    v4 = UINT64_C(2);
+    t9 = v1;
+    t6 = v3;
+    v9 = t9;
+    v6 = t6;
+    goto b2;
+b2:
+    v7 = (v6 < v4);
+    if (v7) {
+        goto b3;
+    } else {
+        goto b4;
+    }
+b3:
+    v10 = exsi_shr_u(v9, v2, 64);
+    v11 = v1 ^ v10;
+    goto b5;
+b4:
+    return v9;
+b5:
+    v13 = UINT64_C(1);
+    v14 = exsi_norm_u(v6 + v13, 32);
+    t9 = v11;
+    t6 = v14;
+    v9 = t9;
+    v6 = t6;
+    goto b2;
+}
+
+uint64_t exs_misce_furore(uint64_t p0)
 {
     uint64_t v1;
     uint64_t v2;
@@ -473,7 +523,34 @@ uint64_t exs_fig_dungeon_mix(uint64_t p0)
     return v14;
 }
 
-uint64_t exs_fig_dungeon_seed(uint64_t p0, uint64_t p1)
+uint64_t exs_demisce_furore(uint64_t p0)
+{
+    uint64_t v1;
+    uint64_t v2;
+    uint64_t v3;
+    uint64_t v4;
+    uint64_t v5;
+    uint64_t v6;
+    uint64_t v7;
+    uint64_t v8;
+    uint64_t v9;
+    uint64_t v10;
+    uint64_t v11;
+    v1 = p0;
+    v2 = UINT64_C(31);
+    v3 = exs_inverte_dextrorsum(v1, v2);
+    v4 = UINT64_C(3573116690164977347);
+    v5 = exs_multiplica_modulo(v3, v4);
+    v6 = UINT64_C(27);
+    v7 = exs_inverte_dextrorsum(v5, v6);
+    v8 = UINT64_C(10871156337175269513);
+    v9 = exs_multiplica_modulo(v7, v8);
+    v10 = UINT64_C(30);
+    v11 = exs_inverte_dextrorsum(v9, v10);
+    return v11;
+}
+
+uint64_t exs_semina_furore(uint64_t p0, uint64_t p1)
 {
     uint64_t v1;
     uint64_t v2;
@@ -486,7 +563,24 @@ uint64_t exs_fig_dungeon_seed(uint64_t p0, uint64_t p1)
     v3 = UINT64_C(11400714819323198485);
     v4 = exs_multiplica_modulo(v2, v3);
     v5 = v1 + v4;
-    v6 = exs_fig_dungeon_mix(v5);
+    v6 = exs_misce_furore(v5);
+    return v6;
+}
+
+uint64_t exs_desemina_furore(uint64_t p0, uint64_t p1)
+{
+    uint64_t v1;
+    uint64_t v2;
+    uint64_t v3;
+    uint64_t v4;
+    uint64_t v5;
+    uint64_t v6;
+    v1 = p0;
+    v2 = p1;
+    v3 = UINT64_C(17428512612931826493);
+    v4 = exs_demisce_furore(v1);
+    v5 = v4 - v2;
+    v6 = exs_multiplica_modulo(v5, v3);
     return v6;
 }
 

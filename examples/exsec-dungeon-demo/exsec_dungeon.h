@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  *
- * The C face of examples/dungeon/dungeon.exsc, emitted by the Exsecutor
+ * The C face of examples/dungeon/furor_petabytorum.exsc and dungeon.exsc, emitted by the Exsecutor
  * compiler's C backend as dungeon_mips64.gen.c (the console) and
  * dungeon_x86_64.gen.c (the host check). See PROVENANCE.md.
  *
@@ -30,10 +30,18 @@ enum {
     EXSEC_TILE_TRAP  = 3,
 };
 
-/* The seed: mix(world + index * GAMMA). A bijection of index for one world. */
-uint64_t exs_fig_dungeon_seed(uint64_t world, uint64_t index);
-/* The splitmix64 finaliser. mix(0x9E3779B97F4A7C15) == 0xE220A8397B1DCDAF. */
-uint64_t exs_fig_dungeon_mix(uint64_t z);
+/* furor_petabytorum.exsc -- the seed module of PetaByte Madness.
+ *
+ * semina_furore: the seed of chunk `index` in world `orbis`, mix(orbis + index *
+ * GAMMA). A bijection of index for one orbis, so no two chunks of a world share
+ * a seed. desemina_furore is its inverse -- NOTE THE ORDER, seed first, which is
+ * what spec 3.5's `de-` prescribes -- so desemina(semina(o, i), o) == i.
+ * misce/demisce are the splitmix64 finaliser and its inverse;
+ * misce(0x9E3779B97F4A7C15) == 0xE220A8397B1DCDAF. */
+uint64_t exs_semina_furore(uint64_t orbis, uint64_t index);
+uint64_t exs_desemina_furore(uint64_t semen, uint64_t orbis);
+uint64_t exs_misce_furore(uint64_t z);
+uint64_t exs_demisce_furore(uint64_t z);
 
 /* Fills work[0, 4096). stats[0..2] = stream draws, boundary tiles roughened,
  * floor tiles pruned. Returns the walkable tiles. Reads nothing it did not

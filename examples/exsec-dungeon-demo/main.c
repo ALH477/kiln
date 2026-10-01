@@ -20,7 +20,7 @@
 // THE PETABYTE. A chunk is 4,096 bytes and 10^15 / 4,096 is exactly
 // 244,140,625,000, so the first petabyte is chunk indices 0..244,140,624,999
 // and Z jumps to the last one. Nothing is stored: a chunk is a function of
-// (world, index), and fig_dungeon_seed is a bijection of the index, so no two of
+// (world, index), and semina_furore (Furor Petabytorum, the seed module) is a bijection of the index, so no two of
 // them share a seed. The generator costs 2.5 million instructions a chunk
 // (examples/dungeon/README.md in the Exsecutor repo), which is why this is a
 // loading-screen technique and not a per-frame one.
@@ -125,7 +125,7 @@ static int self_check(void)
         const DungeonGolden *g = &DUNGEON_GOLDEN[i];
         GenJob j;
         memset(&j, 0, sizeof j);
-        j.seed = exs_fig_dungeon_seed(g->world, g->index);
+        j.seed = exs_semina_furore(g->world, g->index);
         run_job(&j);
         const int agree = j.seed == g->seed && j.walkable == g->walkable &&
                           j.stats[0] == g->draws && j.stats[1] == g->boundary &&
@@ -169,7 +169,7 @@ int main(void)
     fig_input_init();
 
     // ---- the mixer against splitmix64's published vector, then the oracle ----
-    const int mix_ok = exs_fig_dungeon_mix(UINT64_C(0x9E3779B97F4A7C15)) ==
+    const int mix_ok = exs_misce_furore(UINT64_C(0x9E3779B97F4A7C15)) ==
                        UINT64_C(0xE220A8397B1DCDAF);
     const int golden_ok = self_check();
     debugf("dungeon: mixer %s, golden %d/%d\n", mix_ok ? "AGREE" : "DISAGREE",
@@ -197,7 +197,7 @@ int main(void)
         if (fig_input_pressed(0, FIG_BTN_Z))  { index = PB_CHUNKS - 1; dirty = 1; }
         if (fig_input_pressed(0, FIG_BTN_A)) {
             // the one place a clock is read: a new world, handed in as data
-            world = exs_fig_dungeon_mix(((uint64_t)TICKS_READ() << 32) ^
+            world = exs_misce_furore(((uint64_t)TICKS_READ() << 32) ^
                                         (uint64_t)TICKS_READ() ^ get_ticks_ms());
             index = 0; clock_world = 1; dirty = 1;
         }
@@ -207,7 +207,7 @@ int main(void)
 
         if (dirty) {
             memset(&job, 0, sizeof job);
-            job.seed = exs_fig_dungeon_seed(world, index);
+            job.seed = exs_semina_furore(world, index);
             stack_peak = run_job(&job);
             nruns = dungeon_view_runs(g_work, g_runs);
             dungeon_view_census(g_work, census);

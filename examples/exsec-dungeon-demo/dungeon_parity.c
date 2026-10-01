@@ -6,7 +6,7 @@
  * Four things, in order, and the order is the order they would be debugged in:
  *
  *   1. THE STREAM. exsec's tests/programs/dungeon/probatio.exsc runs a fixed
- *      scenario through the library and writes 17,664 bytes; its expected.out
+ *      scenario through the library and writes 17,840 bytes; its expected.out
  *      is written by prototypes/dungeon_oracle.py, an independent Python
  *      implementation, and is committed here as dungeon_expected.bin. This
  *      file is that scenario in C -- section for section, in the same order --
@@ -104,12 +104,12 @@ static void build_stream(void)
     put_u64(UINT64_C(4294967296) < chunks ? 1 : 0);
     /* B. the seed function */
     for (int a = 0; a < 2; a++)
-        for (int b = 0; b < 9; b++) put_u64(exs_fig_dungeon_seed(WORLDS[a], INDICES[b]));
+        for (int b = 0; b < 9; b++) put_u64(exs_semina_furore(WORLDS[a], INDICES[b]));
     /* C. chunks: every (world, index), then the direct seeds; raw bytes for the first four */
     int raw = 0;
     for (int a = 0; a < 2; a++)
         for (int b = 0; b < 9; b++) {
-            put_chunk(exs_fig_dungeon_seed(WORLDS[a], INDICES[b]), raw < 4);
+            put_chunk(exs_semina_furore(WORLDS[a], INDICES[b]), raw < 4);
             raw++;
         }
     for (unsigned i = 0; i < sizeof SEEDS_EXTRA / sizeof SEEDS_EXTRA[0]; i++)
@@ -119,7 +119,7 @@ static void build_stream(void)
     for (uint64_t i = 0; i < 256; i++) {
         uint64_t st[3];
         exs_fig_dungeon_chunk(g_work, (unsigned char *)st,
-                              exs_fig_dungeon_seed(UINT64_C(0xDEADBEEFCAFEF00D), i));
+                              exs_semina_furore(UINT64_C(0xDEADBEEFCAFEF00D), i));
         acc = ((acc << 7) | (acc >> 57)) ^ (exs_fig_dungeon_crc32(g_work) & 0xFFFFFFFFu);
     }
     put_u64(256);
@@ -135,6 +135,15 @@ static void build_stream(void)
     put_u64(pruned);
     put_u64(exs_fig_dungeon_crc32(g_work) & 0xFFFFFFFFu);
     put_u64(exs_fig_dungeon_prune(g_work, 0));
+    /* F. the seed's inverse: the index back from each of the eighteen seeds, then
+     * the indices per world whose seed is 0 and whose seed is GAMMA */
+    for (int a = 0; a < 2; a++)
+        for (int b = 0; b < 9; b++)
+            put_u64(exs_desemina_furore(exs_semina_furore(WORLDS[a], INDICES[b]), WORLDS[a]));
+    for (int a = 0; a < 2; a++) {
+        put_u64(exs_desemina_furore(0, WORLDS[a]));
+        put_u64(exs_desemina_furore(UINT64_C(0x9E3779B97F4A7C15), WORLDS[a]));
+    }
 }
 
 /* ---- 2. the golden header against the stream ---------------------------- */
@@ -150,7 +159,7 @@ static void check_golden(const unsigned char *s, size_t n)
 {
     for (int i = 0; i < DUNGEON_GOLDEN_COUNT; i++) {
         const DungeonGolden *g = &DUNGEON_GOLDEN[i];
-        const uint64_t seed = exs_fig_dungeon_seed(g->world, g->index);
+        const uint64_t seed = exs_semina_furore(g->world, g->index);
         CHECK(seed == g->seed, "golden %d: seed %016llx != %016llx", i,
               (unsigned long long)seed, (unsigned long long)g->seed);
         /* find the record whose first word is this seed. Section C starts at
@@ -262,8 +271,8 @@ int main(int argc, char **argv)
     fclose(f);
 
     printf("mixer: mix(GAMMA) = %016llx\n",
-           (unsigned long long)exs_fig_dungeon_mix(UINT64_C(0x9E3779B97F4A7C15)));
-    CHECK(exs_fig_dungeon_mix(UINT64_C(0x9E3779B97F4A7C15)) == UINT64_C(0xE220A8397B1DCDAF),
+           (unsigned long long)exs_misce_furore(UINT64_C(0x9E3779B97F4A7C15)));
+    CHECK(exs_misce_furore(UINT64_C(0x9E3779B97F4A7C15)) == UINT64_C(0xE220A8397B1DCDAF),
           "the mixer does not reproduce splitmix64's published first output");
 
     build_stream();
@@ -275,6 +284,24 @@ int main(int argc, char **argv)
         CHECK(0, "the stream differs from the oracle's at byte %zu (of %zu)", i, wn);
     } else if (g_len == wn) {
         printf("stream: byte-identical to the oracle's expected.out\n");
+    }
+
+    /* the seed module's bijection, on inputs the scenario does not name: a
+     * walk of indices, including the extremes, in three worlds */
+    {
+        static const uint64_t ws[3] = { 0, UINT64_C(0xDEADBEEFCAFEF00D), UINT64_C(0xFFFFFFFFFFFFFFFF) };
+        int rt = 0;
+        for (int a = 0; a < 3; a++)
+            for (uint64_t i = 0; i < 4000; i++) {
+                const uint64_t ix = i * UINT64_C(0x9E3779B97F4A7C15) + i;   /* spread over 2^64 */
+                CHECK(exs_desemina_furore(exs_semina_furore(ws[a], ix), ws[a]) == ix,
+                      "round trip fails: world %016llx index %016llx",
+                      (unsigned long long)ws[a], (unsigned long long)ix);
+                rt++;
+            }
+        CHECK(exs_demisce_furore(exs_misce_furore(UINT64_C(0xFFFFFFFFFFFFFFFF))) ==
+              UINT64_C(0xFFFFFFFFFFFFFFFF), "demisce(misce(2^64-1))");
+        printf("seed: %d (world, index) round trips through desemina_furore, indices spread over 2^64\n", rt);
     }
 
     check_golden(want, wn);
@@ -293,7 +320,7 @@ int main(int argc, char **argv)
 
     int checked = 0;
     for (uint64_t i = 0; i < 300; i++, checked++)
-        check_invariants(exs_fig_dungeon_seed(UINT64_C(0xDEADBEEFCAFEF00D), i));
+        check_invariants(exs_semina_furore(UINT64_C(0xDEADBEEFCAFEF00D), i));
     for (unsigned i = 0; i < sizeof SEEDS_EXTRA / sizeof SEEDS_EXTRA[0]; i++, checked++)
         check_invariants(SEEDS_EXTRA[i]);
     printf("invariants: %d chunks: codes 0..3, solid border, one connected component\n", checked);
