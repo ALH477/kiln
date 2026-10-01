@@ -266,6 +266,44 @@ def emitted_is_whole(text, label):
           % (label, "" if not bad else " -- " + ", ".join(bad[:3])))
 
 
+def test_refuses_to_emit_broken():
+    """The guard that ACTUALLY caught the inside-out defects, asserted.
+
+    Seeding an inverted winding into this converter and watching the suite go
+    red proved something slightly different from what test F below claims:
+    `to_map` self-validates and raises, so it aborts before F's own CSG loop
+    ever runs. F was taking credit for a catch the emitter had already made,
+    and as written it could not fail for an emit-path defect at all.
+
+    So prove the guard itself. Flip the canonical winding under the emitter --
+    the exact inversion tools/gen_lab_map.py shipped -- and require a refusal.
+    If this ever stops raising, a level that draws nothing can reach a ROM
+    again."""
+    print("F0 the emitter REFUSES to write a level that does not validate")
+    good = scene(box_node("Floor", (0, -0.5, 0), (10, 1, 20), tex="DECK")
+                 + marker("Start", (0, 0.5, -8), 0))
+
+    real = mapfmt.aabb_faces
+    try:
+        # p2 and p3 swapped on every face: loads on console, collides
+        # correctly, draws nothing.
+        mapfmt.aabb_faces = lambda mn, mx: [(f[0], f[2], f[1]) for f in real(mn, mx)]
+        try:
+            tscn_map.to_map(good, 64.0)
+            check(False, "an inside-out winding is refused, not written")
+        except SystemExit as e:
+            check("does not validate" in str(e),
+                  "an inside-out winding is refused, and says so: %s"
+                  % str(e).split(";")[0])
+    finally:
+        mapfmt.aabb_faces = real
+
+    # And the guard is not simply always-on: the same scene, unflipped, passes.
+    _text, _state, _warn, report = tscn_map.to_map(good, 64.0)
+    check(not report["problems"],
+          "and the same scene with the real winding emits cleanly")
+
+
 def test_never_inside_out():
     print("F  emitted brushes survive the CSG (the pm_lab.map failure)")
     c, s_ = math.cos(math.radians(37)), math.sin(math.radians(37))
@@ -316,6 +354,7 @@ def main(argv=None):
     test_shapes()
     test_entities()
     test_limits()
+    test_refuses_to_emit_broken()
     test_never_inside_out()
     test_roundtrip(a.assets)
 
