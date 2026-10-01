@@ -1,0 +1,73 @@
+; SPDX-License-Identifier: MIT
+; redot_level.tscn -- the reference scene for nix/checks/tscn-map.nix.
+;
+; Hand-written rather than saved out of Redot, so the gate needs no editor in
+; its closure and every number here is one someone chose. It exercises each
+; shape the converter can emit: an axis-aligned box, a box under a rotated
+; parent, a quarter-turn (which must stay a BOX), an off-axis turn (which must
+; become CONVEX), a wedge from a ConvexPolygonShape3D, and spawns at the four
+; axis yaws plus one off-axis.
+;
+; Authored in metres at 1 unit = 1 m; the converter multiplies by 64.
+
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="ConvexPolygonShape3D" id="Ramp_1"]
+points = PackedVector3Array(0, 0, 0, 2, 0, 0, 0, 0, 1, 2, 0, 1, 0, 1, 1, 2, 1, 1)
+
+[node name="Level" type="Node3D"]
+metadata/kiln_worldspawn_sky = "night"
+
+[node name="Floor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+size = Vector3(10, 1, 20)
+metadata/kiln_texture = "DECK"
+
+[node name="Ceiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 0)
+size = Vector3(10, 1, 20)
+metadata/kiln_texture = "DECK"
+
+[node name="WallQuarterTurn" type="CSGBox3D" parent="."]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -5.5, 1.5, 0)
+size = Vector3(20, 3, 1)
+metadata/kiln_texture = "DECK"
+
+[node name="Group" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, -6)
+
+[node name="Crate" type="CSGBox3D" parent="Group"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+size = Vector3(1, 1, 1)
+metadata/kiln_texture = "STONE"
+
+[node name="Buttress" type="CSGBox3D" parent="."]
+transform = Transform3D(0.866025, 0, -0.5, 0, 1, 0, 0.5, 0, 0.866025, -3, 1, 5)
+size = Vector3(1, 2, 1)
+metadata/kiln_texture = "STONE"
+
+[node name="Ramp" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 2)
+shape = SubResource("Ramp_1")
+metadata/kiln_texture = "STONE"
+
+[node name="Start" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -8)
+metadata/kiln_classname = "info_player_start"
+
+[node name="EnemyEast" type="Marker3D" parent="."]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 3, 0.5, 0)
+metadata/kiln_classname = "info_enemy"
+metadata/kiln_epair_count = "2"
+
+[node name="EnemySouth" type="Marker3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, -3, 0.5, 4)
+metadata/kiln_classname = "info_enemy"
+
+[node name="EnemyWest" type="Marker3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0, 0.5, 6)
+metadata/kiln_classname = "info_heavy"
+
+[node name="AlienOffAxis" type="Marker3D" parent="."]
+transform = Transform3D(0.866025, 0, -0.5, 0, 1, 0, 0.5, 0, 0.866025, 2, 0.5, -3)
+metadata/kiln_classname = "info_alien"

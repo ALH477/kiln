@@ -26,6 +26,7 @@ pkgs.runCommand "check-mapmaker-roundtrip"
 {
   nativeBuildInputs = [ pkgs.nodejs pkgs.python3 ];
   mapFile = ../../assets/quake_test.map;
+  convexFile = ../../tools/mapmaker/fixtures/redot_level.map;
   toolsDir = ../../tools;
   meta.description = "three.js map maker's .map emit round-trips through the engine parser";
 }
@@ -63,6 +64,36 @@ pkgs.runCommand "check-mapmaker-roundtrip"
     grep -q '^OK$' "$out/validate.log" || {
       echo "FAIL: validate.py did not report OK" >&2; exit 1;
     }
+
+    # ── the convex form, and the twins on it ────────────────────────────
+    # quake_test.map is one axis-aligned cube, so everything above exercises
+    # only the box path. The convex path has its own hull solver in BOTH
+    # implementations, and "held byte-identical" means nothing if no fixture
+    # reaches them. fixtures/redot_level.map carries a rotated brush and a
+    # wedge; this is where mapio.js's hull and mapfmt.py's are compared.
+    node "$toolsDir/mapmaker/src/roundtrip.js" "$convexFile" "$out/js.map" \
+      > "$out/js.log"
+    python3 - "$convexFile" "$out/py.map" <<'PY'
+import sys
+sys.path[:0] = [t + s for t in [__import__("os").environ["toolsDir"]]
+                for s in ("/mapmaker", "/blender", "/schema")]
+import mapfmt, quake_map
+src, dst = sys.argv[1], sys.argv[2]
+open(dst, "w").write(
+    mapfmt.emit_state(mapfmt.to_state(quake_map.parse_map(open(src).read()))))
+PY
+    if ! diff -u "$out/py.map" "$out/js.map" > "$out/twins.diff"; then
+      echo "FAIL: mapfmt.py and mapio.js disagree on a convex brush" >&2
+      head -40 "$out/twins.diff" >&2
+      exit 1
+    fi
+    echo "  the two hull solvers agree byte for byte ✓"
+
+    node "$toolsDir/mapmaker/src/roundtrip.js" "$out/js.map" "$out/js2.map" \
+      >> "$out/js.log"
+    diff -q "$out/js.map" "$out/js2.map" || {
+      echo "FAIL: mapio.js's convex emit is not idempotent" >&2; exit 1; }
+    echo "  and the convex emit is idempotent ✓"
 
     echo "mapmaker round-trip check PASSED"
     touch "$out/ok"

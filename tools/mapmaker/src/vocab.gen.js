@@ -9,6 +9,8 @@ export const LIMITS = {
   spawns: 64,
   classnames: 32,
   coord: 32767,
+  brush_planes: 32,
+  face_verts: 16,
 };
 
 // size = arrow length or box half-extent, in world units.

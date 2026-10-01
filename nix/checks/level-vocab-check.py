@@ -85,7 +85,7 @@ print("B3 every registered classname is in the vocabulary")
 known = set(level_vocab.classnames())
 registered = set()
 for c in Path(a.examples).rglob("*.c"):
-    registered |= set(re.findall(r'fig_map_register_classname\("([a-z_0-9]+)"',
+    registered |= set(re.findall(r'(?:fig|kiln)_map_register_classname\("([a-z_0-9]+)"',
                                  c.read_text()))
 for cn in sorted(registered):
     check(cn in known,
@@ -96,7 +96,7 @@ check(len(known) <= level_vocab.limits()["classnames"],
 
 # ── B4: the engine did not re-hardcode its limits ──────────────────────
 print("B4 the engine's limits come from the generated header")
-src = Path(a.fig_map).read_text()
+src = Path(a.kiln_map).read_text()
 # BRUSH_PLANES and FACE_VERTS joined the vocabulary after real CSG landed with
 # both as C literals -- the drift this check exists to catch, one limit over.
 for m in re.finditer(r'#define\s+(MAX_(?:BRUSHES|FACES|SPAWNS|CLASSNAMES|ENTITIES|BRUSH_PLANES|FACE_VERTS))\s+(.+)',

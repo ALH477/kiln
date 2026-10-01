@@ -18,10 +18,14 @@ resource with Blender's own glTF/OBJ importer, and applies the node's
 transform, converted from Godot's axis convention to Blender's (see
 "Axes" below).
 
-It does NOT import Godot's own primitive mesh resources (a `BoxMesh` or
-`SphereMesh` defined inline in the .tscn as a `[sub_resource]` rather than
-referencing an external file) — only `[ext_resource]` files Blender's own
-importers already understand. It does NOT import materials, physics
+`import_scene` does NOT import Godot's own primitive mesh resources (a
+`BoxMesh` or `SphereMesh` defined inline in the .tscn as a `[sub_resource]`
+rather than referencing an external file) — only `[ext_resource]` files
+Blender's own importers already understand. `parse_tscn` DOES now read those
+inline sub-resources and every node property, because
+tools/mapmaker/tscn_map.py turns a scene of `CSGBox3D`/`BoxMesh` primitives
+into `.map` brushes and those primitives are the entire authored geometry
+there — see that file. Nothing in the Blender path reads them. It does NOT import materials, physics
 shapes, lights, or scripts; non-mesh nodes are reported in the summary
 (same convention as quake_map.py's point entities) so a game can turn them
 into FigActor spawns or fig_room lights by hand, reading their type and
@@ -78,9 +82,11 @@ def parse_tscn(text):
     visibility) is intentionally skipped as text.
     """
     ext_resources = {}
+    sub_resources = {}
     nodes = []
     section = None
     current = None
+    current_sub = None
 
     for line in text.splitlines():
         line = line.strip()
@@ -92,12 +98,17 @@ def parse_tscn(text):
             if current is not None:
                 nodes.append(current)
                 current = None
+            current_sub = None
             section, attr_text = header.group(1), header.group(2)
             attrs = _parse_attrs(attr_text)
             if section == "ext_resource":
                 ext_resources[attrs.get("id")] = {
                     "type": attrs.get("type"), "path": attrs.get("path"),
                 }
+            elif section == "sub_resource":
+                current_sub = {"type": attrs.get("type"),
+                               "id": attrs.get("id"), "props": {}}
+                sub_resources[attrs.get("id")] = current_sub
             elif section == "node":
                 current = {
                     "name": attrs.get("name", "?"),
@@ -106,23 +117,39 @@ def parse_tscn(text):
                     "transform": None,
                     "mesh_id": None,
                     "instance_id": _ext_id(attrs.get("instance")),
+                    "props": {},
                 }
             continue
 
+        # `key = value` body lines. Captured verbatim into `props` for every
+        # section that has one, because the caller that needs them (tscn_map)
+        # wants arbitrary keys -- `size`, `points`, `metadata/kiln_classname`
+        # -- and a parser that enumerated the interesting ones would have to be
+        # edited every time the authoring vocabulary grew by one.
+        if "=" not in line:
+            continue
+        key, raw = (x.strip() for x in line.split("=", 1))
+
+        if section == "sub_resource" and current_sub is not None:
+            current_sub["props"][key] = raw
+            continue
+
         if section == "node" and current is not None:
-            if line.startswith("transform"):
+            current["props"][key] = raw
+            if key == "transform":
                 m = _TRANSFORM_RE.search(line)
                 if m:
                     nums = [float(x) for x in m.group(1).split(",")]
                     if len(nums) == 12:
                         current["transform"] = nums
-            elif line.startswith("mesh"):
-                current["mesh_id"] = _ext_id(line.split("=", 1)[1].strip())
+            elif key == "mesh":
+                current["mesh_id"] = _ext_id(raw)
 
     if current is not None:
         nodes.append(current)
 
-    return {"ext_resources": ext_resources, "nodes": nodes}
+    return {"ext_resources": ext_resources, "sub_resources": sub_resources,
+            "nodes": nodes}
 
 
 def _ext_id(value):

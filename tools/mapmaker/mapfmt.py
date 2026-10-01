@@ -102,6 +102,196 @@ def csg_face_count(brush):
     return sum(len(polys) for polys in quake_map.brush_to_faces(brush).values())
 
 
+# ── convex brushes ──────────────────────────────────────────────────────────
+# The box form is the whole vocabulary mapio.js shipped with, and it is still
+# the right default. kiln_clip collides EVERY brush as its AABB (kiln_clip.h's
+# header: "non-cube brushes lose internal corners"), so a brush that is not
+# axis-aligned renders its true shape and blocks a bounding box. The convex
+# form is for what that trade suits -- angled walls, pillars, buttresses,
+# ceiling forms -- and analyse() warns on every one, so the author is told once
+# per brush rather than discovering it by walking into thin air.
+#
+# The authored form is a POINT SET, never planes. That is the same reasoning
+# tools/mapmaker/README.md gives for map-emit existing at all: an inside-out
+# brush loads on console, collides correctly and draws NOTHING, and six of this
+# repo's seven committed .map files were wound inward before anything noticed.
+# An author who never states a winding cannot get one wrong -- so the outward
+# normal is derived here, away from the hull's own centroid, which needs no
+# convention to agree on.
+
+# Looser than EPS (a hull's corners arrive through a Godot Transform3D, so they
+# carry float noise) and far tighter than kiln_map.c's own CSG_EPS_ONPLANE of
+# 1/32, so a hull this accepts is one the console also resolves.
+HULL_EPS = 1e-3
+
+
+def _pt_key(p):
+    return tuple(round(c, 4) for c in p)
+
+
+def _dedupe_points(points):
+    pts = []
+    for p in points:
+        p = tuple(float(c) for c in p)
+        if len(p) != 3:
+            raise SystemExit("mapfmt: a convex brush point is not 3 numbers")
+        if not any(_pt_key(p) == _pt_key(q) for q in pts):
+            pts.append(p)
+    return pts
+
+
+def _spanning_triple(on_plane, nrm):
+    """Three non-collinear points of a face, wound CCW as seen from outside.
+
+    The WIDEST such triple, not the first one found. These three points are
+    rounded to integers on the way out and are all the file keeps of the
+    plane, so the plane is re-derived from them on the way back in: a triple
+    spanning two adjacent corners of a long face tilts far more under a
+    half-unit rounding nudge than one spanning the face's full diagonal.
+    Maximising the cross product is maximising that lever arm."""
+    if len(on_plane) < 3:
+        return None
+    best = None
+    best_area = 0.0
+    for ai in range(len(on_plane)):
+        for bi in range(ai + 1, len(on_plane)):
+            for ci in range(bi + 1, len(on_plane)):
+                a, b, c = on_plane[ai], on_plane[bi], on_plane[ci]
+                m = quake_map._cross(quake_map._sub(b, a), quake_map._sub(c, a))
+                area = quake_map._len(m)
+                if area <= best_area:
+                    continue                  # collinear, or no wider
+                if quake_map._dot(m, nrm) < 0:
+                    b, c = c, b
+                best, best_area = (a, b, c), area
+    return best
+
+
+def _hull_once(points, tex):
+    """One pass of the hull: a convex point set -> quake_map plane dicts.
+
+    Every triple of points spans a candidate plane, and that plane bounds the
+    hull when every other point lies on one side of it. This is the same
+    candidate-then-test shape quake_map.brush_to_faces and kiln_map.c's CSG
+    already run in the other direction (planes -> vertices), run backwards --
+    so there is one algorithm style in this tree rather than a hull library's
+    second one. O(n^3) is free at a brush's handful of corners.
+    """
+    pts = _dedupe_points(points)
+    if len(pts) < 4:
+        raise SystemExit("mapfmt: a convex brush needs 4+ distinct points, "
+                         "got %d" % len(pts))
+
+    cen = tuple(sum(c) / len(pts) for c in zip(*pts))
+    found = {}
+    n = len(pts)
+    for i in range(n):
+        for j in range(i + 1, n):
+            for k in range(j + 1, n):
+                nrm = quake_map._norm(quake_map._cross(
+                    quake_map._sub(pts[j], pts[i]),
+                    quake_map._sub(pts[k], pts[i])))
+                if nrm is None:
+                    continue                  # collinear triple
+                d = quake_map._dot(nrm, pts[i])
+                # A hull face never contains the centroid, so "away from the
+                # centroid" fixes the sign with no winding convention.
+                if quake_map._dot(nrm, cen) > d:
+                    nrm = tuple(-c for c in nrm)
+                    d = -d
+                if any(quake_map._dot(nrm, p) > d + HULL_EPS for p in pts):
+                    continue                  # cuts the solid: not a face
+                key = tuple(round(c, 3) for c in nrm) + (round(d, 3),)
+                found.setdefault(key, (nrm, d))
+
+    if len(found) < 4:
+        raise SystemExit(
+            "mapfmt: a convex brush's %d points bound %d planes; 4+ are needed "
+            "for a closed volume (coplanar points enclose nothing)"
+            % (len(pts), len(found)))
+    if len(found) > LIMITS["brush_planes"]:
+        raise SystemExit(
+            "mapfmt: a convex brush needs %d planes; kiln_map.c holds %d and "
+            "DROPS the rest, which leaves the solid open to walk out of"
+            % (len(found), LIMITS["brush_planes"]))
+
+    # Sorted, so the emitted plane ORDER is a pure function of the geometry.
+    # Without this a dict's insertion order (which triple of points happened to
+    # span each face first) reached the file, and emit|parse|emit was not
+    # byte-stable -- the one property mapmaker-roundtrip.nix exists to hold.
+    planes = []
+    for nrm, d in sorted(found.values(), key=lambda nd: (nd[0], nd[1])):
+        on = [p for p in pts if abs(quake_map._dot(nrm, p) - d) < HULL_EPS]
+        tri = _spanning_triple(on, nrm)
+        if tri is None:
+            continue
+        a, b, c = (tuple(round(v) for v in q) for q in tri)
+        # plane_normal_dist reads cross(p3-p1, p2-p1), so a triple wound CCW
+        # from outside is emitted with p2 and p3 swapped.
+        planes.append({"p1": a, "p2": c, "p3": b, "texture": tex,
+                       "xoff": 0.0, "yoff": 0.0, "rot": 0.0,
+                       "xscale": 1.0, "yscale": 1.0})
+
+    # map-emit's contract is that it cannot write a .map map-validate would
+    # reject. A hull is exactly where that could stop being true, so run the
+    # CSG the console and Blender both run and insist it comes back whole.
+    polys = [p for ps in quake_map.brush_to_faces(planes).values() for p in ps]
+    if len(polys) != len(planes):
+        raise SystemExit(
+            "mapfmt: a convex brush's %d planes yielded %d CSG faces; the "
+            "point set is not convex" % (len(planes), len(polys)))
+    worst = max((len(p) for p in polys), default=0)
+    if worst > LIMITS["face_verts"]:
+        raise SystemExit(
+            "mapfmt: a convex brush has a %d-vertex face; kiln_map.c holds %d "
+            "and drops the corners past it" % (worst, LIMITS["face_verts"]))
+    return planes
+
+
+def hull_planes(points, tex):
+    """A convex point set -> the canonical, outward-wound, integer-coordinate
+    planes for it.
+
+    Why this iterates. A plane reaches the file as three integer points and is
+    re-derived from them on the way back in, so the authored hull and the hull
+    the file describes are not quite the same solid: a Redot Transform3D hands
+    us corners like 55.4256, and rounding those moves every plane a little.
+    One pass is therefore not a fixed point -- emit, re-read and re-emit used to
+    produce a second, different file, and only the third was stable. That is
+    exactly the byte-stability mapmaker-roundtrip.nix exists to hold, and it
+    would have shown up as git churn on every map-dump | map-emit.
+
+    So the canonical form of a convex brush is DEFINED as the hull of the
+    integer vertices it resolves to, and that is a fixed point reached by
+    applying the pass until it repeats. Two passes settle every shape tested;
+    the cap is here because an unbounded loop on a pathological hull is worse
+    than a clear refusal."""
+    planes = _hull_once(points, tex)
+    for _ in range(4):
+        pts = sorted(_dedupe_points(
+            v for polys in quake_map.brush_to_faces(planes).values()
+            for poly in polys for v in poly))
+        nxt = _hull_once(pts, tex)
+        if [(q["p1"], q["p2"], q["p3"]) for q in nxt] == \
+           [(q["p1"], q["p2"], q["p3"]) for q in planes]:
+            return planes
+        planes = nxt
+    raise SystemExit(
+        "mapfmt: a convex brush's hull did not settle to integer coordinates "
+        "in 4 passes; its corners are probably closer together than the one "
+        "unit the file can express")
+
+
+def brush_points(brush):
+    """The true CSG vertices of a brush, deduped -- the convex form's twin of
+    box_from_points. Empty when the brush yields no solid (inside-out, or not
+    closed), which is the caller's cue to fall back to a box."""
+    verts = [v for polys in quake_map.brush_to_faces(brush).values()
+             for poly in polys for v in poly]
+    # Sorted for the same reason hull_planes sorts: the hull is a SET, and the
+    # order the CSG happened to walk it must not reach the file.
+    return sorted(_dedupe_points(verts))
+
 # ── brush reduction ─────────────────────────────────────────────────────────
 
 def box_from_points(brush):
@@ -186,6 +376,17 @@ def diagnose_brush(brush):
                         f"faces {i} and {j} describe the same plane")
     box = box_from_planes(brush)
     if box is None:
+        # Only reason in terms of opposing AXIAL pairs when the brush was
+        # trying to be axis-aligned. A wedge or a rotated wall has no such
+        # pairs by design, and telling its author that "axis x lacks an
+        # opposing pair" sends them looking for a wall that was never missing.
+        axial = sum(1 for nrm, _ in planes
+                    if sum(1 for c in nrm if abs(c) < EPS) == 2)
+        if axial < len(planes):
+            return ("not-closed",
+                    f"not a closed convex volume; {len(planes) - axial} of "
+                    f"{len(planes)} planes are not axis-aligned, so these "
+                    f"half-spaces enclose nothing")
         axes = {}
         for n, d in planes:
             ax = max(range(3), key=lambda i: abs(n[i]))
@@ -230,19 +431,37 @@ def to_state(entities, reduce="points"):
                 if k != "classname":
                     worldspawn.setdefault(k, v)
             for bi, brush in enumerate(ent["brushes"]):
-                if reduce == "planes":
-                    mn, mx, _rule = canon_brush(brush)
-                else:
-                    mn, mx = box_from_points(brush)
                 texs = {p.get("texture", "TEX") for p in brush}
                 if len(texs) > 1:
                     print(f"mapfmt: brush #{bi} has {len(texs)} textures "
                           f"{sorted(texs)}; keeping the first face's",
                           file=sys.stderr)
+                tex = brush[0].get("texture", "TEX") if brush else "TEX"
+
+                # A brush the six-axial-planes reduction cannot describe is not
+                # a box, and flattening it to its AABB here MOVED GEOMETRY: a
+                # dump|emit round trip of a 45-degree wall used to come back a
+                # square block, silently. Carry the real CSG hull instead, and
+                # only fall back to the box when the brush yields no solid at
+                # all (inside-out, or not closed) -- which is the case
+                # `mapgen canon` exists to repair.
+                if box_from_planes(brush) is None:
+                    pts = brush_points(brush)
+                    if len(pts) >= 4:
+                        brushes.append({
+                            "convex": [[_num_val(c) for c in v] for v in pts],
+                            "texture": tex,
+                        })
+                        continue
+
+                if reduce == "planes":
+                    mn, mx, _rule = canon_brush(brush)
+                else:
+                    mn, mx = box_from_points(brush)
                 brushes.append({
                     "mins": [_num_val(v) for v in mn],
                     "maxs": [_num_val(v) for v in mx],
-                    "texture": brush[0].get("texture", "TEX") if brush else "TEX",
+                    "texture": tex,
                 })
         else:
             props = dict(ent["props"])
@@ -281,8 +500,14 @@ def emit_state(state):
     for b in state.get("brushes", []):
         tex = b.get("texture") or "TEX"
         lines.append("{")
-        for f in aabb_faces(b["mins"], b["maxs"]):
-            lines.append(face_line(f, tex))
+        if "convex" in b:
+            # The hull derives its own outward normals, so this branch cannot
+            # emit an inward-wound brush any more than the box branch can.
+            for pl in hull_planes(b["convex"], tex):
+                lines.append(face_line((pl["p1"], pl["p2"], pl["p3"]), tex))
+        else:
+            for f in aabb_faces(b["mins"], b["maxs"]):
+                lines.append(face_line(f, tex))
         lines.append("}")
     lines.append("}")
     for s in state.get("spawns", []):
@@ -375,6 +600,7 @@ def analyse(entities):
     bad_angle = []
     bad_coord = []
     over_limit = []
+    aabb_only = []
 
     for ent in entities:
         if ent["brushes"]:
@@ -399,10 +625,23 @@ def analyse(entities):
                 if len(brush) > LIMITS["brush_planes"] or most_verts > LIMITS["face_verts"]:
                     over_limit.append({"brush": n_brushes, "planes": len(brush),
                                        "max_face_verts": most_verts})
-                if n_surv < 6:
+                # Against the brush's OWN plane count, not against 6. A
+                # convex brush is not a box: a wedge has 5 planes and 5 faces
+                # and is perfectly healthy, and `< 6` called every ramp in the
+                # tree degenerate.
+                if n_surv < len(brush):
                     cause, detail = diagnose_brush(brush)
                     degenerate.append({"brush": n_brushes, "faces": n_surv,
                                        "cause": cause, "detail": detail})
+                # Healthy but worth saying once: this brush draws its true
+                # shape and COLLIDES AS ITS BOUNDING BOX, because FigBrush is
+                # mins/maxs only (kiln_clip.h). Not a problem -- a warning, so
+                # nothing walkable gets authored on a slope by accident.
+                elif box_from_planes(brush) is None:
+                    mn, mx = box_from_points(brush)
+                    aabb_only.append({"brush": n_brushes, "planes": len(brush),
+                                      "mins": [_num_val(v) for v in mn],
+                                      "maxs": [_num_val(v) for v in mx]})
         else:
             n_spawns += 1
             props = ent["props"]
@@ -454,6 +693,7 @@ def analyse(entities):
         "degenerate": degenerate,
         "bad_coord": bad_coord,
         "over_limit": over_limit,
+        "aabb_only": aabb_only,
         "bad_origin": bad_origin,
         "bad_angle": bad_angle,
         "fps_warnings": _fps_warnings(entities),

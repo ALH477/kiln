@@ -545,6 +545,23 @@ PY
     nix run .#mapgen -- dump "$@"
     ;;
 
+  map-from-tscn)
+    # A level authored in the Redot (or Godot) editor -> a .map the ROM loads.
+    # Self-validating, like map-emit: it refuses to write a level that does
+    # not fit the engine, and warns about every brush that is not
+    # axis-aligned, because those collide as their bounding box.
+    #   ./dev map-from-tscn level.tscn out.map
+    nix run .#tscn-map -- --to-map "$1" --out "${2:--}" "${@:3}"
+    ;;
+
+  map-to-tscn)
+    # The other direction: open an existing .map in the editor. Box brushes
+    # come back as CSGBox3D nodes you can drag; spawns as Marker3D with their
+    # classname in metadata.
+    #   ./dev map-to-tscn level.map out.tscn
+    nix run .#tscn-map -- --to-tscn "$1" --out "${2:--}" "${@:3}"
+    ;;
+
   mcp)
     # tools/blender-mcp/'s and tools/agents/browser_mcp.py's MCP servers.
     # Agents reach them through .mcp.json at the repo root, which runs

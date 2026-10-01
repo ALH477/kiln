@@ -1003,7 +1003,11 @@ intersection — every triple of a brush's planes is a candidate vertex,
 kept only if it's inside every other plane) and Godot `.tscn` (scene-graph
 parsing + placing each node's referenced `.glb`/`.gltf`/`.obj` mesh via
 Blender's own importers, transformed through the Godot-Y-up-to-Blender-
-Z-up axis conversion). Both scripts follow the same `--out <path>`
+Z-up axis conversion). `godot_scene.parse_tscn` also now reads inline
+`[sub_resource]` blocks and every node property, which the Blender path
+does not use — that is for `tools/mapmaker/tscn_map.py`, where a scene of
+`CSGBox3D` primitives IS the level and those inline primitives are the
+whole authored geometry (see "Levels authored in Redot" below). Both scripts follow the same `--out <path>`
 convention as `models.py`, so `nix/blender.nix`'s `mkQuakeMapModel` /
 `mkGodotSceneModel` reuse `mkBlenderModel`'s exact derivation shape via a
 generalised `scriptArgs` parameter — no second pipeline. Both importers'
@@ -1560,6 +1564,8 @@ no browser, no emulator and no compositor:
 ./dev map-dump  level.map             # .map in, JSON out
 ./dev map-validate level.map --json   # counts, CSG, epairs, machine-readable
 ./dev map-render level.map out.png    # the real engine, to a PNG
+./dev map-from-tscn level.tscn out.map   # a level authored in Redot
+./dev map-to-tscn   level.map out.tscn   # open an existing level in Redot
 ```
 
 `tools/mapmaker/mapfmt.py` is the Python twin of `src/mapio.js` and
@@ -1575,6 +1581,72 @@ into the same file. The scene, the frame and the capture moved to
 either `main()` starts drawing, that check goes red. A flag on a shared body
 would have left the framing shared only by accident — and `tools/uipreview`
 drawing its own rectangles is exactly how `kiln-widget` came to exist.
+
+## Levels authored in Redot (tools/mapmaker/tscn_map.py, tools/redot/)
+
+A `.tscn` is the editor's own save format, so Redot (or Godot) can be the level
+editor with **no engine change at all**. `kiln_map_load` applies no axis swap,
+no negation and no scale — `origin` is `sscanf`'d straight into the spawn
+position — so every `.map` this engine loads is already authored in Godot's
+convention: right-handed, +Y up. Positions are identity, times 64 units to the
+metre.
+
+Yaw is identity too, which is the part that looks wrong and is not.
+`kiln_fpscam`'s forward is `(sin yaw, 0, cos yaw)`, and a Godot node turned
+theta about Y has its +Z basis column at the same vector — so the engine's
+`angle` is the node's Y rotation in degrees, and a spawn faces along its own
++Z. ("Forward is -Z" is Godot's convention for where a CAMERA looks, not a
+property of the basis.) `tools/mapmaker/test_tscn_map.py` proves both against a
+fixture **and asserts the plausible wrong readings are rejected**, the way
+`tools/blender/demonrig.py`'s `verify_convention` does: a mirrored level loads,
+collides and plays, and is only wrong against an intent nothing else records.
+
+**`tools/redot/addons/kiln_map` contains no knowledge of the `.map` format** —
+no winding table, no plane maths, not one limit as a GDScript constant. It
+reads `tools/schema/level_vocab.json` at runtime and shells out to
+`tscn_map.py`. That is not fastidiousness: those facts once lived in six
+hand-maintained copies that had drifted, and a GDScript emitter would be the
+seventh, in the one language no check here runs. The dock's job is to show the
+engine's budget live and name the node that crosses a ceiling; `map-from-tscn`
+decides.
+
+A game's own classnames stay in the game. `KILN_LEVEL_VOCAB_OVERLAY` points at
+a JSON file with its own `classnames` list, merged by name; an overlay may NOT
+touch `limits`, `aabb_faces` or `forge_index`, because those are what
+`kiln_map.c` and the `.FRG` wire format do rather than preferences.
+
+**What this cost, measured.** PetaByte-Madness' only level had all 15 brushes
+wound inside-out and had shipped that way. `kiln_map.c` reduces a brush to the
+componentwise min/max of its plane points and is indifferent to winding, so
+collision was correct and the corridor walkable — but the face CSG is not, so
+`kiln_map_draw` had zero faces and that screen drew no world geometry at all.
+The cause was a FOURTH hand-transcribed copy of the winding table, in a
+generator that predated `mapfmt.py`. Nothing caught it for the life of the
+file. `./dev map-validate` now names it in one line.
+
+**Bit-for-bit across architectures.** `nix/checks/tscn-map.nix` rebuilds a
+committed reference `.map` from its `.tscn` and diffs it byte for byte, the
+same regenerate-and-diff shape `level-vocab.nix` uses. That is only meaningful
+because the converter stays inside arithmetic IEEE-754 pins down: `+ - * /` and
+`sqrt` are correctly rounded, so the hull solver is exact, while libm's
+transcendentals are NOT and differ between implementations — so `atan2` and
+`acos` are kept off the output path entirely. The four axis-aligned yaws, which
+is nearly everything anyone authors, are answered by comparison and never reach
+a transcendental.
+
+**Convex brushes.** The state JSON carries either `{mins, maxs}` or
+`{convex: [points]}` — a point SET, never a plane list, for the reason
+`tools/mapmaker/README.md` gives for `map-emit` existing at all: an author who
+never states a winding cannot state one backwards. `mapfmt.py` solves the hull
+and iterates it to a fixed point, because a plane reaches the file as three
+INTEGER points and is re-derived from them, so one pass is not byte-stable.
+`mapio.js` carries the twin and `mapmaker-roundtrip.nix` compares them on a
+convex fixture.
+
+The standing caveat: `FigBrush` is `mins`/`maxs` only, so a brush that is not
+axis-aligned **draws its true shape and collides as its bounding box**. Good
+for a buttress, wrong for a ramp. `analyse()` warns per brush; keep anything
+walkable square.
 
 ## The gates (nix/faust.nix, nix/checks/)
 

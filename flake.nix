@@ -1221,6 +1221,7 @@
         studioCheapChecks = [
           "blender-tests" "kiln-logic" "kiln-gui" "level-vocab"
           "mapmaker-roundtrip" "forge-roundtrip" "kiln-map" "kiln-maprender"
+          "tscn-map"
           "studio-manifest" "studio-api" "camlint-cli" "studio-modules" "poser-lag"
           "agent-env" "agent-tools" "agent-flow"
         ];
@@ -2185,6 +2186,14 @@
             examplesDir = ./examples;
             mapmakerSrc = ./tools/mapmaker/src;
           };
+          # A level authored in Redot reaches the console byte for byte, on
+          # every machine. See the check's header for the inside-out brush it
+          # exists to make impossible.
+          tscn-map = import ./nix/checks/tscn-map.nix {
+            inherit pkgs;
+            toolsDir = ./tools;
+            assetsDir = ./assets;
+          };
           kiln-maprender = import ./nix/checks/kiln-maprender.nix {
             inherit pkgs; target = hostNative;
             mapAsset = ./assets/quake_test.map;
@@ -2406,6 +2415,17 @@
             type = "app";
             program = toString (pkgs.writeShellScript "kiln-mapgen" ''
               exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/mapgen.py" "$@"
+            '');
+          };
+          # tscn-map -- the Redot half. A .tscn is the editor's own save
+          # format, so the editor writes it for free and every piece of .map
+          # knowledge stays here, behind the same gates, rather than becoming
+          # a seventh hand-kept copy of the winding table in GDScript. See
+          # tools/mapmaker/tscn_map.py for why that matters.
+          tscn-map = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "kiln-tscn-map" ''
+              exec ${pkgs.python3Minimal}/bin/python3 "''${KILN_REPO:-$PWD}/tools/mapmaker/tscn_map.py" "$@"
             '');
           };
           # map-render resolves its argument under $KILN_HOST_DFS, which is a

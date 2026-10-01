@@ -106,6 +106,18 @@ def main():
         # seven committed maps hit it.
         for cause in sorted({d["cause"] for d in r["degenerate"]}):
             print(f"\n{cause}: {REMEDY[cause]}")
+    if r.get("aabb_only"):
+        # Not a problem -- a consequence, stated once per brush. FigBrush is
+        # mins/maxs only (kiln_clip.h: "non-cube brushes lose internal
+        # corners"), so these draw their true shape and block a box. Fine for
+        # a buttress, wrong for anything the player walks on.
+        print(f"\nCOLLIDES AS AABB: {len(r['aabb_only'])} brush(es) are not "
+              f"axis-aligned; each DRAWS its true shape and BLOCKS its "
+              f"bounding box:")
+        for w in r["aabb_only"]:
+            print(f"  brush #{w['brush']}: {w['planes']} planes, "
+                  f"blocks {w['mins']}..{w['maxs']}")
+        print("  Keep anything walkable axis-aligned.")
     if r["bad_coord"]:
         print(f"OUT-OF-RANGE: {len(r['bad_coord'])} brush(es) exceed "
               f"±{LIMITS['coord']}")

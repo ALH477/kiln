@@ -33,6 +33,7 @@ The schema owns the vocabulary; it does not own anyone's numbering.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -41,6 +42,63 @@ JSON_PATH = HERE / "level_vocab.json"
 
 _cache = None
 _cache_mtime = None
+
+# ── per-game overlays ───────────────────────────────────────────────────────
+# This schema owns the vocabulary of KILN. It does not own any game's content,
+# and PetaByte-Madness' info_imp / info_hellhound / info_gargoyle /
+# info_overlord are content -- they belong to that repo the way its models and
+# its .map do. Without a way to say so, a game had exactly two options: add its
+# monsters to the ENGINE's schema, or have every one of its spawns reported as
+# unknown by the validator and missing from the editor's palette. Both are
+# wrong, and the second is how a typo'd classname reaches a ROM: the entity
+# parses, fig_map_register_classname never matched it, and the thing simply
+# does not spawn.
+#
+# So: KILN_LEVEL_VOCAB_OVERLAY is a path (or several, os.pathsep-separated) to
+# a JSON file with its own "classnames" list, merged by name.
+#
+# An overlay may ONLY add or replace classnames. It cannot touch `limits` or
+# `aabb_faces`, because those are not opinions -- they are what kiln_map.c
+# does, and a game that could raise MAX_BRUSHES in a JSON file would get a
+# level whose last brushes are silently dropped on console. It cannot claim a
+# `forge_index` either: that is the .FRG wire format, and two repos numbering
+# it independently would decode each other's SD cards as the wrong monsters.
+OVERLAY_ENV = "KILN_LEVEL_VOCAB_OVERLAY"
+_OVERLAY_FORBIDDEN = ("limits", "aabb_faces", "forge_epair_slots",
+                      "forge_generic_epairs")
+
+
+def overlay_paths():
+    raw = os.environ.get(OVERLAY_ENV, "")
+    return [Path(x) for x in raw.split(os.pathsep) if x]
+
+
+def _apply_overlay(base, path):
+    try:
+        add = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise SystemExit(f"level_vocab: {OVERLAY_ENV} names {path}, which does "
+                         f"not exist")
+    for key in _OVERLAY_FORBIDDEN:
+        if key in add:
+            raise SystemExit(
+                f"level_vocab: the overlay {path} sets {key!r}. An overlay may "
+                f"only add classnames -- {key!r} is what the engine does, not "
+                f"a preference, and a game that could change it here would get "
+                f"a level the console silently truncates.")
+    by_name = {c["name"]: i for i, c in enumerate(base["classnames"])}
+    for c in add.get("classnames", []):
+        if "forge_index" in c:
+            raise SystemExit(
+                f"level_vocab: the overlay {path} gives {c['name']} a "
+                f"forge_index. That is the .FRG wire format and Kiln's schema "
+                f"owns its numbering; two repos assigning it independently "
+                f"would decode each other's saved levels as the wrong entity.")
+        if c["name"] in by_name:
+            base["classnames"][by_name[c["name"]]] = c
+        else:
+            base["classnames"].append(c)
+    return base
 
 
 def load():
@@ -52,12 +110,20 @@ def load():
     and then calls a tool would get the vocabulary as it was when the server
     started -- silently, with no indication the answer was stale. Every other
     consumer is a short-lived CLI where the mtime check costs one stat().
+
+    The overlay files are stamped into the same key, so editing a GAME's
+    vocabulary invalidates the cache exactly as editing this one does.
     """
     global _cache, _cache_mtime
-    mtime = JSON_PATH.stat().st_mtime_ns
+    overlays = overlay_paths()
+    mtime = (JSON_PATH.stat().st_mtime_ns,
+             tuple((str(o), o.stat().st_mtime_ns if o.exists() else 0)
+                   for o in overlays))
     if _cache is None or mtime != _cache_mtime:
-        _cache = json.loads(JSON_PATH.read_text())
-        _cache_mtime = mtime
+        d = json.loads(JSON_PATH.read_text())
+        for o in overlays:
+            d = _apply_overlay(d, o)
+        _cache, _cache_mtime = d, mtime
     return _cache
 
 
@@ -166,6 +232,20 @@ def aabb_faces(mn, mx):
 
 # ── generators ──────────────────────────────────────────────────────────────
 
+# The literal text docs/NAMING.md requires in every public header.
+TRAIN = [
+    '/* The prefix migration train (docs/NAMING.md section 9 step 2). Pulled in by',
+    ' * every public header (a quoted include, so it resolves both in this tree and',
+    ' * in the installed include/kiln prefix) rather than force-included by',
+    ' * kiln-inst.mk, because a',
+    ' * force-include only reaches builds that include that file — a Nix check or a',
+    " * host build compiling a downstream's sources directly never saw it, and",
+    " * PetaByte-Madness' pm-cine check is what proved that. Deleting the train is",
+    ' * still a scripted one-line removal from these headers plus the file itself.',
+    ' */',
+    '#include "kiln_compat.h"',
+]
+
 BANNER = ("GENERATED by tools/schema/level_vocab.py from "
           "tools/schema/level_vocab.json.\nDo not edit. "
           "nix/checks/level-vocab.nix regenerates this and diffs it.")
@@ -177,7 +257,12 @@ def emit_js():
     out = [f"// SPDX-License-Identifier: MIT", f"//", ]
     out += [f"// {l}" for l in BANNER.split("\n")]
     out += ["", "export const LIMITS = {"]
-    for k in ("brushes", "faces", "spawns", "classnames", "coord"):
+    # brush_planes and face_verts joined this list when mapio.js grew the
+    # convex brush form and needed to refuse one that would not fit. Without
+    # them the JS compared a count against `undefined`, which is false for
+    # every count -- a limit check that silently never fires.
+    for k in ("brushes", "faces", "spawns", "classnames", "coord",
+              "brush_planes", "face_verts"):
         out.append(f"  {k}: {lim[k]},")
     out += ["};", "",
             "// size = arrow length or box half-extent, in world units.",
@@ -332,7 +417,17 @@ def emit_engine():
             " * FIG_LEVEL_MAX_FACES is brushes x 6, the way kiln_map.c always derived",
             " * MAX_FACES; storing 1536 would be the same arithmetic written twice.",
             " */",
-            "#ifndef FIG_LEVELVOCAB_H", "#define FIG_LEVELVOCAB_H", "",
+            "#ifndef FIG_LEVELVOCAB_H", "#define FIG_LEVELVOCAB_H", "", "",
+            ]
+    # The prefix migration train. This is NOT decoration: docs/NAMING.md's
+    # rule is that every public header pulls kiln_compat.h in itself, and a
+    # scripted migration pass added it to this file by hand -- to a GENERATED
+    # header, which the generator then did not know about. nix/checks/
+    # level-vocab.nix has been failing on exactly that disagreement, and
+    # regenerating instead of teaching it here would silently delete the shim
+    # from a public header, which is the one thing the train exists to stop.
+    out += TRAIN
+    out += ["",
             f"#define FIG_LEVEL_MAX_BRUSHES    {lim['brushes']}",
             f"#define FIG_LEVEL_MAX_FACES      (FIG_LEVEL_MAX_BRUSHES * 6)",
             f"#define FIG_LEVEL_MAX_SPAWNS     {lim['spawns']}",
