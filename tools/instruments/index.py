@@ -20,6 +20,7 @@ FAMILY_TITLES = [
     ("mallets", "Mallets, bells and tuned percussion"),
     ("synth", "Synthesisers"),
     ("bass", "Bass"),
+    ("retro", "Retro: 8- and 16-bit"),
     ("drums", "Drums"),
     ("sfx", "Sound effects"),
     ("ambient", "Ambient beds"),

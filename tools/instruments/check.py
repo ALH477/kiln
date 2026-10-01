@@ -55,6 +55,8 @@ def run_analyse(path, inst, freq):
            "--tail", inst.get("tail", "decay")]
     if inst.get("gate"):
         cmd += ["--gate-off", str(inst["gate"]["off"])]
+    if inst.get("aliasOk"):
+        cmd += ["--alias-ok"]
     if inst.get("pitchAlias"):
         cmd += ["--alias", ",".join(["1.0"] + [str(v) for v in inst["pitchAlias"]])]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -69,7 +71,7 @@ def run_analyse(path, inst, freq):
 # the supported route to an oscillator or a filter; this lint names the mistake
 # at the line, before a 40-minute toolchain build names it at the symbol.
 LIVE_NS = {"ma", "ba", "no", "de", "kl"}
-FAMILIES = {"strings", "keys", "mallets", "synth", "bass", "drums", "sfx", "ambient"}
+FAMILIES = {"strings", "keys", "mallets", "synth", "bass", "retro", "drums", "sfx", "ambient"}
 KINDS = {"harmonic", "inharmonic", "noise"}
 
 

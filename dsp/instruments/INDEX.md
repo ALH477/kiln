@@ -4,7 +4,7 @@
 
 # Instrument index
 
-47 instruments at 32000 Hz. **Live** voices are linked into a ROM and synthesised on the
+85 instruments at 32000 Hz. **Live** voices are linked into a ROM and synthesised on the
 VR4300 (they passed `nix/faust.nix`'s no-libm, no-double and cycle-budget gates); every
 instrument can be **baked** to a VADPCM `.wav64` by `mkBakedInstrument`. `ref` is the
 pitch the baked asset is rendered at; `out` is the mixer channels a baked asset costs.
@@ -63,6 +63,49 @@ pitch the baked asset is rendered at; `out` is the mixer channels a baked asset 
 | `sub_bass` | 55 Hz | 500 | 1 | A sine with a touch of its octave and a soft clip: the weight under a mix. |
 | `upright_bass` | 55 Hz | 500 | 1 | A plucked double-bass string and its big wooden body. |
 | `wobble` | 55 Hz | — | 1 | A saw bass with its filter moved by an LFO: the dubstep wub. |
+
+## Retro: 8- and 16-bit
+
+| instrument | ref | live | out | what it is |
+|---|---|---|---|---|
+| `arc_coin` | 988 Hz | 500 | 1 | The coin-up chirp: one square wave that jumps a fourth. |
+| `arc_death` | 500 Hz | 500 | 1 | The player-lost wail: a falling pitch with a fast wobble. |
+| `arc_explosion` | — | 500 | 1 | One-bit noise whose clock falls: the arcade boom. |
+| `arc_hit` | — | 500 | 1 | An impact: a burst of noise over a falling 4-bit triangle thump. |
+| `arc_jump` | 260 Hz | 500 | 1 | A platformer hop: a thin pulse rising about an octave. |
+| `arc_laser` | 300 Hz | 500 | 1 | The arcade zap: a naive square swept down in pitch. |
+| `arc_powerup` | 330 Hz | 500 | 1 | A rising six-note arpeggio on a square wave. |
+| `arc_siren` | 600 Hz | 500 | 1 | A two-tone alarm: a square flipping between two pitches. |
+| `chip_arp` | 262 Hz | 500 | 1 | A C64-style arpeggio: a chord faked by cycling its notes at 50 Hz. |
+| `chip_hat` | — | 500 | 1 | A console hi-hat: the fastest noise clock, a very short decay. |
+| `chip_kick` | — | 500 | 1 | A console kick: a 4-bit triangle falling in pitch. |
+| `chip_noise` | — | 500 | 1 | The NES noise channel: one-bit noise at a chosen clock. |
+| `chip_pulse` | 440 Hz | 500 | 1 | A NES-style pulse channel: naive square, stepped volume, late vibrato. |
+| `chip_snare` | — | 500 | 1 | A console snare: bit noise over a short triangle. |
+| `chip_tri` | 110 Hz | 500 | 1 | The NES triangle: a 4-bit staircase triangle, on or off. |
+| `chip_wave` | 262 Hz | 500 | 1 | A Game Boy wave channel: a 32-step, 4-bit wavetable. |
+| `dmx_door` | — | — | 1 | A door: a bandpass sweep, and the clunk when it stops. |
+| `dmx_growl` | — | — | 1 | A monster growl: a low buzz through a moving vowel, torn by a 28 Hz tremolo. |
+| `dmx_pickup` | 880 Hz | 500 | 1 | An item pickup: two quick rising blips. |
+| `dmx_pistol` | — | 500 | 1 | A pistol shot: a crack and a short body. |
+| `dmx_plasma` | — | 500 | 1 | The plasma rifle: a falling zzap with a noisy skin. |
+| `dmx_rocket` | — | 500 | 1 | A rocket explosion: a deep rumble over a sub thump. |
+| `dmx_shotgun` | — | — | 1 | A shotgun: a huge blast, then the pump. |
+| `dmx_switch` | — | — | 1 | A wall switch: two quick mechanical clacks. |
+| `gen_bass` | 55 Hz | 500 | 1 | The Mega Drive slap bass: FM with feedback, crunched. |
+| `gen_lead` | 440 Hz | 500 | 1 | The Mega Drive lead: bright FM with a growing vibrato. |
+| `opl_bass` | 55 Hz | 500 | 1 | A slap bass patch: a fast-falling index. |
+| `opl_bell` | 392 Hz | 500 | 1 | A bell: a high odd modulator ratio and a long ring. |
+| `opl_brass` | 233 Hz | 500 | 1 | A brass section patch: the index swells with the note. |
+| `opl_guitar` | 82 Hz | 500 | 1 | The overdriven metal guitar that opens E1M1. |
+| `opl_lead` | 440 Hz | 500 | 1 | A reedy lead: a half-sine carrier. |
+| `opl_organ` | 262 Hz | 500 | 1 | A rock organ: a constant-index two-operator tone. |
+| `opl_pad` | 220 Hz | 500 | 1 | A slow pad: an abs-sine carrier. |
+| `opl_strings` | 220 Hz | 500 | 1 | A string pad: two detuned voices, slow attack. |
+| `pokey_buzz` | 220 Hz | 500 | 1 | An Atari POKEY "distortion": a pulse gated by a fixed bit pattern. |
+| `sid_pwm` | 220 Hz | 500 | 1 | A C64 SID pulse voice with its width swept: the classic PWM lead. |
+| `snes_pluck` | 220 Hz | 500 | 1 | A SNES plucked sample: a string, coarsely quantised and dulled. |
+| `snes_strings` | 220 Hz | 500 | 1 | A SNES string patch: detuned saws, 4-bit-ish, softened. |
 
 ## Drums
 

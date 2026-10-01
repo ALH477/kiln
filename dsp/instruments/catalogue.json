@@ -566,6 +566,533 @@
       },
       "live": true,
       "budget": 500
+    },
+    "chip_pulse": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 440,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true
+    },
+    "chip_tri": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 110,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true
+    },
+    "chip_noise": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.8,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "freqParam": false,
+      "aliasOk": true
+    },
+    "chip_wave": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 262,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true,
+      "params": {
+        "wave": 1
+      }
+    },
+    "chip_arp": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 262,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true
+    },
+    "sid_pwm": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true
+    },
+    "pokey_buzz": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "tail": "sustain",
+      "aliasOk": true
+    },
+    "arc_laser": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 300,
+      "duration": 0.7,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
+    },
+    "arc_coin": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 988,
+      "duration": 0.8,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
+    },
+    "arc_jump": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 260,
+      "duration": 0.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
+    },
+    "arc_explosion": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 1.8,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "arc_hit": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 140,
+      "duration": 0.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "arc_powerup": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 330,
+      "duration": 1.0,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
+    },
+    "arc_death": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 500,
+      "duration": 1.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
+    },
+    "arc_siren": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 600,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.2
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true,
+      "tail": "sustain"
+    },
+    "chip_kick": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 55,
+      "duration": 0.8,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "freqParam": false,
+      "aliasOk": true
+    },
+    "chip_snare": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.7,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "freqParam": false,
+      "aliasOk": true
+    },
+    "chip_hat": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.8,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "freqParam": false,
+      "aliasOk": true
+    },
+    "opl_guitar": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 82,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "pitchAlias": [
+        0.5
+      ],
+      "budget": 500
+    },
+    "opl_bass": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 55,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "opl_organ": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 262,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "opl_brass": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 233,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "opl_strings": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.2,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "opl_lead": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 440,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "opl_bell": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 392,
+      "duration": 3.0,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "aliasOk": true,
+      "tail": "decay",
+      "budget": 500
+    },
+    "opl_pad": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.4,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "tail": "sustain",
+      "aliasOk": true,
+      "budget": 500
+    },
+    "dmx_pistol": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "aliasOk": true,
+      "freqParam": false,
+      "budget": 500
+    },
+    "dmx_shotgun": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 1.2,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": false,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "dmx_plasma": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.5,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "aliasOk": true,
+      "freqParam": false,
+      "budget": 500
+    },
+    "dmx_rocket": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 2.2,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "aliasOk": true,
+      "freqParam": false,
+      "budget": 500
+    },
+    "dmx_door": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 1.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": false,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "dmx_pickup": {
+      "family": "retro",
+      "kind": "inharmonic",
+      "freq": 880,
+      "duration": 0.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "aliasOk": true,
+      "budget": 500
+    },
+    "dmx_growl": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 75,
+      "duration": 1.2,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": false,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "dmx_switch": {
+      "family": "retro",
+      "kind": "noise",
+      "freq": 1,
+      "duration": 0.6,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": false,
+      "aliasOk": true,
+      "freqParam": false
+    },
+    "gen_bass": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 55,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "aliasOk": true,
+      "tail": "sustain",
+      "budget": 500
+    },
+    "gen_lead": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 440,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "aliasOk": true,
+      "tail": "sustain",
+      "budget": 500
+    },
+    "snes_strings": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.2,
+      "gate": {
+        "on": 0.0,
+        "off": 1.1
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true,
+      "tail": "sustain"
+    },
+    "snes_pluck": {
+      "family": "retro",
+      "kind": "harmonic",
+      "freq": 220,
+      "duration": 2.0,
+      "gate": {
+        "on": 0.0,
+        "off": 0.02
+      },
+      "live": true,
+      "budget": 500,
+      "aliasOk": true
     }
   }
 }

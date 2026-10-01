@@ -253,3 +253,49 @@ with { N = ba.count(rs); };
 // Higher notes of a struck instrument ring for less time. 1.0 at 220 Hz,
 // 0.5 at 660 Hz, 2.0 at 0 Hz: a smooth curve with no pow().
 tscale(f) = 2.0 / (1.0 + f * 0.0045454);
+
+// ── retro: the sound of cheap hardware ─────────────────────────────────
+// Everything above is written to be CLEAN. The 8- and 16-bit voices want the
+// opposite, and want it cheaply: a naive pulse (one compare, aliasing and all —
+// the aliasing IS the sound of a NES), a quantiser that throws away bits, and a
+// sample-and-hold that throws away rate. Each is a handful of instructions,
+// which is why a chip voice is the cheapest live instrument in the library.
+
+// Naive pulse, duty d in (0,1): no band-limiting, deliberately.
+npulse(f, d) = (phasor(f) < d) * 2.0 - 1.0;
+
+// Sample-and-hold at r Hz: a converter running at a lower rate than the system
+// (the DMX sound effects are 11 kHz; a SNES voice is 32 kHz through a filter).
+hold(r) = ba.sAndH(trg) with { p = phasor(r); trg = p < p'; };
+
+// Throw away bits: `levels` steps per unit (16 = a 4-bit-ish grid, 128 = 8-bit).
+quant(levels) = *(levels) : int : *(1.0 / levels);
+
+// Rate and depth together: the lo-fi converter.
+lofi(r, levels) = hold(r) : quant(levels);
+
+// One-bit noise at a clock rate: the NES noise channel's LFSR, as far as the ear
+// can tell (a period-32767 shift register and a held coin flip are not
+// distinguishable on a drum).
+bitnoise(r) = (no.noise > 0.0) * 2.0 - 1.0 : hold(r);
+
+// NES triangle: a 4-bit triangle, 32 steps per cycle.
+tri4(f) = (4.0 * abs(phasor(f) - 0.5) - 1.0) : quant(8.0);
+
+// OPL2 operator waveforms. w: 0 sine, 1 half-sine, 2 abs-sine, 3 pulse-sine
+// (the first quarter of each half cycle). p in [0,1).
+opl(w, p) = ba.selectn(4, int(w), s, max(0.0, s), abs(s), abs(s) * (q < 0.5))
+with {
+    s = psin(p);
+    q = p * 2.0 - int(p * 2.0);
+};
+
+// A two-operator FM voice in the manner of the Yamaha OPL2 (AdLib, Sound
+// Blaster, and so every PC game of 1993 including DOOM): a modulator at
+// f * mm, with feedback `fb` (0..1, its own output averaged over two samples —
+// the OPL2's one trick), phase-modulating a carrier at f * cm. `mi` is the
+// modulation index in TURNS, already enveloped; mw and cw pick the waveforms.
+opl2(f, mm, cm, mi, fb, mw, cw) = opl(cw, wrap01(phasor(f * cm) + mi * mod))
+with {
+    mod = ((_ <: _, mem :> +) : *(0.5 * fb) : +(phasor(f * mm)) : wrap01 : opl(mw)) ~ _;
+};

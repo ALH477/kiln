@@ -610,7 +610,7 @@
           sampleRate = 32000;
         };
 
-        # The shipped instrument library (dsp/instruments/, 47 instruments).
+        # The shipped instrument library (dsp/instruments/, 85 instruments).
         # catalogue.json is its one statement; nix/instruments.nix derives the
         # baked assets, the live voices and every check from it.
         instruments = import ./nix/instruments.nix { inherit pkgs faust; };

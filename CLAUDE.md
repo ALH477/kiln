@@ -1831,7 +1831,7 @@ convention `kiln-map`/`kiln-voxmesh`/`kiln-logic` already show below.
 
 ## The instrument library (dsp/instruments/, dsp/lib/kiln.lib)
 
-47 MIT instruments (strings, keys, mallets, synths, **bass**, drums, SFX, ambient),
+85 MIT instruments (strings, keys, mallets, synths, **bass**, drums, SFX, ambient, **retro**),
 each one `.dsp` usable baked (`.wav64`) or, for those marked `live`, linked as a
 VR4300 voice. `catalogue.json` is the one statement; `nix/instruments.nix` derives
 the baked assets, voices and checks from it. Read `dsp/instruments/README.md`.

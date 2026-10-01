@@ -24,7 +24,8 @@ cd "$(dirname "$0")/../.."
 OUT=${KILN_INSTR_OUT:-.instruments}
 FINC=$(dirname "$(dirname "$(command -v faust)")")/include
 mkdir -p "$OUT/bin"
-syms=0; budget=0; live=0
+syms=0; budget=0; live=0; buildonly=0
+[ "${1:-}" = "--build-only" ] && { buildonly=1; shift; }
 [ "${1:-}" = "--live" ] && { live=1; shift; }
 [ "${1:-}" = "--syms" ] && { syms=1; shift; }
 [ "${1:-}" = "--budget" ] && { budget=1; syms=1; shift; }
@@ -62,4 +63,4 @@ for n in "${names[@]}"; do
   faust -lang c -double -ftz 1 -I dsp/lib -cn "$n" -a dsp/arch/offline_ref.c "$src" -o "$OUT/$n.c"
   cc -O2 -std=gnu17 -DFAUST_NAME="$n" -I"$FINC" "$OUT/$n.c" -o "$OUT/bin/render-$n" -lm
 done
-[ $syms = 1 ] || python3 tools/instruments/check.py dsp/instruments/catalogue.json "$OUT/bin" --keep "$OUT/wav" --only "$(IFS=,; echo "${names[*]}")"
+[ $syms = 1 ] || [ $buildonly = 1 ] || python3 tools/instruments/check.py dsp/instruments/catalogue.json "$OUT/bin" --keep "$OUT/wav" --only "$(IFS=,; echo "${names[*]}")"

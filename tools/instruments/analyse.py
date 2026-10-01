@@ -6,7 +6,7 @@
 #
 # usage:
 #   analyse.py <file.wav> --kind harmonic|inharmonic|noise --freq HZ
-#                         [--tail decay|sustain] [--gate-off SECONDS] [--alias 1.0,0.5] [--json]
+#                         [--tail decay|sustain] [--gate-off SECONDS] [--alias 1.0,0.5] [--alias-ok] [--json]
 #   analyse.py --ratio <lo.wav> <hi.wav> --octave-up N     # does `freq` move the spectrum?
 #
 # What it measures, and what each number is for:
@@ -26,6 +26,7 @@
 #   hf             fraction of energy above 0.40*SR. A band-limited oscillator
 #                  keeps this small; a naive saw does not. It is the aliasing
 #                  canary — aliased partials fold into exactly this region.
+#   --alias-ok     the instrument is MEANT to alias (a naive NES pulse): skip the hf check
 #   tail           how far the last 15% of the file is below its loudest 50 ms.
 #                  `decay` instruments must have rung out; `sustain` ones are
 #                  checked at the release instead (gate-off).
@@ -138,7 +139,7 @@ def autocorr_f0(seg, sr, lo_hz=40.0, hi_hz=4000.0):
     return sr / (k + lo + off), best
 
 
-def analyse(path, kind, freq, tail, gate_off, aliases=(1.0,)):
+def analyse(path, kind, freq, tail, gate_off, aliases=(1.0,), alias_ok=False):
     sr, x = load(path)
     peak = max(abs(v) for v in x)
     out = {"file": path, "sr": sr, "peak_db": db(peak), "fails": []}
@@ -155,7 +156,7 @@ def analyse(path, kind, freq, tail, gate_off, aliases=(1.0,)):
     seg = window(x, sr, 0.04, 0.25)
     out["centroid"] = centroid(seg, sr)
     out["hf"] = hf_fraction(seg, sr)
-    if out["hf"] > 0.02 and kind != "noise":
+    if out["hf"] > 0.02 and kind != "noise" and not alias_ok:
         fail("%.1f%% of energy above 0.40*SR (aliasing or a harsh top)" % (100 * out["hf"]))
 
     if kind == "harmonic":
@@ -212,7 +213,8 @@ def main():
     res = analyse(path, opt("--kind", "harmonic"), float(opt("--freq", "220")),
                   opt("--tail", "decay"),
                   float(opt("--gate-off")) if opt("--gate-off") else None,
-                  tuple(float(v) for v in opt("--alias", "1.0").split(",")))
+                  tuple(float(v) for v in opt("--alias", "1.0").split(",")),
+                  "--alias-ok" in a)
     if "--json" in a:
         print(json.dumps(res))
     else:

@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 # The Kiln instrument library
 
-47 instruments, MIT-licensed, shipped with the engine: strings, keys, tuned
-percussion, synths, **bass**, drums, sound effects and ambient beds. The table is
+85 instruments, MIT-licensed, shipped with the engine: strings, keys, tuned
+percussion, synths, **bass**, drums, sound effects, ambient beds and a **retro** family (see below). The table is
 [`INDEX.md`](INDEX.md) (generated).
 
 Each one is a Faust `.dsp` and is usable two ways, from the same source:
@@ -31,6 +31,35 @@ Every instrument exposes `gain` (0..1, default 0.5 = about −6 dBFS) and `gate`
 documented in the file's header (`hard`, `detune`, `decay`, `motor`, `vowel`...).
 A `gate` rising edge strikes or plucks; for held instruments (pads, bass,
 leads) the gate is the key. Percussion ignores release.
+
+## The retro family: 8- and 16-bit, and cheap
+
+38 voices that sound like old hardware and cost almost nothing to run. Most are
+**live**, at 50–150 weighted cycles/sample (the clean voices are 200–600), so a
+whole chip soundtrack fits in the audio budget of one orchestral voice:
+
+- `chip_*`, `sid_pwm`, `pokey_buzz`, `arc_*` — NES pulse/triangle/noise, Game Boy
+  wavetable, C64 arpeggio and PWM, Atari POKEY buzz, arcade zaps/coins/sirens.
+  Deliberately **naive** (`kl.npulse`: one compare, no band-limiting): the
+  aliasing is the timbre, so the catalogue marks them `aliasOk` and the checker
+  skips its aliasing canary for them only.
+- `opl_*` — the Yamaha OPL2 patches behind DOOM's music (two sine operators,
+  feedback, four waveforms): the E1M1 metal guitar, slap bass, organ, brass,
+  strings, lead, bell, pad. `kl.opl2` is the voice; each file is a patch.
+- `dmx_*` — DOOM-style sound effects: synthesised, then put through an 11 025 Hz
+  sample-and-hold and an 8-bit quantiser (`kl.lofi`), the DMX library's grain.
+- `gen_*`, `snes_*` — Mega Drive FM bass and lead, SNES-style strings and pluck.
+
+Four things to know: operator feedback past ~0.5 goes chaotic and period-doubles,
+so the patches stay under it (the checker's pitch test is what found this); an
+abs-sine *carrier* sounds an octave up, so `opl_pad` uses it as the modulator;
+a perfect-fifth power chord's waveform repeats an octave below the root
+(`opl_guitar` declares that alias); and the `dmx_*` effects that need long
+delay lines (shotgun, door, switch) are baked-only, because a live voice's delay
+line lives in RAM.
+
+`tools/instruments/trim.py <name>` sets an instrument's output constant to the
+library's −6 dBFS convention.
 
 ## Rules the build enforces
 
