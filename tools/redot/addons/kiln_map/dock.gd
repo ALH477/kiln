@@ -228,10 +228,11 @@ func classname_list() -> Array:
 func _is_brush(n: Node) -> bool:
 	if n is CSGBox3D:
 		return true
-	if n is MeshInstance3D and n.mesh is BoxMesh:
+	var mi := n as MeshInstance3D
+	if mi != null and mi.mesh is BoxMesh:
 		return true
-	if n is CollisionShape3D and (n.shape is ConvexPolygonShape3D
-			or n.shape is BoxShape3D):
+	var cs := n as CollisionShape3D
+	if cs != null and (cs.shape is ConvexPolygonShape3D or cs.shape is BoxShape3D):
 		return true
 	return false
 
@@ -252,29 +253,36 @@ func _is_axis_aligned(b: Basis) -> bool:
 
 
 func _walk(n: Node, out: Dictionary) -> void:
-	if n is Node3D:
+	# `n3`, explicitly typed, rather than relying on the `is Node3D` narrowing:
+	# GDScript does not infer a member's type through it, so `var o :=
+	# n.global_transform.origin` is a PARSE error and the whole addon fails to
+	# load. That is not a warning in the editor -- the dock simply never
+	# appears, which reads as "the plugin is broken" with no clue why.
+	var n3 := n as Node3D
+	if n3 != null:
+		var xf: Transform3D = n3.global_transform
 		var meta_class := ""
-		if n.has_meta(META_CLASS):
-			meta_class = str(n.get_meta(META_CLASS))
+		if n3.has_meta(META_CLASS):
+			meta_class = str(n3.get_meta(META_CLASS))
 		if meta_class != "":
-			out["spawns"].append(n)
+			out["spawns"].append(n3)
 			if not out["classnames"].has(meta_class):
 				out["classnames"].append(meta_class)
 			if not classname_list().has(meta_class) and _classnames.size() > 0:
 				out["warn"].append("%s: classname \"%s\" is not in the vocabulary"
-					% [n.name, meta_class])
+					% [n3.name, meta_class])
 			var ep := 0
-			for k in n.get_meta_list():
+			for k in n3.get_meta_list():
 				if str(k).begins_with(META_EPAIR):
 					ep += 1
 			if ep + 3 > 16:
 				out["warn"].append("%s: %d epairs; a FigDict holds 16 keys "
-					% [n.name, ep] + "including classname, origin and angle")
-		elif _is_brush(n):
-			out["brushes"].append(n)
-			if not _is_axis_aligned(n.global_transform.basis):
-				out["aabb_only"].append(n.name)
-		var o := n.global_transform.origin * SCALE
+					% [n3.name, ep] + "including classname, origin and angle")
+		elif _is_brush(n3):
+			out["brushes"].append(n3)
+			if not _is_axis_aligned(xf.basis):
+				out["aabb_only"].append(n3.name)
+		var o: Vector3 = xf.origin * SCALE
 		var far: float = maxf(maxf(absf(o.x), absf(o.y)), absf(o.z))
 		out["coord"] = maxf(out["coord"], far)
 	for c in n.get_children():

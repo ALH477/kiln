@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[node name="GroundTruth" type="Node3D" unique_id=2002739161]
+
+[node name="Yaw90" type="Node3D" parent="." unique_id=649387046]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 1, 2, 3)
+
+[node name="Yaw30" type="Node3D" parent="." unique_id=863115898]
+transform = Transform3D(0.8660254, 0, 0.5, 0, 1, 0, -0.5, 0, 0.8660254, 1, 2, 3)

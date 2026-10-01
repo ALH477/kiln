@@ -79,7 +79,11 @@ def marker(name, origin=(0, 0, 0), yaw_deg=0.0, classname="info_player_start",
            epairs=None, parent="."):
     th = math.radians(yaw_deg)
     c, s_ = math.cos(th), math.sin(th)
-    basis = (c, 0, -s_, 0, 1, 0, s_, 0, c)
+    # ROWS, matching what Godot writes: row0 = (cos, 0, sin),
+    # row2 = (-sin, 0, cos). Writing the COLUMNS here instead is the mistake
+    # section H exists to catch -- it mirrors every yaw, symmetrically, so a
+    # round trip through this module's own writer never notices.
+    basis = (c, 0, s_, 0, 1, 0, -s_, 0, c)
     out = ('[node name="%s" type="Marker3D" parent="%s"]\n'
            'transform = Transform3D(%s, %s)\n'
            'metadata/kiln_classname = "%s"\n'
@@ -344,6 +348,60 @@ def test_roundtrip(assets):
         emitted_is_whole(t1, m.name)
 
 
+# ── H. ground truth that Godot itself wrote ────────────────────────────────
+
+def test_ground_truth():
+    """The one check a round trip cannot make.
+
+    Everything above reads a .tscn this module wrote. If the reader and the
+    writer share a wrong assumption the error is symmetric and cancels, and
+    every assertion still passes -- which is exactly what happened: the .tscn
+    basis is stored by ROW and this read it as columns, so every rotation was
+    transposed, which for a yaw means MIRRORED. 90 exported as 270. The .map
+    round-tripped perfectly, map-render matched, and the level was only wrong
+    once a real editor opened it.
+
+    fixtures/ground_truth.tscn was saved by Godot 4.7 from
+    `Node3D.rotate_y(deg_to_rad(90))` and `...(30)`. Nothing here produced it,
+    so nothing here can agree with it by accident."""
+    print("H  Godot's own output, read back (the asymmetric check)")
+    path = HERE / "fixtures" / "ground_truth.tscn"
+    check(path.exists(), "fixtures/ground_truth.tscn is present")
+    if not path.exists():
+        return
+    scene = tscn_map.godot_scene.parse_tscn(path.read_text())
+    _by_path, world, order = tscn_map.node_paths(scene)
+
+    got = {}
+    for node_path, node in order:
+        if node["name"].startswith("Yaw"):
+            got[node["name"]] = tscn_map.yaw_angle(world[node_path])
+
+    for name, want in (("Yaw90", 90), ("Yaw30", 30)):
+        check(got.get(name) == want,
+              "%s, as Godot wrote it, reads back as %d (got %s)"
+              % (name, want, got.get(name)))
+
+    # And name the specific wrong answer, so a regression says what it is
+    # rather than just that a number moved.
+    check(got.get("Yaw90") != 270,
+          "the basis is NOT transposed (reading the triples as columns "
+          "instead of rows would make 90 read as 270)")
+    check(got.get("Yaw30") != 330,
+          "and 30 does not read as 330")
+
+    # Position is unaffected by the transpose, so it would have passed either
+    # way -- assert it anyway, since it pins the 64 units/metre scale against
+    # a file this module did not write.
+    for node_path, node in order:
+        if node["name"] == "Yaw90":
+            o = [round(c * 64) for c in tscn_map.xform_point(world[node_path],
+                                                             (0, 0, 0))]
+            check(o == [64, 128, 192],
+                  "a node Godot placed at (1,2,3) m is (64,128,192) units "
+                  "-- got %s" % o)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--assets", default="assets")
@@ -356,6 +414,7 @@ def main(argv=None):
     test_limits()
     test_refuses_to_emit_broken()
     test_never_inside_out()
+    test_ground_truth()
     test_roundtrip(a.assets)
 
     print()

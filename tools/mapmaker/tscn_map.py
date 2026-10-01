@@ -210,24 +210,55 @@ def xform_of(node):
     return tuple(t) if t else IDENTITY
 
 
+# ── the .tscn basis is stored by ROW ────────────────────────────────────────
+# `Transform3D(a,b,c, d,e,f, g,h,i, ox,oy,oz)` in .tscn text is three ROWS of
+# the basis and then the origin -- NOT the three basis columns, which is what
+# GDScript's own Transform3D(x_axis, y_axis, z_axis, origin) constructor takes
+# and what the obvious reading of the file assumes.
+#
+# This cost a real bug and is worth stating loudly. Reading the triples as
+# columns transposes the basis, and the transpose of a rotation is its
+# INVERSE, so every yaw came out mirrored: a spawn authored at 90 degrees in
+# the editor exported as 270, and a brush rotated 30 degrees exported at -30.
+# Positions were untouched (the origin is the last three floats either way)
+# and so were axis-aligned boxes (the transpose of a signed permutation is
+# still one, with the same AABB), which is exactly why it survived: the
+# round-trip tests passed, map-render matched, and nothing looked wrong until
+# the scene was opened in a real editor.
+#
+# A round trip CANNOT catch this. Both the reader and the writer here shared
+# the assumption, so the error is symmetric and cancels. What catches it is
+# fixtures/ground_truth.tscn, which Godot itself wrote, with the angles it
+# meant -- see test_tscn_map.py's section H.
+#
+# Ground truth, from `Node3D.rotate_y(deg_to_rad(90))` saved by Godot 4.7:
+#     Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, ...)
+# Row 0 is (0, 0, 1). Column 0 of a 90-degree Y rotation is (0, 0, -1).
+
+def basis_columns(t):
+    """The three basis COLUMNS of a .tscn transform, from its row storage."""
+    return ((t[0], t[3], t[6]),      # basis.x
+            (t[1], t[4], t[7]),      # basis.y
+            (t[2], t[5], t[8]))      # basis.z
+
+
 def xform_mul(a, b):
-    """Compose two Godot Transform3Ds, `a` outer. Stored as three basis
-    COLUMNS then the origin, which is the order .tscn writes them."""
-    ax, ay, az, ao = a[0:3], a[3:6], a[6:9], a[9:12]
-
-    def apply_basis(v):
-        return tuple(ax[i] * v[0] + ay[i] * v[1] + az[i] * v[2] for i in range(3))
-
-    bx, by, bz, bo = b[0:3], b[3:6], b[6:9], b[9:12]
-    cx, cy, cz = apply_basis(bx), apply_basis(by), apply_basis(bz)
-    co = tuple(apply_basis(bo)[i] + ao[i] for i in range(3))
-    return cx + cy + cz + co
+    """Compose two Godot Transform3Ds, `a` outer, both in .tscn row order."""
+    rows = []
+    for i in range(3):
+        ar = a[3 * i:3 * i + 3]
+        # row i of (A.basis * B.basis), then a's own translation on the origin
+        rows.extend(sum(ar[k] * b[3 * k + j] for k in range(3)) for j in range(3))
+    origin = tuple(
+        sum(a[3 * i + k] * b[9 + k] for k in range(3)) + a[9 + i]
+        for i in range(3))
+    return tuple(rows) + origin
 
 
 def xform_point(t, p):
-    bx, by, bz, o = t[0:3], t[3:6], t[6:9], t[9:12]
-    return tuple(bx[i] * p[0] + by[i] * p[1] + bz[i] * p[2] + o[i]
-                 for i in range(3))
+    """Row i of the basis dotted with the point, plus the origin."""
+    return tuple(t[3 * i] * p[0] + t[3 * i + 1] * p[1] + t[3 * i + 2] * p[2]
+                 + t[9 + i] for i in range(3))
 
 
 def node_paths(scene):
@@ -369,7 +400,8 @@ def yaw_degrees(world):
     could otherwise emit 90 on one machine and 89 on another. Everything a
     designer actually builds -- walls, doors, a spawn facing down a corridor --
     lands here."""
-    x, z = world[6], world[8]
+    bz = basis_columns(world)[2]
+    x, z = bz[0], bz[2]
     n = math.sqrt(x * x + z * z)          # sqrt IS correctly rounded
     if n < 1e-12:
         return 0.0                        # degenerate: no facing to read
@@ -403,7 +435,7 @@ def is_tilted(world):
     DROPPED -- worth reporting rather than silently flattening a tilted spawn.
     Compared against the cosine directly: acos is a transcendental, and a
     yes/no answer does not need one."""
-    by = world[3:6]
+    by = basis_columns(world)[1]
     n = math.sqrt(sum(c * c for c in by))
     if n < 1e-12:
         return False
@@ -568,12 +600,15 @@ def state_to_scene(state, scale=64.0, name="Level"):
         c, sn = math.cos(th), math.sin(th)
         # The inverse of yaw_degrees: basis columns for a rotation about Y,
         # written in the column order .tscn stores.
+        # ROWS, matching what Godot itself writes: row0 = (cos, 0, sin),
+        # row2 = (-sin, 0, cos). See basis_columns above for what writing the
+        # columns here instead cost.
         body = ('[node name="%s_%d" type="Marker3D" parent="."]\n'
                 'transform = Transform3D(%s, 0, %s, 0, 1, 0, %s, 0, %s, '
                 '%s, %s, %s)\n'
                 'metadata/kiln_classname = "%s"\n'
                 % (s.get("classname", "spawn"), i + 1,
-                   _fmt(c), _fmt(-sn), _fmt(sn), _fmt(c),
+                   _fmt(c), _fmt(sn), _fmt(-sn), _fmt(c),
                    _fmt(o[0]), _fmt(o[1]), _fmt(o[2]),
                    s.get("classname", "info_player_start")))
         for k, v in mapfmt._epair_items(s.get("epairs")):

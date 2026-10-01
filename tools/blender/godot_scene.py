@@ -163,14 +163,40 @@ def _ext_id(value):
 IDENTITY_TRANSFORM = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
 
 
+def basis_columns(t):
+    """The three basis COLUMNS of a .tscn transform.
+
+    `Transform3D(a,b,c, d,e,f, g,h,i, ...)` in .tscn text is three ROWS of the
+    basis, NOT the three columns -- even though GDScript's own
+    Transform3D(x_axis, y_axis, z_axis, origin) constructor takes columns,
+    which is what makes the obvious reading so plausible.
+
+    This file read them as columns, which transposes the basis; the transpose
+    of a rotation is its INVERSE, so every rotated node imported from a Godot
+    scene was placed with the opposite rotation. Positions were unaffected
+    (the origin is the last three floats either way), which is why it was
+    invisible for anything placed axis-aligned.
+
+    Ground truth, saved by Godot 4.7 from `Node3D.rotate_y(deg_to_rad(90))`
+    and committed as tools/mapmaker/fixtures/ground_truth.tscn:
+        Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, ...)
+    Row 0 there is (0, 0, 1); column 0 of a 90-degree Y rotation is (0, 0, -1).
+    """
+    return ((t[0], t[3], t[6]),
+            (t[1], t[4], t[7]),
+            (t[2], t[5], t[8]))
+
+
 def _godot_to_blender_transform(t):
-    """12 Godot Transform3D floats (3 basis columns + origin) -> the same
-    shape in Blender space. See the module docstring's "Axes" section —
-    (x,y,z) -> (x,-z,y), applied to the origin and to each basis column."""
+    """12 Godot Transform3D floats -> the same shape in Blender space.
+
+    See the module docstring's "Axes" section — (x,y,z) -> (x,-z,y), applied
+    to the origin and to each basis COLUMN, which basis_columns above recovers
+    from the file's row storage."""
     def conv(v):
         return (v[0], -v[2], v[1])
-    bx, by, bz, origin = t[0:3], t[3:6], t[6:9], t[9:12]
-    return conv(bx), conv(by), conv(bz), conv(origin)
+    bx, by, bz = basis_columns(t)
+    return conv(bx), conv(by), conv(bz), conv(t[9:12])
 
 
 def resolve_res_path(path, project_root):
