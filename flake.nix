@@ -798,6 +798,18 @@
         };
         exsec-streamdb-demo = mkN64Rom exsecStreamdbDemoArgs;
 
+        # A dungeon chunk grown from one 64-bit seed by code written in Exsecutor,
+        # emitted as C and checked in as dungeon_mips64.gen.c. No assets: the seed
+        # is the content. See examples/exsec-dungeon-demo/main.c -- the ROM has not
+        # been built or booted; nix/checks/exsec-dungeon-parity.nix is what holds
+        # the generated unit to its oracle in the meantime.
+        exsecDungeonDemoArgs = {
+          name = "exsec-dungeon-demo";
+          src = ./examples/exsec-dungeon-demo;
+          romTitle = "Kiln Exsec Dungeon";
+        };
+        exsec-dungeon-demo = mkN64Rom exsecDungeonDemoArgs;
+
         # Phase C step 1: fig_input (deadzoned joypad wrapper with button
         # edges) + fig_clip (swept-AABB-vs-brushes collision with iterative
         # SlideMove). One player box pushed around a 5-brush room; the box
@@ -1654,7 +1666,7 @@
           host-backend      = hostNative.backend;
           host-vadpcm       = hostNative.vadpcm;
 
-          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit toolchain hello audio live-voice music-demo engine-demo ks-voice ks-baked sc64deployer unfloader n64Inst assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo exsec-dungeon-demo camera-skel-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth openworld-demo board-demo forge forge-dfs forge-selftest forge-selftest-sram;
           # docs/NAMING.md section 4: the engine's package name is figulina.
           # `engine` stays as an alias for one release train (section 9 step 4)
           # — SAME derivation, not a rebuild, so `nix build .#engine` and
@@ -1942,6 +1954,11 @@
             rom = exsec-streamdb-demo;
             name = "exsec-streamdb-demo";
           };
+          rom-exsec-dungeon-demo = import ./nix/checks/rom.nix {
+            inherit pkgs;
+            rom = exsec-dungeon-demo;
+            name = "exsec-dungeon-demo";
+          };
           # rom.nix globs for *.z64 rather than taking a filename, which is
           # what makes this work for Forge: the Makefile emits `forge.z64` no
           # matter which flake attribute built it.
@@ -1993,6 +2010,11 @@
           # sits beside computes. Needs no exsc — see the check's header.
           fig-pose-parity = import ./nix/checks/fig-pose-parity.nix {
             inherit pkgs; engineSrc = ./engine;
+          };
+          # The committed Exsecutor dungeon generator still reproduces its oracle's
+          # stream, and its connectivity holds. Needs no exsc -- see the check.
+          exsec-dungeon-parity = import ./nix/checks/exsec-dungeon-parity.nix {
+            inherit pkgs; demoSrc = ./examples/exsec-dungeon-demo;
           };
           fig-names = import ./nix/checks/fig-names.nix {
             inherit pkgs; repo = ./.;
@@ -2311,7 +2333,7 @@
             engineSrc = ./engine;
             platHost = ./plat/host;
           };
-          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo camera-skel-demo openworld-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
+          inherit hello audio live-voice music-demo engine-demo ks-voice ks-baked assets-demo actors-demo rooms-demo streamdb-demo exsec-streamdb-demo exsec-dungeon-demo camera-skel-demo openworld-demo clip-demo physics-demo nightlight-demo map-demo splash-demo event-demo oot-demo oot-demo-debug debug-demo interceptor-demo cinematic-demo texanim-demo fps bass-synth board-demo forge forge-dfs forge-selftest forge-selftest-sram;
         }
         # The mode-jump ROMs are gated too. They are the only way each of PAINT,
         # ENT, LIGHT, CAM and WALK gets built at all — a mode reachable only by a
